@@ -6,9 +6,9 @@ import { Separator } from "@/components/ui/separator";
 import type { Order } from "@/data/mockData";
 import {
   User, Phone, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
-  Hash, Weight, IndianRupee, Calendar, Box, Copy
+  Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw
 } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 interface OrderDetailDrawerProps {
   order: Order | null;
@@ -23,11 +23,11 @@ const statusToStep: Record<string, number> = {
 };
 
 const timelineSteps = [
-  { label: "Order Placed", detail: "Order confirmed & ready", timestamp: "" },
-  { label: "Picked Up", detail: "Picked from warehouse", timestamp: "" },
-  { label: "In Transit", detail: "Shipment on the way", timestamp: "" },
-  { label: "Out for Delivery", detail: "With delivery agent", timestamp: "" },
-  { label: "Delivered", detail: "Successfully delivered", timestamp: "" },
+  { label: "Order Placed", detail: "Order confirmed & ready" },
+  { label: "Picked Up", detail: "Picked from warehouse" },
+  { label: "In Transit", detail: "Shipment on the way" },
+  { label: "Out for Delivery", detail: "With delivery agent" },
+  { label: "Delivered", detail: "Successfully delivered" },
 ];
 
 export function OrderDetailDrawer({ order, open, onClose }: OrderDetailDrawerProps) {
@@ -41,7 +41,7 @@ export function OrderDetailDrawer({ order, open, onClose }: OrderDetailDrawerPro
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast({ title: "Copied!", description: `${text} copied to clipboard` });
+    toast.success(`${text} copied to clipboard`);
   };
 
   return (
@@ -147,18 +147,28 @@ export function OrderDetailDrawer({ order, open, onClose }: OrderDetailDrawerPro
             </div>
           </section>
 
+          <Separator />
+
           {/* Actions */}
-          <div className="grid grid-cols-2 gap-2 pt-2 pb-4">
-            <Button variant="outline" className="gap-2 text-text-secondary">
-              <Printer className="h-4 w-4" /> Print Label
-            </Button>
-            <Button variant="outline" className="gap-2 text-warning">
-              <AlertTriangle className="h-4 w-4" /> Raise NDR
-            </Button>
-            <Button variant="outline" className="gap-2 text-danger col-span-2">
-              <XCircle className="h-4 w-4" /> Cancel Order
-            </Button>
-          </div>
+          <section>
+            <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+              Quick Actions
+            </h4>
+            <div className="grid grid-cols-2 gap-2 pb-4">
+              <Button variant="outline" className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30" onClick={() => toast.success(`Label generated for ${order.id}`)}>
+                <Printer className="h-4 w-4" /> Print Label
+              </Button>
+              <Button variant="outline" className="gap-2 h-10 text-text-secondary hover:text-secondary hover:border-secondary/30" onClick={() => toast.info(`Status update dialog for ${order.id}`)}>
+                <RefreshCw className="h-4 w-4" /> Update Status
+              </Button>
+              <Button variant="outline" className="gap-2 h-10 text-warning hover:bg-warning-light hover:border-warning/30" onClick={() => toast.warning(`NDR raised for ${order.id}`)}>
+                <AlertTriangle className="h-4 w-4" /> Raise NDR
+              </Button>
+              <Button variant="outline" className="gap-2 h-10 text-danger hover:bg-danger-light hover:border-danger/30" onClick={() => toast.error(`Order ${order.id} cancelled`)}>
+                <XCircle className="h-4 w-4" /> Cancel Order
+              </Button>
+            </div>
+          </section>
         </div>
       </SheetContent>
     </Sheet>
