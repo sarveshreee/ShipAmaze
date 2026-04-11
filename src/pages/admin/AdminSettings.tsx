@@ -2,20 +2,42 @@ import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { Package, Palette, Type, Eye, Monitor, Smartphone, RotateCcw } from "lucide-react";
+import { Package, Palette, Type, Eye, Monitor, Smartphone, RotateCcw, Bell, Mail, MessageSquare, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { useBranding, defaultBranding } from "@/contexts/BrandingContext";
 
-const notifEvents = ["Order Placed", "Shipment Picked Up", "Out for Delivery", "Delivered", "NDR Raised", "RTO Initiated", "COD Credited", "Wallet Low Balance"];
-const channels = ["Email", "SMS", "WhatsApp"];
+const notifEvents = [
+  { label: "Order Placed", icon: "📦" },
+  { label: "Shipment Picked Up", icon: "🚚" },
+  { label: "Out for Delivery", icon: "🏃" },
+  { label: "Delivered", icon: "✅" },
+  { label: "NDR Raised", icon: "⚠️" },
+  { label: "RTO Initiated", icon: "🔄" },
+  { label: "COD Credited", icon: "💰" },
+  { label: "Wallet Low Balance", icon: "🔔" },
+];
+
+type NotifState = Record<string, { email: boolean; sms: boolean; whatsapp: boolean }>;
+
+const defaultNotifs: NotifState = Object.fromEntries(
+  notifEvents.map(e => [e.label, { email: true, sms: Math.random() > 0.3, whatsapp: Math.random() > 0.5 }])
+);
 
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState("general");
   const { branding, setBranding, updateBranding } = useBranding();
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
+  const [notifs, setNotifs] = useState<NotifState>(defaultNotifs);
 
+  const toggleNotif = (event: string, channel: "email" | "sms" | "whatsapp") => {
+    setNotifs(prev => ({
+      ...prev,
+      [event]: { ...prev[event], [channel]: !prev[event][channel] }
+    }));
+  };
 
   const tabs = ["general", "tracking page", "notifications", "api"];
 
@@ -38,7 +60,7 @@ export default function AdminSettings() {
           <div><Label>Contact Email</Label><Input defaultValue="support@shipflow.in" /></div>
           <div><Label>Contact Phone</Label><Input defaultValue="+91 98000 00000" /></div>
           <div><Label>Business Address</Label><Input defaultValue="123, MG Road, Mumbai 400001" /></div>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary-dark">Save Changes</Button>
+          <Button className="bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => toast.success("Settings saved")}>Save Changes</Button>
         </div>
       )}
 
@@ -161,7 +183,6 @@ export default function AdminSettings() {
 
             <div className={cn("rounded-xl border-2 border-border overflow-hidden shadow-card-md transition-all mx-auto",
               previewDevice === 'mobile' ? "max-w-[375px]" : "w-full")}>
-              {/* Preview Header */}
               <div className="flex items-center gap-2 px-4 py-3 border-b" style={{ backgroundColor: branding.primaryColor }}>
                 {branding.logoUrl ? (
                   <img src={branding.logoUrl} alt="Logo" className="h-6 w-6 rounded object-cover" />
@@ -173,7 +194,6 @@ export default function AdminSettings() {
                 <span className="text-sm font-bold text-white">{branding.brandName}</span>
               </div>
 
-              {/* Preview Body */}
               <div className="p-6" style={{ backgroundColor: branding.bgColor, minHeight: 320 }}>
                 <div className="bg-white rounded-xl shadow-lg p-6 max-w-md mx-auto">
                   <h2 className="text-lg font-bold text-center mb-1" style={{ color: '#1a1a2e' }}>
@@ -195,7 +215,6 @@ export default function AdminSettings() {
                     </button>
                   </div>
 
-                  {/* Mock timeline */}
                   <div className="mt-5 space-y-3">
                     {['Order Placed', 'Picked Up', 'In Transit', 'Out for Delivery'].map((step, i) => (
                       <div key={step} className="flex items-center gap-3">
@@ -221,25 +240,63 @@ export default function AdminSettings() {
       )}
 
       {activeTab === "notifications" && (
-        <div className="rounded-lg bg-card shadow-card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-border bg-surface-2/50">
-              <th className="p-3 text-left font-medium text-text-secondary">Event</th>
-              {channels.map(c => <th key={c} className="p-3 text-center font-medium text-text-secondary">{c}</th>)}
-            </tr></thead>
-            <tbody>
-              {notifEvents.map((ev, i) => (
-                <tr key={ev} className={cn("border-b border-border", i % 2 === 0 && "bg-surface-2/30")}>
-                  <td className="p-3 text-text-primary">{ev}</td>
-                  {channels.map(c => (
-                    <td key={c} className="p-3 text-center">
-                      <input type="checkbox" defaultChecked={Math.random() > 0.3} className="h-4 w-4 rounded border-border text-primary" />
-                    </td>
-                  ))}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-text-primary flex items-center gap-2">
+                <Bell className="h-5 w-5 text-primary" /> Notification Preferences
+              </h3>
+              <p className="text-xs text-text-muted mt-0.5">Configure which events trigger notifications on each channel</p>
+            </div>
+            <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary-dark text-xs" onClick={() => toast.success("Notification preferences saved")}>
+              Save Preferences
+            </Button>
+          </div>
+          <div className="rounded-lg bg-card shadow-card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-2/50">
+                  <th className="p-4 text-left font-medium text-text-secondary">Event</th>
+                  <th className="p-4 text-center font-medium text-text-secondary">
+                    <div className="flex items-center justify-center gap-1.5"><Mail className="h-3.5 w-3.5" /> Email</div>
+                  </th>
+                  <th className="p-4 text-center font-medium text-text-secondary">
+                    <div className="flex items-center justify-center gap-1.5"><Phone className="h-3.5 w-3.5" /> SMS</div>
+                  </th>
+                  <th className="p-4 text-center font-medium text-text-secondary">
+                    <div className="flex items-center justify-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> WhatsApp</div>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {notifEvents.map((ev, i) => (
+                  <tr key={ev.label} className={cn("border-b border-border last:border-0", i % 2 === 0 && "bg-surface-2/20")}>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-base">{ev.icon}</span>
+                        <span className="text-text-primary font-medium">{ev.label}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center">
+                        <Switch checked={notifs[ev.label]?.email} onCheckedChange={() => toggleNotif(ev.label, "email")} />
+                      </div>
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center">
+                        <Switch checked={notifs[ev.label]?.sms} onCheckedChange={() => toggleNotif(ev.label, "sms")} />
+                      </div>
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center">
+                        <Switch checked={notifs[ev.label]?.whatsapp} onCheckedChange={() => toggleNotif(ev.label, "whatsapp")} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -247,7 +304,7 @@ export default function AdminSettings() {
         <div className="rounded-lg bg-card shadow-card p-6 max-w-xl space-y-4">
           <div><Label>API Key</Label><Input readOnly defaultValue="sk_live_xxxxxxxxxxxxxxxxxx" className="font-mono text-xs" /></div>
           <div><Label>Webhook URL</Label><Input defaultValue="https://example.com/webhook" /></div>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary-dark">Regenerate API Key</Button>
+          <Button className="bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => toast.success("API key regenerated")}>Regenerate API Key</Button>
         </div>
       )}
     </div>

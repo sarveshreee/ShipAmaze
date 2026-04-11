@@ -2,14 +2,20 @@ import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { transactions } from "@/data/mockData";
 import { IndianRupee, Banknote, Clock, TrendingUp } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { cn } from "@/lib/utils";
 
-const revenueData = Array.from({ length: 30 }, (_, i) => ({
-  day: `Day ${i + 1}`,
-  revenue: 8000 + Math.floor(Math.random() * 5000),
-  cost: 5000 + Math.floor(Math.random() * 3000),
-}));
+// 90 days of data
+const revenueData = Array.from({ length: 90 }, (_, i) => {
+  const revenue = 8000 + Math.floor(Math.random() * 5000);
+  const cost = 4000 + Math.floor(Math.random() * 3000);
+  return {
+    day: `Day ${i + 1}`,
+    revenue,
+    cost,
+    margin: revenue - cost,
+  };
+});
 
 export default function AdminFinance() {
   return (
@@ -24,16 +30,28 @@ export default function AdminFinance() {
       </div>
 
       <div className="rounded-lg bg-card shadow-card p-5 mb-6">
-        <h3 className="font-semibold text-text-primary mb-4">Revenue vs Cost</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={revenueData}>
+        <h3 className="font-semibold text-text-primary mb-1">Revenue vs Cost</h3>
+        <p className="text-xs text-text-muted mb-4">Last 90 days · Shaded area = profit margin</p>
+        <ResponsiveContainer width="100%" height={350}>
+          <AreaChart data={revenueData}>
+            <defs>
+              <linearGradient id="marginFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="hsl(142, 71%, 45%)" stopOpacity={0.3} />
+                <stop offset="100%" stopColor="hsl(142, 71%, 45%)" stopOpacity={0.05} />
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
-            <XAxis dataKey="day" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
-            <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
-            <Tooltip />
-            <Line type="monotone" dataKey="revenue" stroke="hsl(var(--color-primary))" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="cost" stroke="hsl(var(--color-danger))" strokeWidth={2} dot={false} />
-          </LineChart>
+            <XAxis dataKey="day" tick={{ fontSize: 9 }} stroke="hsl(var(--color-text-muted))" interval={14} />
+            <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} />
+            <Tooltip
+              contentStyle={{ backgroundColor: 'hsl(var(--color-card))', border: '1px solid hsl(var(--color-border))', borderRadius: 8, fontSize: 12 }}
+              formatter={(value: number, name: string) => [`₹${value.toLocaleString()}`, name.charAt(0).toUpperCase() + name.slice(1)]}
+            />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Area type="monotone" dataKey="revenue" stroke="hsl(var(--color-primary))" fill="none" strokeWidth={2.5} />
+            <Area type="monotone" dataKey="cost" stroke="hsl(var(--color-danger))" fill="none" strokeWidth={2} strokeDasharray="6 3" />
+            <Area type="monotone" dataKey="margin" stroke="none" fill="url(#marginFill)" fillOpacity={1} name="Margin" />
+          </AreaChart>
         </ResponsiveContainer>
       </div>
 
