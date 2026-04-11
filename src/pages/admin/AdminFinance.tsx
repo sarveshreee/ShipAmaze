@@ -1,23 +1,19 @@
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
-import { transactions } from "@/data/mockData";
+import { useTransactions } from "@/hooks/useSupabaseData";
 import { IndianRupee, Banknote, Clock, TrendingUp } from "lucide-react";
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { cn } from "@/lib/utils";
 
-// 90 days of data
 const revenueData = Array.from({ length: 90 }, (_, i) => {
   const revenue = 8000 + Math.floor(Math.random() * 5000);
   const cost = 4000 + Math.floor(Math.random() * 3000);
-  return {
-    day: `Day ${i + 1}`,
-    revenue,
-    cost,
-    margin: revenue - cost,
-  };
+  return { day: `Day ${i + 1}`, revenue, cost, margin: revenue - cost };
 });
 
 export default function AdminFinance() {
+  const { data: transactions = [], isLoading } = useTransactions();
+
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Finance & Wallet" breadcrumb={["Admin", "Finance"]} />
@@ -43,10 +39,8 @@ export default function AdminFinance() {
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
             <XAxis dataKey="day" tick={{ fontSize: 9 }} stroke="hsl(var(--color-text-muted))" interval={14} />
             <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} />
-            <Tooltip
-              contentStyle={{ backgroundColor: 'hsl(var(--color-card))', border: '1px solid hsl(var(--color-border))', borderRadius: 8, fontSize: 12 }}
-              formatter={(value: number, name: string) => [`₹${value.toLocaleString()}`, name.charAt(0).toUpperCase() + name.slice(1)]}
-            />
+            <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--color-card))', border: '1px solid hsl(var(--color-border))', borderRadius: 8, fontSize: 12 }}
+              formatter={(value: number, name: string) => [`₹${value.toLocaleString()}`, name.charAt(0).toUpperCase() + name.slice(1)]} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Area type="monotone" dataKey="revenue" stroke="hsl(var(--color-primary))" fill="none" strokeWidth={2.5} />
             <Area type="monotone" dataKey="cost" stroke="hsl(var(--color-danger))" fill="none" strokeWidth={2} strokeDasharray="6 3" />

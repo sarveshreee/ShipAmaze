@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { courierList } from "@/data/mockData";
+import { useCouriers } from "@/hooks/useSupabaseData";
 import { Truck, GripVertical, Plus, X, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -22,19 +22,11 @@ const defaultRules: PriorityRule[] = [
 export default function AdminCouriers() {
   const [rules, setRules] = useState<PriorityRule[]>(defaultRules);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const { data: courierList = [], isLoading } = useCouriers();
 
-  const addRule = () => {
-    setRules([...rules, { id: Date.now().toString(), condition: "", courier: "" }]);
-  };
-
-  const removeRule = (id: string) => {
-    setRules(rules.filter(r => r.id !== id));
-    toast.success("Rule removed");
-  };
-
-  const updateRule = (id: string, field: "condition" | "courier", value: string) => {
-    setRules(rules.map(r => r.id === id ? { ...r, [field]: value } : r));
-  };
+  const addRule = () => { setRules([...rules, { id: Date.now().toString(), condition: "", courier: "" }]); };
+  const removeRule = (id: string) => { setRules(rules.filter(r => r.id !== id)); toast.success("Rule removed"); };
+  const updateRule = (id: string, field: "condition" | "courier", value: string) => { setRules(rules.map(r => r.id === id ? { ...r, [field]: value } : r)); };
 
   const handleDragStart = (idx: number) => setDragIdx(idx);
   const handleDragOver = (e: React.DragEvent, idx: number) => {
@@ -47,6 +39,8 @@ export default function AdminCouriers() {
     setDragIdx(idx);
   };
   const handleDragEnd = () => setDragIdx(null);
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading couriers...</div>;
 
   return (
     <div className="animate-fade-in-up">
@@ -72,7 +66,6 @@ export default function AdminCouriers() {
         ))}
       </div>
 
-      {/* Priority Order */}
       <div className="rounded-lg bg-card shadow-card p-6 mb-6">
         <h3 className="font-semibold text-text-primary mb-4">Priority Order</h3>
         <div className="space-y-2">
@@ -87,7 +80,6 @@ export default function AdminCouriers() {
         </div>
       </div>
 
-      {/* Priority Rules */}
       <div className="rounded-lg bg-card shadow-card p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -100,51 +92,21 @@ export default function AdminCouriers() {
         </div>
         <div className="space-y-2">
           {rules.map((rule, idx) => (
-            <div
-              key={rule.id}
-              draggable
-              onDragStart={() => handleDragStart(idx)}
-              onDragOver={(e) => handleDragOver(e, idx)}
-              onDragEnd={handleDragEnd}
-              className={cn(
-                "flex items-center gap-3 rounded-lg border border-border p-3 transition-all",
-                dragIdx === idx ? "opacity-50 bg-primary-light border-primary/30" : "hover:bg-surface-2/50",
-                "cursor-grab active:cursor-grabbing"
-              )}
-            >
+            <div key={rule.id} draggable onDragStart={() => handleDragStart(idx)} onDragOver={(e) => handleDragOver(e, idx)} onDragEnd={handleDragEnd}
+              className={cn("flex items-center gap-3 rounded-lg border border-border p-3 transition-all", dragIdx === idx ? "opacity-50 bg-primary-light border-primary/30" : "hover:bg-surface-2/50", "cursor-grab active:cursor-grabbing")}>
               <GripVertical className="h-4 w-4 text-text-muted shrink-0" />
               <span className="text-xs font-medium text-text-muted shrink-0 w-5">{idx + 1}.</span>
               <span className="text-xs text-text-secondary shrink-0">If</span>
-              <Input
-                value={rule.condition}
-                onChange={e => updateRule(rule.id, "condition", e.target.value)}
-                placeholder="e.g. Weight > 5 kg"
-                className="h-8 text-xs flex-1 min-w-[120px]"
-              />
+              <Input value={rule.condition} onChange={e => updateRule(rule.id, "condition", e.target.value)} placeholder="e.g. Weight > 5 kg" className="h-8 text-xs flex-1 min-w-[120px]" />
               <ArrowRight className="h-3.5 w-3.5 text-text-muted shrink-0" />
               <span className="text-xs text-text-secondary shrink-0">prefer</span>
-              <Input
-                value={rule.courier}
-                onChange={e => updateRule(rule.id, "courier", e.target.value)}
-                placeholder="e.g. Delhivery"
-                className="h-8 text-xs w-[130px]"
-              />
-              <button onClick={() => removeRule(rule.id)} className="text-text-muted hover:text-danger transition-colors shrink-0">
-                <X className="h-4 w-4" />
-              </button>
+              <Input value={rule.courier} onChange={e => updateRule(rule.id, "courier", e.target.value)} placeholder="e.g. Delhivery" className="h-8 text-xs w-[130px]" />
+              <button onClick={() => removeRule(rule.id)} className="text-text-muted hover:text-danger transition-colors shrink-0"><X className="h-4 w-4" /></button>
             </div>
           ))}
-          {rules.length === 0 && (
-            <div className="text-center py-8 text-text-muted text-sm">
-              No priority rules configured. Click "Add Rule" to create one.
-            </div>
-          )}
+          {rules.length === 0 && <div className="text-center py-8 text-text-muted text-sm">No priority rules configured. Click "Add Rule" to create one.</div>}
         </div>
-        {rules.length > 0 && (
-          <Button variant="outline" className="mt-4 text-xs" onClick={() => toast.success("Priority rules saved")}>
-            Save Rules
-          </Button>
-        )}
+        {rules.length > 0 && <Button variant="outline" className="mt-4 text-xs" onClick={() => toast.success("Priority rules saved")}>Save Rules</Button>}
       </div>
     </div>
   );

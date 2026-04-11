@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { OrderDetailDrawer } from "@/components/OrderDetailDrawer";
@@ -6,7 +6,8 @@ import { OrderCardList } from "@/components/OrderCardList";
 import { KPICardSkeleton, TableSkeleton, OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { BulkActionBar } from "@/components/BulkActionBar";
-import { orders, type OrderStatus, type Order } from "@/data/mockData";
+import { useOrders } from "@/hooks/useSupabaseData";
+import { type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Download, Eye, Printer, MoreHorizontal, Package, RefreshCw, FileText } from "lucide-react";
@@ -34,14 +35,9 @@ export default function AdminOrders() {
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const isMobile = useIsMobile();
-
-  useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 800);
-    return () => clearTimeout(t);
-  }, []);
+  const { data: orders = [], isLoading: loading } = useOrders();
 
   const filtered = orders.filter(o => {
     if (activeTab !== "all" && o.status !== activeTab) return false;
@@ -51,14 +47,8 @@ export default function AdminOrders() {
 
   const getCount = (status: string) => status === "all" ? orders.length : orders.filter(o => o.status === status).length;
 
-  const openOrder = (order: Order) => {
-    setSelectedOrder(order);
-    setDrawerOpen(true);
-  };
-
-  const toggleSelect = (id: string) => {
-    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  };
+  const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
+  const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
 
   const handleExport = () => {
     const data = selected.size > 0 ? filtered.filter(o => selected.has(o.id)) : filtered;
@@ -66,16 +56,8 @@ export default function AdminOrders() {
     toast.success(`Exported ${data.length} orders as CSV`);
   };
 
-  const handleBulkPrint = () => {
-    const sel = filtered.filter(o => selected.has(o.id));
-    printBulkLabels(sel);
-    toast.success(`Printing ${sel.length} label(s)`);
-  };
-
-  const handleBulkStatusUpdate = () => {
-    toast.success(`Status updated for ${selected.size} order(s)`);
-    setSelected(new Set());
-  };
+  const handleBulkPrint = () => { const sel = filtered.filter(o => selected.has(o.id)); printBulkLabels(sel); toast.success(`Printing ${sel.length} label(s)`); };
+  const handleBulkStatusUpdate = () => { toast.success(`Status updated for ${selected.size} order(s)`); setSelected(new Set()); };
 
   return (
     <div className="animate-fade-in-up">
@@ -185,7 +167,6 @@ export default function AdminOrders() {
         </div>
       )}
 
-      {/* Bulk Action Bar */}
       <BulkActionBar count={selected.size} onClear={() => setSelected(new Set())}>
         <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={handleBulkPrint}>
           <Printer className="h-3.5 w-3.5" /> Print Labels

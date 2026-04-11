@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
-import { returnOrders } from "@/data/mockData";
+import { useReturnOrders } from "@/hooks/useSupabaseData";
 import { Undo2, Package, Truck, CheckCircle2, Search, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,10 @@ const returnStatusColors: Record<string, string> = {
 export default function AdminReturns() {
   const [tab, setTab] = useState('all');
   const tabs = ['all', 'Return Requested', 'Pickup Scheduled', 'In Transit', 'Received', 'Refund Processed'];
+  const { data: returnOrders = [], isLoading } = useReturnOrders();
   const filtered = tab === 'all' ? returnOrders : returnOrders.filter(r => r.status === tab);
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading returns...</div>;
 
   return (
     <div className="animate-fade-in-up">

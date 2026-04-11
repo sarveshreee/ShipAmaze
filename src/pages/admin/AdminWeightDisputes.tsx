@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
-import { weightDisputes } from "@/data/mockData";
+import { useWeightDisputes } from "@/hooks/useSupabaseData";
 import { Scale, AlertTriangle, CheckCircle2, XCircle, Search, Download, ChevronDown, ChevronRight, Upload, Image } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,9 +19,12 @@ const statusColors: Record<string, string> = {
 export default function AdminWeightDisputes() {
   const [tab, setTab] = useState<'all' | 'Open' | 'Accepted' | 'Rejected' | 'Escalated'>('all');
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const { data: weightDisputes = [], isLoading } = useWeightDisputes();
   const filtered = tab === 'all' ? weightDisputes : weightDisputes.filter(w => w.status === tab);
   const openCount = weightDisputes.filter(w => w.status === 'Open').length;
   const totalExcess = weightDisputes.reduce((s, w) => s + (w.chargedAmount - w.expectedAmount), 0);
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading disputes...</div>;
 
   return (
     <div className="animate-fade-in-up">
@@ -71,9 +74,7 @@ export default function AdminWeightDisputes() {
                 <>
                   <tr key={w.id} className={cn("border-b border-border hover:bg-surface-2/30 transition-colors cursor-pointer", expandedRow === w.id && "bg-surface-2/20")}
                     onClick={() => setExpandedRow(expandedRow === w.id ? null : w.id)}>
-                    <td className="p-3 text-text-muted">
-                      {expandedRow === w.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    </td>
+                    <td className="p-3 text-text-muted">{expandedRow === w.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                     <td className="p-3 font-medium text-text-primary">{w.orderId}</td>
                     <td className="p-3 font-mono text-xs text-primary">{w.awb}</td>
                     <td className="p-3 text-text-secondary">{w.courier}</td>
@@ -96,48 +97,25 @@ export default function AdminWeightDisputes() {
                     <tr key={`${w.id}-expand`} className="border-b border-border bg-surface-2/10">
                       <td colSpan={9} className="p-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* Dispute Details */}
                           <div className="space-y-3">
                             <h4 className="text-xs font-semibold uppercase tracking-wider text-text-muted">Dispute Details</h4>
                             <div className="grid grid-cols-2 gap-2 text-sm">
-                              <div className="rounded-lg border border-border p-3">
-                                <p className="text-[10px] font-medium uppercase text-text-muted">Dispute ID</p>
-                                <p className="font-mono text-text-primary">{w.id}</p>
-                              </div>
-                              <div className="rounded-lg border border-border p-3">
-                                <p className="text-[10px] font-medium uppercase text-text-muted">Amount Difference</p>
-                                <p className="font-medium text-danger">₹{w.chargedAmount - w.expectedAmount}</p>
-                              </div>
-                              <div className="rounded-lg border border-border p-3">
-                                <p className="text-[10px] font-medium uppercase text-text-muted">Charged Amount</p>
-                                <p className="font-medium text-danger">₹{w.chargedAmount}</p>
-                              </div>
-                              <div className="rounded-lg border border-border p-3">
-                                <p className="text-[10px] font-medium uppercase text-text-muted">Expected Amount</p>
-                                <p className="font-medium text-text-primary">₹{w.expectedAmount}</p>
-                              </div>
+                              <div className="rounded-lg border border-border p-3"><p className="text-[10px] font-medium uppercase text-text-muted">Dispute ID</p><p className="font-mono text-text-primary">{w.id}</p></div>
+                              <div className="rounded-lg border border-border p-3"><p className="text-[10px] font-medium uppercase text-text-muted">Amount Difference</p><p className="font-medium text-danger">₹{w.chargedAmount - w.expectedAmount}</p></div>
+                              <div className="rounded-lg border border-border p-3"><p className="text-[10px] font-medium uppercase text-text-muted">Charged Amount</p><p className="font-medium text-danger">₹{w.chargedAmount}</p></div>
+                              <div className="rounded-lg border border-border p-3"><p className="text-[10px] font-medium uppercase text-text-muted">Expected Amount</p><p className="font-medium text-text-primary">₹{w.expectedAmount}</p></div>
                             </div>
                           </div>
-
-                          {/* Image Proof Upload */}
                           <div className="space-y-3">
                             <h4 className="text-xs font-semibold uppercase tracking-wider text-text-muted">Weight Proof Images</h4>
-                            <div className="rounded-lg border-2 border-dashed border-border p-6 text-center hover:border-primary/50 transition-colors cursor-pointer"
-                              onClick={() => toast.info("File picker would open here")}>
+                            <div className="rounded-lg border-2 border-dashed border-border p-6 text-center hover:border-primary/50 transition-colors cursor-pointer" onClick={() => toast.info("File picker would open here")}>
                               <Upload className="h-8 w-8 text-text-muted mx-auto mb-2" />
                               <p className="text-sm font-medium text-text-secondary">Upload proof images</p>
                               <p className="text-xs text-text-muted mt-1">Drag & drop or click to browse · JPG, PNG up to 5MB</p>
                             </div>
-                            {/* Sample uploaded images */}
                             <div className="flex gap-2">
-                              <div className="relative group w-16 h-16 rounded-lg bg-surface-2 border border-border flex items-center justify-center">
-                                <Image className="h-6 w-6 text-text-muted" />
-                                <span className="absolute -top-1 -right-1 text-[9px] bg-primary text-primary-foreground rounded-full px-1">1</span>
-                              </div>
-                              <div className="relative group w-16 h-16 rounded-lg bg-surface-2 border border-border flex items-center justify-center">
-                                <Image className="h-6 w-6 text-text-muted" />
-                                <span className="absolute -top-1 -right-1 text-[9px] bg-primary text-primary-foreground rounded-full px-1">2</span>
-                              </div>
+                              <div className="relative group w-16 h-16 rounded-lg bg-surface-2 border border-border flex items-center justify-center"><Image className="h-6 w-6 text-text-muted" /><span className="absolute -top-1 -right-1 text-[9px] bg-primary text-primary-foreground rounded-full px-1">1</span></div>
+                              <div className="relative group w-16 h-16 rounded-lg bg-surface-2 border border-border flex items-center justify-center"><Image className="h-6 w-6 text-text-muted" /><span className="absolute -top-1 -right-1 text-[9px] bg-primary text-primary-foreground rounded-full px-1">2</span></div>
                             </div>
                           </div>
                         </div>

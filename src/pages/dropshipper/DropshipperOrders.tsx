@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { OrderCardList } from "@/components/OrderCardList";
 import { OrderCardSkeleton, TableSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { BulkActionBar } from "@/components/BulkActionBar";
-import { orders } from "@/data/mockData";
+import { useOrders } from "@/hooks/useSupabaseData";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Printer, Package, RefreshCw, FileText } from "lucide-react";
@@ -16,11 +16,9 @@ import { cn } from "@/lib/utils";
 
 export default function DropshipperOrders() {
   const isMobile = useIsMobile();
-  const data = orders.slice(0, 25);
+  const { data: allOrders = [], isLoading: loading } = useOrders();
+  const data = allOrders.slice(0, 25);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => { const t = setTimeout(() => setLoading(false), 700); return () => clearTimeout(t); }, []);
 
   const toggleSelect = (id: string) => {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
