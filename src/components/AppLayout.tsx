@@ -1,12 +1,13 @@
 import { ReactNode, useMemo } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { notifications } from "@/data/mockData";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList
+  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -79,6 +80,7 @@ const roleNavMap = { admin: adminNav, vendor: vendorNav, dropshipper: dropshippe
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { role, userName, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -144,10 +146,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <div className="border-t border-sidebar-border p-3">
           <div className="flex items-center gap-3 rounded-lg px-3 py-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-accent text-sm font-medium text-sidebar-foreground">
-              {userName.charAt(0)}
+              {userName.charAt(0) || "U"}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="truncate text-sm font-medium text-sidebar-primary-foreground">{userName}</p>
+              <p className="truncate text-sm font-medium text-sidebar-primary-foreground">{userName || "User"}</p>
               <p className="truncate text-xs text-sidebar-foreground/60 capitalize">{role}</p>
             </div>
             <button onClick={() => { logout(); navigate("/login"); }} className="text-sidebar-foreground/60 hover:text-sidebar-primary-foreground">
@@ -170,6 +172,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             document.dispatchEvent(event);
           }}>
             <Search className="h-4 w-4" />
+          </Button>
+
+          {/* Dark mode toggle */}
+          <Button variant="ghost" size="icon" className="text-text-secondary" onClick={toggleTheme}>
+            {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </Button>
 
           <div className="relative">
@@ -198,7 +205,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <div className="flex items-center gap-2 ml-1">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
-              {userName.charAt(0)}
+              {userName.charAt(0) || "U"}
             </div>
           </div>
         </header>
