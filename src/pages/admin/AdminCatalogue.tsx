@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/PageHeader";
-import { products } from "@/data/mockData";
+import { useProducts } from "@/hooks/useSupabaseData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/EmptyState";
@@ -9,7 +9,10 @@ import { useState } from "react";
 
 export default function AdminCatalogue() {
   const [search, setSearch] = useState("");
+  const { data: products = [], isLoading } = useProducts();
   const filtered = products.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()));
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading products...</div>;
 
   return (
     <div className="animate-fade-in-up">

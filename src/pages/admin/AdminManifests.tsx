@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { manifests, pickupAddresses, courierList } from "@/data/mockData";
+import { useManifests, usePickupAddresses, useCouriers } from "@/hooks/useSupabaseData";
 import { FileText, Download, Printer, Truck, Clock, CheckCircle2, XCircle, Calendar, MapPin, Plus } from "lucide-react";
 import { KPICard } from "@/components/KPICard";
 import { Button } from "@/components/ui/button";
@@ -18,13 +18,17 @@ const manifestStatusColors: Record<string, string> = {
 
 export default function AdminManifests() {
   const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const { data: manifests = [], isLoading } = useManifests();
+  const { data: pickupAddresses = [] } = usePickupAddresses();
+  const { data: courierList = [] } = useCouriers();
 
-  // Group manifests by courier
   const courierGroups = manifests.reduce((acc, m) => {
     if (!acc[m.courier]) acc[m.courier] = [];
     acc[m.courier].push(m);
     return acc;
   }, {} as Record<string, typeof manifests>);
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading manifests...</div>;
 
   return (
     <div className="animate-fade-in-up">
@@ -53,17 +57,13 @@ export default function AdminManifests() {
               <div>
                 <Label className="text-xs">Pickup Address</Label>
                 <select className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm text-text-primary">
-                  {pickupAddresses.map(a => (
-                    <option key={a.id} value={a.id}>{a.label} — {a.city}</option>
-                  ))}
+                  {pickupAddresses.map(a => (<option key={a.id} value={a.id}>{a.label} — {a.city}</option>))}
                 </select>
               </div>
               <div>
                 <Label className="text-xs">Courier</Label>
                 <select className="mt-1 w-full h-9 rounded-md border border-border bg-background px-3 text-sm text-text-primary">
-                  {courierList.filter(c => c.active).map(c => (
-                    <option key={c.name} value={c.name}>{c.name}</option>
-                  ))}
+                  {courierList.filter(c => c.active).map(c => (<option key={c.name} value={c.name}>{c.name}</option>))}
                 </select>
               </div>
               <div>
@@ -81,9 +81,7 @@ export default function AdminManifests() {
               </div>
             </div>
             <div className="flex gap-2 mt-4">
-              <Button className="bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => { toast.success("Pickup scheduled successfully"); setShowScheduleForm(false); }}>
-                Schedule Pickup
-              </Button>
+              <Button className="bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => { toast.success("Pickup scheduled successfully"); setShowScheduleForm(false); }}>Schedule Pickup</Button>
               <Button variant="outline" onClick={() => setShowScheduleForm(false)}>Cancel</Button>
             </div>
           </div>
@@ -93,12 +91,8 @@ export default function AdminManifests() {
       {/* Pickup Addresses */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-text-primary flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-primary" /> Pickup Addresses
-          </h3>
-          <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary-dark gap-1">
-            <Plus className="h-3.5 w-3.5" /> Add Address
-          </Button>
+          <h3 className="font-semibold text-text-primary flex items-center gap-2"><MapPin className="h-4 w-4 text-primary" /> Pickup Addresses</h3>
+          <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary-dark gap-1"><Plus className="h-3.5 w-3.5" /> Add Address</Button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {pickupAddresses.map(a => (
@@ -132,17 +126,13 @@ export default function AdminManifests() {
           <div key={courier} className="rounded-lg bg-card shadow-card overflow-hidden">
             <div className="p-4 border-b border-border bg-surface-2/30 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-light">
-                  <Truck className="h-4 w-4 text-primary" />
-                </div>
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-light"><Truck className="h-4 w-4 text-primary" /></div>
                 <div>
                   <h4 className="font-semibold text-text-primary">{courier}</h4>
                   <p className="text-xs text-text-muted">{group.length} manifests · {group.reduce((s, m) => s + m.ordersCount, 0)} orders</p>
                 </div>
               </div>
-              <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => toast.success(`All ${courier} manifests downloaded`)}>
-                <Download className="h-3.5 w-3.5" /> Download All
-              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => toast.success(`All ${courier} manifests downloaded`)}><Download className="h-3.5 w-3.5" /> Download All</Button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

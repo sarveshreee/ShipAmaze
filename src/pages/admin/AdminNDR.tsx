@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { ndrOrders } from "@/data/mockData";
+import { useNdrOrders } from "@/hooks/useSupabaseData";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/EmptyState";
@@ -18,7 +18,10 @@ const reasonColors: Record<string, string> = {
 
 export default function AdminNDR() {
   const [tab, setTab] = useState<string>("Active");
+  const { data: ndrOrders = [], isLoading } = useNdrOrders();
   const filtered = ndrOrders.filter(n => n.status === tab);
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading NDR data...</div>;
 
   return (
     <div className="animate-fade-in-up">

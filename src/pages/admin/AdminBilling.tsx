@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { invoices, codRemittances } from "@/data/mockData";
+import { useInvoices, useCodRemittances } from "@/hooks/useSupabaseData";
 import { FileText, Download, IndianRupee, Clock, CheckCircle2, AlertTriangle, Filter } from "lucide-react";
 import { KPICard } from "@/components/KPICard";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,8 @@ export default function AdminBilling() {
   const [tab, setTab] = useState<'invoices' | 'cod'>('invoices');
   const [periodFilter, setPeriodFilter] = useState("All Periods");
   const [statusFilter, setStatusFilter] = useState("All");
+  const { data: invoices = [], isLoading } = useInvoices();
+  const { data: codRemittances = [] } = useCodRemittances();
 
   const totalCOD = codRemittances.reduce((s, c) => s + c.codAmount, 0);
   const pendingCOD = codRemittances.filter(c => c.status === 'Pending' || c.status === 'Processing').reduce((s, c) => s + c.netPayable, 0);
@@ -36,6 +38,8 @@ export default function AdminBilling() {
     if (periodFilter !== "All Periods" && !inv.period.includes(periodFilter)) return false;
     return true;
   });
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading billing data...</div>;
 
   return (
     <div className="animate-fade-in-up">
@@ -57,22 +61,13 @@ export default function AdminBilling() {
               )}>{t === 'cod' ? 'COD Remittance' : 'Invoices'}</button>
           ))}
         </div>
-
         {tab === 'invoices' && (
           <div className="ml-auto flex items-center gap-2">
             <Filter className="h-4 w-4 text-text-muted" />
-            <select
-              value={periodFilter}
-              onChange={e => setPeriodFilter(e.target.value)}
-              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-text-primary"
-            >
+            <select value={periodFilter} onChange={e => setPeriodFilter(e.target.value)} className="h-8 rounded-md border border-border bg-background px-2 text-xs text-text-primary">
               {billingPeriods.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-text-primary"
-            >
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-8 rounded-md border border-border bg-background px-2 text-xs text-text-primary">
               {statusFilters.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
@@ -101,9 +96,7 @@ export default function AdminBilling() {
                   <td className="p-3 text-right font-medium text-text-primary">₹{inv.total.toLocaleString()}</td>
                   <td className="p-3"><span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", invoiceStatusColors[inv.status])}>{inv.status}</span></td>
                   <td className="p-3">
-                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => toast.success(`Invoice ${inv.id} downloaded`)}>
-                      <Download className="h-3.5 w-3.5" />
-                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => toast.success(`Invoice ${inv.id} downloaded`)}><Download className="h-3.5 w-3.5" /></Button>
                   </td>
                 </tr>
               ))}
