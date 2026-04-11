@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { BrandingProvider } from "@/contexts/BrandingContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import AppLayout from "@/components/AppLayout";
 import LoginPage from "@/pages/LoginPage";
 import SignupPage from "@/pages/SignupPage";
@@ -54,7 +55,8 @@ import DropshipperPickupAddresses from "@/pages/dropshipper/DropshipperPickupAdd
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return <div className="flex h-screen items-center justify-center bg-background"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <AppLayout>{children}</AppLayout>;
 }
@@ -121,11 +123,13 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <BrandingProvider>
-          <AuthProvider>
-            <AppRoutes />
-          </AuthProvider>
-        </BrandingProvider>
+        <ThemeProvider>
+          <BrandingProvider>
+            <AuthProvider>
+              <AppRoutes />
+            </AuthProvider>
+          </BrandingProvider>
+        </ThemeProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
