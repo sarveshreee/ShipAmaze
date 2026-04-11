@@ -2,12 +2,12 @@ import { PageHeader } from "@/components/PageHeader";
 import { courierList } from "@/data/mockData";
 import { Truck, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export default function AdminCouriers() {
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Courier Management" breadcrumb={["Admin", "Couriers"]} />
-
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {courierList.map(c => (
           <div key={c.name} className="rounded-lg bg-card shadow-card p-4">
@@ -15,7 +15,8 @@ export default function AdminCouriers() {
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-light"><Truck className="h-5 w-5 text-primary" /></div>
               <div className="flex-1">
                 <h3 className="font-semibold text-text-primary">{c.name}</h3>
-                <span className={cn("text-xs font-medium", c.active ? "text-success" : "text-text-muted")}>{c.active ? "Active" : "Inactive"}</span>
+                <button onClick={() => toast.success(`${c.name} ${c.active ? 'disabled' : 'enabled'}`)}
+                  className={cn("text-xs font-medium cursor-pointer hover:underline", c.active ? "text-success" : "text-text-muted")}>{c.active ? "Active" : "Inactive"}</button>
               </div>
               <span className="rounded-full bg-tertiary-light px-2 py-0.5 text-xs font-medium text-tertiary-dark">P{c.priority}</span>
             </div>
@@ -27,7 +28,6 @@ export default function AdminCouriers() {
           </div>
         ))}
       </div>
-
       <div className="rounded-lg bg-card shadow-card p-6">
         <h3 className="font-semibold text-text-primary mb-4">Priority Order</h3>
         <div className="space-y-2">

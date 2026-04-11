@@ -5,7 +5,9 @@ import { returnOrders } from "@/data/mockData";
 import { Undo2, Package, Truck, CheckCircle2, Search, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { EmptyState } from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const returnStatusColors: Record<string, string> = {
   'Return Requested': 'bg-warning-light text-warning-dark',
@@ -24,7 +26,6 @@ export default function AdminReturns() {
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Returns & RTO" breadcrumb={["Admin", "Returns"]} />
-
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KPICard icon={Undo2} label="Total Returns" value={String(returnOrders.length)} color="primary" />
         <KPICard icon={Package} label="Pending Pickup" value={String(returnOrders.filter(r => r.status === 'Return Requested' || r.status === 'Pickup Scheduled').length)} color="warning" />
@@ -43,50 +44,52 @@ export default function AdminReturns() {
         </div>
         <div className="ml-auto flex gap-2">
           <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" /><Input placeholder="Search returns..." className="pl-9 w-56" /></div>
-          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export</Button>
+          <Button variant="outline" size="sm" onClick={() => toast.success("Returns exported")}><Download className="h-4 w-4 mr-1" />Export</Button>
         </div>
       </div>
 
-      <div className="rounded-lg bg-card shadow-card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-border bg-surface-2/50">
-            <th className="p-3 text-left font-medium text-text-secondary">Return ID</th>
-            <th className="p-3 text-left font-medium text-text-secondary">Original Order</th>
-            <th className="p-3 text-left font-medium text-text-secondary">Customer</th>
-            <th className="p-3 text-left font-medium text-text-secondary">Reason</th>
-            <th className="p-3 text-left font-medium text-text-secondary">Courier</th>
-            <th className="p-3 text-left font-medium text-text-secondary">AWB</th>
-            <th className="p-3 text-right font-medium text-text-secondary">Refund</th>
-            <th className="p-3 text-left font-medium text-text-secondary">Status</th>
-            <th className="p-3 text-left font-medium text-text-secondary">Date</th>
-            <th className="p-3 text-left font-medium text-text-secondary">Actions</th>
-          </tr></thead>
-          <tbody>
-            {filtered.map(r => (
-              <tr key={r.id} className="border-b border-border last:border-0 hover:bg-surface-2/30">
-                <td className="p-3 font-mono text-xs text-primary">{r.id}</td>
-                <td className="p-3 font-mono text-xs text-text-primary">{r.originalOrderId}</td>
-                <td className="p-3 text-text-primary">{r.customer}</td>
-                <td className="p-3">
-                  <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-text-secondary">{r.reason}</span>
-                </td>
-                <td className="p-3 text-text-secondary">{r.courier}</td>
-                <td className="p-3 font-mono text-xs text-text-muted">{r.awb}</td>
-                <td className="p-3 text-right font-medium text-text-primary">₹{r.refundAmount.toLocaleString()}</td>
-                <td className="p-3"><span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", returnStatusColors[r.status])}>{r.status}</span></td>
-                <td className="p-3 text-text-muted">{r.date}</td>
-                <td className="p-3">
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="outline" className="text-xs h-7">View</Button>
-                    {(r.status === 'Return Requested') && <Button size="sm" className="text-xs h-7 bg-primary text-primary-foreground">Schedule Pickup</Button>}
-                    {r.status === 'Received' && <Button size="sm" className="text-xs h-7 bg-success text-primary-foreground">Process Refund</Button>}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {filtered.length === 0 ? (
+        <EmptyState icon={Undo2} title="No returns found" description="No return orders match the current filter" actionLabel="Show All" onAction={() => setTab('all')} />
+      ) : (
+        <div className="rounded-lg bg-card shadow-card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-border bg-surface-2/50">
+              <th className="p-3 text-left font-medium text-text-secondary">Return ID</th>
+              <th className="p-3 text-left font-medium text-text-secondary">Original Order</th>
+              <th className="p-3 text-left font-medium text-text-secondary">Customer</th>
+              <th className="p-3 text-left font-medium text-text-secondary">Reason</th>
+              <th className="p-3 text-left font-medium text-text-secondary">Courier</th>
+              <th className="p-3 text-left font-medium text-text-secondary">AWB</th>
+              <th className="p-3 text-right font-medium text-text-secondary">Refund</th>
+              <th className="p-3 text-left font-medium text-text-secondary">Status</th>
+              <th className="p-3 text-left font-medium text-text-secondary">Date</th>
+              <th className="p-3 text-left font-medium text-text-secondary">Actions</th>
+            </tr></thead>
+            <tbody>
+              {filtered.map(r => (
+                <tr key={r.id} className="border-b border-border last:border-0 hover:bg-surface-2/30">
+                  <td className="p-3 font-mono text-xs text-primary">{r.id}</td>
+                  <td className="p-3 font-mono text-xs text-text-primary">{r.originalOrderId}</td>
+                  <td className="p-3 text-text-primary">{r.customer}</td>
+                  <td className="p-3"><span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-text-secondary">{r.reason}</span></td>
+                  <td className="p-3 text-text-secondary">{r.courier}</td>
+                  <td className="p-3 font-mono text-xs text-text-muted">{r.awb}</td>
+                  <td className="p-3 text-right font-medium text-text-primary">₹{r.refundAmount.toLocaleString()}</td>
+                  <td className="p-3"><span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", returnStatusColors[r.status])}>{r.status}</span></td>
+                  <td className="p-3 text-text-muted">{r.date}</td>
+                  <td className="p-3">
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => toast.info(`Viewing return ${r.id}`)}>View</Button>
+                      {(r.status === 'Return Requested') && <Button size="sm" className="text-xs h-7 bg-primary text-primary-foreground" onClick={() => toast.success(`Pickup scheduled for ${r.id}`)}>Schedule Pickup</Button>}
+                      {r.status === 'Received' && <Button size="sm" className="text-xs h-7 bg-success text-primary-foreground" onClick={() => toast.success(`Refund processed for ${r.id}`)}>Process Refund</Button>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
