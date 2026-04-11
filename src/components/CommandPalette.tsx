@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList
@@ -7,7 +7,7 @@ import { orders } from "@/data/mockData";
 import {
   Package, LayoutDashboard, ShoppingBag, Calculator, Truck, Users,
   Warehouse, IndianRupee, BarChart3, Headphones, Settings, AlertTriangle,
-  Search, User
+  Search, User, Hash
 } from "lucide-react";
 
 const pages = [
@@ -30,6 +30,7 @@ const pages = [
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -46,41 +47,92 @@ export function CommandPalette() {
   const goTo = (path: string) => {
     navigate(path);
     setOpen(false);
+    setSearch("");
   };
 
-  const recentOrders = orders.slice(0, 8);
+  const query = search.toLowerCase().trim();
+
+  const filteredPages = useMemo(() =>
+    pages.filter(p => p.label.toLowerCase().includes(query)),
+    [query]
+  );
+
+  const filteredOrders = useMemo(() =>
+    orders.filter(o =>
+      o.id.toLowerCase().includes(query) ||
+      o.awb.toLowerCase().includes(query) ||
+      o.customer.toLowerCase().includes(query)
+    ).slice(0, 10),
+    [query]
+  );
+
+  const filteredCustomers = useMemo(() =>
+    [...new Set(orders.map(o => o.customer))]
+      .filter(name => name.toLowerCase().includes(query))
+      .slice(0, 6),
+    [query]
+  );
+
+  const filteredAWBs = useMemo(() =>
+    orders.filter(o => o.awb.toLowerCase().includes(query)).slice(0, 6),
+    [query]
+  );
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search orders, customers, pages..." />
+    <CommandDialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearch(""); }}>
+      <CommandInput placeholder="Search orders, customers, AWB numbers, pages..." value={search} onValueChange={setSearch} />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
-        <CommandGroup heading="Pages">
-          {pages.map(p => (
-            <CommandItem key={p.path} onSelect={() => goTo(p.path)} className="gap-2">
-              <p.icon className="h-4 w-4 text-text-muted" />
-              {p.label}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-        <CommandGroup heading="Recent Orders">
-          {recentOrders.map(o => (
-            <CommandItem key={o.id} onSelect={() => goTo("/admin/orders")} className="gap-2">
-              <Package className="h-4 w-4 text-text-muted" />
-              <span className="font-mono text-xs">{o.id}</span>
-              <span className="text-text-secondary">—</span>
-              <span>{o.customer}</span>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-        <CommandGroup heading="Customers">
-          {[...new Set(orders.map(o => o.customer))].slice(0, 6).map(name => (
-            <CommandItem key={name} onSelect={() => goTo("/admin/orders")} className="gap-2">
-              <User className="h-4 w-4 text-text-muted" />
-              {name}
-            </CommandItem>
-          ))}
-        </CommandGroup>
+        <CommandEmpty>No results found for "{search}"</CommandEmpty>
+
+        {filteredPages.length > 0 && (
+          <CommandGroup heading="Pages">
+            {filteredPages.map(p => (
+              <CommandItem key={p.path} onSelect={() => goTo(p.path)} className="gap-2">
+                <p.icon className="h-4 w-4 text-text-muted" />
+                {p.label}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {filteredOrders.length > 0 && (
+          <CommandGroup heading="Orders">
+            {filteredOrders.map(o => (
+              <CommandItem key={o.id} onSelect={() => goTo("/admin/orders")} className="gap-2">
+                <Package className="h-4 w-4 text-text-muted" />
+                <span className="font-mono text-xs text-primary">{o.id}</span>
+                <span className="text-text-muted">·</span>
+                <span className="text-text-secondary">{o.customer}</span>
+                <span className="text-text-muted">·</span>
+                <span className="font-mono text-[11px] text-text-muted">{o.awb}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {query && filteredCustomers.length > 0 && (
+          <CommandGroup heading="Customers">
+            {filteredCustomers.map(name => (
+              <CommandItem key={name} onSelect={() => goTo("/admin/orders")} className="gap-2">
+                <User className="h-4 w-4 text-text-muted" />
+                {name}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {query && filteredAWBs.length > 0 && (
+          <CommandGroup heading="AWB Numbers">
+            {filteredAWBs.map(o => (
+              <CommandItem key={o.awb} onSelect={() => goTo("/admin/orders")} className="gap-2">
+                <Hash className="h-4 w-4 text-text-muted" />
+                <span className="font-mono text-xs text-primary">{o.awb}</span>
+                <span className="text-text-muted">→</span>
+                <span className="text-text-secondary">{o.customer}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
       </CommandList>
     </CommandDialog>
   );
