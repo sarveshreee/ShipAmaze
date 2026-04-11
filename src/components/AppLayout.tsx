@@ -76,6 +76,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
 
   const nav = roleNavMap[role];
@@ -163,7 +164,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <h2 className="text-lg font-semibold text-text-primary">{pageTitle}</h2>
           <div className="flex-1" />
 
-          <Button variant="ghost" size="icon" className="text-text-secondary"><Search className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="icon" className="text-text-secondary" onClick={() => setCmdOpen(true)}>
+            <Search className="h-4 w-4" />
+            <span className="sr-only">Search (Ctrl+K)</span>
+          </Button>
 
           <div className="relative">
             <Button variant="ghost" size="icon" className="text-text-secondary relative" onClick={() => setNotifOpen(!notifOpen)}>
