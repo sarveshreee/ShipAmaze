@@ -5,25 +5,22 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { notifications } from "@/data/mockData";
 import {
-  LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X, ChevronDown,
-  Upload, Link2, Wallet, MapPin, Plus, Users2
+  LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X,
+  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
 
-interface NavItem {
-  label: string; icon: any; path: string;
-}
-
-interface NavGroup {
-  title: string; items: NavItem[];
-}
+interface NavItem { label: string; icon: any; path: string; }
+interface NavGroup { title: string; items: NavItem[]; }
 
 const adminNav: NavGroup[] = [
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/admin" }] },
   { title: "ORDERS", items: [
     { label: "Orders", icon: Package, path: "/admin/orders" },
     { label: "NDR Management", icon: AlertTriangle, path: "/admin/ndr" },
+    { label: "Returns & RTO", icon: Undo2, path: "/admin/returns" },
+    { label: "Manifests & Pickups", icon: ClipboardList, path: "/admin/manifests" },
   ]},
   { title: "MANAGEMENT", items: [
     { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue" },
@@ -31,12 +28,16 @@ const adminNav: NavGroup[] = [
     { label: "Couriers", icon: Truck, path: "/admin/couriers" },
     { label: "Dropshippers", icon: Users, path: "/admin/dropshippers" },
     { label: "Vendors", icon: Warehouse, path: "/admin/vendors" },
+    { label: "Pincode Check", icon: MapPin, path: "/admin/pincode" },
   ]},
   { title: "FINANCE", items: [
     { label: "Finance & Wallet", icon: IndianRupee, path: "/admin/finance" },
+    { label: "Billing & Invoices", icon: Receipt, path: "/admin/billing" },
+    { label: "Weight Disputes", icon: Scale, path: "/admin/weight-disputes" },
   ]},
   { title: "INSIGHTS", items: [
     { label: "Analytics", icon: BarChart3, path: "/admin/analytics" },
+    { label: "Reports", icon: FileText, path: "/admin/reports" },
     { label: "Support", icon: Headphones, path: "/admin/support" },
   ]},
   { title: "", items: [{ label: "Settings", icon: Settings, path: "/admin/settings" }] },
@@ -55,6 +56,8 @@ const dropshipperNav: NavGroup[] = [
     { label: "Orders", icon: Package, path: "/dropshipper/orders" },
     { label: "Create Order", icon: Plus, path: "/dropshipper/create-order" },
     { label: "Bulk Upload", icon: Upload, path: "/dropshipper/bulk-upload" },
+    { label: "Returns", icon: Undo2, path: "/dropshipper/returns" },
+    { label: "NDR", icon: AlertTriangle, path: "/dropshipper/ndr" },
   ]},
   { title: "CONNECT", items: [
     { label: "Channels", icon: Link2, path: "/dropshipper/channels" },
@@ -62,9 +65,11 @@ const dropshipperNav: NavGroup[] = [
   { title: "FINANCE", items: [
     { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet" },
     { label: "Rate Calculator", icon: Calculator, path: "/dropshipper/rates" },
+    { label: "Weight Disputes", icon: Scale, path: "/dropshipper/weight-disputes" },
   ]},
   { title: "", items: [
-    { label: "Track Shipment", icon: MapPin, path: "/dropshipper/tracking" },
+    { label: "Pickup Addresses", icon: MapPin, path: "/dropshipper/addresses" },
+    { label: "Track Shipment", icon: Truck, path: "/dropshipper/tracking" },
     { label: "Settings", icon: Settings, path: "/dropshipper/settings" },
   ]},
 ];
@@ -93,10 +98,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Mobile overlay */}
       {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
-      {/* Sidebar */}
       <aside className={cn(
         "fixed inset-y-0 left-0 z-50 flex w-60 flex-col bg-sidebar transition-transform duration-200 lg:static lg:translate-x-0",
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -154,9 +157,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      {/* Main content */}
       <div className="flex flex-1 flex-col min-w-0">
-        {/* Header */}
         <header className="flex h-[60px] items-center gap-3 border-b border-border bg-card px-4 lg:px-6 shrink-0">
           <button className="lg:hidden text-text-secondary" onClick={() => setSidebarOpen(true)}>
             <Menu className="h-5 w-5" />
@@ -166,7 +167,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <Button variant="ghost" size="icon" className="text-text-secondary" onClick={() => setCmdOpen(true)}>
             <Search className="h-4 w-4" />
-            <span className="sr-only">Search (Ctrl+K)</span>
           </Button>
 
           <div className="relative">
@@ -200,7 +200,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           {children}
         </main>
