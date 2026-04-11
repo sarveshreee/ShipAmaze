@@ -1,21 +1,34 @@
-import { useState, createContext, useContext, ReactNode } from "react";
+import { useState, createContext, useContext, ReactNode, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 type Role = "admin" | "vendor" | "dropshipper";
 
 interface AuthContextType {
   isAuthenticated: boolean;
   role: Role;
-  login: (role: Role) => void;
-  logout: () => void;
   userName: string;
+  userId: string | null;
+  isLoading: boolean;
+  isDemoMode: boolean;
+  login: (role: Role) => void;
+  loginWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
+  signupWithEmail: (email: string, password: string, fullName: string, businessName: string, phone: string, role: Role) => Promise<{ error?: string }>;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   role: "admin",
-  login: () => {},
-  logout: () => {},
   userName: "",
+  userId: null,
+  isLoading: true,
+  isDemoMode: false,
+  login: () => {},
+  loginWithEmail: async () => ({}),
+  signupWithEmail: async () => ({}),
+  logout: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -29,15 +42,100 @@ const roleNames: Record<Role, string> = {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [role, setRole] = useState<Role>("admin");
+  const [userName, setUserName] = useState("");
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setUserId(session.user.id);
+        setIsAuthenticated(true);
+        setIsDemoMode(false);
+
+        // Fetch role and profile
+        setTimeout(async () => {
+          const { data: roleData } = await supabase
+            .from('user_roles')
+            .select('role')
+            .eq('user_id', session.user.id)
+            .single();
+          
+          if (roleData) {
+            setRole(roleData.role as Role);
+          }
+
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('user_id', session.user.id)
+            .single();
+          
+          setUserName(profile?.full_name || session.user.email?.split('@')[0] || 'User');
+        }, 0);
+      } else if (!isDemoMode) {
+        setIsAuthenticated(false);
+        setUserId(null);
+        setUserName("");
+      }
+      setIsLoading(false);
+    });
+
+    supabase.auth.getSession();
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Demo login (no real auth)
   const login = (r: Role) => {
     setRole(r);
+    setUserName(roleNames[r]);
     setIsAuthenticated(true);
+    setIsDemoMode(true);
+    setUserId(null);
   };
-  const logout = () => setIsAuthenticated(false);
+
+  const loginWithEmail = async (email: string, password: string): Promise<{ error?: string }> => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+    return {};
+  };
+
+  const signupWithEmail = async (
+    email: string, password: string, fullName: string, businessName: string, phone: string, selectedRole: Role
+  ): Promise<{ error?: string }> => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: window.location.origin,
+        data: { full_name: fullName, role: selectedRole },
+      },
+    });
+    if (error) return { error: error.message };
+
+    // Update profile with business info after signup
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from('profiles').update({ business_name: businessName, phone }).eq('user_id', user.id);
+    }
+
+    return {};
+  };
+
+  const logout = () => {
+    if (!isDemoMode) {
+      supabase.auth.signOut();
+    }
+    setIsAuthenticated(false);
+    setIsDemoMode(false);
+    setUserId(null);
+    setUserName("");
+  };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, role, login, logout, userName: roleNames[role] }}>
+    <AuthContext.Provider value={{ isAuthenticated, role, userName, userId, isLoading, isDemoMode, login, loginWithEmail, signupWithEmail, logout }}>
       {children}
     </AuthContext.Provider>
   );
