@@ -4,22 +4,46 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { Package, Palette, Type, Image, Eye, Monitor, Smartphone, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 
 const notifEvents = ["Order Placed", "Shipment Picked Up", "Out for Delivery", "Delivered", "NDR Raised", "RTO Initiated", "COD Credited", "Wallet Low Balance"];
 const channels = ["Email", "SMS", "WhatsApp"];
 
+const defaultBranding = {
+  brandName: 'ShipFlow',
+  logoUrl: '',
+  primaryColor: '#4F46E5',
+  bgColor: '#F8FAFC',
+  accentColor: '#10B981',
+  headerText: 'Track Your Shipment',
+  subText: 'Enter your AWB or Order ID below',
+  footerText: 'Powered by ShipFlow',
+  showBranding: true,
+  buttonStyle: 'rounded' as 'rounded' | 'square' | 'pill',
+  fontFamily: 'Inter',
+};
+
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState("general");
+  const [branding, setBranding] = useState(defaultBranding);
+  const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
+
+  const updateBranding = (key: string, value: string | boolean) => {
+    setBranding(prev => ({ ...prev, [key]: value }));
+  };
+
+  const tabs = ["general", "tracking page", "notifications", "api"];
 
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Settings" breadcrumb={["Admin", "Settings"]} />
 
-      <div className="flex gap-2 mb-6 border-b border-border">
-        {["general", "notifications", "api"].map(tab => (
+      <div className="flex gap-2 mb-6 border-b border-border overflow-x-auto">
+        {tabs.map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={cn("px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-[1px] transition-colors",
-              activeTab === tab ? "border-primary text-primary" : "border-transparent text-text-secondary"
+            className={cn("px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-[1px] transition-colors whitespace-nowrap",
+              activeTab === tab ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
             )}>{tab}</button>
         ))}
       </div>
@@ -31,6 +55,184 @@ export default function AdminSettings() {
           <div><Label>Contact Phone</Label><Input defaultValue="+91 98000 00000" /></div>
           <div><Label>Business Address</Label><Input defaultValue="123, MG Road, Mumbai 400001" /></div>
           <Button className="bg-primary text-primary-foreground hover:bg-primary-dark">Save Changes</Button>
+        </div>
+      )}
+
+      {activeTab === "tracking page" && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Controls */}
+          <div className="space-y-5">
+            <div className="rounded-lg bg-card shadow-card p-6">
+              <h3 className="font-semibold text-text-primary flex items-center gap-2 mb-4">
+                <Palette className="h-5 w-5 text-primary" /> Brand & Colors
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <Label>Brand Name</Label>
+                  <Input value={branding.brandName} onChange={e => updateBranding('brandName', e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <Label>Logo URL (optional)</Label>
+                  <Input value={branding.logoUrl} onChange={e => updateBranding('logoUrl', e.target.value)} placeholder="https://example.com/logo.png" className="mt-1" />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs">Primary Color</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <input type="color" value={branding.primaryColor} onChange={e => updateBranding('primaryColor', e.target.value)} className="w-8 h-8 rounded cursor-pointer border-0" />
+                      <Input value={branding.primaryColor} onChange={e => updateBranding('primaryColor', e.target.value)} className="font-mono text-xs flex-1" />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Background</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <input type="color" value={branding.bgColor} onChange={e => updateBranding('bgColor', e.target.value)} className="w-8 h-8 rounded cursor-pointer border-0" />
+                      <Input value={branding.bgColor} onChange={e => updateBranding('bgColor', e.target.value)} className="font-mono text-xs flex-1" />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Accent Color</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <input type="color" value={branding.accentColor} onChange={e => updateBranding('accentColor', e.target.value)} className="w-8 h-8 rounded cursor-pointer border-0" />
+                      <Input value={branding.accentColor} onChange={e => updateBranding('accentColor', e.target.value)} className="font-mono text-xs flex-1" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-card shadow-card p-6">
+              <h3 className="font-semibold text-text-primary flex items-center gap-2 mb-4">
+                <Type className="h-5 w-5 text-primary" /> Content & Messaging
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <Label>Header Text</Label>
+                  <Input value={branding.headerText} onChange={e => updateBranding('headerText', e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <Label>Subtitle</Label>
+                  <Input value={branding.subText} onChange={e => updateBranding('subText', e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <Label>Footer Text</Label>
+                  <Input value={branding.footerText} onChange={e => updateBranding('footerText', e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <Label>Button Style</Label>
+                  <div className="flex gap-2 mt-1">
+                    {(['rounded', 'square', 'pill'] as const).map(style => (
+                      <button key={style} onClick={() => updateBranding('buttonStyle', style)}
+                        className={cn("px-4 py-1.5 text-sm border-2 capitalize transition-colors",
+                          style === 'rounded' && "rounded-lg",
+                          style === 'square' && "rounded-none",
+                          style === 'pill' && "rounded-full",
+                          branding.buttonStyle === style ? "border-primary bg-primary-light text-primary" : "border-border text-text-secondary"
+                        )}>{style}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Show "Powered by" branding</Label>
+                    <p className="text-xs text-text-muted">Display footer attribution</p>
+                  </div>
+                  <button onClick={() => updateBranding('showBranding', !branding.showBranding)}
+                    className={cn("w-11 h-6 rounded-full transition-colors relative",
+                      branding.showBranding ? "bg-primary" : "bg-surface-2")}>
+                    <div className={cn("w-5 h-5 rounded-full bg-white shadow-sm absolute top-0.5 transition-transform",
+                      branding.showBranding ? "translate-x-5" : "translate-x-0.5")} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button onClick={() => { toast.success('Tracking page settings saved!'); }} className="bg-primary text-primary-foreground hover:bg-primary-dark flex-1">
+                Save & Publish
+              </Button>
+              <Button variant="outline" onClick={() => setBranding(defaultBranding)}>
+                <RotateCcw className="h-4 w-4 mr-1" /> Reset
+              </Button>
+            </div>
+          </div>
+
+          {/* Live Preview */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-text-primary flex items-center gap-2">
+                <Eye className="h-5 w-5 text-primary" /> Live Preview
+              </h3>
+              <div className="flex gap-1 rounded-lg bg-surface-2 p-0.5">
+                <button onClick={() => setPreviewDevice('desktop')}
+                  className={cn("p-1.5 rounded-md transition-colors", previewDevice === 'desktop' ? "bg-card shadow-sm" : "text-text-muted")}>
+                  <Monitor className="h-4 w-4" />
+                </button>
+                <button onClick={() => setPreviewDevice('mobile')}
+                  className={cn("p-1.5 rounded-md transition-colors", previewDevice === 'mobile' ? "bg-card shadow-sm" : "text-text-muted")}>
+                  <Smartphone className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className={cn("rounded-xl border-2 border-border overflow-hidden shadow-card-md transition-all mx-auto",
+              previewDevice === 'mobile' ? "max-w-[375px]" : "w-full")}>
+              {/* Preview Header */}
+              <div className="flex items-center gap-2 px-4 py-3 border-b" style={{ backgroundColor: branding.primaryColor }}>
+                {branding.logoUrl ? (
+                  <img src={branding.logoUrl} alt="Logo" className="h-6 w-6 rounded object-cover" />
+                ) : (
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20">
+                    <Package className="h-4 w-4 text-white" />
+                  </div>
+                )}
+                <span className="text-sm font-bold text-white">{branding.brandName}</span>
+              </div>
+
+              {/* Preview Body */}
+              <div className="p-6" style={{ backgroundColor: branding.bgColor, minHeight: 320 }}>
+                <div className="bg-white rounded-xl shadow-lg p-6 max-w-md mx-auto">
+                  <h2 className="text-lg font-bold text-center mb-1" style={{ color: '#1a1a2e' }}>
+                    {branding.headerText}
+                  </h2>
+                  <p className="text-xs text-center mb-4" style={{ color: '#6b7280' }}>
+                    {branding.subText}
+                  </p>
+                  <div className="flex gap-2">
+                    <div className="flex-1 h-9 rounded-lg border border-gray-200 bg-gray-50 px-3 flex items-center">
+                      <span className="text-xs text-gray-400">Enter AWB or Order ID</span>
+                    </div>
+                    <button className={cn("h-9 px-4 text-xs font-medium text-white flex items-center gap-1",
+                      branding.buttonStyle === 'rounded' && "rounded-lg",
+                      branding.buttonStyle === 'square' && "rounded-none",
+                      branding.buttonStyle === 'pill' && "rounded-full"
+                    )} style={{ backgroundColor: branding.primaryColor }}>
+                      Track
+                    </button>
+                  </div>
+
+                  {/* Mock timeline */}
+                  <div className="mt-5 space-y-3">
+                    {['Order Placed', 'Picked Up', 'In Transit', 'Out for Delivery'].map((step, i) => (
+                      <div key={step} className="flex items-center gap-3">
+                        <div className={cn("w-3 h-3 rounded-full border-2 shrink-0",
+                          i < 3 ? "border-transparent" : "border-gray-300")}
+                          style={i < 3 ? { backgroundColor: branding.accentColor } : {}} />
+                        <div className="flex-1">
+                          <p className="text-xs font-medium" style={{ color: i < 3 ? '#1a1a2e' : '#9ca3af' }}>{step}</p>
+                        </div>
+                        {i < 3 && <span className="text-[10px]" style={{ color: '#9ca3af' }}>Apr {5+i}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {branding.showBranding && (
+                  <p className="text-center text-[10px] mt-4" style={{ color: '#9ca3af' }}>{branding.footerText}</p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
