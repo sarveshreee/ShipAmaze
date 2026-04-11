@@ -23,6 +23,12 @@ import AdminFinance from "@/pages/admin/AdminFinance";
 import AdminAnalytics from "@/pages/admin/AdminAnalytics";
 import AdminSupport from "@/pages/admin/AdminSupport";
 import AdminSettings from "@/pages/admin/AdminSettings";
+import AdminReturns from "@/pages/admin/AdminReturns";
+import AdminManifests from "@/pages/admin/AdminManifests";
+import AdminBilling from "@/pages/admin/AdminBilling";
+import AdminWeightDisputes from "@/pages/admin/AdminWeightDisputes";
+import AdminPincode from "@/pages/admin/AdminPincode";
+import AdminReports from "@/pages/admin/AdminReports";
 
 // Vendor
 import VendorDashboard from "@/pages/vendor/VendorDashboard";
@@ -39,6 +45,10 @@ import ChannelConnect from "@/pages/dropshipper/ChannelConnect";
 import DropshipperWallet from "@/pages/dropshipper/DropshipperWallet";
 import DropshipperRates from "@/pages/dropshipper/DropshipperRates";
 import DropshipperSettings from "@/pages/dropshipper/DropshipperSettings";
+import DropshipperReturns from "@/pages/dropshipper/DropshipperReturns";
+import DropshipperNDR from "@/pages/dropshipper/DropshipperNDR";
+import DropshipperWeightDisputes from "@/pages/dropshipper/DropshipperWeightDisputes";
+import DropshipperPickupAddresses from "@/pages/dropshipper/DropshipperPickupAddresses";
 
 const queryClient = new QueryClient();
 
@@ -61,13 +71,19 @@ function AppRoutes() {
       <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
       <Route path="/admin/orders" element={<ProtectedRoute><AdminOrders /></ProtectedRoute>} />
       <Route path="/admin/ndr" element={<ProtectedRoute><AdminNDR /></ProtectedRoute>} />
+      <Route path="/admin/returns" element={<ProtectedRoute><AdminReturns /></ProtectedRoute>} />
+      <Route path="/admin/manifests" element={<ProtectedRoute><AdminManifests /></ProtectedRoute>} />
       <Route path="/admin/catalogue" element={<ProtectedRoute><AdminCatalogue /></ProtectedRoute>} />
       <Route path="/admin/rates" element={<ProtectedRoute><AdminRates /></ProtectedRoute>} />
       <Route path="/admin/couriers" element={<ProtectedRoute><AdminCouriers /></ProtectedRoute>} />
       <Route path="/admin/dropshippers" element={<ProtectedRoute><AdminDropshippers /></ProtectedRoute>} />
       <Route path="/admin/vendors" element={<ProtectedRoute><AdminVendors /></ProtectedRoute>} />
+      <Route path="/admin/pincode" element={<ProtectedRoute><AdminPincode /></ProtectedRoute>} />
       <Route path="/admin/finance" element={<ProtectedRoute><AdminFinance /></ProtectedRoute>} />
+      <Route path="/admin/billing" element={<ProtectedRoute><AdminBilling /></ProtectedRoute>} />
+      <Route path="/admin/weight-disputes" element={<ProtectedRoute><AdminWeightDisputes /></ProtectedRoute>} />
       <Route path="/admin/analytics" element={<ProtectedRoute><AdminAnalytics /></ProtectedRoute>} />
+      <Route path="/admin/reports" element={<ProtectedRoute><AdminReports /></ProtectedRoute>} />
       <Route path="/admin/support" element={<ProtectedRoute><AdminSupport /></ProtectedRoute>} />
       <Route path="/admin/settings" element={<ProtectedRoute><AdminSettings /></ProtectedRoute>} />
 
@@ -85,6 +101,10 @@ function AppRoutes() {
       <Route path="/dropshipper/channels" element={<ProtectedRoute><ChannelConnect /></ProtectedRoute>} />
       <Route path="/dropshipper/wallet" element={<ProtectedRoute><DropshipperWallet /></ProtectedRoute>} />
       <Route path="/dropshipper/rates" element={<ProtectedRoute><DropshipperRates /></ProtectedRoute>} />
+      <Route path="/dropshipper/returns" element={<ProtectedRoute><DropshipperReturns /></ProtectedRoute>} />
+      <Route path="/dropshipper/ndr" element={<ProtectedRoute><DropshipperNDR /></ProtectedRoute>} />
+      <Route path="/dropshipper/weight-disputes" element={<ProtectedRoute><DropshipperWeightDisputes /></ProtectedRoute>} />
+      <Route path="/dropshipper/addresses" element={<ProtectedRoute><DropshipperPickupAddresses /></ProtectedRoute>} />
       <Route path="/dropshipper/tracking" element={<ProtectedRoute><PublicTracking /></ProtectedRoute>} />
       <Route path="/dropshipper/settings" element={<ProtectedRoute><DropshipperSettings /></ProtectedRoute>} />
 
