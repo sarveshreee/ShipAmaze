@@ -17,6 +17,7 @@ const statusConfig: Record<OrderStatus, { bg: string; text: string; label: strin
   cancelled: { bg: "bg-surface-2", text: "text-text-secondary", label: "Cancelled", icon: XCircle },
   draft: { bg: "bg-surface-2", text: "text-text-muted", label: "Draft", icon: FileEdit },
   "on-process": { bg: "bg-tertiary-light", text: "text-tertiary-dark", label: "On Process", icon: Loader2 },
+  rts: { bg: "bg-warning-light", text: "text-warning-dark", label: "Return to Seller", icon: Undo2 },
 };
 
 export function StatusBadge({ status, className }: { status: OrderStatus; className?: string }) {
