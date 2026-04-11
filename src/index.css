@@ -2,104 +2,111 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* === BRAND COLORS (HSL) === */
+    --color-primary: 239 84% 67%;
+    --color-primary-light: 226 100% 97%;
+    --color-primary-dark: 245 58% 51%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --color-secondary: 199 89% 48%;
+    --color-secondary-light: 204 100% 97%;
+    --color-secondary-dark: 201 90% 27%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --color-tertiary: 258 90% 66%;
+    --color-tertiary-light: 250 100% 98%;
+    --color-tertiary-dark: 263 70% 50%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --color-accent: 38 92% 50%;
+    --color-accent-light: 48 100% 96%;
+    --color-accent-dark: 32 95% 44%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --color-success: 160 84% 39%;
+    --color-success-light: 152 81% 96%;
+    --color-success-dark: 161 94% 30%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --color-danger: 0 84% 60%;
+    --color-danger-light: 0 86% 97%;
+    --color-danger-dark: 0 72% 51%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --color-warning: 38 92% 50%;
+    --color-warning-light: 48 100% 96%;
+    --color-warning-dark: 32 95% 44%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* === NEUTRALS === */
+    --color-bg: 210 40% 98%;
+    --color-surface: 0 0% 100%;
+    --color-surface-2: 210 40% 96%;
+    --color-border: 214 32% 91%;
+    --color-border-strong: 213 27% 84%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --color-text-primary: 222 47% 11%;
+    --color-text-secondary: 215 19% 35%;
+    --color-text-muted: 215 16% 57%;
+    --color-text-inverse: 0 0% 100%;
 
-    --radius: 0.5rem;
+    /* === SIDEBAR === */
+    --color-sidebar-bg: 244 39% 20%;
+    --color-sidebar-text: 226 100% 89%;
+    --color-sidebar-active: 239 84% 67%;
+    --color-sidebar-hover: 244 43% 34%;
+    --color-sidebar-icon: 231 97% 72%;
+    --color-sidebar-border: 244 43% 34%;
 
-    --sidebar-background: 0 0% 98%;
+    /* === SHADCN COMPAT === */
+    --background: var(--color-bg);
+    --foreground: var(--color-text-primary);
+    --card: var(--color-surface);
+    --card-foreground: var(--color-text-primary);
+    --popover: var(--color-surface);
+    --popover-foreground: var(--color-text-primary);
+    --primary: var(--color-primary);
+    --primary-foreground: var(--color-text-inverse);
+    --secondary: var(--color-surface-2);
+    --secondary-foreground: var(--color-text-primary);
+    --muted: var(--color-surface-2);
+    --muted-foreground: var(--color-text-muted);
+    --accent: var(--color-surface-2);
+    --accent-foreground: var(--color-text-primary);
+    --destructive: var(--color-danger);
+    --destructive-foreground: var(--color-text-inverse);
+    --border: var(--color-border);
+    --input: var(--color-border);
+    --ring: var(--color-primary);
+    --radius: 0.625rem;
 
-    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-background: var(--color-sidebar-bg);
+    --sidebar-foreground: var(--color-sidebar-text);
+    --sidebar-primary: var(--color-sidebar-active);
+    --sidebar-primary-foreground: var(--color-text-inverse);
+    --sidebar-accent: var(--color-sidebar-hover);
+    --sidebar-accent-foreground: var(--color-sidebar-text);
+    --sidebar-border: var(--color-sidebar-border);
+    --sidebar-ring: var(--color-primary);
 
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* === SHADOWS === */
+    --shadow-sm: 0 1px 3px hsl(0 0% 0% / 0.06), 0 1px 2px hsl(0 0% 0% / 0.04);
+    --shadow-md: 0 4px 12px hsl(0 0% 0% / 0.08), 0 2px 4px hsl(0 0% 0% / 0.04);
+    --shadow-lg: 0 10px 30px hsl(0 0% 0% / 0.10), 0 4px 8px hsl(0 0% 0% / 0.06);
   }
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-}
-
-@layer base {
   * {
     @apply border-border;
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  .shadow-card {
+    box-shadow: var(--shadow-sm);
+  }
+  .shadow-card-md {
+    box-shadow: var(--shadow-md);
+  }
+  .shadow-card-lg {
+    box-shadow: var(--shadow-lg);
   }
 }
