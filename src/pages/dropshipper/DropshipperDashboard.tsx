@@ -18,7 +18,7 @@ export default function DropshipperDashboard() {
         <KPICard icon={Truck} label="In Transit" value="89" color="secondary" />
         <KPICard icon={Clock} label="Pending" value="34" color="warning" />
         <KPICard icon={Wallet} label="Wallet Balance" value="₹12,450" color="tertiary" />
-        <KPICard icon={Banknote} label="COD Pending" value="₹8,200" color="accent" />
+        <KPICard icon={Banknote} label="COD Pending" value="₹8,200" color="warning" />
       </div>
 
       <div className="flex flex-wrap gap-2 mb-6">
