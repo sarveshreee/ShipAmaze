@@ -16,9 +16,6 @@ export default function AdminSettings() {
   const { branding, setBranding, updateBranding } = useBranding();
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
 
-  const updateBranding = (key: string, value: string | boolean) => {
-    setBranding(prev => ({ ...prev, [key]: value }));
-  };
 
   const tabs = ["general", "tracking page", "notifications", "api"];
 
