@@ -3,12 +3,13 @@ import { vendors } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Plus, Warehouse } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export default function AdminVendors() {
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Vendor Management" breadcrumb={["Admin", "Vendors"]}
-        actions={<Button className="bg-primary text-primary-foreground hover:bg-primary-dark"><Plus className="h-4 w-4 mr-2"/>Add Warehouse</Button>}
+        actions={<Button className="bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => toast.info("Add warehouse form coming soon")}><Plus className="h-4 w-4 mr-2"/>Add Warehouse</Button>}
       />
       <div className="rounded-lg bg-card shadow-card overflow-x-auto">
         <table className="w-full text-sm">
@@ -30,7 +31,7 @@ export default function AdminVendors() {
                 <td className="p-3 text-text-primary">{v.assignedVendors}</td>
                 <td className="p-3 font-medium text-text-primary">{v.ordersToday}</td>
                 <td className="p-3"><span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", v.status === "Active" ? "bg-success-light text-success-dark" : "bg-surface-2 text-text-muted")}>{v.status}</span></td>
-                <td className="p-3"><Button variant="outline" size="sm" className="text-xs h-7">Manage</Button></td>
+                <td className="p-3"><Button variant="outline" size="sm" className="text-xs h-7" onClick={() => toast.info(`Managing ${v.name}`)}>Manage</Button></td>
               </tr>
             ))}
           </tbody>
