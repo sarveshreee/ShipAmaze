@@ -2,12 +2,14 @@ import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { OrderDetailDrawer } from "@/components/OrderDetailDrawer";
+import { OrderCardList } from "@/components/OrderCardList";
 import { KPICardSkeleton, TableSkeleton } from "@/components/SkeletonLoaders";
 import { orders, type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Download, Eye, Printer, MoreHorizontal, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const tabs: { label: string; status?: OrderStatus | "all" }[] = [
   { label: "All", status: "all" },
@@ -28,6 +30,7 @@ export default function AdminOrders() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 800);
@@ -50,11 +53,11 @@ export default function AdminOrders() {
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Orders" breadcrumb={["Admin", "Orders"]}
-        actions={<Button className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2"><Download className="h-4 w-4" />Export CSV</Button>}
+        actions={<Button className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2 hidden sm:flex"><Download className="h-4 w-4" />Export CSV</Button>}
       />
 
       {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-2 mb-4 border-b border-border">
+      <div className="flex gap-1 overflow-x-auto pb-2 mb-4 border-b border-border -mx-4 px-4 lg:mx-0 lg:px-0">
         {tabs.map(tab => (
           <button key={tab.status} onClick={() => setActiveTab(tab.status!)}
             className={cn("flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-[2px]",
@@ -72,89 +75,106 @@ export default function AdminOrders() {
 
       {/* Filter bar */}
       <div className="flex flex-wrap gap-2 mb-4">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
           <Input placeholder="Search orders..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
+        <Button variant="outline" size="icon" className="sm:hidden shrink-0"><Download className="h-4 w-4" /></Button>
       </div>
 
-      {/* Table */}
-      <div className="rounded-lg bg-card shadow-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface-2/50">
-                <th className="p-3 text-left font-medium text-text-secondary">Order ID</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Customer</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Pincode</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Weight</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Courier</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Payment</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Status</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Date</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <TableSkeleton rows={10} columns={9} />
-              ) : (
-                filtered.map(o => (
-                  <tr key={o.id} className="border-b border-border last:border-0 hover:bg-surface-2/30 transition-colors cursor-pointer group"
-                    onClick={() => openOrder(o)}>
-                    <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary-light shrink-0">
-                          <Package className="h-3.5 w-3.5 text-primary" />
+      {/* Responsive: Card view on mobile, table on desktop */}
+      {isMobile ? (
+        loading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="rounded-xl bg-card border border-border p-4 space-y-3 animate-pulse">
+                <div className="flex justify-between"><div className="h-4 w-20 bg-surface-2 rounded" /><div className="h-5 w-16 bg-surface-2 rounded-full" /></div>
+                <div className="h-4 w-32 bg-surface-2 rounded" />
+                <div className="h-3 w-24 bg-surface-2 rounded" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <OrderCardList orders={filtered} onViewOrder={openOrder} />
+        )
+      ) : (
+        <div className="rounded-lg bg-card shadow-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-2/50">
+                  <th className="p-3 text-left font-medium text-text-secondary">Order ID</th>
+                  <th className="p-3 text-left font-medium text-text-secondary">Customer</th>
+                  <th className="p-3 text-left font-medium text-text-secondary">Pincode</th>
+                  <th className="p-3 text-left font-medium text-text-secondary">Weight</th>
+                  <th className="p-3 text-left font-medium text-text-secondary">Courier</th>
+                  <th className="p-3 text-left font-medium text-text-secondary">Payment</th>
+                  <th className="p-3 text-left font-medium text-text-secondary">Status</th>
+                  <th className="p-3 text-left font-medium text-text-secondary">Date</th>
+                  <th className="p-3 text-left font-medium text-text-secondary">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <TableSkeleton rows={10} columns={9} />
+                ) : (
+                  filtered.map(o => (
+                    <tr key={o.id} className="border-b border-border last:border-0 hover:bg-surface-2/30 transition-colors cursor-pointer group"
+                      onClick={() => openOrder(o)}>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary-light shrink-0">
+                            <Package className="h-3.5 w-3.5 text-primary" />
+                          </div>
+                          <span className="font-mono text-xs text-primary font-medium">{o.id}</span>
                         </div>
-                        <span className="font-mono text-xs text-primary font-medium">{o.id}</span>
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <div>
-                        <p className="text-text-primary font-medium">{o.customer}</p>
-                        <p className="text-xs text-text-muted">{o.city}</p>
-                      </div>
-                    </td>
-                    <td className="p-3 text-text-secondary">{o.pincode}</td>
-                    <td className="p-3 text-text-secondary">{o.weight}</td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-1.5">
-                        <div className="h-2 w-2 rounded-full bg-success" />
-                        <span className="text-text-secondary">{o.courier}</span>
-                      </div>
-                    </td>
-                    <td className="p-3"><PaymentBadge type={o.payment} /></td>
-                    <td className="p-3"><StatusBadge status={o.status} /></td>
-                    <td className="p-3 text-text-muted text-xs">{o.date}</td>
-                    <td className="p-3">
-                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light"
-                          onClick={() => openOrder(o)}>
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light">
-                          <Printer className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-text-primary">
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex items-center justify-between border-t border-border p-3 text-sm text-text-secondary">
-          <span>Showing 1–{filtered.length} of {filtered.length} orders</span>
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" disabled>Previous</Button>
-            <Button variant="outline" size="sm" disabled>Next</Button>
+                      </td>
+                      <td className="p-3">
+                        <div>
+                          <p className="text-text-primary font-medium">{o.customer}</p>
+                          <p className="text-xs text-text-muted">{o.city}</p>
+                        </div>
+                      </td>
+                      <td className="p-3 text-text-secondary">{o.pincode}</td>
+                      <td className="p-3 text-text-secondary">{o.weight}</td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-2 w-2 rounded-full bg-success" />
+                          <span className="text-text-secondary">{o.courier}</span>
+                        </div>
+                      </td>
+                      <td className="p-3"><PaymentBadge type={o.payment} /></td>
+                      <td className="p-3"><StatusBadge status={o.status} /></td>
+                      <td className="p-3 text-text-muted text-xs">{o.date}</td>
+                      <td className="p-3">
+                        <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light"
+                            onClick={() => openOrder(o)}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light">
+                            <Printer className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-text-primary">
+                            <MoreHorizontal className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between border-t border-border p-3 text-sm text-text-secondary">
+            <span>Showing 1–{filtered.length} of {filtered.length} orders</span>
+            <div className="flex gap-1">
+              <Button variant="outline" size="sm" disabled>Previous</Button>
+              <Button variant="outline" size="sm" disabled>Next</Button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </div>
