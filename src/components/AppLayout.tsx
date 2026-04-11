@@ -1,0 +1,205 @@
+import { ReactNode, useMemo } from "react";
+import { useLocation, useNavigate, Link } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
+import { useState } from "react";
+import { notifications } from "@/data/mockData";
+import {
+  LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X, ChevronDown,
+  Upload, Link2, Wallet, MapPin, Plus, Users2
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+interface NavItem {
+  label: string; icon: any; path: string;
+}
+
+interface NavGroup {
+  title: string; items: NavItem[];
+}
+
+const adminNav: NavGroup[] = [
+  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/admin" }] },
+  { title: "ORDERS", items: [
+    { label: "Orders", icon: Package, path: "/admin/orders" },
+    { label: "NDR Management", icon: AlertTriangle, path: "/admin/ndr" },
+  ]},
+  { title: "MANAGEMENT", items: [
+    { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue" },
+    { label: "Rates & Shipping", icon: Calculator, path: "/admin/rates" },
+    { label: "Couriers", icon: Truck, path: "/admin/couriers" },
+    { label: "Dropshippers", icon: Users, path: "/admin/dropshippers" },
+    { label: "Vendors", icon: Warehouse, path: "/admin/vendors" },
+  ]},
+  { title: "FINANCE", items: [
+    { label: "Finance & Wallet", icon: IndianRupee, path: "/admin/finance" },
+  ]},
+  { title: "INSIGHTS", items: [
+    { label: "Analytics", icon: BarChart3, path: "/admin/analytics" },
+    { label: "Support", icon: Headphones, path: "/admin/support" },
+  ]},
+  { title: "", items: [{ label: "Settings", icon: Settings, path: "/admin/settings" }] },
+];
+
+const vendorNav: NavGroup[] = [
+  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/vendor" }] },
+  { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders" }] },
+  { title: "TEAM", items: [{ label: "Team", icon: Users2, path: "/vendor/team" }] },
+  { title: "", items: [{ label: "Settings", icon: Settings, path: "/vendor/settings" }] },
+];
+
+const dropshipperNav: NavGroup[] = [
+  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/dropshipper" }] },
+  { title: "ORDERS", items: [
+    { label: "Orders", icon: Package, path: "/dropshipper/orders" },
+    { label: "Create Order", icon: Plus, path: "/dropshipper/create-order" },
+    { label: "Bulk Upload", icon: Upload, path: "/dropshipper/bulk-upload" },
+  ]},
+  { title: "CONNECT", items: [
+    { label: "Channels", icon: Link2, path: "/dropshipper/channels" },
+  ]},
+  { title: "FINANCE", items: [
+    { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet" },
+    { label: "Rate Calculator", icon: Calculator, path: "/dropshipper/rates" },
+  ]},
+  { title: "", items: [
+    { label: "Track Shipment", icon: MapPin, path: "/dropshipper/tracking" },
+    { label: "Settings", icon: Settings, path: "/dropshipper/settings" },
+  ]},
+];
+
+const roleNavMap = { admin: adminNav, vendor: vendorNav, dropshipper: dropshipperNav };
+
+export default function AppLayout({ children }: { children: ReactNode }) {
+  const { role, userName, logout } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  const nav = roleNavMap[role];
+  const unread = notifications.filter(n => !n.read).length;
+
+  const pageTitle = useMemo(() => {
+    for (const group of nav) {
+      for (const item of group.items) {
+        if (location.pathname === item.path) return item.label;
+      }
+    }
+    return "Dashboard";
+  }, [location.pathname, nav]);
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      {/* Mobile overlay */}
+      {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+
+      {/* Sidebar */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 flex w-60 flex-col bg-sidebar transition-transform duration-200 lg:static lg:translate-x-0",
+        sidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="flex h-[60px] items-center gap-2 px-5 border-b border-sidebar-border">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
+            <Package className="h-4 w-4 text-sidebar-primary-foreground" />
+          </div>
+          <span className="text-lg font-bold text-sidebar-primary-foreground">ShipFlow</span>
+          <button className="ml-auto lg:hidden text-sidebar-foreground" onClick={() => setSidebarOpen(false)}>
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+          {nav.map((group, gi) => (
+            <div key={gi}>
+              {group.title && (
+                <p className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+                  {group.title}
+                </p>
+              )}
+              {group.items.map(item => {
+                const active = location.pathname === item.path;
+                return (
+                  <Link key={item.path} to={item.path} onClick={() => setSidebarOpen(false)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                      active
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent"
+                    )}>
+                    <item.icon className="h-[18px] w-[18px] shrink-0" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        <div className="border-t border-sidebar-border p-3">
+          <div className="flex items-center gap-3 rounded-lg px-3 py-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-accent text-sm font-medium text-sidebar-foreground">
+              {userName.charAt(0)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="truncate text-sm font-medium text-sidebar-primary-foreground">{userName}</p>
+              <p className="truncate text-xs text-sidebar-foreground/60 capitalize">{role}</p>
+            </div>
+            <button onClick={() => { logout(); navigate("/login"); }} className="text-sidebar-foreground/60 hover:text-sidebar-primary-foreground">
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <div className="flex flex-1 flex-col min-w-0">
+        {/* Header */}
+        <header className="flex h-[60px] items-center gap-3 border-b border-border bg-card px-4 lg:px-6 shrink-0">
+          <button className="lg:hidden text-text-secondary" onClick={() => setSidebarOpen(true)}>
+            <Menu className="h-5 w-5" />
+          </button>
+          <h2 className="text-lg font-semibold text-text-primary">{pageTitle}</h2>
+          <div className="flex-1" />
+
+          <Button variant="ghost" size="icon" className="text-text-secondary"><Search className="h-4 w-4" /></Button>
+
+          <div className="relative">
+            <Button variant="ghost" size="icon" className="text-text-secondary relative" onClick={() => setNotifOpen(!notifOpen)}>
+              <Bell className="h-4 w-4" />
+              {unread > 0 && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-danger" />}
+            </Button>
+            {notifOpen && (
+              <div className="absolute right-0 top-full mt-2 w-80 rounded-lg bg-card border border-border shadow-card-lg z-50">
+                <div className="p-3 border-b border-border font-semibold text-sm text-text-primary">Notifications</div>
+                <div className="max-h-64 overflow-y-auto">
+                  {notifications.map(n => (
+                    <div key={n.id} className={cn("px-3 py-2.5 text-sm border-b border-border last:border-0", !n.read && "bg-primary-light/50")}>
+                      <p className="text-text-primary">{n.title}</p>
+                      <p className="text-xs text-text-muted">{n.time}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="hidden sm:flex items-center gap-1 rounded-full bg-success-light px-3 py-1 text-sm font-medium text-success-dark">
+            <IndianRupee className="h-3 w-3" />12,450
+          </div>
+
+          <div className="flex items-center gap-2 ml-1">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
+              {userName.charAt(0)}
+            </div>
+          </div>
+        </header>
+
+        {/* Page content */}
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}
