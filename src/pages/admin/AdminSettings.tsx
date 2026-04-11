@@ -4,34 +4,18 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { Package, Palette, Type, Image, Eye, Monitor, Smartphone, RotateCcw } from "lucide-react";
+import { Package, Palette, Type, Eye, Monitor, Smartphone, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { useBranding, defaultBranding } from "@/contexts/BrandingContext";
 
 const notifEvents = ["Order Placed", "Shipment Picked Up", "Out for Delivery", "Delivered", "NDR Raised", "RTO Initiated", "COD Credited", "Wallet Low Balance"];
 const channels = ["Email", "SMS", "WhatsApp"];
 
-const defaultBranding = {
-  brandName: 'ShipFlow',
-  logoUrl: '',
-  primaryColor: '#4F46E5',
-  bgColor: '#F8FAFC',
-  accentColor: '#10B981',
-  headerText: 'Track Your Shipment',
-  subText: 'Enter your AWB or Order ID below',
-  footerText: 'Powered by ShipFlow',
-  showBranding: true,
-  buttonStyle: 'rounded' as 'rounded' | 'square' | 'pill',
-  fontFamily: 'Inter',
-};
-
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState("general");
-  const [branding, setBranding] = useState(defaultBranding);
+  const { branding, setBranding, updateBranding } = useBranding();
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
 
-  const updateBranding = (key: string, value: string | boolean) => {
-    setBranding(prev => ({ ...prev, [key]: value }));
-  };
 
   const tabs = ["general", "tracking page", "notifications", "api"];
 
