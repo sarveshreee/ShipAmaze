@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import type { OrderStatus, PaymentType } from "@/data/mockData";
 import {
   CheckCircle2, Truck, PackageOpen, AlertTriangle, RotateCcw, Clock, PackageCheck,
-  PackageX, XCircle, FileEdit, Loader2, LucideIcon
+  PackageX, XCircle, FileEdit, Loader2, Undo2, LucideIcon
 } from "lucide-react";
 
 const statusConfig: Record<OrderStatus, { bg: string; text: string; label: string; icon: LucideIcon }> = {
