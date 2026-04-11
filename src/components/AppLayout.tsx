@@ -9,6 +9,7 @@ import {
   Upload, Link2, Wallet, MapPin, Plus, Users2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CommandPalette } from "@/components/CommandPalette";
 
 interface NavItem {
   label: string; icon: any; path: string;
