@@ -1,8 +1,12 @@
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
-import { orders } from "@/data/mockData";
+import { useOrders } from "@/hooks/useSupabaseData";
 
 export default function VendorOrders() {
+  const { data: orders = [], isLoading } = useOrders();
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading orders...</div>;
+
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Orders" breadcrumb={["Vendor", "Orders"]} />
