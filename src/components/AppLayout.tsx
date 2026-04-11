@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
 
 interface NavItem { label: string; icon: any; path: string; }
 interface NavGroup { title: string; items: NavItem[]; }
@@ -81,7 +82,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [cmdOpen, setCmdOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
 
   const nav = roleNavMap[role];
@@ -162,10 +162,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <button className="lg:hidden text-text-secondary" onClick={() => setSidebarOpen(true)}>
             <Menu className="h-5 w-5" />
           </button>
-          <h2 className="text-lg font-semibold text-text-primary">{pageTitle}</h2>
+          <h2 className="text-lg font-semibold text-text-primary truncate">{pageTitle}</h2>
           <div className="flex-1" />
 
-          <Button variant="ghost" size="icon" className="text-text-secondary" onClick={() => setCmdOpen(true)}>
+          <Button variant="ghost" size="icon" className="text-text-secondary" onClick={() => {
+            const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true });
+            document.dispatchEvent(event);
+          }}>
             <Search className="h-4 w-4" />
           </Button>
 
@@ -175,7 +178,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               {unread > 0 && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-danger" />}
             </Button>
             {notifOpen && (
-              <div className="absolute right-0 top-full mt-2 w-80 rounded-lg bg-card border border-border shadow-card-lg z-50">
+              <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg bg-card border border-border shadow-card-lg z-50">
                 <div className="p-3 border-b border-border font-semibold text-sm text-text-primary">Notifications</div>
                 <div className="max-h-64 overflow-y-auto">
                   {notifications.map(n => (
@@ -200,10 +203,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-20 lg:pb-6">
           {children}
         </main>
       </div>
+
+      <MobileBottomNav />
       <CommandPalette />
     </div>
   );
