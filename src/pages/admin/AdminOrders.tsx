@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
-import { orders, type OrderStatus } from "@/data/mockData";
+import { OrderDetailDrawer } from "@/components/OrderDetailDrawer";
+import { KPICardSkeleton, TableSkeleton } from "@/components/SkeletonLoaders";
+import { orders, type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Download, Eye, Printer, MoreHorizontal } from "lucide-react";
+import { Search, Download, Eye, Printer, MoreHorizontal, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs: { label: string; status?: OrderStatus | "all" }[] = [
@@ -23,6 +25,14 @@ const tabs: { label: string; status?: OrderStatus | "all" }[] = [
 export default function AdminOrders() {
   const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 800);
+    return () => clearTimeout(t);
+  }, []);
 
   const filtered = orders.filter(o => {
     if (activeTab !== "all" && o.status !== activeTab) return false;
@@ -32,10 +42,15 @@ export default function AdminOrders() {
 
   const getCount = (status: string) => status === "all" ? orders.length : orders.filter(o => o.status === status).length;
 
+  const openOrder = (order: Order) => {
+    setSelectedOrder(order);
+    setDrawerOpen(true);
+  };
+
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Orders" breadcrumb={["Admin", "Orders"]}
-        actions={<Button className="bg-primary text-primary-foreground hover:bg-primary-dark"><Download className="h-4 w-4 mr-2" />Export CSV</Button>}
+        actions={<Button className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2"><Download className="h-4 w-4" />Export CSV</Button>}
       />
 
       {/* Tabs */}
@@ -81,25 +96,54 @@ export default function AdminOrders() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(o => (
-                <tr key={o.id} className="border-b border-border last:border-0 hover:bg-surface-2/30 transition-colors">
-                  <td className="p-3 font-mono text-xs text-primary font-medium">{o.id}</td>
-                  <td className="p-3 text-text-primary">{o.customer}</td>
-                  <td className="p-3 text-text-secondary">{o.pincode}</td>
-                  <td className="p-3 text-text-secondary">{o.weight}</td>
-                  <td className="p-3 text-text-secondary">{o.courier}</td>
-                  <td className="p-3"><PaymentBadge type={o.payment} /></td>
-                  <td className="p-3"><StatusBadge status={o.status} /></td>
-                  <td className="p-3 text-text-muted">{o.date}</td>
-                  <td className="p-3">
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary"><Eye className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary"><Printer className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary"><MoreHorizontal className="h-3.5 w-3.5" /></Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {loading ? (
+                <TableSkeleton rows={10} columns={9} />
+              ) : (
+                filtered.map(o => (
+                  <tr key={o.id} className="border-b border-border last:border-0 hover:bg-surface-2/30 transition-colors cursor-pointer group"
+                    onClick={() => openOrder(o)}>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary-light shrink-0">
+                          <Package className="h-3.5 w-3.5 text-primary" />
+                        </div>
+                        <span className="font-mono text-xs text-primary font-medium">{o.id}</span>
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div>
+                        <p className="text-text-primary font-medium">{o.customer}</p>
+                        <p className="text-xs text-text-muted">{o.city}</p>
+                      </div>
+                    </td>
+                    <td className="p-3 text-text-secondary">{o.pincode}</td>
+                    <td className="p-3 text-text-secondary">{o.weight}</td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-2 w-2 rounded-full bg-success" />
+                        <span className="text-text-secondary">{o.courier}</span>
+                      </div>
+                    </td>
+                    <td className="p-3"><PaymentBadge type={o.payment} /></td>
+                    <td className="p-3"><StatusBadge status={o.status} /></td>
+                    <td className="p-3 text-text-muted text-xs">{o.date}</td>
+                    <td className="p-3">
+                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light"
+                          onClick={() => openOrder(o)}>
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light">
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-text-primary">
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -111,6 +155,8 @@ export default function AdminOrders() {
           </div>
         </div>
       </div>
+
+      <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </div>
   );
 }
