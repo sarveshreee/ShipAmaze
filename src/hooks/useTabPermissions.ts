@@ -20,25 +20,11 @@ export function useTabPermissions() {
     }
 
     const load = async () => {
-      const { data: defaults } = await supabase
-        .from("tab_permissions")
-        .select("tab_key, enabled")
-        .eq("role", role)
-        .is("user_id", null);
-
-      let userOverrides: TabPermission[] = [];
-      if (userId) {
-        const { data } = await supabase
-          .from("tab_permissions")
-          .select("tab_key, enabled")
-          .eq("role", role)
-          .eq("user_id", userId);
-        userOverrides = (data || []) as TabPermission[];
-      }
+      // Use RPC to get effective permissions (merges global defaults + user overrides securely)
+      const { data } = await supabase.rpc("get_my_tab_permissions", { _role: role });
 
       const map: Record<string, boolean> = {};
-      (defaults || []).forEach((d: TabPermission) => { map[d.tab_key] = d.enabled; });
-      userOverrides.forEach((d: TabPermission) => { map[d.tab_key] = d.enabled; });
+      (data || []).forEach((d: TabPermission) => { map[d.tab_key] = d.enabled; });
       setPermissions(map);
       setIsLoading(false);
     };

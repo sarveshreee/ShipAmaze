@@ -604,6 +604,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_my_tab_permissions: {
+        Args: { _role: Database["public"]["Enums"]["app_role"] }
+        Returns: {
+          enabled: boolean
+          tab_key: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
