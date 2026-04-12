@@ -19,8 +19,17 @@ const statusColors: Record<string, string> = {
 export default function AdminWeightDisputes() {
   const [tab, setTab] = useState<'all' | 'Open' | 'Accepted' | 'Rejected' | 'Escalated'>('all');
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   const { data: weightDisputes = [], isLoading } = useWeightDisputes();
-  const filtered = tab === 'all' ? weightDisputes : weightDisputes.filter(w => w.status === tab);
+  const filtered = weightDisputes.filter(w => {
+    if (tab !== 'all' && w.status !== tab) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return [w.orderId, w.awb, w.courier, w.sellerWeight, w.courierWeight, w.status, String(w.chargedAmount), String(w.expectedAmount)]
+        .some(val => val != null && String(val).toLowerCase().includes(q));
+    }
+    return true;
+  });
   const openCount = weightDisputes.filter(w => w.status === 'Open').length;
   const totalExcess = weightDisputes.reduce((s, w) => s + (w.chargedAmount - w.expectedAmount), 0);
 
@@ -48,7 +57,7 @@ export default function AdminWeightDisputes() {
           ))}
         </div>
         <div className="ml-auto flex gap-2">
-          <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" /><Input placeholder="Search by AWB/Order ID..." className="pl-9 w-56" /></div>
+          <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" /><Input placeholder="Search by AWB/Order ID..." className="pl-9 w-56" value={search} onChange={e => setSearch(e.target.value)} /></div>
           <Button variant="outline" size="sm" onClick={() => toast.success("Disputes exported")}><Download className="h-4 w-4 mr-1" />Export</Button>
         </div>
       </div>
