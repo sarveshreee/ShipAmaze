@@ -38,6 +38,8 @@ import VendorDashboard from "@/pages/vendor/VendorDashboard";
 import VendorOrders from "@/pages/vendor/VendorOrders";
 import VendorTeam from "@/pages/vendor/VendorTeam";
 import VendorSettings from "@/pages/vendor/VendorSettings";
+import VendorCatalogue from "@/pages/vendor/VendorCatalogue";
+import AdminPermissions from "@/pages/admin/AdminPermissions";
 
 // Dropshipper
 import DropshipperDashboard from "@/pages/dropshipper/DropshipperDashboard";
@@ -92,10 +94,12 @@ function AppRoutes() {
       <Route path="/admin/reports" element={<ProtectedRoute><AdminReports /></ProtectedRoute>} />
       <Route path="/admin/support" element={<ProtectedRoute><AdminSupport /></ProtectedRoute>} />
       <Route path="/admin/settings" element={<ProtectedRoute><AdminSettings /></ProtectedRoute>} />
+      <Route path="/admin/permissions" element={<ProtectedRoute><AdminPermissions /></ProtectedRoute>} />
 
       {/* Vendor */}
       <Route path="/vendor" element={<ProtectedRoute><VendorDashboard /></ProtectedRoute>} />
       <Route path="/vendor/orders" element={<ProtectedRoute><VendorOrders /></ProtectedRoute>} />
+      <Route path="/vendor/catalogue" element={<ProtectedRoute><VendorCatalogue /></ProtectedRoute>} />
       <Route path="/vendor/team" element={<ProtectedRoute><VendorTeam /></ProtectedRoute>} />
       <Route path="/vendor/settings" element={<ProtectedRoute><VendorSettings /></ProtectedRoute>} />
 
