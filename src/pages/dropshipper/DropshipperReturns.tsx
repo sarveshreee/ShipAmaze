@@ -53,7 +53,7 @@ export default function DropshipperReturns() {
         </div>
         <div className="ml-auto relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <Input placeholder="Search returns..." className="pl-9 w-56" />
+          <Input placeholder="Search returns..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 w-56" />
         </div>
       </div>
 
