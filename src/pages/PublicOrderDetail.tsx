@@ -2,6 +2,7 @@ import { useSearchParams } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Package, MapPin, Truck, Phone, User, CreditCard, Calendar, Weight, Ruler } from "lucide-react";
 import { TimelineTracker } from "@/components/TimelineTracker";
+export type { };
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { orders as mockOrders } from "@/data/mockData";
@@ -166,7 +167,24 @@ export default function PublicOrderDetail() {
 
         {/* Timeline */}
         <div className="rounded-xl bg-card border border-border p-5">
-          <TimelineTracker status={order.status} />
+          <TimelineTracker
+            steps={[
+              { label: "Order Placed", detail: order.date },
+              { label: "Ready to Ship" },
+              { label: "Picked Up" },
+              { label: "In Transit" },
+              { label: "Out for Delivery" },
+              { label: "Delivered" },
+            ]}
+            currentStep={
+              order.status === "delivered" ? 5
+                : order.status === "out-for-delivery" ? 4
+                : order.status === "in-transit" ? 3
+                : order.status === "not-picked" ? 2
+                : order.status === "ready-to-ship" ? 1
+                : 0
+            }
+          />
         </div>
       </main>
     </div>
