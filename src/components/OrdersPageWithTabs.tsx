@@ -10,7 +10,7 @@ import { useOrders } from "@/hooks/useSupabaseData";
 import { type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Download, Eye, Printer, MoreHorizontal, Package, RefreshCw, FileText } from "lucide-react";
+import { Search, Download, Eye, Printer, MoreHorizontal, Package, RefreshCw, FileText, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
@@ -145,6 +145,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                     <td className="p-3">
                       <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light" onClick={() => openOrder(o)}><Eye className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light" onClick={() => window.open(`/order/${o.id}`, '_blank')}><ExternalLink className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light" onClick={() => { printShippingLabel(o); toast.success("Printing label..."); }}><Printer className="h-3.5 w-3.5" /></Button>
                       </div>
                     </td>
