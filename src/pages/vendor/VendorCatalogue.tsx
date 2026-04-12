@@ -170,4 +170,4 @@ export default function VendorCatalogue() {
   );
 }
 
-import { cn } from "@/lib/utils";
+
