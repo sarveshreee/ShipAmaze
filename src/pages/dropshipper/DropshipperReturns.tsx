@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
-import { returnOrders } from "@/data/mockData";
-import { Undo2, Package, CheckCircle2, Clock, Search } from "lucide-react";
+import { useReturnOrders } from "@/hooks/useSupabaseData";
+import { Undo2, Package, CheckCircle2, Clock, Search, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { downloadCSV } from "@/lib/exportUtils";
+import { toast } from "sonner";
 
 const returnStatusColors: Record<string, string> = {
   'Return Requested': 'bg-warning-light text-warning-dark',
@@ -20,32 +22,36 @@ export default function DropshipperReturns() {
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
   const tabs = ['all', 'Return Requested', 'In Transit', 'Received', 'Refund Processed'];
+  const { data: returnOrders = [], isLoading } = useReturnOrders();
+
   const filtered = returnOrders.filter(r => {
     if (tab !== 'all' && r.status !== tab) return false;
     const q = search.trim().toLowerCase();
     if (q.length > 0) {
       const searchableFields = [
-        r.id,
-        r.originalOrderId,
-        r.reason,
-        r.courier,
-        r.customer,
-        r.status,
-        r.date,
-        String(r.refundAmount),
-        r.refundAmount.toLocaleString(),
+        r.id, r.originalOrderId, r.reason, r.courier, r.customer,
+        r.status, r.date, String(r.refundAmount), r.refundAmount.toLocaleString(),
       ];
-      const matched = searchableFields.some(
-        val => val != null && String(val).toLowerCase().includes(q)
-      );
-      if (!matched) return false;
+      return searchableFields.some(val => val != null && String(val).toLowerCase().includes(q));
     }
     return true;
   });
 
+  const handleExport = () => {
+    downloadCSV("returns_export",
+      ["Return ID", "Original Order", "Customer", "Reason", "Courier", "Refund", "Status", "Date"],
+      filtered.map(r => [r.id, r.originalOrderId, r.customer, r.reason, r.courier, r.refundAmount, r.status, r.date])
+    );
+    toast.success(`Exported ${filtered.length} returns as CSV`);
+  };
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading returns...</div>;
+
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="Returns" breadcrumb={["Dropshipper", "Returns"]} />
+      <PageHeader title="Returns" breadcrumb={["Dropshipper", "Returns"]}
+        actions={<Button onClick={handleExport} variant="outline" className="gap-2"><Download className="h-4 w-4" />Export CSV</Button>}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KPICard icon={Undo2} label="Total Returns" value={String(returnOrders.length)} color="primary" />
@@ -81,7 +87,9 @@ export default function DropshipperReturns() {
             <th className="p-3 text-left font-medium text-text-secondary">Date</th>
           </tr></thead>
           <tbody>
-            {filtered.map(r => (
+            {filtered.length === 0 ? (
+              <tr><td colSpan={7} className="p-8 text-center text-text-muted">No returns found</td></tr>
+            ) : filtered.map(r => (
               <tr key={r.id} className="border-b border-border last:border-0 hover:bg-surface-2/30">
                 <td className="p-3 font-mono text-xs text-primary">{r.id}</td>
                 <td className="p-3 font-mono text-xs text-text-primary">{r.originalOrderId}</td>

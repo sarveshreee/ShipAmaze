@@ -3,17 +3,23 @@ import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { TimelineTracker } from "@/components/TimelineTracker";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import type { Order } from "@/data/mockData";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { Order, OrderStatus } from "@/data/mockData";
 import {
   User, Phone, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
-  Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw
+  Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw, Loader2
 } from "lucide-react";
 import { toast } from "sonner";
+import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { printShippingLabel } from "@/components/ShippingLabel";
 
 interface OrderDetailDrawerProps {
   order: Order | null;
   open: boolean;
   onClose: () => void;
+  onOrderUpdated?: () => void;
 }
 
 const statusToStep: Record<string, number> = {
@@ -30,7 +36,12 @@ const timelineSteps = [
   { label: "Delivered", detail: "Successfully delivered" },
 ];
 
-export function OrderDetailDrawer({ order, open, onClose }: OrderDetailDrawerProps) {
+const allStatuses: OrderStatus[] = ['pending', 'ready-to-ship', 'not-picked', 'in-transit', 'out-for-delivery', 'delivered', 'ndr', 'rto', 'cancelled'];
+
+export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: OrderDetailDrawerProps) {
+  const [updating, setUpdating] = useState(false);
+  const { isDemoMode } = useAuth();
+
   if (!order) return null;
 
   const currentStep = statusToStep[order.status] ?? -1;
@@ -42,6 +53,30 @@ export function OrderDetailDrawer({ order, open, onClose }: OrderDetailDrawerPro
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success(`${text} copied to clipboard`);
+  };
+
+  const updateStatus = async (newStatus: string) => {
+    setUpdating(true);
+    try {
+      if (isDemoMode) {
+        toast.success(`Status updated to ${newStatus} (demo)`);
+        setUpdating(false);
+        return;
+      }
+      const { error } = await supabase.from("orders").update({ status: newStatus }).eq("order_id", order.id);
+      if (error) throw error;
+      toast.success(`Order ${order.id} status updated to ${newStatus}`);
+      onOrderUpdated?.();
+    } catch (err: any) {
+      toast.error(`Failed: ${err.message}`);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const cancelOrder = async () => {
+    if (!confirm(`Cancel order ${order.id}?`)) return;
+    await updateStatus("cancelled");
   };
 
   return (
@@ -149,22 +184,39 @@ export function OrderDetailDrawer({ order, open, onClose }: OrderDetailDrawerPro
 
           <Separator />
 
-          {/* Actions */}
+          {/* Update Status */}
+          <section>
+            <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+              <RefreshCw className="h-3.5 w-3.5" /> Update Status
+            </h4>
+            <Select onValueChange={updateStatus} disabled={updating}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Change status..." />
+              </SelectTrigger>
+              <SelectContent>
+                {allStatuses.filter(s => s !== order.status).map(s => (
+                  <SelectItem key={s} value={s}>{s.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {updating && <p className="text-xs text-text-muted mt-1 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Updating...</p>}
+          </section>
+
+          <Separator />
+
+          {/* Quick Actions */}
           <section>
             <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
               Quick Actions
             </h4>
             <div className="grid grid-cols-2 gap-2 pb-4">
-              <Button variant="outline" className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30" onClick={() => toast.success(`Label generated for ${order.id}`)}>
+              <Button variant="outline" className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30" onClick={() => printShippingLabel(order)}>
                 <Printer className="h-4 w-4" /> Print Label
               </Button>
-              <Button variant="outline" className="gap-2 h-10 text-text-secondary hover:text-secondary hover:border-secondary/30" onClick={() => toast.info(`Status update dialog for ${order.id}`)}>
-                <RefreshCw className="h-4 w-4" /> Update Status
-              </Button>
-              <Button variant="outline" className="gap-2 h-10 text-warning hover:bg-warning-light hover:border-warning/30" onClick={() => toast.warning(`NDR raised for ${order.id}`)}>
+              <Button variant="outline" className="gap-2 h-10 text-warning hover:bg-warning-light hover:border-warning/30" onClick={() => updateStatus('ndr')}>
                 <AlertTriangle className="h-4 w-4" /> Raise NDR
               </Button>
-              <Button variant="outline" className="gap-2 h-10 text-danger hover:bg-danger-light hover:border-danger/30" onClick={() => toast.error(`Order ${order.id} cancelled`)}>
+              <Button variant="outline" className="gap-2 h-10 text-danger hover:bg-danger-light hover:border-danger/30 col-span-2" onClick={cancelOrder}>
                 <XCircle className="h-4 w-4" /> Cancel Order
               </Button>
             </div>

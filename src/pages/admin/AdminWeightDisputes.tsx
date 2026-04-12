@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { useWeightDisputes } from "@/hooks/useSupabaseData";
 import { Scale, AlertTriangle, CheckCircle2, XCircle, Search, Download, ChevronDown, ChevronRight, Upload, Image } from "lucide-react";
+import { downloadCSV } from "@/lib/exportUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/EmptyState";
@@ -58,7 +59,7 @@ export default function AdminWeightDisputes() {
         </div>
         <div className="ml-auto flex gap-2">
           <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" /><Input placeholder="Search by AWB/Order ID..." className="pl-9 w-56" value={search} onChange={e => setSearch(e.target.value)} /></div>
-          <Button variant="outline" size="sm" onClick={() => toast.success("Disputes exported")}><Download className="h-4 w-4 mr-1" />Export</Button>
+          <Button variant="outline" size="sm" onClick={() => { downloadCSV("weight_disputes_export", ["Order ID","AWB","Courier","Seller Wt","Courier Wt","Diff","Charged","Expected","Status","Date"], filtered.map(w => [w.orderId, w.awb, w.courier, w.sellerWeight, w.courierWeight, w.diff, w.chargedAmount, w.expectedAmount, w.status, w.date])); toast.success(`Exported ${filtered.length} disputes`); }}><Download className="h-4 w-4 mr-1" />Export</Button>
         </div>
       </div>
 

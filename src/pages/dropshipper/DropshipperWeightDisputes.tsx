@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { weightDisputes } from "@/data/mockData";
-import { Scale, Search } from "lucide-react";
+import { useWeightDisputes } from "@/hooks/useSupabaseData";
+import { Scale, Search, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { downloadCSV } from "@/lib/exportUtils";
 
 const statusColors: Record<string, string> = {
   Open: "bg-warning-light text-warning-dark",
@@ -18,6 +19,8 @@ const statusColors: Record<string, string> = {
 export default function DropshipperWeightDisputes() {
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
+  const { data: weightDisputes = [], isLoading } = useWeightDisputes();
+
   const filtered = weightDisputes.filter(w => {
     if (tab !== 'all' && w.status !== tab) return false;
     if (search.trim()) {
@@ -28,9 +31,21 @@ export default function DropshipperWeightDisputes() {
     return true;
   });
 
+  const handleExport = () => {
+    downloadCSV("weight_disputes_export",
+      ["Order ID", "AWB", "Courier", "Your Weight", "Courier Weight", "Charged", "Expected", "Status", "Date"],
+      filtered.map(w => [w.orderId, w.awb, w.courier, w.sellerWeight, w.courierWeight, w.chargedAmount, w.expectedAmount, w.status, w.date])
+    );
+    toast.success(`Exported ${filtered.length} disputes`);
+  };
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading disputes...</div>;
+
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="Weight Disputes" breadcrumb={["Dropshipper", "Weight Disputes"]} />
+      <PageHeader title="Weight Disputes" breadcrumb={["Dropshipper", "Weight Disputes"]}
+        actions={<Button onClick={handleExport} variant="outline" className="gap-2"><Download className="h-4 w-4" />Export</Button>}
+      />
       <div className="rounded-xl bg-card shadow-card p-5 mb-6 flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning-light"><Scale className="h-5 w-5 text-warning-dark" /></div>

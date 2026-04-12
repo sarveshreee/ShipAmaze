@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { ndrOrders } from "@/data/mockData";
-import { AlertTriangle, Phone, RotateCcw, ArrowRight } from "lucide-react";
+import { useNdrOrders } from "@/hooks/useSupabaseData";
+import { AlertTriangle, Phone, RotateCcw, ArrowRight, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { downloadCSV } from "@/lib/exportUtils";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 const reasonColors: Record<string, string> = {
   'Not at Home': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
@@ -18,11 +21,41 @@ const reasonColors: Record<string, string> = {
 export default function DropshipperNDR() {
   const [tab, setTab] = useState('all');
   const tabs = ['all', 'Active', 'Initiated', 'Closed'];
+  const { data: ndrOrders = [], isLoading, refetch } = useNdrOrders();
+  const { isDemoMode } = useAuth();
   const filtered = tab === 'all' ? ndrOrders : ndrOrders.filter(n => n.status === tab);
+
+  const handleAction = async (awb: string, action: 'Re-attempt' | 'Force RTO') => {
+    if (isDemoMode) {
+      toast.success(`${action} scheduled for ${awb} (demo mode)`);
+      return;
+    }
+    try {
+      const newStatus = action === 'Force RTO' ? 'Closed' : 'Initiated';
+      const { error } = await supabase.from('ndr_orders').update({ status: newStatus, next_action: action }).eq('awb', awb);
+      if (error) throw error;
+      toast.success(`${action} scheduled for ${awb}`);
+      refetch();
+    } catch (err: any) {
+      toast.error(`Failed: ${err.message}`);
+    }
+  };
+
+  const handleExport = () => {
+    downloadCSV("ndr_export",
+      ["AWB", "Customer", "Seller", "Reason", "Attempts", "Status", "Last Update"],
+      filtered.map(n => [n.awb, n.customer, n.seller, n.reason, n.attempts, n.status, n.lastUpdate])
+    );
+    toast.success(`Exported ${filtered.length} NDR records`);
+  };
+
+  if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading NDR data...</div>;
 
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="NDR Management" breadcrumb={["Dropshipper", "NDR"]} />
+      <PageHeader title="NDR Management" breadcrumb={["Dropshipper", "NDR"]}
+        actions={<Button onClick={handleExport} variant="outline" className="gap-2"><Download className="h-4 w-4" />Export CSV</Button>}
+      />
       <div className="rounded-lg bg-warning-light border border-warning/30 p-4 mb-6 flex items-center gap-3">
         <AlertTriangle className="h-5 w-5 text-warning-dark shrink-0" />
         <div>
@@ -65,13 +98,13 @@ export default function DropshipperNDR() {
                 <div className="flex items-center gap-2">
                   {n.status === 'Active' && (
                     <>
-                      <Button size="sm" className="text-xs h-8 bg-primary text-primary-foreground gap-1" onClick={() => toast.success(`Re-attempt scheduled for ${n.awb}`)}>
+                      <Button size="sm" className="text-xs h-8 bg-primary text-primary-foreground gap-1" onClick={() => handleAction(n.awb, 'Re-attempt')}>
                         <ArrowRight className="h-3 w-3" />Re-attempt
                       </Button>
                       <Button size="sm" variant="outline" className="text-xs h-8 gap-1" onClick={() => toast.info(`Calling ${n.customer}...`)}>
                         <Phone className="h-3 w-3" />Call
                       </Button>
-                      <Button size="sm" variant="outline" className="text-xs h-8 text-danger border-danger/30 hover:bg-danger-light gap-1" onClick={() => toast.error(`RTO initiated for ${n.awb}`)}>
+                      <Button size="sm" variant="outline" className="text-xs h-8 text-danger border-danger/30 hover:bg-danger-light gap-1" onClick={() => handleAction(n.awb, 'Force RTO')}>
                         <RotateCcw className="h-3 w-3" />Force RTO
                       </Button>
                     </>
