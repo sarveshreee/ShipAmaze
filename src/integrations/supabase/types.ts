@@ -458,6 +458,36 @@ export type Database = {
         }
         Relationships: []
       }
+      tab_permissions: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          tab_key: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          tab_key: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          tab_key?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number

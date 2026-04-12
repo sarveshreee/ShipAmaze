@@ -2,18 +2,19 @@ import { ReactNode, useMemo } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useTabPermissions } from "@/hooks/useTabPermissions";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { notifications } from "@/data/mockData";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon
+  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 
-interface NavItem { label: string; icon: any; path: string; }
+interface NavItem { label: string; icon: any; path: string; tabKey?: string; }
 interface NavGroup { title: string; items: NavItem[]; }
 
 const adminNav: NavGroup[] = [
@@ -31,6 +32,7 @@ const adminNav: NavGroup[] = [
     { label: "Dropshippers", icon: Users, path: "/admin/dropshippers" },
     { label: "Vendors", icon: Warehouse, path: "/admin/vendors" },
     { label: "Pincode Check", icon: MapPin, path: "/admin/pincode" },
+    { label: "Tab Permissions", icon: Shield, path: "/admin/permissions" },
   ]},
   { title: "FINANCE", items: [
     { label: "Finance & Wallet", icon: IndianRupee, path: "/admin/finance" },
@@ -46,33 +48,34 @@ const adminNav: NavGroup[] = [
 ];
 
 const vendorNav: NavGroup[] = [
-  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/vendor" }] },
-  { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders" }] },
-  { title: "TEAM", items: [{ label: "Team", icon: Users2, path: "/vendor/team" }] },
-  { title: "", items: [{ label: "Settings", icon: Settings, path: "/vendor/settings" }] },
+  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/vendor", tabKey: "dashboard" }] },
+  { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders", tabKey: "orders" }] },
+  { title: "CATALOGUE", items: [{ label: "Catalogue", icon: ShoppingBag, path: "/vendor/catalogue", tabKey: "catalogue" }] },
+  { title: "TEAM", items: [{ label: "Team", icon: Users2, path: "/vendor/team", tabKey: "team" }] },
+  { title: "", items: [{ label: "Settings", icon: Settings, path: "/vendor/settings", tabKey: "settings" }] },
 ];
 
 const dropshipperNav: NavGroup[] = [
-  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/dropshipper" }] },
+  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/dropshipper", tabKey: "dashboard" }] },
   { title: "ORDERS", items: [
-    { label: "Orders", icon: Package, path: "/dropshipper/orders" },
-    { label: "Create Order", icon: Plus, path: "/dropshipper/create-order" },
-    { label: "Bulk Upload", icon: Upload, path: "/dropshipper/bulk-upload" },
-    { label: "Returns", icon: Undo2, path: "/dropshipper/returns" },
-    { label: "NDR", icon: AlertTriangle, path: "/dropshipper/ndr" },
+    { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders" },
+    { label: "Create Order", icon: Plus, path: "/dropshipper/create-order", tabKey: "create-order" },
+    { label: "Bulk Upload", icon: Upload, path: "/dropshipper/bulk-upload", tabKey: "bulk-upload" },
+    { label: "Returns", icon: Undo2, path: "/dropshipper/returns", tabKey: "returns" },
+    { label: "NDR", icon: AlertTriangle, path: "/dropshipper/ndr", tabKey: "ndr" },
   ]},
   { title: "CONNECT", items: [
-    { label: "Channels", icon: Link2, path: "/dropshipper/channels" },
+    { label: "Channels", icon: Link2, path: "/dropshipper/channels", tabKey: "channels" },
   ]},
   { title: "FINANCE", items: [
-    { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet" },
-    { label: "Rate Calculator", icon: Calculator, path: "/dropshipper/rates" },
-    { label: "Weight Disputes", icon: Scale, path: "/dropshipper/weight-disputes" },
+    { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet", tabKey: "wallet" },
+    { label: "Rate Calculator", icon: Calculator, path: "/dropshipper/rates", tabKey: "rates" },
+    { label: "Weight Disputes", icon: Scale, path: "/dropshipper/weight-disputes", tabKey: "weight-disputes" },
   ]},
   { title: "", items: [
-    { label: "Pickup Addresses", icon: MapPin, path: "/dropshipper/addresses" },
-    { label: "Track Shipment", icon: Truck, path: "/dropshipper/tracking" },
-    { label: "Settings", icon: Settings, path: "/dropshipper/settings" },
+    { label: "Pickup Addresses", icon: MapPin, path: "/dropshipper/addresses", tabKey: "addresses" },
+    { label: "Track Shipment", icon: Truck, path: "/dropshipper/tracking", tabKey: "tracking" },
+    { label: "Settings", icon: Settings, path: "/dropshipper/settings", tabKey: "settings" },
   ]},
 ];
 
@@ -81,12 +84,23 @@ const roleNavMap = { admin: adminNav, vendor: vendorNav, dropshipper: dropshippe
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { role, userName, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { isTabEnabled } = useTabPermissions();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
 
-  const nav = roleNavMap[role];
+  const rawNav = roleNavMap[role];
+
+  // Filter nav items based on permissions
+  const nav = useMemo(() => {
+    if (role === "admin") return rawNav;
+    return rawNav.map(group => ({
+      ...group,
+      items: group.items.filter(item => !item.tabKey || isTabEnabled(item.tabKey))
+    })).filter(group => group.items.length > 0);
+  }, [rawNav, role, isTabEnabled]);
+
   const unread = notifications.filter(n => !n.read).length;
 
   const pageTitle = useMemo(() => {
@@ -174,7 +188,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <Search className="h-4 w-4" />
           </Button>
 
-          {/* Dark mode toggle */}
           <Button variant="ghost" size="icon" className="text-text-secondary" onClick={toggleTheme}>
             {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </Button>
