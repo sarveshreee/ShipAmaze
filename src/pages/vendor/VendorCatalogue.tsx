@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Plus, Upload, Search, Package, Pencil, Trash2, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadCSV } from "@/lib/exportUtils";
