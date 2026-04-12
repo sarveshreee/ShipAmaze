@@ -2,7 +2,6 @@ import { useSearchParams } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Package, MapPin, Truck, Phone, User, CreditCard, Calendar, Weight, Ruler } from "lucide-react";
 import { TimelineTracker } from "@/components/TimelineTracker";
-export type { };
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { orders as mockOrders } from "@/data/mockData";

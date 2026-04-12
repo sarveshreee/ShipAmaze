@@ -53,7 +53,7 @@ export function OrderCardList({ orders, onViewOrder }: OrderCardListProps) {
               <span>{order.weight}</span>
             </div>
             <div className="flex gap-1">
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-text-muted" onClick={e => { e.stopPropagation(); onViewOrder?.(order); }}>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-text-muted" onClick={e => { e.stopPropagation(); window.open(`/order-detail?id=${order.id}`, '_blank'); }}>
                 <Eye className="h-3.5 w-3.5" />
               </Button>
               <Button variant="ghost" size="icon" className="h-7 w-7 text-text-muted" onClick={e => e.stopPropagation()}>

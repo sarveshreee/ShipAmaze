@@ -9,6 +9,7 @@ import AppLayout from "@/components/AppLayout";
 import LoginPage from "@/pages/LoginPage";
 import SignupPage from "@/pages/SignupPage";
 import PublicTracking from "@/pages/PublicTracking";
+import PublicOrderDetail from "@/pages/PublicOrderDetail";
 import NotFound from "@/pages/NotFound";
 import ShopifyStore from "@/pages/ShopifyStore";
 import { useCartSync } from "@/hooks/useCartSync";
@@ -74,6 +75,7 @@ function AppRoutes() {
       <Route path="/login" element={isAuthenticated ? <Navigate to={`/${role}`} replace /> : <LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/track" element={<PublicTracking />} />
+      <Route path="/order-detail" element={<PublicOrderDetail />} />
 
       {/* Admin */}
       <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
