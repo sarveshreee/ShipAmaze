@@ -14,21 +14,18 @@ export function useTabPermissions() {
 
   useEffect(() => {
     if (isDemoMode || role === "admin") {
-      // Admin sees everything, demo mode sees everything
       setPermissions({});
       setIsLoading(false);
       return;
     }
 
     const load = async () => {
-      // Get defaults for role
       const { data: defaults } = await supabase
         .from("tab_permissions")
         .select("tab_key, enabled")
         .eq("role", role)
         .is("user_id", null);
 
-      // Get user-specific overrides
       let userOverrides: TabPermission[] = [];
       if (userId) {
         const { data } = await supabase
@@ -51,7 +48,6 @@ export function useTabPermissions() {
 
   const isTabEnabled = useCallback((tabKey: string): boolean => {
     if (role === "admin") return true;
-    // If no permission record exists, default to enabled
     return permissions[tabKey] !== false;
   }, [role, permissions]);
 
@@ -81,7 +77,6 @@ export function useAdminTabPermissions() {
   useEffect(() => { load(); }, [load]);
 
   const toggleDefault = async (role: "dropshipper" | "vendor", tabKey: string, enabled: boolean) => {
-    // Upsert using the unique constraint
     const { error } = await supabase.from("tab_permissions").upsert(
       { role, user_id: null, tab_key: tabKey, enabled },
       { onConflict: "role,tab_key" }
@@ -96,4 +91,56 @@ export function useAdminTabPermissions() {
   };
 
   return { defaults, isLoading, toggleDefault, reload: load };
+}
+
+// Hook for admin to manage per-user permissions
+export function useUserTabPermissions(userId: string | null, role: "dropshipper" | "vendor") {
+  const [userPerms, setUserPerms] = useState<Record<string, boolean>>({});
+  const [isLoading, setIsLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!userId) { setIsLoading(false); return; }
+    const { data } = await supabase
+      .from("tab_permissions")
+      .select("tab_key, enabled")
+      .eq("user_id", userId)
+      .eq("role", role);
+
+    const map: Record<string, boolean> = {};
+    (data || []).forEach((d: any) => { map[d.tab_key] = d.enabled; });
+    setUserPerms(map);
+    setIsLoading(false);
+  }, [userId, role]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggleUserPerm = async (tabKey: string, enabled: boolean) => {
+    if (!userId) return { error: new Error("No user") };
+    // Delete existing then insert (partial unique index doesn't support upsert)
+    await supabase
+      .from("tab_permissions")
+      .delete()
+      .eq("user_id", userId)
+      .eq("role", role)
+      .eq("tab_key", tabKey);
+    const { error } = await supabase.from("tab_permissions").insert(
+      { role, user_id: userId, tab_key: tabKey, enabled }
+    );
+    if (!error) {
+      setUserPerms(prev => ({ ...prev, [tabKey]: enabled }));
+    }
+    return { error };
+  };
+
+  const resetUserPerms = async () => {
+    if (!userId) return;
+    await supabase
+      .from("tab_permissions")
+      .delete()
+      .eq("user_id", userId)
+      .eq("role", role);
+    setUserPerms({});
+  };
+
+  return { userPerms, isLoading, toggleUserPerm, resetUserPerms, reload: load };
 }
