@@ -61,7 +61,7 @@ export default function OrderDetailPage() {
           amount: data.amount,
           payment: data.payment as any,
           status: data.status as any,
-          courier: data.courier || "Unassigned",
+          courier: (data.courier as CourierName) || "Delhivery",
           awb: data.awb || "N/A",
           date: data.date || data.created_at?.split("T")[0] || "",
           weight: data.weight || "0.5 kg",
