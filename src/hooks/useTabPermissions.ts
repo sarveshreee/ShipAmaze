@@ -116,9 +116,15 @@ export function useUserTabPermissions(userId: string | null, role: "dropshipper"
 
   const toggleUserPerm = async (tabKey: string, enabled: boolean) => {
     if (!userId) return { error: new Error("No user") };
-    const { error } = await supabase.from("tab_permissions").upsert(
-      { role, user_id: userId, tab_key: tabKey, enabled },
-      { onConflict: "role,tab_key,user_id" }
+    // Delete existing then insert (partial unique index doesn't support upsert)
+    await supabase
+      .from("tab_permissions")
+      .delete()
+      .eq("user_id", userId)
+      .eq("role", role)
+      .eq("tab_key", tabKey);
+    const { error } = await supabase.from("tab_permissions").insert(
+      { role, user_id: userId, tab_key: tabKey, enabled }
     );
     if (!error) {
       setUserPerms(prev => ({ ...prev, [tabKey]: enabled }));
