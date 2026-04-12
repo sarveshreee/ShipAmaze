@@ -18,8 +18,18 @@ const returnStatusColors: Record<string, string> = {
 
 export default function DropshipperReturns() {
   const [tab, setTab] = useState('all');
+  const [search, setSearch] = useState('');
   const tabs = ['all', 'Return Requested', 'In Transit', 'Received', 'Refund Processed'];
-  const filtered = tab === 'all' ? returnOrders : returnOrders.filter(r => r.status === tab);
+  const filtered = returnOrders.filter(r => {
+    if (tab !== 'all' && r.status !== tab) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const match = [r.id, r.originalOrderId, r.reason, r.courier, String(r.refundAmount), r.status, r.date]
+        .some(val => val?.toLowerCase().includes(q));
+      if (!match) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="animate-fade-in-up">
