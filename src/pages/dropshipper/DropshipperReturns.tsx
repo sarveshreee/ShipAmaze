@@ -22,11 +22,23 @@ export default function DropshipperReturns() {
   const tabs = ['all', 'Return Requested', 'In Transit', 'Received', 'Refund Processed'];
   const filtered = returnOrders.filter(r => {
     if (tab !== 'all' && r.status !== tab) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      const match = [r.id, r.originalOrderId, r.reason, r.courier, String(r.refundAmount), r.status, r.date]
-        .some(val => val?.toLowerCase().includes(q));
-      if (!match) return false;
+    const q = search.trim().toLowerCase();
+    if (q.length > 0) {
+      const searchableFields = [
+        r.id,
+        r.originalOrderId,
+        r.reason,
+        r.courier,
+        r.customer,
+        r.status,
+        r.date,
+        String(r.refundAmount),
+        r.refundAmount.toLocaleString(),
+      ];
+      const matched = searchableFields.some(
+        val => val != null && String(val).toLowerCase().includes(q)
+      );
+      if (!matched) return false;
     }
     return true;
   });
