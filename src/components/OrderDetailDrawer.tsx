@@ -6,7 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import type { Order } from "@/data/mockData";
 import {
   User, Phone, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
-  Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw, ExternalLink
+  Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -155,9 +155,6 @@ export function OrderDetailDrawer({ order, open, onClose }: OrderDetailDrawerPro
               Quick Actions
             </h4>
             <div className="grid grid-cols-2 gap-2 pb-4">
-              <Button variant="outline" className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30" onClick={() => window.open(`/order/${order.id}`, '_blank')}>
-                <ExternalLink className="h-4 w-4" /> Open in Tab
-              </Button>
               <Button variant="outline" className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30" onClick={() => toast.success(`Label generated for ${order.id}`)}>
                 <Printer className="h-4 w-4" /> Print Label
               </Button>
@@ -167,7 +164,7 @@ export function OrderDetailDrawer({ order, open, onClose }: OrderDetailDrawerPro
               <Button variant="outline" className="gap-2 h-10 text-warning hover:bg-warning-light hover:border-warning/30" onClick={() => toast.warning(`NDR raised for ${order.id}`)}>
                 <AlertTriangle className="h-4 w-4" /> Raise NDR
               </Button>
-              <Button variant="outline" className="col-span-2 gap-2 h-10 text-danger hover:bg-danger-light hover:border-danger/30" onClick={() => toast.error(`Order ${order.id} cancelled`)}>
+              <Button variant="outline" className="gap-2 h-10 text-danger hover:bg-danger-light hover:border-danger/30" onClick={() => toast.error(`Order ${order.id} cancelled`)}>
                 <XCircle className="h-4 w-4" /> Cancel Order
               </Button>
             </div>
