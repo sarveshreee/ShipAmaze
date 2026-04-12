@@ -17,7 +17,16 @@ const statusColors: Record<string, string> = {
 
 export default function DropshipperWeightDisputes() {
   const [tab, setTab] = useState('all');
-  const filtered = tab === 'all' ? weightDisputes : weightDisputes.filter(w => w.status === tab);
+  const [search, setSearch] = useState('');
+  const filtered = weightDisputes.filter(w => {
+    if (tab !== 'all' && w.status !== tab) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return [w.orderId, w.awb, w.courier, w.sellerWeight, w.courierWeight, w.status, String(w.chargedAmount), String(w.expectedAmount)]
+        .some(val => val != null && String(val).toLowerCase().includes(q));
+    }
+    return true;
+  });
 
   return (
     <div className="animate-fade-in-up">
@@ -29,7 +38,7 @@ export default function DropshipperWeightDisputes() {
         </div>
         <div className="h-10 w-px bg-border mx-2" />
         <div><p className="text-sm text-text-muted">Total Excess Charged</p><p className="text-xl font-bold text-danger">₹{weightDisputes.reduce((s, w) => s + (w.chargedAmount - w.expectedAmount), 0).toLocaleString()}</p></div>
-        <div className="ml-auto"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" /><Input placeholder="Search by AWB..." className="pl-9 w-48" /></div></div>
+        <div className="ml-auto"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" /><Input placeholder="Search by AWB..." className="pl-9 w-48" value={search} onChange={e => setSearch(e.target.value)} /></div></div>
       </div>
 
       <div className="flex gap-1 border-b border-border mb-4">

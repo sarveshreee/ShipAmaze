@@ -46,7 +46,11 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const filtered = orders.filter(o => {
     if (activeTab !== "all" && o.status !== activeTab) return false;
-    if (search && !o.id.toLowerCase().includes(search.toLowerCase()) && !o.customer.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return [o.id, o.customer, o.city, o.payment, o.status, String(o.amount), o.date]
+        .some(val => val != null && String(val).toLowerCase().includes(q));
+    }
     return true;
   });
 
