@@ -18,8 +18,18 @@ const returnStatusColors: Record<string, string> = {
 
 export default function DropshipperReturns() {
   const [tab, setTab] = useState('all');
+  const [search, setSearch] = useState('');
   const tabs = ['all', 'Return Requested', 'In Transit', 'Received', 'Refund Processed'];
-  const filtered = tab === 'all' ? returnOrders : returnOrders.filter(r => r.status === tab);
+  const filtered = returnOrders.filter(r => {
+    if (tab !== 'all' && r.status !== tab) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const match = [r.id, r.originalOrderId, r.reason, r.courier, String(r.refundAmount), r.status, r.date]
+        .some(val => val?.toLowerCase().includes(q));
+      if (!match) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="animate-fade-in-up">
@@ -32,8 +42,8 @@ export default function DropshipperReturns() {
         <KPICard icon={CheckCircle2} label="Refunded" value={String(returnOrders.filter(r => r.status === 'Refund Processed').length)} color="success" />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex gap-1 overflow-x-auto border-b border-border">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex gap-1 border-b border-border">
           {tabs.map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={cn("px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-[1px] transition-colors",
@@ -41,9 +51,9 @@ export default function DropshipperReturns() {
               )}>{t === 'all' ? 'All' : t}</button>
           ))}
         </div>
-        <div className="ml-auto relative">
+        <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <Input placeholder="Search returns..." className="pl-9 w-56" />
+          <Input placeholder="Search returns..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 w-56" />
         </div>
       </div>
 

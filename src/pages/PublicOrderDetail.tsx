@@ -1,6 +1,9 @@
 import { useSearchParams } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { Package, MapPin, Truck, Phone, User, CreditCard, Calendar, Weight, Ruler } from "lucide-react";
+import { Package, MapPin, Truck, Phone, User, CreditCard, Calendar, Weight, Ruler, Printer, RefreshCw, AlertTriangle, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { printShippingLabel } from "@/components/ShippingLabel";
 import { TimelineTracker } from "@/components/TimelineTracker";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -163,6 +166,25 @@ export default function PublicOrderDetail() {
             </div>
           </div>
         )}
+
+        {/* Quick Actions */}
+        <div className="rounded-xl bg-card border border-border p-5 space-y-3">
+          <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Quick Actions</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <Button variant="outline" className="h-11 gap-2 text-sm font-medium" onClick={() => { printShippingLabel(order); toast.success("Printing label..."); }}>
+              <Printer className="h-4 w-4" /> Print Label
+            </Button>
+            <Button variant="outline" className="h-11 gap-2 text-sm font-medium" onClick={() => toast.info("Update status coming soon")}>
+              <RefreshCw className="h-4 w-4" /> Update Status
+            </Button>
+            <Button variant="outline" className="h-11 gap-2 text-sm font-medium text-warning-dark" onClick={() => toast.info("Raise NDR coming soon")}>
+              <AlertTriangle className="h-4 w-4" /> Raise NDR
+            </Button>
+            <Button variant="outline" className="h-11 gap-2 text-sm font-medium text-destructive border-destructive/30 bg-destructive/5 hover:bg-destructive/10" onClick={() => toast.info("Cancel order coming soon")}>
+              <XCircle className="h-4 w-4" /> Cancel Order
+            </Button>
+          </div>
+        </div>
 
         {/* Timeline */}
         <div className="rounded-xl bg-card border border-border p-5">
