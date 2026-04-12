@@ -11,7 +11,6 @@ import SignupPage from "@/pages/SignupPage";
 import PublicTracking from "@/pages/PublicTracking";
 import NotFound from "@/pages/NotFound";
 import ShopifyStore from "@/pages/ShopifyStore";
-import OrderDetailPage from "@/pages/OrderDetailPage";
 import { useCartSync } from "@/hooks/useCartSync";
 
 // Admin
@@ -75,7 +74,6 @@ function AppRoutes() {
       <Route path="/login" element={isAuthenticated ? <Navigate to={`/${role}`} replace /> : <LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/track" element={<PublicTracking />} />
-      <Route path="/order/:orderId" element={<ProtectedRoute><OrderDetailPage /></ProtectedRoute>} />
 
       {/* Admin */}
       <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
