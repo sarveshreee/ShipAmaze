@@ -1,7 +1,7 @@
 import { useParams } from "react-router-dom";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { TimelineTracker } from "@/components/TimelineTracker";
-import { mockOrders, type Order } from "@/data/mockData";
+import { orders as mockOrders, type Order, type CourierName } from "@/data/mockData";
 import { supabase } from "@/integrations/supabase/client";
 import { useState, useEffect } from "react";
 import {
