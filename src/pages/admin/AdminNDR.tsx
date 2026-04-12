@@ -4,8 +4,11 @@ import { useNdrOrders } from "@/hooks/useSupabaseData";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/EmptyState";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Download } from "lucide-react";
 import { toast } from "sonner";
+import { downloadCSV } from "@/lib/exportUtils";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 const ndrTabs = ["Active", "Initiated", "Closed"] as const;
 const reasonColors: Record<string, string> = {
@@ -18,14 +21,38 @@ const reasonColors: Record<string, string> = {
 
 export default function AdminNDR() {
   const [tab, setTab] = useState<string>("Active");
-  const { data: ndrOrders = [], isLoading } = useNdrOrders();
+  const { data: ndrOrders = [], isLoading, refetch } = useNdrOrders();
+  const { isDemoMode } = useAuth();
   const filtered = ndrOrders.filter(n => n.status === tab);
+
+  const handleAction = async (awb: string, action: string) => {
+    if (isDemoMode) { toast.success(`${action} for ${awb} (demo)`); return; }
+    try {
+      const newStatus = action === 'Force RTO' ? 'Closed' : 'Initiated';
+      const { error } = await supabase.from('ndr_orders').update({ status: newStatus, next_action: action }).eq('awb', awb);
+      if (error) throw error;
+      toast.success(`${action} scheduled for ${awb}`);
+      refetch();
+    } catch (err: any) {
+      toast.error(`Failed: ${err.message}`);
+    }
+  };
+
+  const handleExport = () => {
+    downloadCSV("ndr_export",
+      ["AWB", "Customer", "Seller", "Reason", "Attempts", "Status", "Last Update"],
+      filtered.map(n => [n.awb, n.customer, n.seller, n.reason, n.attempts, n.status, n.lastUpdate])
+    );
+    toast.success(`Exported ${filtered.length} NDR records`);
+  };
 
   if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading NDR data...</div>;
 
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="NDR Management" breadcrumb={["Admin", "NDR"]} />
+      <PageHeader title="NDR Management" breadcrumb={["Admin", "NDR"]}
+        actions={<Button onClick={handleExport} variant="outline" className="gap-2"><Download className="h-4 w-4" />Export</Button>}
+      />
       <div className="flex gap-1 mb-4 border-b border-border">
         {ndrTabs.map(t => (
           <button key={t} onClick={() => setTab(t)}
@@ -60,8 +87,16 @@ export default function AdminNDR() {
                   <td className="p-3 text-text-secondary">{n.attempts}</td>
                   <td className="p-3 text-text-muted">{n.lastUpdate}</td>
                   <td className="p-3 flex gap-1">
-                    <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => toast.success(`Re-attempt scheduled for ${n.awb}`)}>Re-attempt</Button>
-                    <Button size="sm" variant="outline" className="text-xs h-7 text-danger" onClick={() => toast.info(`RTO initiated for ${n.awb}`)}>Force RTO</Button>
+                    {n.status === 'Active' ? (
+                      <>
+                        <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => handleAction(n.awb, 'Re-attempt')}>Re-attempt</Button>
+                        <Button size="sm" variant="outline" className="text-xs h-7 text-danger" onClick={() => handleAction(n.awb, 'Force RTO')}>Force RTO</Button>
+                      </>
+                    ) : (
+                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium",
+                        n.status === 'Closed' ? 'bg-surface-2 text-text-muted' : 'bg-secondary-light text-secondary-dark'
+                      )}>{n.status}</span>
+                    )}
                   </td>
                 </tr>
               ))}

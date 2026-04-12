@@ -8,6 +8,9 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { downloadCSV } from "@/lib/exportUtils";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 const returnStatusColors: Record<string, string> = {
   'Return Requested': 'bg-warning-light text-warning-dark',
@@ -20,9 +23,40 @@ const returnStatusColors: Record<string, string> = {
 
 export default function AdminReturns() {
   const [tab, setTab] = useState('all');
+  const [search, setSearch] = useState('');
   const tabs = ['all', 'Return Requested', 'Pickup Scheduled', 'In Transit', 'Received', 'Refund Processed'];
-  const { data: returnOrders = [], isLoading } = useReturnOrders();
-  const filtered = tab === 'all' ? returnOrders : returnOrders.filter(r => r.status === tab);
+  const { data: returnOrders = [], isLoading, refetch } = useReturnOrders();
+  const { isDemoMode } = useAuth();
+
+  const filtered = returnOrders.filter(r => {
+    if (tab !== 'all' && r.status !== tab) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return [r.id, r.originalOrderId, r.reason, r.courier, r.customer, r.status, r.date, String(r.refundAmount)]
+        .some(val => val != null && String(val).toLowerCase().includes(q));
+    }
+    return true;
+  });
+
+  const handleExport = () => {
+    downloadCSV("returns_export",
+      ["Return ID", "Original Order", "Customer", "Reason", "Courier", "AWB", "Refund", "Status", "Date"],
+      filtered.map(r => [r.id, r.originalOrderId, r.customer, r.reason, r.courier, r.awb, r.refundAmount, r.status, r.date])
+    );
+    toast.success(`Exported ${filtered.length} returns`);
+  };
+
+  const handleStatusUpdate = async (returnId: string, newStatus: string) => {
+    if (isDemoMode) { toast.success(`Status updated to ${newStatus} (demo)`); return; }
+    try {
+      const { error } = await supabase.from("return_orders").update({ status: newStatus }).eq("return_id", returnId);
+      if (error) throw error;
+      toast.success(`Return ${returnId} → ${newStatus}`);
+      refetch();
+    } catch (err: any) {
+      toast.error(`Failed: ${err.message}`);
+    }
+  };
 
   if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading returns...</div>;
 
@@ -46,13 +80,16 @@ export default function AdminReturns() {
           ))}
         </div>
         <div className="ml-auto flex gap-2">
-          <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" /><Input placeholder="Search returns..." className="pl-9 w-56" /></div>
-          <Button variant="outline" size="sm" onClick={() => toast.success("Returns exported")}><Download className="h-4 w-4 mr-1" />Export</Button>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+            <Input placeholder="Search returns..." className="pl-9 w-56" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <Button variant="outline" size="sm" onClick={handleExport}><Download className="h-4 w-4 mr-1" />Export</Button>
         </div>
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState icon={Undo2} title="No returns found" description="No return orders match the current filter" actionLabel="Show All" onAction={() => setTab('all')} />
+        <EmptyState icon={Undo2} title="No returns found" description="No return orders match the current filter" actionLabel="Show All" onAction={() => { setTab('all'); setSearch(''); }} />
       ) : (
         <div className="rounded-lg bg-card shadow-card overflow-x-auto">
           <table className="w-full text-sm">
@@ -82,9 +119,12 @@ export default function AdminReturns() {
                   <td className="p-3 text-text-muted">{r.date}</td>
                   <td className="p-3">
                     <div className="flex gap-1">
-                      <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => toast.info(`Viewing return ${r.id}`)}>View</Button>
-                      {(r.status === 'Return Requested') && <Button size="sm" className="text-xs h-7 bg-primary text-primary-foreground" onClick={() => toast.success(`Pickup scheduled for ${r.id}`)}>Schedule Pickup</Button>}
-                      {r.status === 'Received' && <Button size="sm" className="text-xs h-7 bg-success text-primary-foreground" onClick={() => toast.success(`Refund processed for ${r.id}`)}>Process Refund</Button>}
+                      {r.status === 'Return Requested' && (
+                        <Button size="sm" className="text-xs h-7 bg-primary text-primary-foreground" onClick={() => handleStatusUpdate(r.id, 'Pickup Scheduled')}>Schedule Pickup</Button>
+                      )}
+                      {r.status === 'Received' && (
+                        <Button size="sm" className="text-xs h-7 bg-success text-primary-foreground" onClick={() => handleStatusUpdate(r.id, 'Refund Processed')}>Process Refund</Button>
+                      )}
                     </div>
                   </td>
                 </tr>
