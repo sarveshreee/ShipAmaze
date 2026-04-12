@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -16,18 +16,86 @@ import {
   type Order,
 } from "@/data/mockData";
 
-// Helper: in demo mode, return mock data; otherwise query Supabase
+type QueryStatus = "pending" | "success" | "error";
+
+interface SimpleQueryResult<T> {
+  data: T[];
+  error: Error | null;
+  isLoading: boolean;
+  isPending: boolean;
+  isError: boolean;
+  isSuccess: boolean;
+  status: QueryStatus;
+  refetch: () => Promise<void>;
+}
+
+function toError(error: unknown) {
+  return error instanceof Error ? error : new Error("Failed to load data");
+}
+
 function useDemoOrQuery<T>(
   key: string,
   mockData: T[],
   queryFn: () => Promise<T[]>,
   isDemoMode: boolean
-) {
-  return useQuery({
-    queryKey: [key, isDemoMode],
-    queryFn: isDemoMode ? () => Promise.resolve(mockData) : queryFn,
-    staleTime: 30_000,
-  });
+): SimpleQueryResult<T> {
+  const [data, setData] = useState<T[]>(mockData);
+  const [error, setError] = useState<Error | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const result = isDemoMode ? mockData : await queryFn();
+      const nextData = !isDemoMode && result.length === 0 ? mockData : result;
+      setData(nextData);
+      setError(null);
+    } catch (err) {
+      setError(toError(err));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isDemoMode, mockData, queryFn]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const run = async () => {
+      setIsLoading(true);
+      try {
+        const result = isDemoMode ? mockData : await queryFn();
+        if (!isMounted) return;
+        const nextData = !isDemoMode && result.length === 0 ? mockData : result;
+        setData(nextData);
+        setError(null);
+      } catch (err) {
+        if (!isMounted) return;
+        setError(toError(err));
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    void run();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [key, isDemoMode, mockData, queryFn]);
+
+  return useMemo(
+    () => ({
+      data,
+      error,
+      isLoading,
+      isPending: isLoading,
+      isError: !!error,
+      isSuccess: !isLoading && !error,
+      status: isLoading ? "pending" : error ? "error" : "success",
+      refetch: load,
+    }),
+    [data, error, isLoading, load]
+  );
 }
 
 export function useOrders() {
@@ -43,9 +111,9 @@ export function useOrders() {
       city: o.city || "",
       pincode: o.pincode || "",
       weight: o.weight || "",
-      courier: o.courier as any || "Delhivery",
-      payment: o.payment as any || "Prepaid",
-      status: o.status as any || "pending",
+      courier: (o.courier as any) || "Delhivery",
+      payment: (o.payment as any) || "Prepaid",
+      status: (o.status as any) || "pending",
       date: o.date || "",
       awb: o.awb || "",
       amount: Number(o.amount),
@@ -65,11 +133,11 @@ export function useManifests() {
     return (data || []).map((m) => ({
       id: m.manifest_id,
       date: m.date || "",
-      courier: m.courier as any || "Delhivery",
+      courier: (m.courier as any) || "Delhivery",
       ordersCount: m.orders_count || 0,
       totalWeight: m.total_weight || "",
       pickupAddress: m.pickup_address || "",
-      status: m.status as any || "Generated",
+      status: (m.status as any) || "Generated",
       pickupTime: m.pickup_time || undefined,
     }));
   }, isDemoMode);
@@ -89,7 +157,7 @@ export function useInvoices() {
       codCharges: Number(inv.cod_charges) || 0,
       gst: Number(inv.gst) || 0,
       total: Number(inv.total) || 0,
-      status: inv.status as any || "Unpaid",
+      status: (inv.status as any) || "Unpaid",
     }));
   }, isDemoMode);
 }
@@ -103,13 +171,13 @@ export function useWeightDisputes() {
       id: w.dispute_id,
       orderId: w.order_id || "",
       awb: w.awb || "",
-      courier: w.courier as any || "Delhivery",
+      courier: (w.courier as any) || "Delhivery",
       sellerWeight: w.seller_weight || "",
       courierWeight: w.courier_weight || "",
       diff: w.diff || "",
       chargedAmount: Number(w.charged_amount) || 0,
       expectedAmount: Number(w.expected_amount) || 0,
-      status: w.status as any || "Open",
+      status: (w.status as any) || "Open",
       date: w.date || "",
     }));
   }, isDemoMode);
@@ -125,7 +193,7 @@ export function useTransactions() {
       date: t.date || "",
       description: t.description || "",
       txnId: t.txn_id,
-      type: t.type as any || "Credit",
+      type: (t.type as any) || "Credit",
       amount: Number(t.amount),
       balance: Number(t.balance),
     }));
@@ -141,12 +209,12 @@ export function useNdrOrders() {
       awb: n.awb,
       customer: n.customer || "",
       seller: n.seller || "",
-      reason: n.reason as any || "Not at Home",
+      reason: (n.reason as any) || "Not at Home",
       attempts: n.attempts || 1,
       lastUpdate: n.last_update || "",
-      status: n.status as any || "Active",
+      status: (n.status as any) || "Active",
       phone: n.phone || "",
-      nextAction: n.next_action as any || "Re-attempt",
+      nextAction: (n.next_action as any) || "Re-attempt",
     }));
   }, isDemoMode);
 }
@@ -162,8 +230,8 @@ export function useReturnOrders() {
       awb: r.awb || "",
       customer: r.customer || "",
       reason: r.reason || "",
-      courier: r.courier as any || "Delhivery",
-      status: r.status as any || "Return Requested",
+      courier: (r.courier as any) || "Delhivery",
+      status: (r.status as any) || "Return Requested",
       date: r.date || "",
       refundAmount: Number(r.refund_amount) || 0,
       weight: r.weight || "",
@@ -213,13 +281,7 @@ export function useCouriers() {
 }
 
 export function useCodRemittances() {
-  const { isDemoMode } = useAuth();
-  // No DB table for COD remittances yet, always use mock
-  return useQuery({
-    queryKey: ["cod_remittances"],
-    queryFn: () => Promise.resolve(mockCodRemittances),
-    staleTime: 30_000,
-  });
+  return useDemoOrQuery("cod_remittances", mockCodRemittances, async () => mockCodRemittances, true);
 }
 
 export function usePickupAddresses() {
@@ -227,7 +289,7 @@ export function usePickupAddresses() {
   return useDemoOrQuery("pickup_addresses", mockPickupAddresses, async () => {
     const { data, error } = await supabase.from("pickup_addresses").select("*").order("created_at", { ascending: false });
     if (error) throw error;
-    if (data.length === 0) return mockPickupAddresses; // fallback for admin view
+    if (!data || data.length === 0) return mockPickupAddresses;
     return data.map((a) => ({
       id: a.id,
       label: a.label,
