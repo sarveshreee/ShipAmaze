@@ -41,7 +41,11 @@ export default function AdminOrders() {
 
   const filtered = orders.filter(o => {
     if (activeTab !== "all" && o.status !== activeTab) return false;
-    if (search && !o.id.toLowerCase().includes(search.toLowerCase()) && !o.customer.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return [o.id, o.customer, o.city, o.payment, o.status, String(o.amount), o.date, o.awb, o.courier, o.pincode, o.weight]
+        .some(val => val != null && String(val).toLowerCase().includes(q));
+    }
     return true;
   });
 
@@ -179,7 +183,7 @@ export default function AdminOrders() {
         </Button>
       </BulkActionBar>
 
-      <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} onOrderUpdated={() => setDrawerOpen(false)} />
     </div>
   );
 }

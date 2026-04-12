@@ -175,7 +175,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         </Button>
       </BulkActionBar>
 
-      <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} onOrderUpdated={() => { setDrawerOpen(false); /* refetch handled by hook */ }} />
     </div>
   );
 }
