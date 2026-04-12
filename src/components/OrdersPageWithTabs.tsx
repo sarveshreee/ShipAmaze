@@ -144,7 +144,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                     <td className="p-3 text-text-muted text-xs">{o.date}</td>
                     <td className="p-3">
                       <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light" onClick={() => openOrder(o)}><Eye className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light" onClick={() => window.open(`/order/${o.id}`, '_blank')}><Eye className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light" onClick={() => { printShippingLabel(o); toast.success("Printing label..."); }}><Printer className="h-3.5 w-3.5" /></Button>
                       </div>
                     </td>
