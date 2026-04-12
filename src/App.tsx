@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -54,7 +53,7 @@ import DropshipperNDR from "@/pages/dropshipper/DropshipperNDR";
 import DropshipperWeightDisputes from "@/pages/dropshipper/DropshipperWeightDisputes";
 import DropshipperPickupAddresses from "@/pages/dropshipper/DropshipperPickupAddresses";
 
-const queryClient = new QueryClient();
+
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -122,21 +121,19 @@ function AppRoutes() {
 }
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <ThemeProvider>
-          <BrandingProvider>
-            <AuthProvider>
-              <AppRoutes />
-            </AuthProvider>
-          </BrandingProvider>
-        </ThemeProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+  <TooltipProvider>
+    <Toaster />
+    <Sonner />
+    <BrowserRouter>
+      <ThemeProvider>
+        <BrandingProvider>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+        </BrandingProvider>
+      </ThemeProvider>
+    </BrowserRouter>
+  </TooltipProvider>
 );
 
 export default App;
