@@ -10,7 +10,6 @@ import { toast } from "sonner";
 
 type Role = "admin" | "vendor" | "dropshipper";
 const roles: { value: Role; label: string; icon: React.ReactNode }[] = [
-  { value: "admin", label: "Admin", icon: <MapPin className="h-4 w-4" /> },
   { value: "vendor", label: "Vendor", icon: <Package className="h-4 w-4" /> },
   { value: "dropshipper", label: "Dropshipper", icon: <Truck className="h-4 w-4" /> },
 ];
@@ -153,7 +152,7 @@ export default function SignupPage() {
 
             <div className="space-y-2">
               <Label>Register as</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {roles.map(r => (
                   <button key={r.value} type="button" onClick={() => setRole(r.value)}
                     className={cn(
