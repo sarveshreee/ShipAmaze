@@ -43,7 +43,9 @@ export default function DropshipperWeightDisputes() {
 
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="Weight Disputes" breadcrumb={["Dropshipper", "Weight Disputes"]} />
+      <PageHeader title="Weight Disputes" breadcrumb={["Dropshipper", "Weight Disputes"]}
+        actions={<Button onClick={handleExport} variant="outline" className="gap-2"><Download className="h-4 w-4" />Export</Button>}
+      />
       <div className="rounded-xl bg-card shadow-card p-5 mb-6 flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning-light"><Scale className="h-5 w-5 text-warning-dark" /></div>
