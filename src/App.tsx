@@ -11,6 +11,8 @@ import LoginPage from "@/pages/LoginPage";
 import SignupPage from "@/pages/SignupPage";
 import PublicTracking from "@/pages/PublicTracking";
 import NotFound from "@/pages/NotFound";
+import ShopifyStore from "@/pages/ShopifyStore";
+import { useCartSync } from "@/hooks/useCartSync";
 
 // Admin
 import AdminDashboard from "@/pages/admin/AdminDashboard";
@@ -63,9 +65,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const { isAuthenticated, role } = useAuth();
+  useCartSync();
 
   return (
     <Routes>
+      <Route path="/store" element={<ShopifyStore />} />
       <Route path="/login" element={isAuthenticated ? <Navigate to={`/${role}`} replace /> : <LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/track" element={<PublicTracking />} />

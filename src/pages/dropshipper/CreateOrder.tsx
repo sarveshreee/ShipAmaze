@@ -1,11 +1,15 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Truck, Zap, IndianRupee, MapPin, Package, Plus, Trash2, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Truck, Zap, IndianRupee, MapPin, Package, Plus, Trash2, CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
 import { pickupAddresses, indianStates } from "@/data/mockData";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const couriersResult = [
   { name: "Delhivery", price: 45, days: "2-3 days", badges: ["Cheapest"], mode: "Surface", rating: 4.2 },
@@ -20,6 +24,8 @@ interface ProductLine {
 }
 
 export default function CreateOrder() {
+  const navigate = useNavigate();
+  const { userId, isDemoMode } = useAuth();
   const [paymentType, setPaymentType] = useState<"COD" | "Prepaid">("Prepaid");
   const [selectedCourier, setSelectedCourier] = useState("");
   const [selectedPickup, setSelectedPickup] = useState(pickupAddresses[0].id);
@@ -27,6 +33,22 @@ export default function CreateOrder() {
   const [pincodeValid, setPincodeValid] = useState<boolean | null>(null);
   const [products, setProducts] = useState<ProductLine[]>([{ name: "", qty: "1", weight: "0.5", price: "" }]);
   const [showRates, setShowRates] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Form fields
+  const [customerName, setCustomerName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [altPhone, setAltPhone] = useState("");
+  const [address1, setAddress1] = useState("");
+  const [address2, setAddress2] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [orderRef, setOrderRef] = useState("");
+  const [codAmount, setCodAmount] = useState("");
+  const [invoiceValue, setInvoiceValue] = useState("");
+  const [dimLength, setDimLength] = useState("");
+  const [dimWidth, setDimWidth] = useState("");
+  const [dimHeight, setDimHeight] = useState("");
 
   const checkPincode = (val: string) => {
     setPincode(val);
@@ -41,6 +63,114 @@ export default function CreateOrder() {
 
   const addProduct = () => setProducts([...products, { name: "", qty: "1", weight: "0.2", price: "" }]);
   const removeProduct = (i: number) => setProducts(products.filter((_, idx) => idx !== i));
+
+  const generateAWB = () => `AWB${Date.now().toString().slice(-9)}`;
+  const generateOrderId = () => `SF${Date.now().toString().slice(-5)}`;
+
+  const totalWeight = products.reduce((s, p) => s + (parseFloat(p.weight) || 0), 0);
+  const totalAmount = parseFloat(invoiceValue) || products.reduce((s, p) => s + (parseFloat(p.price) || 0) * (parseInt(p.qty) || 1), 0);
+
+  const handleSubmit = async () => {
+    if (!customerName || !phone || !address1 || !city || !pincode || !selectedCourier) {
+      toast.error("Please fill all required fields and select a courier");
+      return;
+    }
+    if (products.some(p => !p.name)) {
+      toast.error("Please fill product names");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const orderId = orderRef || generateOrderId();
+      const awb = generateAWB();
+      const dims = dimLength && dimWidth && dimHeight ? `${dimLength}x${dimWidth}x${dimHeight} cm` : "";
+      const pickupAddr = pickupAddresses.find(a => a.id === selectedPickup);
+
+      const orderData = {
+        order_id: orderId,
+        customer: customerName,
+        phone,
+        address: [address1, address2].filter(Boolean).join(", "),
+        city,
+        pincode,
+        weight: `${totalWeight.toFixed(1)} kg`,
+        courier: selectedCourier,
+        payment: paymentType,
+        status: "pending" as const,
+        date: new Date().toISOString().split("T")[0],
+        awb,
+        amount: totalAmount,
+        products: products.map(p => ({
+          name: p.name,
+          qty: parseInt(p.qty) || 1,
+          price: parseFloat(p.price) || 0,
+          weight: p.weight,
+        })),
+        dimensions: dims,
+        zone: "B",
+        pickup_address: pickupAddr ? pickupAddr.label : "",
+        user_id: userId || null,
+      };
+
+      if (isDemoMode) {
+        toast.success(`Order ${orderId} created (demo mode)`, { description: `AWB: ${awb}` });
+        navigate("/dropshipper/orders");
+        return;
+      }
+
+      const { error } = await supabase.from("orders").insert(orderData);
+      if (error) throw error;
+
+      toast.success(`Order ${orderId} created!`, { description: `AWB: ${awb}` });
+      navigate("/dropshipper/orders");
+    } catch (err: any) {
+      toast.error("Failed to create order", { description: err.message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!customerName) {
+      toast.error("Please enter at least a customer name");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const orderId = orderRef || generateOrderId();
+      const orderData = {
+        order_id: orderId,
+        customer: customerName,
+        phone,
+        address: [address1, address2].filter(Boolean).join(", "),
+        city,
+        pincode,
+        weight: `${totalWeight.toFixed(1)} kg`,
+        courier: selectedCourier || "Delhivery",
+        payment: paymentType,
+        status: "draft" as const,
+        date: new Date().toISOString().split("T")[0],
+        awb: "",
+        amount: totalAmount,
+        products: products.filter(p => p.name).map(p => ({
+          name: p.name, qty: parseInt(p.qty) || 1, price: parseFloat(p.price) || 0, weight: p.weight,
+        })),
+        user_id: userId || null,
+      };
+
+      if (!isDemoMode) {
+        const { error } = await supabase.from("orders").insert(orderData);
+        if (error) throw error;
+      }
+      toast.success(`Draft ${orderId} saved`);
+      navigate("/dropshipper/orders");
+    } catch (err: any) {
+      toast.error("Failed to save draft", { description: err.message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="animate-fade-in-up">
@@ -72,15 +202,15 @@ export default function CreateOrder() {
               <Truck className="h-4 w-4 text-primary" />Delivery Address
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><Label>Full Name *</Label><Input placeholder="Amit Sharma" /></div>
-              <div><Label>Phone *</Label><Input placeholder="+91 98000 00000" /></div>
-              <div><Label>Alternate Phone</Label><Input placeholder="+91 98000 00001" /></div>
-              <div className="sm:col-span-2"><Label>Address Line 1 *</Label><Input placeholder="House/Flat No, Street" /></div>
-              <div className="sm:col-span-2"><Label>Address Line 2</Label><Input placeholder="Landmark, Area" /></div>
-              <div><Label>City *</Label><Input placeholder="Mumbai" /></div>
+              <div><Label>Full Name *</Label><Input placeholder="Amit Sharma" value={customerName} onChange={e => setCustomerName(e.target.value)} /></div>
+              <div><Label>Phone *</Label><Input placeholder="+91 98000 00000" value={phone} onChange={e => setPhone(e.target.value)} /></div>
+              <div><Label>Alternate Phone</Label><Input placeholder="+91 98000 00001" value={altPhone} onChange={e => setAltPhone(e.target.value)} /></div>
+              <div className="sm:col-span-2"><Label>Address Line 1 *</Label><Input placeholder="House/Flat No, Street" value={address1} onChange={e => setAddress1(e.target.value)} /></div>
+              <div className="sm:col-span-2"><Label>Address Line 2</Label><Input placeholder="Landmark, Area" value={address2} onChange={e => setAddress2(e.target.value)} /></div>
+              <div><Label>City *</Label><Input placeholder="Mumbai" value={city} onChange={e => setCity(e.target.value)} /></div>
               <div>
                 <Label>State *</Label>
-                <select className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm mt-1">
+                <select value={state} onChange={e => setState(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm mt-1">
                   <option value="">Select State</option>
                   {indianStates.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
@@ -104,7 +234,7 @@ export default function CreateOrder() {
               <Package className="h-4 w-4 text-primary" />Order Details
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-              <div><Label>Order Reference</Label><Input placeholder="REF-001" /></div>
+              <div><Label>Order Reference</Label><Input placeholder="REF-001" value={orderRef} onChange={e => setOrderRef(e.target.value)} /></div>
               <div>
                 <Label>Payment Type</Label>
                 <div className="flex gap-2 mt-1">
@@ -116,8 +246,8 @@ export default function CreateOrder() {
                   ))}
                 </div>
               </div>
-              {paymentType === "COD" && <div><Label>COD Amount (₹)</Label><Input placeholder="0" type="number" /></div>}
-              <div><Label>Invoice Value (₹)</Label><Input placeholder="499" type="number" /></div>
+              {paymentType === "COD" && <div><Label>COD Amount (₹)</Label><Input placeholder="0" type="number" value={codAmount} onChange={e => setCodAmount(e.target.value)} /></div>}
+              <div><Label>Invoice Value (₹)</Label><Input placeholder="499" type="number" value={invoiceValue} onChange={e => setInvoiceValue(e.target.value)} /></div>
             </div>
 
             {/* Multi-product */}
@@ -147,9 +277,9 @@ export default function CreateOrder() {
             <div className="border-t border-border pt-4 mt-4">
               <Label className="text-sm font-semibold mb-2 block">Package Dimensions (optional)</Label>
               <div className="grid grid-cols-3 gap-2">
-                <div><Label className="text-xs">Length (cm)</Label><Input placeholder="10" type="number" /></div>
-                <div><Label className="text-xs">Width (cm)</Label><Input placeholder="8" type="number" /></div>
-                <div><Label className="text-xs">Height (cm)</Label><Input placeholder="5" type="number" /></div>
+                <div><Label className="text-xs">Length (cm)</Label><Input placeholder="10" type="number" value={dimLength} onChange={e => setDimLength(e.target.value)} /></div>
+                <div><Label className="text-xs">Width (cm)</Label><Input placeholder="8" type="number" value={dimWidth} onChange={e => setDimWidth(e.target.value)} /></div>
+                <div><Label className="text-xs">Height (cm)</Label><Input placeholder="5" type="number" value={dimHeight} onChange={e => setDimHeight(e.target.value)} /></div>
               </div>
             </div>
           </div>
@@ -197,10 +327,11 @@ export default function CreateOrder() {
             )}
 
             <div className="border-t border-border mt-4 pt-4 space-y-2">
-              <Button className="w-full bg-primary text-primary-foreground hover:bg-primary-dark" disabled={!selectedCourier}>
-                <Zap className="h-4 w-4 mr-2" />Submit & Generate AWB
+              <Button className="w-full bg-primary text-primary-foreground hover:bg-primary-dark" disabled={!selectedCourier || submitting} onClick={handleSubmit}>
+                {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
+                Submit & Generate AWB
               </Button>
-              <Button variant="outline" className="w-full">Save as Draft</Button>
+              <Button variant="outline" className="w-full" disabled={submitting} onClick={handleSaveDraft}>Save as Draft</Button>
             </div>
           </div>
         </div>
