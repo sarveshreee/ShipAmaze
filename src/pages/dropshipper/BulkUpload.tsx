@@ -28,7 +28,7 @@ interface ParsedRow {
 const TEMPLATE_HEADERS = ["Customer Name", "Phone", "Address", "City", "Pincode", "Weight (kg)", "Payment (COD/Prepaid)", "Amount", "Product Name"];
 
 export default function BulkUpload() {
-  const { user, isDemoMode } = useAuth();
+  const { userId, isDemoMode } = useAuth();
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -117,7 +117,7 @@ export default function BulkUpload() {
         awb: `AWB${Date.now().toString().slice(-7)}${i}`,
         amount: parseFloat(r.amount) || 0,
         products: r.product ? [{ name: r.product, qty: 1, price: parseFloat(r.amount) || 0, weight: r.weight }] : [],
-        user_id: user?.id || null,
+        user_id: userId || null,
       }));
 
       if (isDemoMode) {

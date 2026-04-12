@@ -25,7 +25,7 @@ interface ProductLine {
 
 export default function CreateOrder() {
   const navigate = useNavigate();
-  const { user, isDemoMode } = useAuth();
+  const { userId, isDemoMode } = useAuth();
   const [paymentType, setPaymentType] = useState<"COD" | "Prepaid">("Prepaid");
   const [selectedCourier, setSelectedCourier] = useState("");
   const [selectedPickup, setSelectedPickup] = useState(pickupAddresses[0].id);
@@ -110,7 +110,7 @@ export default function CreateOrder() {
         dimensions: dims,
         zone: "B",
         pickup_address: pickupAddr ? pickupAddr.label : "",
-        user_id: user?.id || null,
+        user_id: userId || null,
       };
 
       if (isDemoMode) {
@@ -156,7 +156,7 @@ export default function CreateOrder() {
         products: products.filter(p => p.name).map(p => ({
           name: p.name, qty: parseInt(p.qty) || 1, price: parseFloat(p.price) || 0, weight: p.weight,
         })),
-        user_id: user?.id || null,
+        user_id: userId || null,
       };
 
       if (!isDemoMode) {
