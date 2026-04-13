@@ -99,7 +99,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     })).filter(group => group.items.length > 0);
   }, [rawNav, role, isTabEnabled]);
 
-  const unread = notifications.filter(n => !n.read).length;
+  const unread = 0;
 
   const pageTitle = useMemo(() => {
     for (const group of nav) {
@@ -199,12 +199,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg bg-card border border-border shadow-card-lg z-50">
                 <div className="p-3 border-b border-border font-semibold text-sm text-text-primary">Notifications</div>
                 <div className="max-h-64 overflow-y-auto">
-                  {notifications.map(n => (
-                    <div key={n.id} className={cn("px-3 py-2.5 text-sm border-b border-border last:border-0", !n.read && "bg-primary-light/50")}>
-                      <p className="text-text-primary">{n.title}</p>
-                      <p className="text-xs text-text-muted">{n.time}</p>
-                    </div>
-                  ))}
+                  <p className="px-3 py-4 text-sm text-text-muted text-center">No notifications</p>
                 </div>
               </div>
             )}
