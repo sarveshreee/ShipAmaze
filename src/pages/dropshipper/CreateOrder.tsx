@@ -26,7 +26,7 @@ interface ProductLine {
 
 export default function CreateOrder() {
   const navigate = useNavigate();
-  const { userId, isDemoMode } = useAuth();
+  const { userId } = useAuth();
   const [paymentType, setPaymentType] = useState<"COD" | "Prepaid">("Prepaid");
   const [selectedCourier, setSelectedCourier] = useState("");
   const [selectedPickup, setSelectedPickup] = useState(pickupAddresses[0].id);
