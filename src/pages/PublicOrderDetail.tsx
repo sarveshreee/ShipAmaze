@@ -31,42 +31,21 @@ export default function PublicOrderDetail() {
   useEffect(() => {
     if (!orderId) { setLoading(false); return; }
 
-    const fetchOrder = async () => {
-      // Try Supabase first
-      const { data } = await supabase
-        .from("orders")
-        .select("*")
-        .eq("order_id", orderId)
-        .maybeSingle();
-
-      if (data) {
-        setOrder({
-          id: data.order_id,
-          customer: data.customer,
-          phone: data.phone || "N/A",
-          address: data.address || "N/A",
-          city: data.city || "N/A",
-          pincode: data.pincode || "N/A",
-          weight: data.weight || "N/A",
-          courier: data.courier || "N/A",
-          payment: data.payment,
-          status: data.status,
-          date: data.date || data.created_at?.split("T")[0],
-          awb: data.awb || "N/A",
-          amount: data.amount,
-          dimensions: data.dimensions,
-          zone: data.zone,
-          products: data.products || [],
-        });
-      } else {
-        // Fallback to mock data
-        const mock = mockOrders.find((o) => o.id === orderId);
-        if (mock) setOrder(mock);
-      }
-      setLoading(false);
+    const findOrder = (id: string | null) => {
+      try {
+        const raw = localStorage.getItem("shipflow_orders");
+        if (raw) {
+          const list = JSON.parse(raw);
+          const match = list.find((o: any) => String(o.id || o.orderId || o.orderID) === String(id));
+          if (match) return match;
+        }
+      } catch (e) {}
+      return mockOrders.find((o: any) => String(o.id || o.orderId || o.orderID) === String(id));
     };
 
-    fetchOrder();
+    const matchedOrder = findOrder(orderId);
+    setOrder(matchedOrder);
+    setLoading(false);
   }, [orderId]);
 
   if (loading) {

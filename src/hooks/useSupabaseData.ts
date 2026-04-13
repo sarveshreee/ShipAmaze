@@ -100,7 +100,10 @@ function useDemoOrQuery<T>(
 
 export function useOrders() {
   const { isDemoMode } = useAuth();
-  return useDemoOrQuery("orders", mockOrders, async () => {
+  const stored = localStorage.getItem("shipflow_orders");
+  const initialOrders: Order[] = stored ? JSON.parse(stored) : mockOrders;
+
+  return useDemoOrQuery("orders", initialOrders, async () => {
     const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((o) => ({
