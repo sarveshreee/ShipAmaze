@@ -151,6 +151,34 @@ export default function CreateOrder() {
       };
 
       if (isDemoMode) {
+        // Persist to localStorage so other tabs can find it
+        const stored = localStorage.getItem("shipflow_orders");
+        const existing: any[] = stored ? JSON.parse(stored) : [];
+        existing.unshift({
+          id: orderId,
+          customer: customerName,
+          phone: fullPhone,
+          address: [address1, address2].filter(Boolean).join(", "),
+          city,
+          pincode,
+          weight: `${totalWeight.toFixed(1)} kg`,
+          courier: selectedCourier,
+          payment: paymentType,
+          status: "ready-to-ship",
+          date: new Date().toISOString().split("T")[0],
+          awb,
+          amount: totalAmount,
+          products: products.map(p => ({
+            name: p.name,
+            qty: parseInt(p.qty) || 1,
+            price: parseFloat(p.price) || 0,
+            weight: p.weight,
+          })),
+          dimensions: dims,
+          zone: "B",
+          pickupAddress: pickupAddr ? pickupAddr.label : "",
+        });
+        localStorage.setItem("shipflow_orders", JSON.stringify(existing));
         toast.success(`Order ${orderId} created (demo mode)`, { description: `AWB: ${awb}` });
         navigate("/dropshipper/orders");
         return;
