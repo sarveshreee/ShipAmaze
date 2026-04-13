@@ -1,11 +1,11 @@
-import { ReactNode, useMemo } from "react";
+import { ReactNode } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useTabPermissions } from "@/hooks/useTabPermissions";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { notifications } from "@/data/mockData";
+import { useState, useMemo } from "react";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X,
   Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield
