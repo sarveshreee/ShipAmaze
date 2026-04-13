@@ -5,18 +5,43 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Truck, Package, MapPin, ArrowRight, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+type Role = "admin" | "vendor" | "dropshipper";
+
+const roles: { value: Role; label: string; icon: React.ReactNode }[] = [
+  { value: "admin", label: "Admin", icon: <MapPin className="h-4 w-4" /> },
+  { value: "vendor", label: "Vendor", icon: <Package className="h-4 w-4" /> },
+  { value: "dropshipper", label: "Dropshipper", icon: <Truck className="h-4 w-4" /> },
+];
+
+const redirectMap: Record<Role, string> = {
+  admin: "/admin",
+  vendor: "/vendor",
+  dropshipper: "/dropshipper",
+};
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<Role>("admin");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { loginWithEmail } = useAuth();
+  const [mode, setMode] = useState<"real" | "demo">("real");
+  const { login, loginWithEmail } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (mode === "demo") {
+      login(role);
+      navigate(redirectMap[role]);
+      toast.success(`Logged in as ${role} (Demo Mode)`);
+      return;
+    }
+
     if (!email || !password) {
       toast.error("Please enter email and password");
       return;
@@ -30,12 +55,14 @@ export default function LoginPage() {
       toast.error(error);
     } else {
       toast.success("Logged in successfully!");
+      // Role will be fetched from DB, redirect after a brief delay
+      setTimeout(() => navigate(redirectMap[role]), 500);
     }
   };
 
   return (
     <div className="relative flex min-h-screen overflow-hidden">
-      {/* Left side - branding */}
+      {/* Left side - branding with animation */}
       <div
         className="hidden lg:flex lg:w-1/2 flex-col items-center justify-center relative p-12"
         style={{ background: "linear-gradient(135deg, hsl(var(--color-primary-dark)), hsl(var(--color-tertiary-dark)))" }}
@@ -90,24 +117,61 @@ export default function LoginPage() {
             <p className="text-sm text-text-muted mt-1">Sign in to manage your shipments</p>
           </div>
 
+          {/* Mode Toggle */}
+          <div className="flex rounded-lg bg-surface-2 p-1 mb-5">
+            <button onClick={() => setMode("real")} className={cn("flex-1 rounded-md py-2 text-sm font-medium transition-all", mode === "real" ? "bg-card text-text-primary shadow-sm" : "text-text-muted")}>
+              Email Login
+            </button>
+            <button onClick={() => setMode("demo")} className={cn("flex-1 rounded-md py-2 text-sm font-medium transition-all", mode === "demo" ? "bg-card text-text-primary shadow-sm" : "text-text-muted")}>
+              Demo Access
+            </button>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" className="h-11" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input id="password" type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="h-11 pr-10" />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors">
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+            {mode === "real" && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" className="h-11" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                  </div>
+                  <div className="relative">
+                    <Input id="password" type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="h-11 pr-10" />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors">
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {mode === "demo" && (
+              <div className="space-y-2">
+                <Label>Login as</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {roles.map(r => (
+                    <button key={r.value} type="button" onClick={() => setRole(r.value)}
+                      className={cn(
+                        "flex flex-col items-center gap-1.5 rounded-xl py-3 text-sm font-medium transition-all border-2",
+                        role === r.value
+                          ? "bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]"
+                          : "bg-surface-2 text-text-secondary border-transparent hover:border-border hover:bg-surface-2/80"
+                      )}>
+                      {r.icon}
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-text-muted text-center mt-2">Demo mode uses sample data — no account needed</p>
               </div>
-            </div>
+            )}
 
             <Button type="submit" disabled={loading} className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary-dark group">
               {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Sign In
+              {mode === "demo" ? "Enter Demo" : "Sign In"}
               <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
             </Button>
           </form>

@@ -28,7 +28,7 @@ interface ParsedRow {
 const TEMPLATE_HEADERS = ["Customer Name", "Phone", "Address", "City", "Pincode", "Weight (kg)", "Payment (COD/Prepaid)", "Amount", "Product Name"];
 
 export default function BulkUpload() {
-  const { userId } = useAuth();
+  const { userId, isDemoMode } = useAuth();
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -120,10 +120,15 @@ export default function BulkUpload() {
         user_id: userId || null,
       }));
 
-      const { error } = await supabase.from("orders").insert(orders);
-      if (error) throw error;
-      setProcessedCount(orders.length);
-      toast.success(`${orders.length} orders created successfully!`);
+      if (isDemoMode) {
+        setProcessedCount(orders.length);
+        toast.success(`${orders.length} orders created (demo mode)`);
+      } else {
+        const { error } = await supabase.from("orders").insert(orders);
+        if (error) throw error;
+        setProcessedCount(orders.length);
+        toast.success(`${orders.length} orders created successfully!`);
+      }
     } catch (err: any) {
       toast.error("Failed to process orders", { description: err.message });
       setStep(2);

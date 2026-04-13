@@ -1,4 +1,4 @@
-import { Order } from "@/hooks/useSupabaseData";
+import { Order } from "@/data/mockData";
 
 export function generateShippingLabelHTML(order: Order): string {
   return `

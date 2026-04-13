@@ -22,9 +22,11 @@ const reasonColors: Record<string, string> = {
 export default function AdminNDR() {
   const [tab, setTab] = useState<string>("Active");
   const { data: ndrOrders = [], isLoading, refetch } = useNdrOrders();
+  const { isDemoMode } = useAuth();
   const filtered = ndrOrders.filter(n => n.status === tab);
 
   const handleAction = async (awb: string, action: string) => {
+    if (isDemoMode) { toast.success(`${action} for ${awb} (demo)`); return; }
     try {
       const newStatus = action === 'Force RTO' ? 'Closed' : 'Initiated';
       const { error } = await supabase.from('ndr_orders').update({ status: newStatus, next_action: action }).eq('awb', awb);

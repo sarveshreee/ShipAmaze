@@ -26,6 +26,7 @@ export default function AdminReturns() {
   const [search, setSearch] = useState('');
   const tabs = ['all', 'Return Requested', 'Pickup Scheduled', 'In Transit', 'Received', 'Refund Processed'];
   const { data: returnOrders = [], isLoading, refetch } = useReturnOrders();
+  const { isDemoMode } = useAuth();
 
   const filtered = returnOrders.filter(r => {
     if (tab !== 'all' && r.status !== tab) return false;
@@ -46,6 +47,7 @@ export default function AdminReturns() {
   };
 
   const handleStatusUpdate = async (returnId: string, newStatus: string) => {
+    if (isDemoMode) { toast.success(`Status updated to ${newStatus} (demo)`); return; }
     try {
       const { error } = await supabase.from("return_orders").update({ status: newStatus }).eq("return_id", returnId);
       if (error) throw error;

@@ -1,4 +1,4 @@
-import { type Order } from "@/hooks/useSupabaseData";
+import { type Order } from "@/data/mockData";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { Package, MapPin, Truck, Eye, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";

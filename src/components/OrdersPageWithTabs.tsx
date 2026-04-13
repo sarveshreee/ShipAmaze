@@ -7,7 +7,7 @@ import { TableSkeleton, OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import { useOrders } from "@/hooks/useSupabaseData";
-import { type Order } from "@/hooks/useSupabaseData";
+import { type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Download, Eye, Printer, MoreHorizontal, Package, RefreshCw, FileText } from "lucide-react";
@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { printShippingLabel, printBulkLabels } from "@/components/ShippingLabel";
 import { downloadCSV } from "@/lib/exportUtils";
 
-const tabs: { label: string; status: string }[] = [
+const tabs: { label: string; status: OrderStatus | "all" }[] = [
   { label: "All", status: "all" },
   { label: "Ready to Ship", status: "ready-to-ship" },
   { label: "Not Picked", status: "not-picked" },
@@ -36,7 +36,7 @@ interface Props {
 }
 
 export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = true }: Props) {
-  const [activeTab, setActiveTab] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<OrderStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);

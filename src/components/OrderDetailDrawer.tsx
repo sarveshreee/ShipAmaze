@@ -4,7 +4,7 @@ import { TimelineTracker } from "@/components/TimelineTracker";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Order } from "@/hooks/useSupabaseData";
+import type { Order, OrderStatus } from "@/data/mockData";
 import {
   User, Phone, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
   Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw, Loader2
@@ -36,10 +36,12 @@ const timelineSteps = [
   { label: "Delivered", detail: "Successfully delivered" },
 ];
 
-const allStatuses: string[] = ['pending', 'ready-to-ship', 'not-picked', 'in-transit', 'out-for-delivery', 'delivered', 'ndr', 'rto', 'cancelled'];
+const allStatuses: OrderStatus[] = ['pending', 'ready-to-ship', 'not-picked', 'in-transit', 'out-for-delivery', 'delivered', 'ndr', 'rto', 'cancelled'];
 
 export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: OrderDetailDrawerProps) {
   const [updating, setUpdating] = useState(false);
+  const { isDemoMode } = useAuth();
+
   if (!order) return null;
 
   const currentStep = statusToStep[order.status] ?? -1;
@@ -56,6 +58,11 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
   const updateStatus = async (newStatus: string) => {
     setUpdating(true);
     try {
+      if (isDemoMode) {
+        toast.success(`Status updated to ${newStatus} (demo)`);
+        setUpdating(false);
+        return;
+      }
       const { error } = await supabase.from("orders").update({ status: newStatus }).eq("order_id", order.id);
       if (error) throw error;
       toast.success(`Order ${order.id} status updated to ${newStatus}`);

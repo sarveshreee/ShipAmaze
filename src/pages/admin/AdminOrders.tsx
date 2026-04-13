@@ -7,7 +7,7 @@ import { KPICardSkeleton, TableSkeleton, OrderCardSkeleton } from "@/components/
 import { EmptyState } from "@/components/EmptyState";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import { useOrders } from "@/hooks/useSupabaseData";
-import { type Order } from "@/hooks/useSupabaseData";
+import { type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Download, Eye, Printer, MoreHorizontal, Package, RefreshCw, FileText } from "lucide-react";
@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { printBulkLabels } from "@/components/ShippingLabel";
 import { downloadCSV } from "@/lib/exportUtils";
 
-const tabs: { label: string; status?: string }[] = [
+const tabs: { label: string; status?: OrderStatus | "all" }[] = [
   { label: "All", status: "all" },
   { label: "Ready to Ship", status: "ready-to-ship" },
   { label: "Not Picked", status: "not-picked" },
