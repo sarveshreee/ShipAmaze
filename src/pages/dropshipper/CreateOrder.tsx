@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Truck, Zap, MapPin, Package, Plus, Trash2, CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
-import { pickupAddresses, indianStates, orders as mockOrders } from "@/data/mockData";
+import { pickupAddresses, indianStates } from "@/data/mockData";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -26,7 +26,7 @@ interface ProductLine {
 
 export default function CreateOrder() {
   const navigate = useNavigate();
-  const { userId, isDemoMode } = useAuth();
+  const { userId } = useAuth();
   const [paymentType, setPaymentType] = useState<"COD" | "Prepaid">("Prepaid");
   const [selectedCourier, setSelectedCourier] = useState("");
   const [selectedPickup, setSelectedPickup] = useState(pickupAddresses[0].id);
@@ -80,14 +80,6 @@ export default function CreateOrder() {
 
   const generateSequentialId = async (): Promise<string> => {
     try {
-      // Check localStorage demo orders first
-      const stored = localStorage.getItem("shipflow_orders");
-      const localOrders: any[] = stored ? JSON.parse(stored) : [];
-      const localMax = localOrders.reduce((max, o) => {
-        const num = parseInt((o.id || "").replace("SF", ""));
-        return num > max ? num : max;
-      }, 0);
-
       const { data } = await supabase
         .from("orders")
         .select("order_id")
@@ -95,15 +87,7 @@ export default function CreateOrder() {
         .order("created_at", { ascending: false })
         .limit(1);
       const dbNum = data && data.length > 0 ? parseInt(data[0].order_id.replace("SF", "")) || 10000 : 10000;
-      
-      // Also check mock orders
-      const mockMax = mockOrders.reduce((max: number, o: any) => {
-        const num = parseInt((o.id || "").replace("SF", ""));
-        return num > max ? num : max;
-      }, 0);
-
-      const highest = Math.max(localMax, dbNum, mockMax);
-      return `SF${highest + 1}`;
+      return `SF${dbNum + 1}`;
     } catch {}
     return `SF${Math.floor(10000 + Math.random() * 90000)}`;
   };
@@ -164,40 +148,6 @@ export default function CreateOrder() {
         user_id: userId || null,
       };
 
-      if (isDemoMode) {
-        // Persist to localStorage so other tabs can find it
-        const stored = localStorage.getItem("shipflow_orders");
-        const existing: any[] = stored ? JSON.parse(stored) : [];
-        existing.unshift({
-          id: orderId,
-          customer: customerName,
-          phone: fullPhone,
-          address: [address1, address2].filter(Boolean).join(", "),
-          city,
-          pincode,
-          weight: `${totalWeight.toFixed(1)} kg`,
-          courier: selectedCourier,
-          payment: paymentType,
-          status: "ready-to-ship",
-          date: new Date().toISOString().split("T")[0],
-          awb,
-          amount: totalAmount,
-          products: products.map(p => ({
-            name: p.name,
-            qty: parseInt(p.qty) || 1,
-            price: parseFloat(p.price) || 0,
-            weight: p.weight,
-          })),
-          dimensions: dims,
-          zone: "B",
-          pickupAddress: pickupAddr ? pickupAddr.label : "",
-        });
-        localStorage.setItem("shipflow_orders", JSON.stringify(existing));
-        toast.success(`Order ${orderId} created (demo mode)`, { description: `AWB: ${awb}` });
-        navigate("/dropshipper/orders");
-        return;
-      }
-
       const { error } = await supabase.from("orders").insert(orderData);
       if (error) throw error;
 
@@ -239,10 +189,8 @@ export default function CreateOrder() {
         user_id: userId || null,
       };
 
-      if (!isDemoMode) {
-        const { error } = await supabase.from("orders").insert(orderData);
-        if (error) throw error;
-      }
+      const { error } = await supabase.from("orders").insert(orderData);
+      if (error) throw error;
       toast.success(`Draft ${orderId} saved`);
       navigate("/dropshipper/orders");
     } catch (err: any) {

@@ -8,19 +8,18 @@ interface TabPermission {
 }
 
 export function useTabPermissions() {
-  const { role, userId, isDemoMode } = useAuth();
+  const { role, userId } = useAuth();
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (isDemoMode || role === "admin") {
+    if (role === "admin") {
       setPermissions({});
       setIsLoading(false);
       return;
     }
 
     const load = async () => {
-      // Use RPC to get effective permissions (merges global defaults + user overrides securely)
       const { data } = await supabase.rpc("get_my_tab_permissions", { _role: role });
 
       const map: Record<string, boolean> = {};
@@ -30,7 +29,7 @@ export function useTabPermissions() {
     };
 
     load();
-  }, [role, userId, isDemoMode]);
+  }, [role, userId]);
 
   const isTabEnabled = useCallback((tabKey: string): boolean => {
     if (role === "admin") return true;

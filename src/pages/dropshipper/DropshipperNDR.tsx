@@ -22,14 +22,9 @@ export default function DropshipperNDR() {
   const [tab, setTab] = useState('all');
   const tabs = ['all', 'Active', 'Initiated', 'Closed'];
   const { data: ndrOrders = [], isLoading, refetch } = useNdrOrders();
-  const { isDemoMode } = useAuth();
   const filtered = tab === 'all' ? ndrOrders : ndrOrders.filter(n => n.status === tab);
 
   const handleAction = async (awb: string, action: 'Re-attempt' | 'Force RTO') => {
-    if (isDemoMode) {
-      toast.success(`${action} scheduled for ${awb} (demo mode)`);
-      return;
-    }
     try {
       const newStatus = action === 'Force RTO' ? 'Closed' : 'Initiated';
       const { error } = await supabase.from('ndr_orders').update({ status: newStatus, next_action: action }).eq('awb', awb);

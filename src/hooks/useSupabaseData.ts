@@ -1,20 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
-import {
-  orders as mockOrders,
-  manifests as mockManifests,
-  invoices as mockInvoices,
-  weightDisputes as mockWeightDisputes,
-  transactions as mockTransactions,
-  ndrOrders as mockNdrOrders,
-  returnOrders as mockReturnOrders,
-  products as mockProducts,
-  courierList as mockCouriers,
-  pickupAddresses as mockPickupAddresses,
-  codRemittances as mockCodRemittances,
-  type Order,
-} from "@/data/mockData";
+
+export type Order = {
+  id: string;
+  customer: string;
+  phone: string;
+  address: string;
+  city: string;
+  pincode: string;
+  weight: string;
+  courier: string;
+  payment: string;
+  status: string;
+  date: string;
+  awb: string;
+  amount: number;
+  products: any[];
+  dimensions: string;
+  zone: string;
+  pickupAddress: string;
+};
 
 type QueryStatus = "pending" | "success" | "error";
 
@@ -33,40 +38,32 @@ function toError(error: unknown) {
   return error instanceof Error ? error : new Error("Failed to load data");
 }
 
-function useDemoOrQuery<T>(
-  key: string,
-  mockData: T[],
-  queryFn: () => Promise<T[]>,
-  isDemoMode: boolean
-): SimpleQueryResult<T> {
-  const [data, setData] = useState<T[]>(mockData);
+function useQuery<T>(key: string, queryFn: () => Promise<T[]>): SimpleQueryResult<T> {
+  const [data, setData] = useState<T[]>([]);
   const [error, setError] = useState<Error | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const result = isDemoMode ? mockData : await queryFn();
-      const nextData = !isDemoMode && result.length === 0 ? mockData : result;
-      setData(nextData);
+      const result = await queryFn();
+      setData(result);
       setError(null);
     } catch (err) {
       setError(toError(err));
     } finally {
       setIsLoading(false);
     }
-  }, [isDemoMode, mockData, queryFn]);
+  }, [queryFn]);
 
   useEffect(() => {
     let isMounted = true;
-
     const run = async () => {
       setIsLoading(true);
       try {
-        const result = isDemoMode ? mockData : await queryFn();
+        const result = await queryFn();
         if (!isMounted) return;
-        const nextData = !isDemoMode && result.length === 0 ? mockData : result;
-        setData(nextData);
+        setData(result);
         setError(null);
       } catch (err) {
         if (!isMounted) return;
@@ -75,19 +72,13 @@ function useDemoOrQuery<T>(
         if (isMounted) setIsLoading(false);
       }
     };
-
     void run();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [key, isDemoMode, mockData, queryFn]);
+    return () => { isMounted = false; };
+  }, [key, queryFn]);
 
   return useMemo(
     () => ({
-      data,
-      error,
-      isLoading,
+      data, error, isLoading,
       isPending: isLoading,
       isError: !!error,
       isSuccess: !isLoading && !error,
@@ -99,16 +90,7 @@ function useDemoOrQuery<T>(
 }
 
 export function useOrders() {
-  const { isDemoMode } = useAuth();
-  // Merge localStorage demo orders with mock orders
-  const mergedMockOrders = useMemo(() => {
-    const stored = localStorage.getItem("shipflow_orders");
-    const localOrders: Order[] = stored ? JSON.parse(stored) : [];
-    // Prepend local orders, deduplicate by id
-    const ids = new Set(localOrders.map(o => o.id));
-    return [...localOrders, ...mockOrders.filter(o => !ids.has(o.id))];
-  }, []);
-  return useDemoOrQuery("orders", mergedMockOrders, async () => {
+  return useQuery("orders", async () => {
     const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((o) => ({
@@ -130,12 +112,11 @@ export function useOrders() {
       zone: o.zone || "",
       pickupAddress: o.pickup_address || "",
     })) as Order[];
-  }, isDemoMode);
+  });
 }
 
 export function useManifests() {
-  const { isDemoMode } = useAuth();
-  return useDemoOrQuery("manifests", mockManifests, async () => {
+  return useQuery("manifests", async () => {
     const { data, error } = await supabase.from("manifests").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((m) => ({
@@ -148,12 +129,11 @@ export function useManifests() {
       status: (m.status as any) || "Generated",
       pickupTime: m.pickup_time || undefined,
     }));
-  }, isDemoMode);
+  });
 }
 
 export function useInvoices() {
-  const { isDemoMode } = useAuth();
-  return useDemoOrQuery("invoices", mockInvoices, async () => {
+  return useQuery("invoices", async () => {
     const { data, error } = await supabase.from("invoices").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((inv) => ({
@@ -167,12 +147,11 @@ export function useInvoices() {
       total: Number(inv.total) || 0,
       status: (inv.status as any) || "Unpaid",
     }));
-  }, isDemoMode);
+  });
 }
 
 export function useWeightDisputes() {
-  const { isDemoMode } = useAuth();
-  return useDemoOrQuery("weight_disputes", mockWeightDisputes, async () => {
+  return useQuery("weight_disputes", async () => {
     const { data, error } = await supabase.from("weight_disputes").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((w) => ({
@@ -188,12 +167,11 @@ export function useWeightDisputes() {
       status: (w.status as any) || "Open",
       date: w.date || "",
     }));
-  }, isDemoMode);
+  });
 }
 
 export function useTransactions() {
-  const { isDemoMode } = useAuth();
-  return useDemoOrQuery("transactions", mockTransactions, async () => {
+  return useQuery("transactions", async () => {
     const { data, error } = await supabase.from("transactions").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((t) => ({
@@ -205,12 +183,11 @@ export function useTransactions() {
       amount: Number(t.amount),
       balance: Number(t.balance),
     }));
-  }, isDemoMode);
+  });
 }
 
 export function useNdrOrders() {
-  const { isDemoMode } = useAuth();
-  return useDemoOrQuery("ndr_orders", mockNdrOrders, async () => {
+  return useQuery("ndr_orders", async () => {
     const { data, error } = await supabase.from("ndr_orders").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((n) => ({
@@ -224,12 +201,11 @@ export function useNdrOrders() {
       phone: n.phone || "",
       nextAction: (n.next_action as any) || "Re-attempt",
     }));
-  }, isDemoMode);
+  });
 }
 
 export function useReturnOrders() {
-  const { isDemoMode } = useAuth();
-  return useDemoOrQuery("return_orders", mockReturnOrders, async () => {
+  return useQuery("return_orders", async () => {
     const { data, error } = await supabase.from("return_orders").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((r) => ({
@@ -244,12 +220,11 @@ export function useReturnOrders() {
       refundAmount: Number(r.refund_amount) || 0,
       weight: r.weight || "",
     }));
-  }, isDemoMode);
+  });
 }
 
 export function useProducts() {
-  const { isDemoMode } = useAuth();
-  return useDemoOrQuery("products", mockProducts, async () => {
+  return useQuery("products", async () => {
     const { data, error } = await supabase.from("products").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((p) => ({
@@ -264,12 +239,11 @@ export function useProducts() {
       hsn: p.hsn || "",
       dimensions: p.dimensions || "",
     }));
-  }, isDemoMode);
+  });
 }
 
 export function useCouriers() {
-  const { isDemoMode } = useAuth();
-  return useDemoOrQuery("couriers", mockCouriers, async () => {
+  return useQuery("couriers", async () => {
     const { data, error } = await supabase.from("couriers").select("*").order("priority", { ascending: true });
     if (error) throw error;
     return (data || []).map((c) => ({
@@ -285,20 +259,18 @@ export function useCouriers() {
       surfaceRate: Number(c.surface_rate) || 0,
       airRate: Number(c.air_rate) || 0,
     }));
-  }, isDemoMode);
+  });
 }
 
 export function useCodRemittances() {
-  return useDemoOrQuery("cod_remittances", mockCodRemittances, async () => mockCodRemittances, true);
+  return useQuery("cod_remittances", async () => []);
 }
 
 export function usePickupAddresses() {
-  const { isDemoMode } = useAuth();
-  return useDemoOrQuery("pickup_addresses", mockPickupAddresses, async () => {
+  return useQuery("pickup_addresses", async () => {
     const { data, error } = await supabase.from("pickup_addresses").select("*").order("created_at", { ascending: false });
     if (error) throw error;
-    if (!data || data.length === 0) return mockPickupAddresses;
-    return data.map((a) => ({
+    return (data || []).map((a) => ({
       id: a.id,
       label: a.label,
       contactName: a.contact_name || "",
@@ -310,5 +282,5 @@ export function usePickupAddresses() {
       pincode: a.pincode || "",
       isDefault: a.is_default ?? false,
     }));
-  }, isDemoMode);
+  });
 }

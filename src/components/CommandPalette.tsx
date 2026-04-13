@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList
 } from "@/components/ui/command";
-import { orders } from "@/data/mockData";
+import { useOrders } from "@/hooks/useSupabaseData";
 import {
   Package, LayoutDashboard, ShoppingBag, Calculator, Truck, Users,
   Warehouse, IndianRupee, BarChart3, Headphones, Settings, AlertTriangle,
@@ -32,6 +32,7 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
+  const { data: orders } = useOrders();
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -63,19 +64,19 @@ export function CommandPalette() {
       o.awb.toLowerCase().includes(query) ||
       o.customer.toLowerCase().includes(query)
     ).slice(0, 10),
-    [query]
+    [query, orders]
   );
 
   const filteredCustomers = useMemo(() =>
     [...new Set(orders.map(o => o.customer))]
       .filter(name => name.toLowerCase().includes(query))
       .slice(0, 6),
-    [query]
+    [query, orders]
   );
 
   const filteredAWBs = useMemo(() =>
     orders.filter(o => o.awb.toLowerCase().includes(query)).slice(0, 6),
-    [query]
+    [query, orders]
   );
 
   return (
