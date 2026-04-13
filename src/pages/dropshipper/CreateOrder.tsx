@@ -5,11 +5,12 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Truck, Zap, IndianRupee, MapPin, Package, Plus, Trash2, CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
+import { Truck, Zap, MapPin, Package, Plus, Trash2, CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
 import { pickupAddresses, indianStates } from "@/data/mockData";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { PhoneInput, normalizePhone } from "@/components/PhoneInput";
 
 const couriersResult = [
   { name: "Delhivery", price: 45, days: "2-3 days", badges: ["Cheapest"], mode: "Surface", rating: 4.2 },
@@ -38,6 +39,7 @@ export default function CreateOrder() {
   // Form fields
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState("+91");
   const [altPhone, setAltPhone] = useState("");
   const [address1, setAddress1] = useState("");
   const [address2, setAddress2] = useState("");
@@ -49,6 +51,10 @@ export default function CreateOrder() {
   const [dimLength, setDimLength] = useState("");
   const [dimWidth, setDimWidth] = useState("");
   const [dimHeight, setDimHeight] = useState("");
+
+  const normalizedPhone = normalizePhone(countryCode, phone);
+  const normalizedAlt = normalizePhone(countryCode, altPhone);
+  const altPhoneDuplicate = altPhone.length > 0 && normalizedAlt === normalizedPhone;
 
   const checkPincode = (val: string) => {
     setPincode(val);
@@ -65,10 +71,25 @@ export default function CreateOrder() {
   const removeProduct = (i: number) => setProducts(products.filter((_, idx) => idx !== i));
 
   const generateAWB = () => `AWB${Date.now().toString().slice(-9)}`;
-  const generateOrderId = () => `SF${Date.now().toString().slice(-5)}`;
 
   const totalWeight = products.reduce((s, p) => s + (parseFloat(p.weight) || 0), 0);
   const totalAmount = parseFloat(invoiceValue) || products.reduce((s, p) => s + (parseFloat(p.price) || 0) * (parseInt(p.qty) || 1), 0);
+
+  const generateSequentialId = async (): Promise<string> => {
+    try {
+      const { data } = await supabase
+        .from("orders")
+        .select("order_id")
+        .like("order_id", "SF%")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        const lastNum = parseInt(data[0].order_id.replace("SF", "")) || 10000;
+        return `SF${lastNum + 1}`;
+      }
+    } catch {}
+    return `SF${Math.floor(10000 + Math.random() * 90000)}`;
+  };
 
   const handleSubmit = async () => {
     if (!customerName || !phone || !address1 || !city || !pincode || !selectedCourier) {
@@ -79,25 +100,30 @@ export default function CreateOrder() {
       toast.error("Please fill product names");
       return;
     }
+    if (altPhoneDuplicate) {
+      toast.error("Alternate number cannot be same as primary number");
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const orderId = orderRef || generateOrderId();
+      const orderId = orderRef || await generateSequentialId();
       const awb = generateAWB();
       const dims = dimLength && dimWidth && dimHeight ? `${dimLength}x${dimWidth}x${dimHeight} cm` : "";
       const pickupAddr = pickupAddresses.find(a => a.id === selectedPickup);
+      const fullPhone = `${countryCode}${phone}`;
 
       const orderData = {
         order_id: orderId,
         customer: customerName,
-        phone,
+        phone: fullPhone,
         address: [address1, address2].filter(Boolean).join(", "),
         city,
         pincode,
         weight: `${totalWeight.toFixed(1)} kg`,
         courier: selectedCourier,
         payment: paymentType,
-        status: "pending" as const,
+        status: "ready-to-ship" as const,
         date: new Date().toISOString().split("T")[0],
         awb,
         amount: totalAmount,
@@ -122,7 +148,7 @@ export default function CreateOrder() {
       const { error } = await supabase.from("orders").insert(orderData);
       if (error) throw error;
 
-      toast.success(`Order ${orderId} created!`, { description: `AWB: ${awb}` });
+      toast.success(`Order ${orderId} created!`, { description: `AWB: ${awb} · Status: Ready to Ship` });
       navigate("/dropshipper/orders");
     } catch (err: any) {
       toast.error("Failed to create order", { description: err.message });
@@ -138,11 +164,12 @@ export default function CreateOrder() {
     }
     setSubmitting(true);
     try {
-      const orderId = orderRef || generateOrderId();
+      const orderId = orderRef || await generateSequentialId();
+      const fullPhone = phone ? `${countryCode}${phone}` : "";
       const orderData = {
         order_id: orderId,
         customer: customerName,
-        phone,
+        phone: fullPhone,
         address: [address1, address2].filter(Boolean).join(", "),
         city,
         pincode,
@@ -203,8 +230,32 @@ export default function CreateOrder() {
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><Label>Full Name *</Label><Input placeholder="Amit Sharma" value={customerName} onChange={e => setCustomerName(e.target.value)} /></div>
-              <div><Label>Phone *</Label><Input placeholder="+91 98000 00000" value={phone} onChange={e => setPhone(e.target.value)} /></div>
-              <div><Label>Alternate Phone</Label><Input placeholder="+91 98000 00001" value={altPhone} onChange={e => setAltPhone(e.target.value)} /></div>
+              <div>
+                <Label>Phone *</Label>
+                <PhoneInput
+                  value={phone}
+                  onChange={setPhone}
+                  countryCode={countryCode}
+                  onCountryCodeChange={setCountryCode}
+                  placeholder="9800000000"
+                />
+              </div>
+              <div>
+                <Label>Alternate Phone</Label>
+                <div className="flex">
+                  <div className="flex items-center gap-1 px-2.5 border border-r-0 border-border rounded-l-md bg-surface-2 text-sm shrink-0">
+                    <span className="text-text-secondary text-xs">{countryCode}</span>
+                  </div>
+                  <Input
+                    placeholder="9800000001"
+                    value={altPhone}
+                    onChange={e => setAltPhone(e.target.value.replace(/[^0-9]/g, ""))}
+                    className={cn("rounded-l-none", altPhoneDuplicate && "border-destructive")}
+                    maxLength={15}
+                  />
+                </div>
+                {altPhoneDuplicate && <p className="text-xs text-destructive mt-1">Alternate number cannot be same as primary number</p>}
+              </div>
               <div className="sm:col-span-2"><Label>Address Line 1 *</Label><Input placeholder="House/Flat No, Street" value={address1} onChange={e => setAddress1(e.target.value)} /></div>
               <div className="sm:col-span-2"><Label>Address Line 2</Label><Input placeholder="Landmark, Area" value={address2} onChange={e => setAddress2(e.target.value)} /></div>
               <div><Label>City *</Label><Input placeholder="Mumbai" value={city} onChange={e => setCity(e.target.value)} /></div>
