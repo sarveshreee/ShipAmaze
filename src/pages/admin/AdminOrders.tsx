@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { printBulkLabels } from "@/components/ShippingLabel";
 import { downloadCSV } from "@/lib/exportUtils";
 
-const tabs: { label: string; status?: OrderStatus | "all" }[] = [
+const tabs: { label: string; status?: string }[] = [
   { label: "All", status: "all" },
   { label: "Ready to Ship", status: "ready-to-ship" },
   { label: "Not Picked", status: "not-picked" },
