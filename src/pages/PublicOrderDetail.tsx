@@ -122,13 +122,36 @@ export default function PublicOrderDetail() {
     if (!orderId) return;
     removeLocalStorageOrder(orderId);
     setCancelOpen(false);
-    toast.success("Order cancelled and removed.");
-    navigate("/dropshipper/orders");
+    toast.success("Order cancelled successfully.");
+    // We're on /order-detail (public route, possibly new tab) — go back or close
+    if (window.opener) {
+      window.close();
+    } else {
+      // Use window.location to avoid React Router auth guard issues
+      window.location.href = "/dropshipper/orders";
+    }
   };
 
   const handleRaiseNDR = () => {
-    if (!orderId || !ndrReason) return;
+    if (!orderId || !ndrReason || !order) return;
     updateLocalStorageOrder(orderId, { status: "ndr" });
+    // Create NDR entry in localStorage
+    const today = new Date().toISOString().split("T")[0];
+    const ndrEntry = {
+      awb: order.awb && order.awb !== "N/A" ? order.awb : `AWB${orderId}`,
+      customer: order.customer || "",
+      seller: "Seller User",
+      reason: ndrReason,
+      attempts: 1,
+      lastUpdate: today,
+      status: "Active",
+      phone: order.phone || "",
+      nextAction: "Re-attempt",
+    };
+    const storedNdr = localStorage.getItem("shipflow_ndr");
+    const ndrList: any[] = storedNdr ? JSON.parse(storedNdr) : [];
+    ndrList.unshift(ndrEntry);
+    localStorage.setItem("shipflow_ndr", JSON.stringify(ndrList));
     setOrder((prev: any) => prev ? { ...prev, status: "ndr" } : prev);
     setNdrOpen(false);
     setNdrReason("");
