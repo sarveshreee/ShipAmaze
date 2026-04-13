@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Upload, Download, CheckCircle2, XCircle, Loader2 } from "lucide-react";
@@ -7,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import Papa from "papaparse";
+import { orders as mockOrders } from "@/data/mockData";
 
 const steps = ["Upload", "Validate", "Review", "Confirm"];
 
@@ -29,6 +31,7 @@ const TEMPLATE_HEADERS = ["Customer Name", "Phone", "Address", "City", "Pincode"
 
 export default function BulkUpload() {
   const { userId, isDemoMode } = useAuth();
+  const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -75,20 +78,13 @@ export default function BulkUpload() {
           if (!pincode || pincode.length !== 6) errors.push("Invalid pincode");
           if (!city) errors.push("City required");
 
-          return {
-            row: i + 1,
-            valid: errors.length === 0,
-            name, phone, address, city, pincode, weight, payment, amount, product,
-            error: errors.join("; "),
-          };
+          return { row: i + 1, valid: errors.length === 0, name, phone, address, city, pincode, weight, payment, amount, product, error: errors.join("; ") };
         });
         setRows(parsed);
         setStep(1);
         toast.success(`Parsed ${parsed.length} rows: ${parsed.filter(r => r.valid).length} valid, ${parsed.filter(r => !r.valid).length} errors`);
       },
-      error: (err) => {
-        toast.error("Failed to parse file", { description: err.message });
-      },
+      error: (err) => { toast.error("Failed to parse file", { description: err.message }); },
     });
   };
 
@@ -98,37 +94,77 @@ export default function BulkUpload() {
     if (file) handleFile(file);
   };
 
+  const getNextId = (): number => {
+    const stored = localStorage.getItem("shipflow_orders");
+    const localOrders: any[] = stored ? JSON.parse(stored) : [];
+    const localMax = localOrders.reduce((max, o) => {
+      const num = parseInt((o.id || "").replace("SF", ""));
+      return num > max ? num : max;
+    }, 0);
+    const mockMax = mockOrders.reduce((max: number, o: any) => {
+      const num = parseInt((o.id || "").replace("SF", ""));
+      return num > max ? num : max;
+    }, 0);
+    return Math.max(localMax, mockMax, 10000);
+  };
+
   const handleProcess = async () => {
     setProcessing(true);
     setStep(3);
     try {
-      const orders = validRows.map((r, i) => ({
-        order_id: `BLK${Date.now().toString().slice(-5)}${i}`,
+      const startId = getNextId();
+      const today = new Date().toISOString().split("T")[0];
+
+      const newOrders = validRows.map((r, i) => ({
+        id: `SF${startId + 1 + i}`,
         customer: r.name,
         phone: r.phone,
         address: r.address,
         city: r.city,
         pincode: r.pincode,
         weight: `${r.weight} kg`,
-        courier: "Delhivery",
-        payment: r.payment === "COD" ? "COD" : "Prepaid",
-        status: "pending",
-        date: new Date().toISOString().split("T")[0],
+        courier: "Delhivery" as const,
+        payment: (r.payment === "COD" ? "COD" : "Prepaid") as "COD" | "Prepaid",
+        status: "ready-to-ship" as const,
+        date: today,
         awb: `AWB${Date.now().toString().slice(-7)}${i}`,
         amount: parseFloat(r.amount) || 0,
         products: r.product ? [{ name: r.product, qty: 1, price: parseFloat(r.amount) || 0, weight: r.weight }] : [],
-        user_id: userId || null,
+        dimensions: "",
+        zone: "B",
+        pickupAddress: "",
       }));
 
       if (isDemoMode) {
-        setProcessedCount(orders.length);
-        toast.success(`${orders.length} orders created (demo mode)`);
+        // Save to localStorage
+        const stored = localStorage.getItem("shipflow_orders");
+        const existing: any[] = stored ? JSON.parse(stored) : [];
+        const updated = [...newOrders, ...existing];
+        localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+        setProcessedCount(newOrders.length);
       } else {
-        const { error } = await supabase.from("orders").insert(orders);
+        const dbOrders = newOrders.map(o => ({
+          order_id: o.id,
+          customer: o.customer,
+          phone: o.phone,
+          address: o.address,
+          city: o.city,
+          pincode: o.pincode,
+          weight: o.weight,
+          courier: o.courier,
+          payment: o.payment,
+          status: o.status,
+          date: o.date,
+          awb: o.awb,
+          amount: o.amount,
+          products: o.products,
+          user_id: userId || null,
+        }));
+        const { error } = await supabase.from("orders").insert(dbOrders);
         if (error) throw error;
-        setProcessedCount(orders.length);
-        toast.success(`${orders.length} orders created successfully!`);
+        setProcessedCount(newOrders.length);
       }
+      toast.success(`${newOrders.length} orders created successfully!`);
     } catch (err: any) {
       toast.error("Failed to process orders", { description: err.message });
       setStep(2);
@@ -223,8 +259,8 @@ export default function BulkUpload() {
           <CheckCircle2 className="h-12 w-12 text-success mx-auto mb-3" />
           <h3 className="text-lg font-semibold text-text-primary">Processing Complete!</h3>
           <p className="text-sm text-text-secondary mt-1">{processedCount} orders created successfully</p>
-          <Button className="mt-4 bg-primary text-primary-foreground" onClick={() => { setStep(0); setRows([]); setProcessedCount(0); }}>
-            Upload More
+          <Button className="mt-4 bg-primary text-primary-foreground" onClick={() => navigate("/dropshipper/orders")}>
+            View Orders
           </Button>
         </div>
       )}

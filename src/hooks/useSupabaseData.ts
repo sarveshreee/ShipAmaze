@@ -100,14 +100,14 @@ function useDemoOrQuery<T>(
 
 export function useOrders() {
   const { isDemoMode } = useAuth();
-  // Merge localStorage demo orders with mock orders
-  const mergedMockOrders = useMemo(() => {
+  // Re-read localStorage each time to pick up status changes & new orders
+  const getMergedOrders = useCallback(() => {
     const stored = localStorage.getItem("shipflow_orders");
     const localOrders: Order[] = stored ? JSON.parse(stored) : [];
-    // Prepend local orders, deduplicate by id
     const ids = new Set(localOrders.map(o => o.id));
     return [...localOrders, ...mockOrders.filter(o => !ids.has(o.id))];
   }, []);
+  const mergedMockOrders = getMergedOrders();
   return useDemoOrQuery("orders", mergedMockOrders, async () => {
     const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
     if (error) throw error;
