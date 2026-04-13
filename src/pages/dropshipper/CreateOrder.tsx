@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Truck, Zap, MapPin, Package, Plus, Trash2, CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
-import { pickupAddresses, indianStates, orders as mockOrders } from "@/data/mockData";
+import { pickupAddresses, indianStates } from "@/data/mockData";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -80,14 +80,6 @@ export default function CreateOrder() {
 
   const generateSequentialId = async (): Promise<string> => {
     try {
-      // Check localStorage demo orders first
-      const stored = localStorage.getItem("shipflow_orders");
-      const localOrders: any[] = stored ? JSON.parse(stored) : [];
-      const localMax = localOrders.reduce((max, o) => {
-        const num = parseInt((o.id || "").replace("SF", ""));
-        return num > max ? num : max;
-      }, 0);
-
       const { data } = await supabase
         .from("orders")
         .select("order_id")
@@ -95,15 +87,7 @@ export default function CreateOrder() {
         .order("created_at", { ascending: false })
         .limit(1);
       const dbNum = data && data.length > 0 ? parseInt(data[0].order_id.replace("SF", "")) || 10000 : 10000;
-      
-      // Also check mock orders
-      const mockMax = mockOrders.reduce((max: number, o: any) => {
-        const num = parseInt((o.id || "").replace("SF", ""));
-        return num > max ? num : max;
-      }, 0);
-
-      const highest = Math.max(localMax, dbNum, mockMax);
-      return `SF${highest + 1}`;
+      return `SF${dbNum + 1}`;
     } catch {}
     return `SF${Math.floor(10000 + Math.random() * 90000)}`;
   };
