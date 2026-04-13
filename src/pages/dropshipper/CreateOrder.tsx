@@ -80,16 +80,30 @@ export default function CreateOrder() {
 
   const generateSequentialId = async (): Promise<string> => {
     try {
+      // Check localStorage demo orders first
+      const stored = localStorage.getItem("shipflow_orders");
+      const localOrders: any[] = stored ? JSON.parse(stored) : [];
+      const localMax = localOrders.reduce((max, o) => {
+        const num = parseInt((o.id || "").replace("SF", ""));
+        return num > max ? num : max;
+      }, 0);
+
       const { data } = await supabase
         .from("orders")
         .select("order_id")
         .like("order_id", "SF%")
         .order("created_at", { ascending: false })
         .limit(1);
-      if (data && data.length > 0) {
-        const lastNum = parseInt(data[0].order_id.replace("SF", "")) || 10000;
-        return `SF${lastNum + 1}`;
-      }
+      const dbNum = data && data.length > 0 ? parseInt(data[0].order_id.replace("SF", "")) || 10000 : 10000;
+      
+      // Also check mock orders
+      const mockMax = mockOrders.reduce((max: number, o: any) => {
+        const num = parseInt((o.id || "").replace("SF", ""));
+        return num > max ? num : max;
+      }, 0);
+
+      const highest = Math.max(localMax, dbNum, mockMax);
+      return `SF${highest + 1}`;
     } catch {}
     return `SF${Math.floor(10000 + Math.random() * 90000)}`;
   };
