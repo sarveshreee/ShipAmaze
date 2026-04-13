@@ -10,7 +10,7 @@ import { pickupAddresses, indianStates } from "@/data/mockData";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { PhoneInput, normalizePhone } from "@/components/PhoneInput";
+import { PhoneInput, normalizePhone, validatePhoneLength, getDigitRule } from "@/components/PhoneInput";
 
 const couriersResult = [
   { name: "Delhivery", price: 45, days: "2-3 days", badges: ["Cheapest"], mode: "Surface", rating: 4.2 },
@@ -55,6 +55,9 @@ export default function CreateOrder() {
   const normalizedPhone = normalizePhone(countryCode, phone);
   const normalizedAlt = normalizePhone(countryCode, altPhone);
   const altPhoneDuplicate = altPhone.length > 0 && normalizedAlt === normalizedPhone;
+  const phoneError = validatePhoneLength(countryCode, phone);
+  const altPhoneError = altPhone.length > 0 ? validatePhoneLength(countryCode, altPhone) : null;
+  const altRule = getDigitRule(countryCode);
 
   const checkPincode = (val: string) => {
     setPincode(val);
@@ -94,6 +97,14 @@ export default function CreateOrder() {
   const handleSubmit = async () => {
     if (!customerName || !phone || !address1 || !city || !pincode || !selectedCourier) {
       toast.error("Please fill all required fields and select a courier");
+      return;
+    }
+    if (phoneError) {
+      toast.error(phoneError);
+      return;
+    }
+    if (altPhoneError) {
+      toast.error(altPhoneError);
       return;
     }
     if (products.some(p => !p.name)) {
@@ -238,6 +249,7 @@ export default function CreateOrder() {
                   countryCode={countryCode}
                   onCountryCodeChange={setCountryCode}
                   placeholder="9800000000"
+                  error={phone.length > 0 ? phoneError || undefined : undefined}
                 />
               </div>
               <div>
@@ -250,11 +262,12 @@ export default function CreateOrder() {
                     placeholder="9800000001"
                     value={altPhone}
                     onChange={e => setAltPhone(e.target.value.replace(/[^0-9]/g, ""))}
-                    className={cn("rounded-l-none", altPhoneDuplicate && "border-destructive")}
-                    maxLength={15}
+                    className={cn("rounded-l-none", (altPhoneDuplicate || altPhoneError) && "border-destructive")}
+                    maxLength={altRule.max}
                   />
                 </div>
                 {altPhoneDuplicate && <p className="text-xs text-destructive mt-1">Alternate number cannot be same as primary number</p>}
+                {!altPhoneDuplicate && altPhoneError && <p className="text-xs text-destructive mt-1">{altPhoneError}</p>}
               </div>
               <div className="sm:col-span-2"><Label>Address Line 1 *</Label><Input placeholder="House/Flat No, Street" value={address1} onChange={e => setAddress1(e.target.value)} /></div>
               <div className="sm:col-span-2"><Label>Address Line 2</Label><Input placeholder="Landmark, Area" value={address2} onChange={e => setAddress2(e.target.value)} /></div>
