@@ -23,7 +23,7 @@ const emptyForm: ProductForm = { name: "", sku: "", category: "", weight: "", pr
 export default function VendorCatalogue() {
   const [search, setSearch] = useState("");
   const { data: products = [], isLoading, refetch } = useProducts();
-  const { userId, isDemoMode } = useAuth();
+  const { userId } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<ProductForm>(emptyForm);
@@ -50,12 +50,6 @@ export default function VendorCatalogue() {
         user_id: userId || null,
       };
 
-      if (isDemoMode) {
-        toast.success(editId ? "Product updated (demo)" : "Product added (demo)");
-        setDialogOpen(false);
-        return;
-      }
-
       if (editId) {
         const { error } = await supabase.from("products").update(data).eq("id", editId);
         if (error) throw error;
@@ -76,7 +70,7 @@ export default function VendorCatalogue() {
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete "${name}"?`)) return;
-    if (isDemoMode) { toast.success(`${name} deleted (demo)`); return; }
+    try {
     try {
       const { error } = await supabase.from("products").delete().eq("id", id);
       if (error) throw error;
