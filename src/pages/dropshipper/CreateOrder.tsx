@@ -10,7 +10,7 @@ import { pickupAddresses, indianStates } from "@/data/mockData";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { PhoneInput, normalizePhone } from "@/components/PhoneInput";
+import { PhoneInput, normalizePhone, validatePhoneLength, getDigitRule } from "@/components/PhoneInput";
 
 const couriersResult = [
   { name: "Delhivery", price: 45, days: "2-3 days", badges: ["Cheapest"], mode: "Surface", rating: 4.2 },
@@ -55,6 +55,9 @@ export default function CreateOrder() {
   const normalizedPhone = normalizePhone(countryCode, phone);
   const normalizedAlt = normalizePhone(countryCode, altPhone);
   const altPhoneDuplicate = altPhone.length > 0 && normalizedAlt === normalizedPhone;
+  const phoneError = validatePhoneLength(countryCode, phone);
+  const altPhoneError = altPhone.length > 0 ? validatePhoneLength(countryCode, altPhone) : null;
+  const altRule = getDigitRule(countryCode);
 
   const checkPincode = (val: string) => {
     setPincode(val);
@@ -94,6 +97,14 @@ export default function CreateOrder() {
   const handleSubmit = async () => {
     if (!customerName || !phone || !address1 || !city || !pincode || !selectedCourier) {
       toast.error("Please fill all required fields and select a courier");
+      return;
+    }
+    if (phoneError) {
+      toast.error(phoneError);
+      return;
+    }
+    if (altPhoneError) {
+      toast.error(altPhoneError);
       return;
     }
     if (products.some(p => !p.name)) {
