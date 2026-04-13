@@ -32,16 +32,8 @@ export default function PublicOrderDetail() {
   useEffect(() => {
     if (!orderId) { setLoading(false); return; }
 
-    // Check local store first (instant, works for newly created orders in same session)
-    const localOrder = fallbackOrders.find((o) => o.id === orderId);
-    if (localOrder) {
-      setOrder(localOrder);
-      setLoading(false);
-      return;
-    }
-
-    // Fallback to Supabase for orders not in local store
     const fetchOrder = async () => {
+      // Try Supabase first
       const { data } = await supabase
         .from("orders")
         .select("*")
@@ -67,6 +59,9 @@ export default function PublicOrderDetail() {
           zone: data.zone,
           products: data.products || [],
         });
+      } else {
+        const fallbackOrder = fallbackOrders.find((o) => o.id === orderId);
+        if (fallbackOrder) setOrder(fallbackOrder);
       }
       setLoading(false);
     };
