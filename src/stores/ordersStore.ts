@@ -18,6 +18,16 @@ const dedupeOrders = (incoming: Order[]) => {
   });
 };
 
+const mergeOrdersByCurrentPriority = (current: Order[], incoming: Order[]) => {
+  const incomingMap = new Map(incoming.map((order) => [order.id, order]));
+  const currentIds = new Set(current.map((order) => order.id));
+
+  const updatedCurrent = current.map((order) => incomingMap.get(order.id) ?? order);
+  const newIncoming = incoming.filter((order) => !currentIds.has(order.id));
+
+  return dedupeOrders([...updatedCurrent, ...newIncoming]);
+};
+
 const getOrderSequence = (orderId: string) => {
   const match = orderId.match(/^SF(\d+)$/i);
   return match ? Number.parseInt(match[1], 10) : 0;
@@ -36,7 +46,7 @@ export const useOrdersStore = create<OrdersStore>()(
       orders: initialOrders,
       mergeOrders: (incoming) =>
         set((state) => ({
-          orders: dedupeOrders([...incoming, ...state.orders]),
+          orders: mergeOrdersByCurrentPriority(state.orders, incoming),
         })),
       addOrder: (order) =>
         set((state) => ({
