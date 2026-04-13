@@ -249,6 +249,7 @@ export default function CreateOrder() {
                   countryCode={countryCode}
                   onCountryCodeChange={setCountryCode}
                   placeholder="9800000000"
+                  error={phone.length > 0 ? phoneError || undefined : undefined}
                 />
               </div>
               <div>
@@ -261,11 +262,12 @@ export default function CreateOrder() {
                     placeholder="9800000001"
                     value={altPhone}
                     onChange={e => setAltPhone(e.target.value.replace(/[^0-9]/g, ""))}
-                    className={cn("rounded-l-none", altPhoneDuplicate && "border-destructive")}
-                    maxLength={15}
+                    className={cn("rounded-l-none", (altPhoneDuplicate || altPhoneError) && "border-destructive")}
+                    maxLength={altRule.max}
                   />
                 </div>
                 {altPhoneDuplicate && <p className="text-xs text-destructive mt-1">Alternate number cannot be same as primary number</p>}
+                {!altPhoneDuplicate && altPhoneError && <p className="text-xs text-destructive mt-1">{altPhoneError}</p>}
               </div>
               <div className="sm:col-span-2"><Label>Address Line 1 *</Label><Input placeholder="House/Flat No, Street" value={address1} onChange={e => setAddress1(e.target.value)} /></div>
               <div className="sm:col-span-2"><Label>Address Line 2</Label><Input placeholder="Landmark, Area" value={address2} onChange={e => setAddress2(e.target.value)} /></div>
