@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  orders as mockOrders,
   manifests as mockManifests,
   invoices as mockInvoices,
   weightDisputes as mockWeightDisputes,
@@ -14,7 +15,6 @@ import {
   codRemittances as mockCodRemittances,
   type Order,
 } from "@/data/mockData";
-import { useOrdersStore } from "@/stores/ordersStore";
 
 type QueryStatus = "pending" | "success" | "error";
 
@@ -31,28 +31,6 @@ interface SimpleQueryResult<T> {
 
 function toError(error: unknown) {
   return error instanceof Error ? error : new Error("Failed to load data");
-}
-
-function mapOrderRecord(o: any): Order {
-  return {
-    id: o.order_id,
-    customer: o.customer,
-    phone: o.phone || "",
-    address: o.address || "",
-    city: o.city || "",
-    pincode: o.pincode || "",
-    weight: o.weight || "",
-    courier: (o.courier as any) || "Delhivery",
-    payment: (o.payment as any) || "Prepaid",
-    status: (o.status as any) || "pending",
-    date: o.date || "",
-    awb: o.awb || "",
-    amount: Number(o.amount),
-    products: (o.products as any[]) || [],
-    dimensions: o.dimensions || "",
-    zone: o.zone || "",
-    pickupAddress: o.pickup_address || "",
-  };
 }
 
 function useDemoOrQuery<T>(
@@ -122,53 +100,29 @@ function useDemoOrQuery<T>(
 
 export function useOrders() {
   const { isDemoMode } = useAuth();
-  const storeOrders = useOrdersStore((state) => state.orders);
-  const mergeOrders = useOrdersStore((state) => state.mergeOrders);
-  const [error, setError] = useState<Error | null>(null);
-  const [isLoading, setIsLoading] = useState(!isDemoMode && storeOrders.length === 0);
-
-  const load = useCallback(async () => {
-    if (isDemoMode) {
-      setError(null);
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(storeOrders.length === 0);
-
-    try {
-      const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
-      if (error) throw error;
-
-      if (data?.length) {
-        mergeOrders(data.map(mapOrderRecord));
-      }
-
-      setError(null);
-    } catch (err) {
-      setError(toError(err));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isDemoMode, mergeOrders, storeOrders.length]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  return useMemo(
-    () => ({
-      data: storeOrders,
-      error,
-      isLoading,
-      isPending: isLoading,
-      isError: !!error,
-      isSuccess: !isLoading && !error,
-      status: isLoading ? "pending" : error ? "error" : "success",
-      refetch: load,
-    }),
-    [storeOrders, error, isLoading, load]
-  );
+  return useDemoOrQuery("orders", mockOrders, async () => {
+    const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data || []).map((o) => ({
+      id: o.order_id,
+      customer: o.customer,
+      phone: o.phone || "",
+      address: o.address || "",
+      city: o.city || "",
+      pincode: o.pincode || "",
+      weight: o.weight || "",
+      courier: (o.courier as any) || "Delhivery",
+      payment: (o.payment as any) || "Prepaid",
+      status: (o.status as any) || "pending",
+      date: o.date || "",
+      awb: o.awb || "",
+      amount: Number(o.amount),
+      products: (o.products as any[]) || [],
+      dimensions: o.dimensions || "",
+      zone: o.zone || "",
+      pickupAddress: o.pickup_address || "",
+    })) as Order[];
+  }, isDemoMode);
 }
 
 export function useManifests() {

@@ -65,7 +65,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   };
 
   const handleBulkPrint = () => { const sel = filtered.filter(o => selected.has(o.id)); printBulkLabels(sel); toast.success(`Printing ${sel.length} label(s)`); };
-  const visibleStart = filtered.length > 0 ? 1 : 0;
 
   return (
     <div className="animate-fade-in-up">
@@ -158,7 +157,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
             </table>
           </div>
           <div className="flex items-center justify-between border-t border-border p-3 text-sm text-text-secondary">
-            <span>Showing {visibleStart}–{filtered.length} of {orders.length} orders</span>
+            <span>Showing 1–{filtered.length} of {filtered.length} orders</span>
           </div>
         </div>
       )}
