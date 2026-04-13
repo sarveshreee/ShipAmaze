@@ -7,7 +7,7 @@ import { printShippingLabel } from "@/components/ShippingLabel";
 import { TimelineTracker } from "@/components/TimelineTracker";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
-import { orders as mockOrders } from "@/data/mockData";
+import { useOrdersStore } from "@/stores/ordersStore";
 
 const statusColors: Record<string, string> = {
   delivered: "bg-success-light text-success-dark",
@@ -25,6 +25,7 @@ const statusColors: Record<string, string> = {
 export default function PublicOrderDetail() {
   const [params] = useSearchParams();
   const orderId = params.get("id");
+  const fallbackOrders = useOrdersStore((state) => state.orders);
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -59,15 +60,14 @@ export default function PublicOrderDetail() {
           products: data.products || [],
         });
       } else {
-        // Fallback to mock data
-        const mock = mockOrders.find((o) => o.id === orderId);
-        if (mock) setOrder(mock);
+        const fallbackOrder = fallbackOrders.find((o) => o.id === orderId);
+        if (fallbackOrder) setOrder(fallbackOrder);
       }
       setLoading(false);
     };
 
     fetchOrder();
-  }, [orderId]);
+  }, [orderId, fallbackOrders]);
 
   if (loading) {
     return (
