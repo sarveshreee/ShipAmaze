@@ -15,7 +15,7 @@ export function OrderCardList({ orders, onViewOrder }: OrderCardListProps) {
       {orders.map(order => (
         <div key={order.id}
           className="rounded-xl bg-card border border-border p-4 space-y-3 active:scale-[0.99] transition-transform"
-          onClick={() => onViewOrder?.(order)}>
+          >
           {/* Header row */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">

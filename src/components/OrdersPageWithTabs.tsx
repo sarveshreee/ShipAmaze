@@ -128,8 +128,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                     <EmptyState icon={Package} title="No orders found" description="Try adjusting your search or filter criteria" actionLabel="Clear Filters" onAction={() => { setSearch(""); setActiveTab("all"); }} />
                   </td></tr>
                 ) : filtered.map(o => (
-                  <tr key={o.id} className={cn("border-b border-border last:border-0 hover:bg-surface-2/30 transition-colors cursor-pointer", selected.has(o.id) && "bg-primary-light/30")}
-                    onClick={() => openOrder(o)}>
+                  <tr key={o.id} className={cn("border-b border-border last:border-0 hover:bg-surface-2/30 transition-colors", selected.has(o.id) && "bg-primary-light/30")}>
                     <td className="p-3" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" className="rounded border-border accent-primary" checked={selected.has(o.id)} onChange={() => toggleSelect(o.id)} />
                     </td>
