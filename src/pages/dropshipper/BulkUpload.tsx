@@ -124,11 +124,6 @@ export default function BulkUpload() {
       if (error) throw error;
       setProcessedCount(orders.length);
       toast.success(`${orders.length} orders created successfully!`);
-        const { error } = await supabase.from("orders").insert(orders);
-        if (error) throw error;
-        setProcessedCount(orders.length);
-        toast.success(`${orders.length} orders created successfully!`);
-      }
     } catch (err: any) {
       toast.error("Failed to process orders", { description: err.message });
       setStep(2);
