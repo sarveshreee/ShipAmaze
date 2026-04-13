@@ -59,9 +59,17 @@ export default function PublicOrderDetail() {
           products: data.products || [],
         });
       } else {
-        // Fallback to mock data
-        const mock = mockOrders.find((o) => o.id === orderId);
-        if (mock) setOrder(mock);
+        // Check localStorage for demo-created orders
+        const stored = localStorage.getItem("shipflow_orders");
+        const localOrders: any[] = stored ? JSON.parse(stored) : [];
+        const localMatch = localOrders.find((o: any) => o.id === orderId);
+        if (localMatch) {
+          setOrder(localMatch);
+        } else {
+          // Fallback to mock data
+          const mock = mockOrders.find((o) => o.id === orderId);
+          if (mock) setOrder(mock);
+        }
       }
       setLoading(false);
     };
