@@ -71,7 +71,6 @@ export default function VendorCatalogue() {
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete "${name}"?`)) return;
     try {
-    try {
       const { error } = await supabase.from("products").delete().eq("id", id);
       if (error) throw error;
       toast.success(`${name} deleted`);
