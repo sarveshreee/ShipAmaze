@@ -7,7 +7,7 @@ import { KPICardSkeleton, TableSkeleton, OrderCardSkeleton } from "@/components/
 import { EmptyState } from "@/components/EmptyState";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import { useOrders } from "@/hooks/useSupabaseData";
-import { type OrderStatus, type Order } from "@/data/mockData";
+import { type Order } from "@/hooks/useSupabaseData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Download, Eye, Printer, MoreHorizontal, Package, RefreshCw, FileText } from "lucide-react";
