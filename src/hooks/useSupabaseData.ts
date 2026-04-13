@@ -210,7 +210,17 @@ export function useTransactions() {
 
 export function useNdrOrders() {
   const { isDemoMode } = useAuth();
-  return useDemoOrQuery("ndr_orders", mockNdrOrders, async () => {
+  
+  // Merge localStorage NDR entries with mock data for demo mode
+  const mergedMockNdr = useMemo(() => {
+    const stored = localStorage.getItem("shipflow_ndr");
+    const localNdr: typeof mockNdrOrders = stored ? JSON.parse(stored) : [];
+    const mockAwbs = new Set(mockNdrOrders.map(n => n.awb));
+    const unique = localNdr.filter(n => !mockAwbs.has(n.awb));
+    return [...unique, ...mockNdrOrders];
+  }, []);
+
+  return useDemoOrQuery("ndr_orders", mergedMockNdr, async () => {
     const { data, error } = await supabase.from("ndr_orders").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((n) => ({
