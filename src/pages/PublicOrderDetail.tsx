@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router-dom";
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { Package, MapPin, Truck, Phone, User, CreditCard, Calendar, Weight, Ruler, Printer, RefreshCw, AlertTriangle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -7,7 +7,6 @@ import { printShippingLabel } from "@/components/ShippingLabel";
 import { TimelineTracker } from "@/components/TimelineTracker";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
-import { orders as mockOrders } from "@/data/mockData";
 
 const statusColors: Record<string, string> = {
   delivered: "bg-success-light text-success-dark",
@@ -32,7 +31,6 @@ export default function PublicOrderDetail() {
     if (!orderId) { setLoading(false); return; }
 
     const fetchOrder = async () => {
-      // Try Supabase first
       const { data } = await supabase
         .from("orders")
         .select("*")
@@ -58,18 +56,6 @@ export default function PublicOrderDetail() {
           zone: data.zone,
           products: data.products || [],
         });
-      } else {
-        // Check localStorage for demo-created orders
-        const stored = localStorage.getItem("shipflow_orders");
-        const localOrders: any[] = stored ? JSON.parse(stored) : [];
-        const localMatch = localOrders.find((o: any) => o.id === orderId);
-        if (localMatch) {
-          setOrder(localMatch);
-        } else {
-          // Fallback to mock data
-          const mock = mockOrders.find((o) => o.id === orderId);
-          if (mock) setOrder(mock);
-        }
       }
       setLoading(false);
     };
@@ -113,7 +99,6 @@ export default function PublicOrderDetail() {
       </header>
 
       <main className="max-w-3xl mx-auto p-6 space-y-6">
-        {/* Customer & Shipping */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded-xl bg-card border border-border p-5 space-y-3">
             <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
@@ -141,7 +126,6 @@ export default function PublicOrderDetail() {
           </div>
         </div>
 
-        {/* Payment */}
         <div className="rounded-xl bg-card border border-border p-5 space-y-3">
           <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
             <CreditCard className="h-4 w-4 text-accent-foreground" /> Payment
@@ -155,7 +139,6 @@ export default function PublicOrderDetail() {
           </div>
         </div>
 
-        {/* Products */}
         {order.products && order.products.length > 0 && (
           <div className="rounded-xl bg-card border border-border p-5 space-y-3">
             <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
@@ -175,7 +158,6 @@ export default function PublicOrderDetail() {
           </div>
         )}
 
-        {/* Quick Actions */}
         <div className="rounded-xl bg-card border border-border p-5 space-y-3">
           <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Quick Actions</h2>
           <div className="grid grid-cols-2 gap-3">
@@ -194,7 +176,6 @@ export default function PublicOrderDetail() {
           </div>
         </div>
 
-        {/* Timeline - lazy loaded */}
         <Suspense fallback={<div className="rounded-xl bg-card border border-border p-5 animate-pulse h-32" />}>
           <div className="rounded-xl bg-card border border-border p-5">
             <TimelineTracker
