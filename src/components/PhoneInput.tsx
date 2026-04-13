@@ -1,30 +1,50 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Search } from "lucide-react";
 
-const countryCodes = [
-  { code: "+91", flag: "🇮🇳", name: "India" },
-  { code: "+1", flag: "🇺🇸", name: "United States" },
-  { code: "+44", flag: "🇬🇧", name: "United Kingdom" },
-  { code: "+971", flag: "🇦🇪", name: "UAE" },
-  { code: "+966", flag: "🇸🇦", name: "Saudi Arabia" },
-  { code: "+65", flag: "🇸🇬", name: "Singapore" },
-  { code: "+61", flag: "🇦🇺", name: "Australia" },
-  { code: "+49", flag: "🇩🇪", name: "Germany" },
-  { code: "+33", flag: "🇫🇷", name: "France" },
-  { code: "+81", flag: "🇯🇵", name: "Japan" },
-  { code: "+86", flag: "🇨🇳", name: "China" },
-  { code: "+82", flag: "🇰🇷", name: "South Korea" },
-  { code: "+55", flag: "🇧🇷", name: "Brazil" },
-  { code: "+7", flag: "🇷🇺", name: "Russia" },
-  { code: "+27", flag: "🇿🇦", name: "South Africa" },
-  { code: "+234", flag: "🇳🇬", name: "Nigeria" },
-  { code: "+92", flag: "🇵🇰", name: "Pakistan" },
-  { code: "+880", flag: "🇧🇩", name: "Bangladesh" },
-  { code: "+977", flag: "🇳🇵", name: "Nepal" },
-  { code: "+94", flag: "🇱🇰", name: "Sri Lanka" },
+export const countryCodes = [
+  { code: "+91", flag: "🇮🇳", name: "India", digits: 10 },
+  { code: "+1", flag: "🇺🇸", name: "United States", digits: 10 },
+  { code: "+44", flag: "🇬🇧", name: "United Kingdom", digits: 10 },
+  { code: "+971", flag: "🇦🇪", name: "UAE", digits: 9 },
+  { code: "+966", flag: "🇸🇦", name: "Saudi Arabia", digits: 9 },
+  { code: "+65", flag: "🇸🇬", name: "Singapore", digits: 8 },
+  { code: "+61", flag: "🇦🇺", name: "Australia", digits: 9 },
+  { code: "+49", flag: "🇩🇪", name: "Germany", digits: [10, 11] as number[] },
+  { code: "+33", flag: "🇫🇷", name: "France", digits: 9 },
+  { code: "+81", flag: "🇯🇵", name: "Japan", digits: [10, 11] as number[] },
+  { code: "+86", flag: "🇨🇳", name: "China", digits: 11 },
+  { code: "+82", flag: "🇰🇷", name: "South Korea", digits: [10, 11] as number[] },
+  { code: "+55", flag: "🇧🇷", name: "Brazil", digits: [10, 11] as number[] },
+  { code: "+7", flag: "🇷🇺", name: "Russia", digits: 10 },
+  { code: "+27", flag: "🇿🇦", name: "South Africa", digits: 9 },
+  { code: "+234", flag: "🇳🇬", name: "Nigeria", digits: [10, 11] as number[] },
+  { code: "+92", flag: "🇵🇰", name: "Pakistan", digits: 10 },
+  { code: "+880", flag: "🇧🇩", name: "Bangladesh", digits: 10 },
+  { code: "+977", flag: "🇳🇵", name: "Nepal", digits: 10 },
+  { code: "+94", flag: "🇱🇰", name: "Sri Lanka", digits: 9 },
 ];
+
+export function getDigitRule(code: string): { min: number; max: number; exact?: number; label: string } {
+  const country = countryCodes.find(c => c.code === code);
+  if (!country) return { min: 7, max: 12, label: `7–12 digits` };
+  const d = country.digits;
+  if (Array.isArray(d)) {
+    return { min: Math.min(...d), max: Math.max(...d), label: `${Math.min(...d)}–${Math.max(...d)} digits for ${country.name} (${country.code})` };
+  }
+  return { min: d, max: d, exact: d, label: `exactly ${d} digits for ${country.name} (${country.code})` };
+}
+
+export function validatePhoneLength(code: string, number: string): string | null {
+  if (!number) return null;
+  const rule = getDigitRule(code);
+  const len = number.replace(/^0+/, "").length;
+  if (len < rule.min || len > rule.max) {
+    return `Phone number must be ${rule.label}`;
+  }
+  return null;
+}
 
 interface PhoneInputProps {
   value: string;
@@ -50,10 +70,21 @@ export function PhoneInput({
   const ref = useRef<HTMLDivElement>(null);
 
   const selected = countryCodes.find(c => c.code === countryCode) || countryCodes[0];
+  const rule = getDigitRule(countryCode);
 
   const filtered = countryCodes.filter(c =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.code.includes(searchQuery)
   );
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
 
   return (
     <div className="relative" ref={ref}>
@@ -77,7 +108,7 @@ export function PhoneInput({
             showCountrySelector && "rounded-l-none",
             error && "border-destructive"
           )}
-          maxLength={15}
+          maxLength={rule.max}
         />
       </div>
       {error && <p className="text-xs text-destructive mt-1">{error}</p>}
