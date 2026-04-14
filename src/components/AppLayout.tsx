@@ -150,7 +150,47 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 </p>
               )}
               {group.items.map(item => {
+                const hasChildren = !!(item as any).children?.length;
+                const children = (item as any).children as NavItem[] | undefined;
                 const active = location.pathname === item.path;
+                const isExpanded = expandedMenus.has(item.label);
+                const childActive = children?.some(c => location.pathname === c.path);
+
+                if (hasChildren && children) {
+                  return (
+                    <div key={item.label}>
+                      <button onClick={() => toggleMenu(item.label)}
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                          childActive ? "text-sidebar-primary-foreground font-medium" : "text-sidebar-foreground hover:bg-sidebar-accent"
+                        )}>
+                        <item.icon className="h-[18px] w-[18px] shrink-0" />
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {isExpanded ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                      </button>
+                      {isExpanded && (
+                        <div className="ml-4 mt-0.5 space-y-0.5">
+                          {children.map(child => {
+                            const cActive = location.pathname === child.path;
+                            return (
+                              <Link key={child.path} to={child.path} onClick={() => setSidebarOpen(false)}
+                                className={cn(
+                                  "flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
+                                  cActive
+                                    ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+                                    : "text-sidebar-foreground hover:bg-sidebar-accent"
+                                )}>
+                                <span>{child.label}</span>
+                                {child.shortcut && <span className="text-[10px] text-sidebar-foreground/40 font-mono">{child.shortcut}</span>}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <Link key={item.path} to={item.path} onClick={() => setSidebarOpen(false)}
                     className={cn(
