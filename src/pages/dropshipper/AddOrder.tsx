@@ -56,8 +56,8 @@ export default function AddOrder() {
   const validateStep = useCallback((step: number): boolean => {
     const errors: StepErrors = {};
     if (step === 1) {
-      if (!selectedPickup) errors.pickup = "Select a pickup address";
-      if (showReturn && !selectedReturn) errors.return = "Select a return address";
+      if (!selectedPickup) errors.pickup = "Please select a pickup address to continue";
+      if (showReturn && !selectedReturn) errors.return = "Please select a return address to continue";
     } else if (step === 2) {
       if (!consignee.fullName.trim()) errors.fullName = "Full name is required";
       if (!consignee.phone.trim()) errors.phone = "Phone is required";

@@ -151,10 +151,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 });
                 const groupActive = groupChildPaths.some(p => location.pathname === p);
                 return (
-                  <p className={cn(
-                    "px-3 pt-4 pb-1 text-[10px] uppercase tracking-wider",
-                    groupActive ? "font-bold text-sidebar-foreground/80" : "font-semibold text-sidebar-foreground/50"
-                  )}>
+                  <p className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-wider font-bold text-sidebar-foreground" style={{ opacity: 1, fontWeight: 700 }}>
                     {group.title}
                   </p>
                 );
