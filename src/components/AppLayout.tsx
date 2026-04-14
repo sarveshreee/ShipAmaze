@@ -144,11 +144,21 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
           {nav.map((group, gi) => (
             <div key={gi}>
-              {group.title && (
-                <p className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-                  {group.title}
-                </p>
-              )}
+              {group.title && (() => {
+                const groupChildPaths = group.items.flatMap(item => {
+                  const children = (item as any).children as NavItem[] | undefined;
+                  return children ? children.map(c => c.path) : [item.path];
+                });
+                const groupActive = groupChildPaths.some(p => location.pathname === p);
+                return (
+                  <p className={cn(
+                    "px-3 pt-4 pb-1 text-[10px] uppercase tracking-wider",
+                    groupActive ? "font-bold text-sidebar-foreground/80" : "font-semibold text-sidebar-foreground/50"
+                  )}>
+                    {group.title}
+                  </p>
+                );
+              })()}
               {group.items.map(item => {
                 const hasChildren = !!(item as any).children?.length;
                 const children = (item as any).children as NavItem[] | undefined;
