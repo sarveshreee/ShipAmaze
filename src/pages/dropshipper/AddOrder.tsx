@@ -128,8 +128,9 @@ export default function AddOrder() {
                     </div>
                     <h4 className="font-semibold text-text-primary mb-3">Pickup Address</h4>
                     <p className="text-sm text-text-secondary font-medium">{selectedPickupAddr.label}</p>
-                    <p className="text-sm text-primary font-medium mt-1">{selectedPickupAddr.contact}</p>
-                    <p className="text-sm text-text-secondary mt-1">{selectedPickupAddr.address}</p>
+                    <p className="text-sm text-primary font-medium mt-1">{selectedPickupAddr.contactName}</p>
+                    <p className="text-sm text-text-secondary mt-1">{selectedPickupAddr.addressLine1}</p>
+                    <p className="text-sm text-text-secondary">{selectedPickupAddr.addressLine2}</p>
                     <p className="text-sm text-text-secondary">{selectedPickupAddr.city}, {selectedPickupAddr.state}, {selectedPickupAddr.pincode}</p>
                     <div className="flex items-center gap-1.5 mt-2 text-sm text-text-secondary">
                       <Phone className="h-3.5 w-3.5" />{selectedPickupAddr.phone}
@@ -146,8 +147,9 @@ export default function AddOrder() {
                     </div>
                     <h4 className="font-semibold text-text-primary mb-3">Return Address</h4>
                     <p className="text-sm text-text-secondary font-medium">{selectedReturnAddr.label}</p>
-                    <p className="text-sm text-primary font-medium mt-1">{selectedReturnAddr.contact}</p>
-                    <p className="text-sm text-text-secondary mt-1">{selectedReturnAddr.address}</p>
+                    <p className="text-sm text-primary font-medium mt-1">{selectedReturnAddr.contactName}</p>
+                    <p className="text-sm text-text-secondary mt-1">{selectedReturnAddr.addressLine1}</p>
+                    <p className="text-sm text-text-secondary">{selectedReturnAddr.addressLine2}</p>
                     <p className="text-sm text-text-secondary">{selectedReturnAddr.city}, {selectedReturnAddr.state}, {selectedReturnAddr.pincode}</p>
                     <div className="flex items-center gap-1.5 mt-2 text-sm text-text-secondary">
                       <Phone className="h-3.5 w-3.5" />{selectedReturnAddr.phone}
