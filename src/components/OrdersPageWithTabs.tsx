@@ -44,19 +44,29 @@ const channelTabs: { label: string; status: OrderStatus | "all" }[] = [
 interface Props {
   breadcrumbPrefix: string;
   showActions?: boolean;
+  showChannelView?: boolean;
 }
 
-export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = true }: Props) {
+export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = true, showChannelView = false }: Props) {
+  const [viewMode, setViewMode] = useState<"orders" | "channel">(showChannelView ? "orders" : "orders");
   const [activeTab, setActiveTab] = useState<OrderStatus | "all">("all");
+  const [channelTab, setChannelTab] = useState<OrderStatus | "all">("ready-to-ship");
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [processModalOpen, setProcessModalOpen] = useState(false);
   const isMobile = useIsMobile();
   const { data: orders = [], isLoading: loading } = useOrders();
 
+  const currentTabs = viewMode === "channel" ? channelTabs : tabs;
+  const currentActiveTab = viewMode === "channel" ? channelTab : activeTab;
+  const setCurrentTab = viewMode === "channel" 
+    ? (s: OrderStatus | "all") => setChannelTab(s) 
+    : (s: OrderStatus | "all") => setActiveTab(s);
+
   const filtered = orders.filter(o => {
-    if (activeTab !== "all" && o.status !== activeTab) return false;
+    if (currentActiveTab !== "all" && o.status !== currentActiveTab) return false;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       return [o.id, o.customer, o.city, o.payment, o.status, String(o.amount), o.date]
