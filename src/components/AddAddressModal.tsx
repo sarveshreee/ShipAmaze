@@ -205,7 +205,7 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
   return (
     <>
       {/* Main Modal */}
-      <Dialog open={open && !showMap} onOpenChange={v => { if (!v) onClose(); }}>
+      <Dialog open={open && !showMap} onOpenChange={v => { if (!v && !showMap) onClose(); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl">Add New Pickup Address</DialogTitle>
