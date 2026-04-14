@@ -89,19 +89,51 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="Orders" breadcrumb={[breadcrumbPrefix, "Orders"]}
-        actions={showActions ? <Button onClick={handleExport} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2 hidden sm:flex"><Download className="h-4 w-4" />Export CSV</Button> : undefined}
+      <PageHeader title={viewMode === "channel" ? "Channel Orders" : "Orders"} breadcrumb={[breadcrumbPrefix, viewMode === "channel" ? "Channel Orders" : "Orders"]}
+        actions={
+          <div className="flex items-center gap-2">
+            {showChannelView && (
+              <div className="hidden sm:flex gap-1 mr-2">
+                <Button variant={viewMode === "orders" ? "default" : "outline"} size="sm" onClick={() => setViewMode("orders")}>Orders</Button>
+                <Button variant={viewMode === "channel" ? "default" : "outline"} size="sm" onClick={() => setViewMode("channel")}>Channel Orders</Button>
+              </div>
+            )}
+            {/* Channel view action bar */}
+            {viewMode === "channel" && selected.size > 0 && (
+              <div className="hidden sm:flex items-center gap-2">
+                <span className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-primary">
+                  <Monitor className="h-4 w-4" /> Count Order: {selected.size}
+                </span>
+                <Button size="sm" onClick={handleExport} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-1.5">
+                  <Download className="h-3.5 w-3.5" />Export
+                </Button>
+                <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary-dark gap-1.5">
+                  <Package className="h-3.5 w-3.5" />Process Bulk Orders
+                </Button>
+                <Button size="sm" onClick={() => setProcessModalOpen(true)} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-1.5">
+                  <Package className="h-3.5 w-3.5" />Process Selected
+                </Button>
+                <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary-dark gap-1.5">
+                  Bulk Junk
+                </Button>
+              </div>
+            )}
+            {viewMode !== "channel" && showActions && (
+              <Button onClick={handleExport} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2 hidden sm:flex"><Download className="h-4 w-4" />Export CSV</Button>
+            )}
+          </div>
+        }
       />
 
       {/* Status tabs */}
       <div className="flex gap-1 overflow-x-auto pb-2 mb-4 border-b border-border -mx-4 px-4 lg:mx-0 lg:px-0">
-        {tabs.map(tab => (
-          <button key={tab.status} onClick={() => setActiveTab(tab.status)}
+        {currentTabs.map(tab => (
+          <button key={tab.status} onClick={() => setCurrentTab(tab.status)}
             className={cn("flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-[2px]",
-              activeTab === tab.status ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
+              currentActiveTab === tab.status ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
             )}>
             {tab.label}
-            <span className={cn("rounded-full px-1.5 py-0.5 text-xs", activeTab === tab.status ? "bg-primary-light text-primary-dark" : "bg-surface-2 text-text-muted")}>
+            <span className={cn("rounded-full px-1.5 py-0.5 text-xs", currentActiveTab === tab.status ? "bg-primary-light text-primary-dark" : "bg-surface-2 text-text-muted")}>
               {getCount(tab.status)}
             </span>
           </button>
