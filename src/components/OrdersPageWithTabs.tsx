@@ -309,7 +309,18 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         </Button>
       </BulkActionBar>
 
-      <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} onOrderUpdated={() => { setDrawerOpen(false); /* refetch handled by hook */ }} />
+      <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} onOrderUpdated={() => { setDrawerOpen(false); }} />
+
+      <ProcessSelectedModal
+        open={processModalOpen}
+        onClose={() => setProcessModalOpen(false)}
+        selectedCount={selected.size}
+        onSubmit={() => {
+          toast.success(`Processing ${selected.size} order(s)`);
+          setProcessModalOpen(false);
+          setSelected(new Set());
+        }}
+      />
     </div>
   );
 }
