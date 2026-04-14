@@ -91,6 +91,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(["Orders"]));
+
+  const toggleMenu = (label: string) => {
+    setExpandedMenus(prev => {
+      const n = new Set(prev);
+      n.has(label) ? n.delete(label) : n.add(label);
+      return n;
+    });
+  };
 
   const rawNav = roleNavMap[role];
 
