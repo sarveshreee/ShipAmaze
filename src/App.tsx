@@ -46,6 +46,7 @@ import AdminPermissions from "@/pages/admin/AdminPermissions";
 import DropshipperDashboard from "@/pages/dropshipper/DropshipperDashboard";
 import DropshipperOrders from "@/pages/dropshipper/DropshipperOrders";
 import CreateOrder from "@/pages/dropshipper/CreateOrder";
+import AddOrder from "@/pages/dropshipper/AddOrder";
 import BulkUpload from "@/pages/dropshipper/BulkUpload";
 import ChannelConnect from "@/pages/dropshipper/ChannelConnect";
 import DropshipperWallet from "@/pages/dropshipper/DropshipperWallet";
@@ -109,6 +110,7 @@ function AppRoutes() {
       <Route path="/dropshipper" element={<ProtectedRoute><DropshipperDashboard /></ProtectedRoute>} />
       <Route path="/dropshipper/orders" element={<ProtectedRoute><DropshipperOrders /></ProtectedRoute>} />
       <Route path="/dropshipper/create-order" element={<ProtectedRoute><CreateOrder /></ProtectedRoute>} />
+      <Route path="/dropshipper/add-order" element={<ProtectedRoute><AddOrder /></ProtectedRoute>} />
       <Route path="/dropshipper/bulk-upload" element={<ProtectedRoute><BulkUpload /></ProtectedRoute>} />
       <Route path="/dropshipper/channels" element={<ProtectedRoute><ChannelConnect /></ProtectedRoute>} />
       <Route path="/dropshipper/wallet" element={<ProtectedRoute><DropshipperWallet /></ProtectedRoute>} />

@@ -8,14 +8,14 @@ import { useState } from "react";
 import { notifications } from "@/data/mockData";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield
+  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 
-interface NavItem { label: string; icon: any; path: string; tabKey?: string; }
-interface NavGroup { title: string; items: NavItem[]; }
+interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; }
+interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[]; }
 
 const adminNav: NavGroup[] = [
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/admin" }] },
@@ -58,8 +58,10 @@ const vendorNav: NavGroup[] = [
 const dropshipperNav: NavGroup[] = [
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/dropshipper", tabKey: "dashboard" }] },
   { title: "ORDERS", items: [
-    { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders" },
-    { label: "Create Order", icon: Plus, path: "/dropshipper/create-order", tabKey: "create-order" },
+    { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", children: [
+      { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", shortcut: "G+O" },
+      { label: "Add Order", icon: Plus, path: "/dropshipper/add-order", tabKey: "create-order", shortcut: "A+O" },
+    ]},
     { label: "Bulk Upload", icon: Upload, path: "/dropshipper/bulk-upload", tabKey: "bulk-upload" },
     { label: "Returns", icon: Undo2, path: "/dropshipper/returns", tabKey: "returns" },
     { label: "NDR", icon: AlertTriangle, path: "/dropshipper/ndr", tabKey: "ndr" },
@@ -89,6 +91,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(["Orders"]));
+
+  const toggleMenu = (label: string) => {
+    setExpandedMenus(prev => {
+      const n = new Set(prev);
+      n.has(label) ? n.delete(label) : n.add(label);
+      return n;
+    });
+  };
 
   const rawNav = roleNavMap[role];
 
@@ -139,7 +150,47 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 </p>
               )}
               {group.items.map(item => {
+                const hasChildren = !!(item as any).children?.length;
+                const children = (item as any).children as NavItem[] | undefined;
                 const active = location.pathname === item.path;
+                const isExpanded = expandedMenus.has(item.label);
+                const childActive = children?.some(c => location.pathname === c.path);
+
+                if (hasChildren && children) {
+                  return (
+                    <div key={item.label}>
+                      <button onClick={() => toggleMenu(item.label)}
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                          childActive ? "text-sidebar-primary-foreground font-medium" : "text-sidebar-foreground hover:bg-sidebar-accent"
+                        )}>
+                        <item.icon className="h-[18px] w-[18px] shrink-0" />
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {isExpanded ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                      </button>
+                      {isExpanded && (
+                        <div className="ml-4 mt-0.5 space-y-0.5">
+                          {children.map(child => {
+                            const cActive = location.pathname === child.path;
+                            return (
+                              <Link key={child.path} to={child.path} onClick={() => setSidebarOpen(false)}
+                                className={cn(
+                                  "flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
+                                  cActive
+                                    ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+                                    : "text-sidebar-foreground hover:bg-sidebar-accent"
+                                )}>
+                                <span>{child.label}</span>
+                                {child.shortcut && <span className="text-[10px] text-sidebar-foreground/40 font-mono">{child.shortcut}</span>}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <Link key={item.path} to={item.path} onClick={() => setSidebarOpen(false)}
                     className={cn(
