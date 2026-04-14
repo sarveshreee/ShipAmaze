@@ -8,14 +8,14 @@ import { useState } from "react";
 import { notifications } from "@/data/mockData";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield
+  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 
-interface NavItem { label: string; icon: any; path: string; tabKey?: string; }
-interface NavGroup { title: string; items: NavItem[]; }
+interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; }
+interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[]; }
 
 const adminNav: NavGroup[] = [
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/admin" }] },
@@ -58,8 +58,10 @@ const vendorNav: NavGroup[] = [
 const dropshipperNav: NavGroup[] = [
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/dropshipper", tabKey: "dashboard" }] },
   { title: "ORDERS", items: [
-    { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders" },
-    { label: "Create Order", icon: Plus, path: "/dropshipper/create-order", tabKey: "create-order" },
+    { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", children: [
+      { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", shortcut: "G+O" },
+      { label: "Add Order", icon: Plus, path: "/dropshipper/add-order", tabKey: "create-order", shortcut: "A+O" },
+    ]},
     { label: "Bulk Upload", icon: Upload, path: "/dropshipper/bulk-upload", tabKey: "bulk-upload" },
     { label: "Returns", icon: Undo2, path: "/dropshipper/returns", tabKey: "returns" },
     { label: "NDR", icon: AlertTriangle, path: "/dropshipper/ndr", tabKey: "ndr" },
