@@ -6,11 +6,12 @@ import { OrderCardList } from "@/components/OrderCardList";
 import { TableSkeleton, OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { BulkActionBar } from "@/components/BulkActionBar";
+import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
 import { useOrders } from "@/hooks/useSupabaseData";
 import { type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Download, Eye, Printer, MoreHorizontal, Package, RefreshCw, FileText } from "lucide-react";
+import { Search, Download, Eye, Printer, MoreHorizontal, Package, RefreshCw, FileText, Monitor, Pencil, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
@@ -28,6 +29,16 @@ const tabs: { label: string; status: OrderStatus | "all" }[] = [
   { label: "RTO", status: "rto" },
   { label: "Cancelled", status: "cancelled" },
   { label: "Draft", status: "draft" },
+];
+
+const channelTabs: { label: string; status: OrderStatus | "all" }[] = [
+  { label: "Pending", status: "pending" as OrderStatus },
+  { label: "Ready to Ship", status: "ready-to-ship" },
+  { label: "Reship", status: "rts" as OrderStatus },
+  { label: "Failed", status: "cancelled" },
+  { label: "Fulfilled", status: "delivered" },
+  { label: "Junk", status: "draft" },
+  { label: "On Process", status: "on-process" as OrderStatus },
 ];
 
 interface Props {
