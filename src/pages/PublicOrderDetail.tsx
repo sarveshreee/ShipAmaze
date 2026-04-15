@@ -52,10 +52,8 @@ function getNextStatuses(current: string): { value: string; label: string }[] {
 }
 
 function updateLocalStorageOrder(orderId: string, updates: Record<string, any>) {
-  const stored = localStorage.getItem("shipflow_orders");
-  if (!stored) return;
-  const orders = JSON.parse(stored);
-  const idx = orders.findIndex((o: any) => o.id === orderId);
+  const orders = getStoredOrders();
+  const idx = orders.findIndex((o: any) => getOrderRecordId(o) === orderId);
   if (idx !== -1) {
     orders[idx] = { ...orders[idx], ...updates };
     localStorage.setItem("shipflow_orders", JSON.stringify(orders));
@@ -63,10 +61,56 @@ function updateLocalStorageOrder(orderId: string, updates: Record<string, any>) 
 }
 
 function removeLocalStorageOrder(orderId: string) {
-  const stored = localStorage.getItem("shipflow_orders");
-  if (!stored) return;
-  const orders = JSON.parse(stored).filter((o: any) => o.id !== orderId);
+  const orders = getStoredOrders().filter((o: any) => getOrderRecordId(o) !== orderId);
   localStorage.setItem("shipflow_orders", JSON.stringify(orders));
+}
+
+function getStoredOrders(): any[] {
+  try {
+    const stored = localStorage.getItem("shipflow_orders");
+    const parsed = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function getOrderRecordId(order: any): string | null {
+  if (!order) return null;
+  return order.id ?? order.orderId ?? order.order_id ?? order.shipment?.orderId ?? order.data?.shipment?.orderId ?? null;
+}
+
+function normalizeOrderRecord(order: any) {
+  const shipment = order?.shipment ?? order?.data?.shipment ?? {};
+  const consignee = order?.consignee ?? order?.data?.consignee ?? {};
+  const packageDetails = order?.pkg ?? order?.data?.pkg ?? {};
+  const rawAmount = order?.amount ?? shipment?.invoiceValue ?? 0;
+  const amount = Number(rawAmount);
+  const dimensions = order?.dimensions ?? (
+    packageDetails.length || packageDetails.width || packageDetails.height
+      ? `${packageDetails.length || 0}x${packageDetails.width || 0}x${packageDetails.height || 0} cm`
+      : ""
+  );
+
+  return {
+    ...order,
+    id: getOrderRecordId(order) ?? "N/A",
+    customer: order.customer ?? order.consigneeName ?? consignee.fullName ?? "N/A",
+    phone: order.phone ?? consignee.phone ?? "N/A",
+    address: order.address ?? shipment.address ?? order.data?.address ?? "N/A",
+    city: order.city ?? order.data?.city ?? "N/A",
+    pincode: order.pincode ?? order.data?.pincode ?? "N/A",
+    weight: order.weight ?? (packageDetails.weight ? `${packageDetails.weight} kg` : "N/A"),
+    courier: order.courier ?? shipment.courier ?? "N/A",
+    payment: order.payment ?? shipment.paymentType ?? "Prepaid",
+    status: order.status ?? shipment.status ?? "pending",
+    date: order.date ?? order.dateSaved ?? shipment.date ?? "N/A",
+    awb: order.awb ?? shipment.awb ?? "N/A",
+    amount: Number.isNaN(amount) ? 0 : amount,
+    dimensions,
+    zone: order.zone ?? "",
+    products: Array.isArray(order.products) ? order.products : Array.isArray(order.data?.products) ? order.data.products : [],
+  };
 }
 
 export default function PublicOrderDetail() {
@@ -87,33 +131,46 @@ export default function PublicOrderDetail() {
     if (!orderId) { setLoading(false); return; }
 
     const fetchOrder = async () => {
-      const { data } = await supabase
-        .from("orders")
-        .select("*")
-        .eq("order_id", orderId)
-        .maybeSingle();
-
-      if (data) {
-        setOrder({
-          id: data.order_id, customer: data.customer, phone: data.phone || "N/A",
-          address: data.address || "N/A", city: data.city || "N/A", pincode: data.pincode || "N/A",
-          weight: data.weight || "N/A", courier: data.courier || "N/A", payment: data.payment,
-          status: data.status, date: data.date || data.created_at?.split("T")[0],
-          awb: data.awb || "N/A", amount: data.amount, dimensions: data.dimensions,
-          zone: data.zone, products: data.products || [],
-        });
-      } else {
-        const stored = localStorage.getItem("shipflow_orders");
-        const localOrders: any[] = stored ? JSON.parse(stored) : [];
-        const localMatch = localOrders.find((o: any) => o.id === orderId);
+      try {
+        const localMatch = getStoredOrders().find((o: any) => getOrderRecordId(o) === orderId);
         if (localMatch) {
-          setOrder(localMatch);
-        } else {
-          const mock = mockOrders.find((o) => o.id === orderId);
-          if (mock) setOrder(mock);
+          setOrder(normalizeOrderRecord(localMatch));
+          return;
         }
+
+        const { data } = await supabase
+          .from("orders")
+          .select("*")
+          .eq("order_id", orderId)
+          .maybeSingle();
+
+        if (data) {
+          setOrder(normalizeOrderRecord({
+            id: data.order_id,
+            customer: data.customer,
+            phone: data.phone || "N/A",
+            address: data.address || "N/A",
+            city: data.city || "N/A",
+            pincode: data.pincode || "N/A",
+            weight: data.weight || "N/A",
+            courier: data.courier || "N/A",
+            payment: data.payment,
+            status: data.status,
+            date: data.date || data.created_at?.split("T")[0],
+            awb: data.awb || "N/A",
+            amount: data.amount,
+            dimensions: data.dimensions,
+            zone: data.zone,
+            products: data.products || [],
+          }));
+          return;
+        }
+
+        const mockMatch = mockOrders.find((o) => getOrderRecordId(o) === orderId);
+        setOrder(mockMatch ? normalizeOrderRecord(mockMatch) : null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     fetchOrder();
   }, [orderId]);
