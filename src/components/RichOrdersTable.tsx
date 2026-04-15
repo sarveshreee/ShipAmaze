@@ -18,6 +18,16 @@ const INDIAN_STATES = [
   "Telangana","Tripura","Uttar Pradesh","Uttarakhand","West Bengal"
 ];
 
+const IVR_OPTIONS = [
+  "Except IVR", "Call Picked (No Response)", "Order Confirmed", "Order Cancelled",
+  "Call not picked", "Call initiated", "Call Failed", "Response Awaited"
+];
+const WHATSAPP_OPTIONS = [
+  "Except Whatsapp", "Msg Sent", "Msg Delivered", "Msg Read",
+  "Order Confirmed", "Order Cancelled", "Response Awaited", "Msg Failed",
+  "Address Update Request"
+];
+
 interface FilterPopoverProps {
   open: boolean;
   onClose: () => void;
@@ -145,6 +155,112 @@ function EditProductModal({ open, onClose, order, onSave }: EditProductModalProp
   );
 }
 
+// Edit Order Price Modal
+function EditPriceModal({ open, onClose, order, onSave }: { open: boolean; onClose: () => void; order: Order; onSave: (id: string, amount: number, codAmount: number) => void }) {
+  const [orderAmount, setOrderAmount] = useState("");
+  const [codAmount, setCodAmount] = useState("");
+
+  useEffect(() => {
+    if (open && order) {
+      setOrderAmount(String(order.amount || 0));
+      setCodAmount(String(order.amount || 0));
+    }
+  }, [open, order]);
+
+  const handleSubmit = () => {
+    onSave(order.id, Number(orderAmount), Number(codAmount));
+    onClose();
+    toast.success("Order price updated");
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold">Edit Order Price</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div>
+            <Label className="text-sm font-medium">Order Amount</Label>
+            <Input value={orderAmount} onChange={e => setOrderAmount(e.target.value)} type="number" className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-sm font-medium">Order COD Amount</Label>
+            <Input value={codAmount} onChange={e => setCodAmount(e.target.value)} type="number" className="mt-1" />
+          </div>
+        </div>
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button onClick={handleSubmit} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
+            <Save className="h-4 w-4" /> Submit
+          </Button>
+          <Button variant="secondary" onClick={onClose} className="bg-sidebar text-sidebar-primary-foreground hover:bg-sidebar-accent">
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Edit Order Details (Address) Modal
+function EditAddressModal({ open, onClose, order, onSave }: { open: boolean; onClose: () => void; order: Order; onSave: (id: string, data: any) => void }) {
+  const [form, setForm] = useState({ customerName: "", customerEmail: "", customerNumber: "", customerNumber2: "", address1: "", address2: "", pincode: "", city: "", state: "" });
+
+  useEffect(() => {
+    if (open && order) {
+      const email = (order as any).email || `${order.customer.toLowerCase().replace(/\s/g, '')}@email.com`;
+      setForm({
+        customerName: order.customer || "",
+        customerEmail: email,
+        customerNumber: order.phone || "",
+        customerNumber2: (order as any).phone2 || "",
+        address1: order.address || "",
+        address2: (order as any).address2 || "",
+        pincode: order.pincode || "",
+        city: order.city || "",
+        state: (order as any).state || "",
+      });
+    }
+  }, [open, order]);
+
+  const handleSubmit = () => {
+    onSave(order.id, form);
+    onClose();
+    toast.success("Order details updated");
+  };
+
+  const set = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }));
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold">Edit Order Details</DialogTitle>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-4 py-2">
+          <div><Label className="text-sm font-medium">Customer Name</Label><Input value={form.customerName} onChange={e => set("customerName", e.target.value)} className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Customer Email</Label><Input value={form.customerEmail} onChange={e => set("customerEmail", e.target.value)} className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Customer Number</Label><Input value={form.customerNumber} onChange={e => set("customerNumber", e.target.value)} className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Customer Number2</Label><Input value={form.customerNumber2} onChange={e => set("customerNumber2", e.target.value)} className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Shipping Address1</Label><Input value={form.address1} onChange={e => set("address1", e.target.value)} className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Shipping Address2</Label><Input value={form.address2} onChange={e => set("address2", e.target.value)} className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Shipping Pincode</Label><Input value={form.pincode} onChange={e => set("pincode", e.target.value)} className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Shipping City</Label><Input value={form.city} onChange={e => set("city", e.target.value)} className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Shipping State</Label><Input value={form.state} onChange={e => set("state", e.target.value)} className="mt-1" /></div>
+        </div>
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button onClick={handleSubmit} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
+            <Save className="h-4 w-4" /> Submit
+          </Button>
+          <Button variant="secondary" onClick={onClose} className="bg-sidebar text-sidebar-primary-foreground hover:bg-sidebar-accent">
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 interface Props {
   orders: Order[];
   selected: Set<string>;
@@ -162,7 +278,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
   const [addressFilter, setAddressFilter] = useState({ open: false, search: "", selectedStates: new Set<string>(), validPincodes: false, invalidPincodes: false, invalidContact: false });
-  const [commFilter, setCommFilter] = useState({ open: false });
+  const [commFilter, setCommFilter] = useState({ open: false, ivrSelected: new Set<string>(), whatsappSelected: new Set<string>() });
 
   const productRef = useRef<HTMLTableCellElement>(null);
   const amountRef = useRef<HTMLTableCellElement>(null);
@@ -172,8 +288,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [editingRemark, setEditingRemark] = useState<string | null>(null);
 
-  // Edit product modal
+  // Edit modals
   const [editProductOrder, setEditProductOrder] = useState<Order | null>(null);
+  const [editPriceOrder, setEditPriceOrder] = useState<Order | null>(null);
+  const [editAddressOrder, setEditAddressOrder] = useState<Order | null>(null);
 
   const allProductNames = Array.from(new Set(orders.flatMap(o => (o.products || []).map(p => p.name))));
 
@@ -216,6 +334,32 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
   };
 
+  const handleEditPriceSave = (orderId: string, amount: number, codAmount: number) => {
+    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
+    const updated = stored.map((o: any) => {
+      if (o.id === orderId || o.orderId === orderId || o.order_id === orderId) {
+        return { ...o, amount, codAmount };
+      }
+      return o;
+    });
+    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+  };
+
+  const handleEditAddressSave = (orderId: string, data: any) => {
+    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
+    const updated = stored.map((o: any) => {
+      if (o.id === orderId || o.orderId === orderId || o.order_id === orderId) {
+        return { ...o, customer: data.customerName, email: data.customerEmail, phone: data.customerNumber, phone2: data.customerNumber2, address: data.address1, address2: data.address2, pincode: data.pincode, city: data.city, state: data.state };
+      }
+      return o;
+    });
+    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+  };
+
+  const toggleCommSet = (set: Set<string>, item: string) => {
+    const n = new Set(set); n.has(item) ? n.delete(item) : n.add(item); return n;
+  };
+
   const FilterIcon = ({ active }: { active: boolean }) => (
     <Filter className={cn("h-3.5 w-3.5 transition-colors", active ? "text-primary" : "text-text-muted")} />
   );
@@ -255,43 +399,9 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   onChange={e => e.target.checked ? onSelectAll(filteredOrders.map(o => o.id)) : onClearSelection()} />
               </th>
               <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">Order Details</th>
-              <th ref={productRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px] relative">
-                <div className="flex items-center gap-2">
-                  <span>Products Details</span>
-                  <button onClick={() => setProductFilter(f => ({ ...f, open: !f.open }))}
-                    className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={productFilter.selectedNames.size > 0} />
-                  </button>
-                </div>
-                <FilterPopover open={productFilter.open} onClose={() => setProductFilter(f => ({ ...f, open: false }))} anchorRef={productRef}>
-                  <div className="space-y-3">
-                    <p className="font-semibold text-text-primary text-sm">Product Name:</p>
-                    <div className="flex gap-1 mb-2">
-                      {(["OR","AND","NOT"] as const).map(m => (
-                        <button key={m} onClick={() => setProductFilter(f => ({ ...f, mode: m }))}
-                          className={cn("px-3 py-1.5 text-xs font-semibold rounded-md transition-colors", productFilter.mode === m ? "bg-primary text-primary-foreground" : "bg-surface-2 text-text-secondary hover:bg-surface-2/80")}>
-                          {m}
-                        </button>
-                      ))}
-                    </div>
-                    <Input placeholder="Search product or SKU..." value={productFilter.search} onChange={e => setProductFilter(f => ({ ...f, search: e.target.value }))} className="h-9 text-xs" />
-                    <div className="max-h-[150px] overflow-auto space-y-1">
-                      {allProductNames.filter(n => n.toLowerCase().includes(productFilter.search.toLowerCase())).map(name => (
-                        <label key={name} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
-                          <input type="checkbox" className="rounded accent-primary" checked={productFilter.selectedNames.has(name)}
-                            onChange={() => setProductFilter(f => {
-                              const n = new Set(f.selectedNames); n.has(name) ? n.delete(name) : n.add(name); return { ...f, selectedNames: n };
-                            })} />
-                          {name}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="flex justify-between pt-3 border-t border-border">
-                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setProductFilter(f => ({ ...f, selectedNames: new Set(), open: false }))}>Clear</Button>
-                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setProductFilter(f => ({ ...f, open: false }))}>Apply</Button>
-                    </div>
-                  </div>
-                </FilterPopover>
+              {/* Products Details - NO filter icon per fix #1 */}
+              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px]">
+                Products Details
               </th>
               <th ref={amountRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[140px] relative">
                 <div className="flex items-center gap-2">
@@ -369,11 +479,46 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   <span>Communication</span>
                   <button onClick={() => setCommFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={false} />
+                    <FilterIcon active={commFilter.ivrSelected.size > 0 || commFilter.whatsappSelected.size > 0} />
                   </button>
                 </div>
                 <FilterPopover open={commFilter.open} onClose={() => setCommFilter(f => ({ ...f, open: false }))} anchorRef={commRef}>
-                  <p className="text-xs text-text-muted">No filters available yet.</p>
+                  <div className="space-y-3 min-w-[340px]">
+                    {/* IVR Section */}
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-text-primary text-sm">IVR</p>
+                      <button className="text-xs text-primary font-semibold hover:underline" onClick={() => setCommFilter(f => ({ ...f, ivrSelected: new Set(IVR_OPTIONS) }))}>Select All</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      {IVR_OPTIONS.map(opt => (
+                        <label key={opt} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
+                          <input type="checkbox" className="rounded accent-primary" checked={commFilter.ivrSelected.has(opt)}
+                            onChange={() => setCommFilter(f => ({ ...f, ivrSelected: toggleCommSet(f.ivrSelected, opt) }))} />
+                          {opt}
+                        </label>
+                      ))}
+                    </div>
+
+                    {/* Red divider */}
+                    <div className="border-t-2 border-danger my-2" />
+
+                    {/* WhatsApp Section */}
+                    <p className="font-semibold text-text-primary text-sm">Whatsapp</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      {WHATSAPP_OPTIONS.map(opt => (
+                        <label key={opt} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
+                          <input type="checkbox" className="rounded accent-primary" checked={commFilter.whatsappSelected.has(opt)}
+                            onChange={() => setCommFilter(f => ({ ...f, whatsappSelected: toggleCommSet(f.whatsappSelected, opt) }))} />
+                          {opt}
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="flex justify-between pt-3 border-t border-border">
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setCommFilter({ open: false, ivrSelected: new Set(), whatsappSelected: new Set() })}>Clear</Button>
+                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setCommFilter(f => ({ ...f, open: false }))}>Apply</Button>
+                    </div>
+                  </div>
                 </FilterPopover>
               </th>
               <th className="p-3 text-center font-medium text-text-secondary min-w-[130px]">Action</th>
@@ -396,7 +541,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               </td></tr>
             ) : filteredOrders.map(o => {
               const products = o.products || [];
-              const orderEmail = `${o.customer.toLowerCase().replace(/\s/g, '')}@email.com`;
+              const orderEmail = (o as any).email || `${o.customer.toLowerCase().replace(/\s/g, '')}@email.com`;
               return (
                 <tr key={o.id} className={cn("border-b border-border last:border-0 align-top transition-colors", selected.has(o.id) && "bg-primary-light/30")}>
                   <td className="p-3 border-r border-border align-middle">
@@ -420,7 +565,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                       </button>
                       {products.length > 0 ? products.map((p, pi) => (
                         <div key={pi} className={cn("pb-2", pi > 0 && "pt-2 border-t border-border/50")}>
-                          <div className="flex justify-between text-[11px] text-text-muted mb-1">
+                          <div className="flex justify-between text-[11px] text-text-muted mb-1 pr-6">
                             <span>SKU: {(p as any).sku || `SKU-${pi + 1}`}</span>
                             <span>QTY: {p.qty.toFixed(2)}</span>
                           </div>
@@ -433,11 +578,13 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     </div>
                   </td>
 
-                  {/* Amount Details */}
+                  {/* Amount Details - fix #2: pencil at top-right, not overlapping */}
                   <td className="p-3 border-r border-border">
                     <div className="relative">
-                      <button className="absolute top-0 right-0 p-1 rounded hover:bg-primary-light transition-colors"><Pencil className="h-3 w-3 text-primary" /></button>
-                      <div className="space-y-1 pr-5">
+                      <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditPriceOrder(o)}>
+                        <Pencil className="h-3 w-3 text-primary" />
+                      </button>
+                      <div className="space-y-1 pr-6">
                         <p className="text-xs"><span className="text-text-muted">Order Amt.: </span><span className="text-text-primary font-medium">{o.amount.toFixed(2)}</span></p>
                         {o.payment === "COD" && (
                           <p className="text-xs"><span className="text-text-muted">COD Amt.: </span><span className="text-text-primary font-medium">{o.amount.toFixed(2)}</span></p>
@@ -446,11 +593,13 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     </div>
                   </td>
 
-                  {/* Address */}
+                  {/* Address - fix #3: pencil opens edit modal */}
                   <td className="p-3 border-r border-border">
                     <div className="relative">
-                      <button className="absolute top-0 right-0 p-1 rounded hover:bg-primary-light transition-colors"><Pencil className="h-3 w-3 text-primary" /></button>
-                      <div className="space-y-1 pr-5">
+                      <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
+                        <Pencil className="h-3 w-3 text-primary" />
+                      </button>
+                      <div className="space-y-1 pr-6">
                         <div className="flex items-start gap-1">
                           <MapPin className="h-3 w-3 text-success mt-0.5 shrink-0" />
                           <div>
@@ -540,12 +689,17 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
 
       {/* Edit Product Modal */}
       {editProductOrder && (
-        <EditProductModal
-          open={!!editProductOrder}
-          onClose={() => setEditProductOrder(null)}
-          order={editProductOrder}
-          onSave={handleEditProductSave}
-        />
+        <EditProductModal open={!!editProductOrder} onClose={() => setEditProductOrder(null)} order={editProductOrder} onSave={handleEditProductSave} />
+      )}
+
+      {/* Edit Price Modal */}
+      {editPriceOrder && (
+        <EditPriceModal open={!!editPriceOrder} onClose={() => setEditPriceOrder(null)} order={editPriceOrder} onSave={handleEditPriceSave} />
+      )}
+
+      {/* Edit Address Modal */}
+      {editAddressOrder && (
+        <EditAddressModal open={!!editAddressOrder} onClose={() => setEditAddressOrder(null)} order={editAddressOrder} onSave={handleEditAddressSave} />
       )}
     </div>
   );
