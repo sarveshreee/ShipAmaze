@@ -18,27 +18,16 @@ import { toast } from "sonner";
 import { printShippingLabel, printBulkLabels } from "@/components/ShippingLabel";
 import { downloadCSV } from "@/lib/exportUtils";
 
-const tabs: { label: string; status: OrderStatus | "all" }[] = [
-  { label: "All", status: "all" },
-  { label: "Ready to Ship", status: "ready-to-ship" },
-  { label: "Not Picked", status: "not-picked" },
-  { label: "In Transit", status: "in-transit" },
-  { label: "Out for Delivery", status: "out-for-delivery" },
-  { label: "Delivered", status: "delivered" },
-  { label: "NDR", status: "ndr" },
-  { label: "RTO", status: "rto" },
-  { label: "Cancelled", status: "cancelled" },
-  { label: "Draft", status: "draft" },
-];
-
-const channelTabs: { label: string; status: OrderStatus | "all" }[] = [
-  { label: "Pending", status: "pending" as OrderStatus },
-  { label: "Ready to Ship", status: "ready-to-ship" },
-  { label: "Reship", status: "rts" as OrderStatus },
-  { label: "Failed", status: "cancelled" },
-  { label: "Fulfilled", status: "delivered" },
-  { label: "Junk", status: "draft" },
-  { label: "On Process", status: "on-process" as OrderStatus },
+const tabs: { label: string; filter: string }[] = [
+  { label: "All", filter: "all" },
+  { label: "Channel", filter: "channel" },
+  { label: "Manual", filter: "manual" },
+  { label: "Ready to Ship", filter: "ready-to-ship" },
+  { label: "In Transit", filter: "in-transit" },
+  { label: "Out for Delivery", filter: "out-for-delivery" },
+  { label: "Delivered", filter: "delivered" },
+  { label: "Failed", filter: "failed" },
+  { label: "Junk", filter: "junk" },
 ];
 
 interface Props {
@@ -48,9 +37,7 @@ interface Props {
 }
 
 export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = true, showChannelView = false }: Props) {
-  const [viewMode, setViewMode] = useState<"orders" | "channel">(showChannelView ? "orders" : "orders");
-  const [activeTab, setActiveTab] = useState<OrderStatus | "all">("all");
-  const [channelTab, setChannelTab] = useState<OrderStatus | "all">("ready-to-ship");
+  const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -59,14 +46,15 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const isMobile = useIsMobile();
   const { data: orders = [], isLoading: loading } = useOrders();
 
-  const currentTabs = viewMode === "channel" ? channelTabs : tabs;
-  const currentActiveTab = viewMode === "channel" ? channelTab : activeTab;
-  const setCurrentTab = viewMode === "channel" 
-    ? (s: OrderStatus | "all") => setChannelTab(s) 
-    : (s: OrderStatus | "all") => setActiveTab(s);
+  const filterByTab = (o: Order, tab: string) => {
+    if (tab === "all") return true;
+    if (tab === "channel") return (o as any).source === "channel";
+    if (tab === "manual") return (o as any).source === "manual" || !(o as any).source;
+    return o.status === tab;
+  };
 
   const filtered = orders.filter(o => {
-    if (currentActiveTab !== "all" && o.status !== currentActiveTab) return false;
+    if (!filterByTab(o, activeTab)) return false;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       return [o.id, o.customer, o.city, o.payment, o.status, String(o.amount), o.date]
@@ -75,7 +63,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     return true;
   });
 
-  const getCount = (status: string) => status === "all" ? orders.length : orders.filter(o => o.status === status).length;
+  const getCount = (filter: string) => orders.filter(o => filterByTab(o, filter)).length;
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
 
