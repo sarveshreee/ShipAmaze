@@ -122,7 +122,7 @@ export default function AddOrder() {
       if (!pkg.weight.trim()) errors.weight = "Weight is required";
       if (!pkg.length.trim() || !pkg.width.trim() || !pkg.height.trim()) errors.dimensions = "All dimensions are required";
     } else if (step === 5) {
-      if (courierMode === "priority" && prioritySelections.length === 0) errors.courier = "Select at least one courier priority";
+      if (courierMode === "priority" && prioritySelections.length < 3) errors.courier = "Select exactly 3 courier priorities";
       if (courierMode === "courier" && !selectedCourier) errors.courier = "Select a courier";
     }
     setStepErrors(errors);
