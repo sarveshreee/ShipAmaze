@@ -59,10 +59,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   const [commFilter, setCommFilter] = useState({ open: false });
 
   // Refs for filter anchors
-  const productRef = useRef<HTMLThElement>(null);
-  const amountRef = useRef<HTMLThElement>(null);
-  const addressRef = useRef<HTMLThElement>(null);
-  const commRef = useRef<HTMLThElement>(null);
+  const productRef = useRef<HTMLTableCellElement>(null);
+  const amountRef = useRef<HTMLTableCellElement>(null);
+  const addressRef = useRef<HTMLTableCellElement>(null);
+  const commRef = useRef<HTMLTableCellElement>(null);
 
   // Remarks editing
   const [remarks, setRemarks] = useState<Record<string, string>>({});
