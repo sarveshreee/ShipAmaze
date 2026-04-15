@@ -230,7 +230,15 @@ export default function AddOrder() {
       pickupAddress: pickupAddr?.label,
     };
 
+    // Add to in-memory list
     globalOrders.unshift(newOrder);
+
+    // Persist to localStorage for order detail page lookup
+    const stored = localStorage.getItem("shipflow_orders");
+    const localOrders: any[] = stored ? JSON.parse(stored) : [];
+    localOrders.unshift(newOrder);
+    localStorage.setItem("shipflow_orders", JSON.stringify(localOrders));
+
     toast.success("Order submitted successfully!");
     navigate("/dropshipper/orders");
   };
@@ -536,9 +544,7 @@ export default function AddOrder() {
           {/* Step 5 - Courier */}
           {currentStep === 5 && (
             <div className="rounded-lg border border-border bg-card p-6 space-y-5">
-              <h3 className="font-semibold text-text-primary">Choose Courier</h3>
-
-              {/* FIX 2: Express dropdown ABOVE radio options */}
+              {/* Express dropdown */}
               <div>
                 <Label>Express<span className="text-danger">*</span></Label>
                 <select value={expressType} onChange={e => setExpressType(e.target.value)}
@@ -549,24 +555,30 @@ export default function AddOrder() {
                 </select>
               </div>
 
-              {/* FIX 2: Renamed from "Selection Mode" to "Choose Courier" */}
+              {/* Choose Courier radio */}
               <div>
-                <Label className="mb-2 block">Choose Courier<span className="text-danger">*</span></Label>
                 <div className="flex gap-4">
                   {([["priority", "Priority Selection"], ["courier", "Courier Selection"]] as const).map(([val, label]) => (
                     <label key={val} className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
                       <input type="radio" name="courier-mode" className="accent-primary"
-                        checked={courierMode === val} onChange={() => { setCourierMode(val); if (val === "courier") { setPrioritySelections([]); } setSelectedCourier(""); }} />
+                        checked={courierMode === val} onChange={() => { setCourierMode(val); if (val === "courier") { setPrioritySelections([]); } setSelectedCourier(""); setEditingPriorities(false); }} />
                       {label}
                     </label>
                   ))}
                 </div>
               </div>
 
-              {/* FIX 3: Priority Selection - ALL couriers, compact, persistent */}
+              {/* Priority Selection - lock after 3 choices */}
               {courierMode === "priority" && (
                 <>
-                      <p className="text-xs text-text-muted">Click cards to set priority (1st, 2nd, 3rd). Click again to deselect. Selections are saved permanently.</p>
+                  {prioritySelections.length === 3 && !editingPriorities ? (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-text-primary">Priority saved: <strong>{prioritySelections.map(id => mockCouriers.find(c => c.id === id)?.name).filter(Boolean).join(", ")}</strong></span>
+                      <Button variant="link" size="sm" className="text-primary p-0 h-auto" onClick={() => setEditingPriorities(true)}>Edit</Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-text-muted">Click cards to set priority (1st, 2nd, 3rd). Click again to deselect.</p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
                         {mockCouriers.map(c => {
                           const idx = prioritySelections.indexOf(c.id);
@@ -589,6 +601,8 @@ export default function AddOrder() {
                           );
                         })}
                       </div>
+                    </>
+                  )}
                 </>
               )}
 
