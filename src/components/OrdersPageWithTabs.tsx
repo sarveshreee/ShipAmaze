@@ -140,7 +140,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               <tbody>
                 {loading ? <TableSkeleton rows={10} columns={8} /> : filtered.length === 0 ? (
                   <tr><td colSpan={8}>
-                    <EmptyState icon={Package} title="No orders found" description="Try adjusting your search or filter criteria" actionLabel="Clear Filters" onAction={() => { setSearch(""); setCurrentTab("all"); }} />
+                    <EmptyState icon={Package} title="No orders found" description="Try adjusting your search or filter criteria" actionLabel="Clear Filters" onAction={() => { setSearch(""); setActiveTab("all"); }} />
                   </td></tr>
                 ) : filtered.map(o => (
                   <tr key={o.id} className={cn("border-b border-border last:border-0 hover:bg-surface-2/30 transition-colors", selected.has(o.id) && "bg-primary-light/30")}>
