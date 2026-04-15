@@ -67,6 +67,14 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const getCount = (filter: string) => orders.filter(o => filterByTab(o, filter)).length;
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
+  const handleMarkJunk = (id: string) => {
+    // Update in localStorage
+    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
+    const updated = stored.map((o: any) => o.id === id || o.orderId === id || o.order_id === id ? { ...o, status: "junk" } : o);
+    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+    toast.success("Order marked as Junk");
+    window.location.reload();
+  };
 
   const handleExport = () => {
     const data = selected.size > 0 ? filtered.filter(o => selected.has(o.id)) : filtered;
