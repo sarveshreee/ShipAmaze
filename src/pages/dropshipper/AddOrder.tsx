@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Phone, Save, Pencil } from "lucide-react";
+import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Phone, Save, Pencil, Trash2 } from "lucide-react";
 import { pickupAddresses as defaultPickupAddresses, orders as globalOrders } from "@/data/mockData";
 import { AddAddressModal } from "@/components/AddAddressModal";
 import { toast } from "sonner";
@@ -73,7 +73,7 @@ export default function AddOrder() {
 
   // Step 5
   const [courierMode, setCourierMode] = useState<"priority" | "courier">("priority");
-  const [expressType, setExpressType] = useState("Surface");
+  const [expressType, setExpressType] = useState("");
   const [prioritySelections, setPrioritySelections] = useState<string[]>([]);
   const [selectedCourier, setSelectedCourier] = useState("");
   const [usingSavedPriorities, setUsingSavedPriorities] = useState(false);
@@ -467,11 +467,19 @@ export default function AddOrder() {
               </div>
               <h4 className="font-medium text-text-primary pt-2">Products</h4>
               {products.map((prod, i) => (
-                <div key={i} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 items-end">
                   <div><Label>Product Name</Label><Input value={prod.name} onChange={e => { const np = [...products]; np[i].name = e.target.value; setProducts(np); }} placeholder="Item name" /></div>
                   <div><Label>Qty</Label><Input value={prod.qty} onChange={e => { const np = [...products]; np[i].qty = e.target.value; setProducts(np); }} placeholder="1" type="number" /></div>
                   <div><Label>Weight (kg)</Label><Input value={prod.weight} onChange={e => { const np = [...products]; np[i].weight = e.target.value; setProducts(np); }} placeholder="0.5" type="number" /></div>
                   <div><Label>Price (₹)</Label><Input value={prod.price} onChange={e => { const np = [...products]; np[i].price = e.target.value; setProducts(np); }} placeholder="0" type="number" /></div>
+                  <div>
+                    {products.length > 1 && (
+                      <Button variant="ghost" size="icon" className="h-9 w-9 text-text-muted hover:text-danger hover:bg-danger/10"
+                        onClick={() => setProducts(p => p.filter((_, idx) => idx !== i))}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setProducts(p => [...p, { name: "", qty: "", weight: "", price: "" }])}>
@@ -497,13 +505,13 @@ export default function AddOrder() {
                 <div>
                   <Label>Dimensions<span className="text-danger">*</span></Label>
                   <div className="flex gap-2 mt-1 items-center">
-                    <Input value={pkg.length} onChange={e => setPkg(p => ({ ...p, length: e.target.value }))}
+                    <Input value={pkg.length} min="0" onChange={e => setPkg(p => ({ ...p, length: Math.max(0, Number(e.target.value)).toString() || "" }))}
                       placeholder="Length" type="number" className={stepErrors.dimensions ? "border-danger" : ""} />
                     <span className="text-text-muted">×</span>
-                    <Input value={pkg.width} onChange={e => setPkg(p => ({ ...p, width: e.target.value }))}
+                    <Input value={pkg.width} min="0" onChange={e => setPkg(p => ({ ...p, width: Math.max(0, Number(e.target.value)).toString() || "" }))}
                       placeholder="Width" type="number" className={stepErrors.dimensions ? "border-danger" : ""} />
                     <span className="text-text-muted">×</span>
-                    <Input value={pkg.height} onChange={e => setPkg(p => ({ ...p, height: e.target.value }))}
+                    <Input value={pkg.height} min="0" onChange={e => setPkg(p => ({ ...p, height: Math.max(0, Number(e.target.value)).toString() || "" }))}
                       placeholder="Height" type="number" className={stepErrors.dimensions ? "border-danger" : ""} />
                     <span className="flex items-center text-sm text-text-muted px-2 bg-surface-2 rounded-md border border-border">cm</span>
                   </div>
@@ -535,7 +543,9 @@ export default function AddOrder() {
                 <Label>Express<span className="text-danger">*</span></Label>
                 <select value={expressType} onChange={e => setExpressType(e.target.value)}
                   className="mt-1 w-48 rounded-md border border-border bg-background px-3 py-2.5 text-sm">
-                  <option>Surface</option><option>Express</option>
+                  <option value="">-- Select --</option>
+                  <option value="Air">Air</option>
+                  <option value="Surface">Surface</option>
                 </select>
               </div>
 
@@ -556,24 +566,6 @@ export default function AddOrder() {
               {/* FIX 3: Priority Selection - ALL couriers, compact, persistent */}
               {courierMode === "priority" && (
                 <>
-                  {usingSavedPriorities && !editingPriorities ? (
-                    <div className="rounded-md border border-border bg-surface-2/30 p-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-sm text-text-secondary">
-                        <span className="text-success">✓</span> Using your saved priority settings:
-                        <span className="font-medium text-text-primary">
-                          {prioritySelections.map((id, i) => {
-                            const c = mockCouriers.find(cr => cr.id === id);
-                            return c ? `${i + 1}. ${c.name}` : null;
-                          }).filter(Boolean).join(" → ")}
-                        </span>
-                      </div>
-                      <button onClick={() => { setEditingPriorities(true); setPrioritySelections([]); }}
-                        className="text-primary text-sm font-medium hover:underline flex items-center gap-1">
-                        <Pencil className="h-3 w-3" /> Edit
-                      </button>
-                    </div>
-                  ) : (
-                    <>
                       <p className="text-xs text-text-muted">Click cards to set priority (1st, 2nd, 3rd). Click again to deselect. Selections are saved permanently.</p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
                         {mockCouriers.map(c => {
@@ -597,8 +589,6 @@ export default function AddOrder() {
                           );
                         })}
                       </div>
-                    </>
-                  )}
                 </>
               )}
 
