@@ -229,6 +229,7 @@ export default function AddOrder() {
       dimensions: `${pkg.length}x${pkg.width}x${pkg.height} cm`,
       zone: "B",
       pickupAddress: pickupAddr?.label || "",
+      source: "manual",
     };
 
     // Add to in-memory list

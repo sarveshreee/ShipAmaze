@@ -191,6 +191,7 @@ export default function CreateOrder() {
           dimensions: dims,
           zone: "B",
           pickupAddress: pickupAddr ? pickupAddr.label : "",
+          source: "manual",
         });
         localStorage.setItem("shipflow_orders", JSON.stringify(existing));
         toast.success(`Order ${orderId} created (demo mode)`, { description: `AWB: ${awb}` });
