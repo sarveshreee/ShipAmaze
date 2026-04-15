@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Phone, Save } from "lucide-react";
+import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Phone, Save, Pencil } from "lucide-react";
 import { pickupAddresses as defaultPickupAddresses, orders as globalOrders } from "@/data/mockData";
 import { AddAddressModal } from "@/components/AddAddressModal";
 import { toast } from "sonner";
@@ -47,6 +47,8 @@ interface SavedOrder {
   data: any;
 }
 
+const PRIORITY_STORAGE_KEY = "courierPriorities";
+
 export default function AddOrder() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
@@ -55,7 +57,6 @@ export default function AddOrder() {
   const [extraAddresses, setExtraAddresses] = useState<typeof defaultPickupAddresses>([]);
   const allAddresses = [...defaultPickupAddresses, ...extraAddresses];
 
-  // Fix 4: Start empty
   const [selectedPickup, setSelectedPickup] = useState("");
   const [showReturn, setShowReturn] = useState(false);
   const [selectedReturn, setSelectedReturn] = useState("");
@@ -63,7 +64,7 @@ export default function AddOrder() {
   // Step 2
   const [consignee, setConsignee] = useState({ fullName: "", phone: "", email: "", altPhone: "" });
 
-  // Step 3 - auto-generate order ID
+  // Step 3
   const [shipment, setShipment] = useState({ orderId: generateOrderId(), paymentType: "Prepaid", invoiceValue: "", codAmount: "" });
   const [products, setProducts] = useState([{ name: "", qty: "", weight: "", price: "" }]);
 
@@ -75,6 +76,19 @@ export default function AddOrder() {
   const [expressType, setExpressType] = useState("Surface");
   const [prioritySelections, setPrioritySelections] = useState<string[]>([]);
   const [selectedCourier, setSelectedCourier] = useState("");
+  const [usingSavedPriorities, setUsingSavedPriorities] = useState(false);
+  const [editingPriorities, setEditingPriorities] = useState(false);
+
+  // Load saved priorities on mount
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PRIORITY_STORAGE_KEY) || "[]");
+      if (saved.length === 3) {
+        setPrioritySelections(saved);
+        setUsingSavedPriorities(true);
+      }
+    } catch {}
+  }, []);
 
   // Saved orders
   const [savedOrders, setSavedOrders] = useState<SavedOrder[]>(() => {
@@ -87,7 +101,6 @@ export default function AddOrder() {
   const selectedPickupAddr = allAddresses.find(a => a.id === selectedPickup);
   const selectedReturnAddr = allAddresses.find(a => a.id === selectedReturn);
 
-  // Regenerate order ID when step 3 is loaded
   useEffect(() => {
     if (currentStep === 3 && !shipment.orderId) {
       setShipment(p => ({ ...p, orderId: generateOrderId() }));
@@ -122,10 +135,7 @@ export default function AddOrder() {
     }
   };
 
-  // Fix 3: Completely disable step click navigation
-  const handleStepClick = (_stepNum: number) => {
-    // Steps only navigable via Next/Previous buttons
-  };
+  const handleStepClick = (_stepNum: number) => {};
 
   const handleAddAddress = (addr: any) => {
     const newAddr = {
@@ -148,7 +158,15 @@ export default function AddOrder() {
     setPrioritySelections(prev => {
       if (prev.includes(courierId)) return prev.filter(c => c !== courierId);
       if (prev.length >= 3) return prev;
-      return [...prev, courierId];
+      const updated = [...prev, courierId];
+      // Auto-save when 3 are selected
+      if (updated.length === 3) {
+        localStorage.setItem(PRIORITY_STORAGE_KEY, JSON.stringify(updated));
+        setUsingSavedPriorities(true);
+        setEditingPriorities(false);
+        toast.success("Priority settings saved");
+      }
+      return updated;
     });
   };
 
@@ -174,7 +192,7 @@ export default function AddOrder() {
     setShowReturn(d.showReturn);
     setSelectedReturn(d.selectedReturn);
     setConsignee(d.consignee);
-    setShipment({ ...d.shipment, orderId: generateOrderId() }); // new ID
+    setShipment({ ...d.shipment, orderId: generateOrderId() });
     setProducts(d.products);
     setPkg(d.pkg);
     setCourierMode(d.courierMode);
@@ -222,11 +240,10 @@ export default function AddOrder() {
 
   return (
     <div className="animate-fade-in-up">
-      {/* Fix 2: Removed Add Warehouse button */}
       <PageHeader title="Add Order" breadcrumb={["Dropshipper", "Add Order"]} />
 
       <div className="flex gap-6">
-        {/* Left stepper - Fix 3: no click navigation */}
+        {/* Left stepper */}
         <div className="hidden md:flex flex-col gap-1 w-52 shrink-0">
           {steps.map((s) => {
             const active = currentStep === s.num;
@@ -295,6 +312,7 @@ export default function AddOrder() {
                 </Button>
               </div>
 
+              {/* Right panel: Pickup + Return Address cards + Saved Orders */}
               <div className="w-full lg:w-80 space-y-4">
                 {selectedPickupAddr && (
                   <div className="rounded-lg border border-border bg-card p-5 relative">
@@ -315,11 +333,12 @@ export default function AddOrder() {
                   </div>
                 )}
 
+                {/* FIX 1: Return Address card shown when toggle is on and address selected */}
                 {showReturn && selectedReturnAddr && (
                   <div className="rounded-lg border border-border bg-card p-5 relative">
                     <div className="absolute top-4 right-4">
-                      <div className="h-10 w-10 rounded-full bg-primary-light flex items-center justify-center">
-                        <MapPin className="h-5 w-5 text-primary" />
+                      <div className="h-10 w-10 rounded-full bg-accent/20 flex items-center justify-center">
+                        <MapPin className="h-5 w-5 text-accent-foreground" />
                       </div>
                     </div>
                     <h4 className="font-semibold text-text-primary mb-3">Return Address</h4>
@@ -330,6 +349,28 @@ export default function AddOrder() {
                     <p className="text-sm text-text-secondary">{selectedReturnAddr.city}, {selectedReturnAddr.state}, {selectedReturnAddr.pincode}</p>
                     <div className="flex items-center gap-1.5 mt-2 text-sm text-text-secondary">
                       <Phone className="h-3.5 w-3.5" />{selectedReturnAddr.phone}
+                    </div>
+                  </div>
+                )}
+
+                {/* FIX 5: Saved Orders in Step 1 right panel */}
+                {savedOrders.length > 0 && (
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <h4 className="font-semibold text-text-primary mb-3 text-sm">Saved Orders</h4>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {savedOrders.map(s => (
+                        <button key={s.id} onClick={() => loadSavedOrder(s)}
+                          className="w-full text-left rounded-md border border-border p-2.5 hover:bg-surface-2/50 transition-colors text-xs">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="font-mono text-primary font-medium">{s.orderId}</span>
+                              <p className="text-text-secondary mt-0.5">{s.consigneeName}</p>
+                              <p className="text-text-muted">{s.pickupLabel}</p>
+                            </div>
+                            <span className="text-text-muted whitespace-nowrap ml-2">{s.dateSaved}</span>
+                          </div>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -489,65 +530,89 @@ export default function AddOrder() {
             <div className="rounded-lg border border-border bg-card p-6 space-y-5">
               <h3 className="font-semibold text-text-primary">Choose Courier</h3>
 
+              {/* FIX 2: Express dropdown ABOVE radio options */}
               <div>
-                <Label className="mb-2 block">Selection Mode<span className="text-danger">*</span></Label>
+                <Label>Express<span className="text-danger">*</span></Label>
+                <select value={expressType} onChange={e => setExpressType(e.target.value)}
+                  className="mt-1 w-48 rounded-md border border-border bg-background px-3 py-2.5 text-sm">
+                  <option>Surface</option><option>Express</option>
+                </select>
+              </div>
+
+              {/* FIX 2: Renamed from "Selection Mode" to "Choose Courier" */}
+              <div>
+                <Label className="mb-2 block">Choose Courier<span className="text-danger">*</span></Label>
                 <div className="flex gap-4">
                   {([["priority", "Priority Selection"], ["courier", "Courier Selection"]] as const).map(([val, label]) => (
                     <label key={val} className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
                       <input type="radio" name="courier-mode" className="accent-primary"
-                        checked={courierMode === val} onChange={() => { setCourierMode(val); setPrioritySelections([]); setSelectedCourier(""); }} />
+                        checked={courierMode === val} onChange={() => { setCourierMode(val); if (val === "courier") { setPrioritySelections([]); } setSelectedCourier(""); }} />
                       {label}
                     </label>
                   ))}
                 </div>
               </div>
 
+              {/* FIX 3: Priority Selection - ALL couriers, compact, persistent */}
               {courierMode === "priority" && (
                 <>
-                  <div>
-                    <Label>Express<span className="text-danger">*</span></Label>
-                    <select value={expressType} onChange={e => setExpressType(e.target.value)}
-                      className="mt-1 w-48 rounded-md border border-border bg-background px-3 py-2.5 text-sm">
-                      <option>Surface</option><option>Express</option>
-                    </select>
-                  </div>
-                  <p className="text-sm text-text-muted">Click cards to set priority (1st, 2nd, 3rd). Click again to deselect.</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {mockCouriers.slice(0, 3).map(c => {
-                      const idx = prioritySelections.indexOf(c.id);
-                      const isSelected = idx !== -1;
-                      return (
-                        <button key={c.id} onClick={() => handlePriorityClick(c.id)}
-                          className={cn("rounded-xl border-2 p-5 text-center transition-all hover:shadow-md",
-                            isSelected ? "border-primary bg-primary-light" : "border-border hover:border-primary/40"
-                          )}>
-                          {isSelected && (
-                            <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs font-bold mb-2">
-                              {idx + 1}
-                            </span>
-                          )}
-                          <p className="font-bold text-text-primary text-base">{c.name}</p>
-                          <p className="text-xs text-text-muted mt-1">Slab: {c.slab}</p>
-                          <p className="text-xs text-text-muted">EDD: {c.edd}</p>
-                          <p className="text-sm font-semibold text-primary mt-2">₹{c.amount}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {usingSavedPriorities && !editingPriorities ? (
+                    <div className="rounded-md border border-border bg-surface-2/30 p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm text-text-secondary">
+                        <span className="text-success">✓</span> Using your saved priority settings:
+                        <span className="font-medium text-text-primary">
+                          {prioritySelections.map((id, i) => {
+                            const c = mockCouriers.find(cr => cr.id === id);
+                            return c ? `${i + 1}. ${c.name}` : null;
+                          }).filter(Boolean).join(" → ")}
+                        </span>
+                      </div>
+                      <button onClick={() => { setEditingPriorities(true); setPrioritySelections([]); }}
+                        className="text-primary text-sm font-medium hover:underline flex items-center gap-1">
+                        <Pencil className="h-3 w-3" /> Edit
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-text-muted">Click cards to set priority (1st, 2nd, 3rd). Click again to deselect. Selections are saved permanently.</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                        {mockCouriers.map(c => {
+                          const idx = prioritySelections.indexOf(c.id);
+                          const isSelected = idx !== -1;
+                          return (
+                            <button key={c.id} onClick={() => handlePriorityClick(c.id)}
+                              className={cn("rounded-lg border p-3 text-center transition-all hover:shadow-sm relative",
+                                isSelected ? "border-primary bg-primary-light" : "border-border hover:border-primary/40"
+                              )}>
+                              {isSelected && (
+                                <span className="absolute -top-2 -right-2 inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
+                                  {idx + 1}
+                                </span>
+                              )}
+                              <p className="font-semibold text-text-primary text-sm">{c.name}</p>
+                              <p className="text-[11px] text-text-muted mt-0.5">Slab: {c.slab}</p>
+                              <p className="text-[11px] text-text-muted">EDD: {c.edd}</p>
+                              <p className="text-xs font-semibold text-primary mt-1">₹{c.amount}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 
               {courierMode === "courier" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
                   {mockCouriers.map(c => (
                     <button key={c.id} onClick={() => setSelectedCourier(c.id)}
-                      className={cn("rounded-xl border-2 p-5 text-center transition-all hover:shadow-md",
+                      className={cn("rounded-lg border p-3 text-center transition-all hover:shadow-sm",
                         selectedCourier === c.id ? "border-primary bg-primary-light" : "border-border hover:border-primary/40"
                       )}>
-                      <p className="font-bold text-text-primary text-base">{c.name}</p>
-                      <p className="text-xs text-text-muted mt-1">Slab: {c.slab}</p>
-                      <p className="text-xs text-text-muted">EDD: {c.edd}</p>
-                      <p className="text-sm font-semibold text-primary mt-2">₹{c.amount}</p>
+                      <p className="font-semibold text-text-primary text-sm">{c.name}</p>
+                      <p className="text-[11px] text-text-muted mt-0.5">Slab: {c.slab}</p>
+                      <p className="text-[11px] text-text-muted">EDD: {c.edd}</p>
+                      <p className="text-xs font-semibold text-primary mt-1">₹{c.amount}</p>
                     </button>
                   ))}
                 </div>
@@ -555,7 +620,7 @@ export default function AddOrder() {
 
               {stepErrors.courier && <p className="text-xs text-danger mt-1">{stepErrors.courier}</p>}
 
-              {/* Saved Orders */}
+              {/* Saved Orders in Step 5 */}
               {savedOrders.length > 0 && (
                 <div className="mt-6 border-t border-border pt-4">
                   <h4 className="font-medium text-text-primary mb-2">Saved Orders</h4>
