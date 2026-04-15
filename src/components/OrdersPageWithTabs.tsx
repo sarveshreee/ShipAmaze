@@ -5,14 +5,13 @@ import { OrderDetailDrawer } from "@/components/OrderDetailDrawer";
 import { OrderCardList } from "@/components/OrderCardList";
 import { TableSkeleton, OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
-import { BulkActionBar } from "@/components/BulkActionBar";
 import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
 import { RichOrdersTable } from "@/components/RichOrdersTable";
 import { useOrders } from "@/hooks/useSupabaseData";
 import { type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Download, Eye, Printer, MoreHorizontal, Package, RefreshCw, FileText, Monitor, Pencil, Filter } from "lucide-react";
+import { Search, Download, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
@@ -68,11 +67,20 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
   const handleMarkJunk = (id: string) => {
-    // Update in localStorage
     const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
     const updated = stored.map((o: any) => o.id === id || o.orderId === id || o.order_id === id ? { ...o, status: "junk" } : o);
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
     toast.success("Order marked as Junk");
+    window.location.reload();
+  };
+
+  const handleBulkJunk = () => {
+    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
+    const selectedIds = Array.from(selected);
+    const updated = stored.map((o: any) => selectedIds.includes(o.id) || selectedIds.includes(o.orderId) || selectedIds.includes(o.order_id) ? { ...o, status: "junk" } : o);
+    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+    toast.success(`${selected.size} order(s) marked as Junk`);
+    setSelected(new Set());
     window.location.reload();
   };
 
@@ -81,8 +89,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     downloadCSV("orders_export", ["ID","Customer","City","Status","Payment","Amount","Date","AWB","Courier"], data.map(o => [o.id, o.customer, o.city, o.status, o.payment, o.amount, o.date, o.awb, o.courier]));
     toast.success(`Exported ${data.length} orders as CSV`);
   };
-
-  const handleBulkPrint = () => { const sel = filtered.filter(o => selected.has(o.id)); printBulkLabels(sel); toast.success(`Printing ${sel.length} label(s)`); };
 
   return (
     <div className="animate-fade-in-up">
@@ -134,21 +140,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onSelectAll={(ids) => setSelected(new Set(ids))}
           onClearSelection={() => setSelected(new Set())}
           onMarkJunk={handleMarkJunk}
+          onBulkJunk={handleBulkJunk}
+          onOpenProcessModal={() => setProcessModalOpen(true)}
+          onExport={handleExport}
           loading={loading}
         />
       )}
-
-      <BulkActionBar count={selected.size} onClear={() => setSelected(new Set())}>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={handleBulkPrint}>
-          <Printer className="h-3.5 w-3.5" /> Print Labels
-        </Button>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => { toast.success(`Status updated for ${selected.size} order(s)`); setSelected(new Set()); }}>
-          <RefreshCw className="h-3.5 w-3.5" /> Update Status
-        </Button>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={handleExport}>
-          <FileText className="h-3.5 w-3.5" /> Export
-        </Button>
-      </BulkActionBar>
 
       <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} onOrderUpdated={() => { setDrawerOpen(false); }} />
 

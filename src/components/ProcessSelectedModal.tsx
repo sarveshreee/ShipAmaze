@@ -3,7 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Save } from "lucide-react";
 import { pickupAddresses } from "@/data/mockData";
+import { toast } from "sonner";
 
 interface Props {
   open: boolean;
@@ -28,37 +30,45 @@ export function ProcessSelectedModal({ open, onClose, selectedCount, onSubmit }:
     if (val !== "other") setWeight(val);
   };
 
+  const handleSubmit = () => {
+    if (!shipmentMode) { toast.error("Select Shipment Mode"); return; }
+    if (!pickupAddr) { toast.error("Select Pickup Address"); return; }
+    if (!returnAddr) { toast.error("Select Return Address"); return; }
+    if (!weight) { toast.error("Enter weight"); return; }
+    onSubmit();
+  };
+
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Order Process</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">Order Process</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5 py-2">
           {/* Row 1: Shipment Mode, Pickup, Return */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <Label className="text-sm">Select Shipment Mode<span className="text-danger">*</span></Label>
+              <Label className="text-sm font-medium">Select Shipment Mode<span className="text-danger">*</span></Label>
               <select value={shipmentMode} onChange={e => setShipmentMode(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">-- Select --</option>
                 <option value="forward">Forward</option>
                 <option value="reverse">Reverse</option>
               </select>
             </div>
             <div>
-              <Label className="text-sm">Pickup Address<span className="text-danger">*</span></Label>
+              <Label className="text-sm font-medium">Pickup Address<span className="text-danger">*</span></Label>
               <select value={pickupAddr} onChange={e => setPickupAddr(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">Search by pickup address...</option>
                 {pickupAddresses.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
               </select>
             </div>
             <div>
-              <Label className="text-sm">Return Address<span className="text-danger">*</span></Label>
+              <Label className="text-sm font-medium">Return Address<span className="text-danger">*</span></Label>
               <select value={returnAddr} onChange={e => setReturnAddr(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">Search by return address...</option>
                 {pickupAddresses.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
               </select>
@@ -68,21 +78,21 @@ export function ProcessSelectedModal({ open, onClose, selectedCount, onSubmit }:
           {/* Row 2: Weight + Dimensions */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <Label className="text-sm">Actual Weight<span className="text-danger">*</span></Label>
+              <Label className="text-sm font-medium">Actual Weight<span className="text-danger">*</span></Label>
               <div className="flex gap-2 mt-1">
                 <Input value={weight} onChange={e => { setWeight(e.target.value); setWeightPreset("other"); }} placeholder="Enter weight..." type="number" className="flex-1" />
-                <span className="flex items-center text-sm text-text-muted px-2 bg-surface-2 rounded-md border border-border">KG</span>
+                <span className="flex items-center text-sm text-text-muted px-3 bg-surface-2 rounded-md border border-border">KG</span>
               </div>
             </div>
             <div>
-              <Label className="text-sm">Dimensions<span className="text-danger">*</span></Label>
+              <Label className="text-sm font-medium">Dimensions<span className="text-danger">*</span></Label>
               <div className="flex gap-1.5 mt-1 items-center">
                 <Input value={dimL} onChange={e => setDimL(e.target.value)} placeholder="Length" type="number" />
                 <span className="text-text-muted font-bold">×</span>
                 <Input value={dimW} onChange={e => setDimW(e.target.value)} placeholder="Width" type="number" />
                 <span className="text-text-muted font-bold">×</span>
                 <Input value={dimH} onChange={e => setDimH(e.target.value)} placeholder="Height" type="number" />
-                <span className="flex items-center text-sm text-text-muted px-2 bg-surface-2 rounded-md border border-border whitespace-nowrap">cm</span>
+                <span className="flex items-center text-sm text-text-muted px-3 bg-surface-2 rounded-md border border-border whitespace-nowrap">cm</span>
               </div>
             </div>
           </div>
@@ -99,7 +109,7 @@ export function ProcessSelectedModal({ open, onClose, selectedCount, onSubmit }:
 
           {/* Courier mode */}
           <div>
-            <Label className="text-sm mb-2 block">Choose Courier<span className="text-danger">*</span></Label>
+            <Label className="text-sm font-medium mb-2 block">Choose Courier<span className="text-danger">*</span></Label>
             <div className="flex gap-6">
               <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
                 <input type="radio" name="courier-mode-modal" className="accent-primary" checked={courierMode === "priority"} onChange={() => setCourierMode("priority")} />
@@ -114,8 +124,8 @@ export function ProcessSelectedModal({ open, onClose, selectedCount, onSubmit }:
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button onClick={onSubmit} className="bg-primary text-primary-foreground hover:bg-primary-dark">
-            Submit
+          <Button onClick={handleSubmit} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
+            <Save className="h-4 w-4" /> Submit
           </Button>
           <Button variant="secondary" onClick={onClose} className="bg-sidebar text-sidebar-primary-foreground hover:bg-sidebar-accent">
             Close
