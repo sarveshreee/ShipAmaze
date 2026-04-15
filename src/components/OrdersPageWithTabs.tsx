@@ -7,6 +7,7 @@ import { TableSkeleton, OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
+import { RichOrdersTable } from "@/components/RichOrdersTable";
 import { useOrders } from "@/hooks/useSupabaseData";
 import { type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
@@ -66,6 +67,14 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const getCount = (filter: string) => orders.filter(o => filterByTab(o, filter)).length;
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
+  const handleMarkJunk = (id: string) => {
+    // Update in localStorage
+    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
+    const updated = stored.map((o: any) => o.id === id || o.orderId === id || o.order_id === id ? { ...o, status: "junk" } : o);
+    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+    toast.success("Order marked as Junk");
+    window.location.reload();
+  };
 
   const handleExport = () => {
     const data = selected.size > 0 ? filtered.filter(o => selected.has(o.id)) : filtered;
@@ -118,63 +127,15 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           ) : <OrderCardList orders={filtered} onViewOrder={openOrder} />
         )
       ) : (
-        <div className="rounded-lg bg-card shadow-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-2/50">
-                  <th className="p-3 text-left w-10">
-                    <input type="checkbox" className="rounded border-border accent-primary"
-                      checked={selected.size === filtered.length && filtered.length > 0}
-                      onChange={e => setSelected(e.target.checked ? new Set(filtered.map(o => o.id)) : new Set())} />
-                  </th>
-                  <th className="p-3 text-left font-medium text-text-secondary">Order ID</th>
-                  <th className="p-3 text-left font-medium text-text-secondary">Customer</th>
-                  <th className="p-3 text-left font-medium text-text-secondary">Payment</th>
-                  <th className="p-3 text-left font-medium text-text-secondary">Status</th>
-                  <th className="p-3 text-left font-medium text-text-secondary">Amount</th>
-                  <th className="p-3 text-left font-medium text-text-secondary">Date</th>
-                  <th className="p-3 text-left font-medium text-text-secondary">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? <TableSkeleton rows={10} columns={8} /> : filtered.length === 0 ? (
-                  <tr><td colSpan={8}>
-                    <EmptyState icon={Package} title="No orders found" description="Try adjusting your search or filter criteria" actionLabel="Clear Filters" onAction={() => { setSearch(""); setActiveTab("all"); }} />
-                  </td></tr>
-                ) : filtered.map(o => (
-                  <tr key={o.id} className={cn("border-b border-border last:border-0 hover:bg-surface-2/30 transition-colors", selected.has(o.id) && "bg-primary-light/30")}>
-                    <td className="p-3" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" className="rounded border-border accent-primary" checked={selected.has(o.id)} onChange={() => toggleSelect(o.id)} />
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary-light shrink-0">
-                          <Package className="h-3.5 w-3.5 text-primary" />
-                        </div>
-                        <span className="font-mono text-xs text-primary font-medium">{o.id}</span>
-                      </div>
-                    </td>
-                    <td className="p-3"><div><p className="text-text-primary font-medium">{o.customer}</p><p className="text-xs text-text-muted">{o.city}</p></div></td>
-                    <td className="p-3"><PaymentBadge type={o.payment} /></td>
-                    <td className="p-3"><StatusBadge status={o.status} /></td>
-                    <td className="p-3 font-medium text-text-primary">₹{o.amount}</td>
-                    <td className="p-3 text-text-muted text-xs">{o.date}</td>
-                    <td className="p-3">
-                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light" onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')}><Eye className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light" onClick={() => { printShippingLabel(o); toast.success("Printing label..."); }}><Printer className="h-3.5 w-3.5" /></Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center justify-between border-t border-border p-3 text-sm text-text-secondary">
-            <span>Showing 1–{filtered.length} of {filtered.length} orders</span>
-          </div>
-        </div>
+        <RichOrdersTable
+          orders={filtered}
+          selected={selected}
+          onToggleSelect={toggleSelect}
+          onSelectAll={(ids) => setSelected(new Set(ids))}
+          onClearSelection={() => setSelected(new Set())}
+          onMarkJunk={handleMarkJunk}
+          loading={loading}
+        />
       )}
 
       <BulkActionBar count={selected.size} onClear={() => setSelected(new Set())}>
