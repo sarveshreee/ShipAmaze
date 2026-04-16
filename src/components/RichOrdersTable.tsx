@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -275,9 +276,11 @@ interface Props {
   onExport?: () => void;
   loading: boolean;
   activeTab?: string;
+  onToggleSidebar?: () => void;
 }
 
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onExport, loading, activeTab }: Props) {
+export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onExport, loading, activeTab, onToggleSidebar }: Props) {
+  const navigate = useNavigate();
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
   const [addressFilter, setAddressFilter] = useState({ open: false, search: "", selectedStates: new Set<string>(), validPincodes: false, invalidPincodes: false, invalidContact: false });
@@ -373,23 +376,12 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
       {/* Action bar when orders are selected */}
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-3 bg-surface-2/80 border-b border-border flex-wrap">
-          <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
+          <button onClick={onToggleSidebar} className="p-1.5 rounded-md hover:bg-surface-2 transition-colors" title="Toggle sidebar">
             <Monitor className="h-4 w-4 text-primary" />
+          </button>
+          <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
             <span>Count Order: <strong>{selected.size}</strong></span>
           </div>
-          <div className="h-5 w-px bg-border" />
-          <Button size="sm" className="h-8 gap-1.5 text-xs bg-primary text-primary-foreground hover:bg-primary-dark" onClick={onExport}>
-            <Download className="h-3.5 w-3.5" /> Export
-          </Button>
-          <Button size="sm" className="h-8 gap-1.5 text-xs bg-primary text-primary-foreground hover:bg-primary-dark" onClick={onOpenProcessModal}>
-            <Settings className="h-3.5 w-3.5" /> Process Bulk Orders
-          </Button>
-          <Button size="sm" className="h-8 gap-1.5 text-xs bg-primary text-primary-foreground hover:bg-primary-dark" onClick={onOpenProcessModal}>
-            <CheckSquare className="h-3.5 w-3.5" /> Process Selected
-          </Button>
-          <Button size="sm" className="h-8 gap-1.5 text-xs bg-primary text-primary-foreground hover:bg-primary-dark" onClick={onBulkJunk}>
-            <Ban className="h-3.5 w-3.5" /> Bulk Junk
-          </Button>
         </div>
       )}
 
@@ -402,9 +394,24 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   checked={selected.size === filteredOrders.length && filteredOrders.length > 0}
                   onChange={e => e.target.checked ? onSelectAll(filteredOrders.map(o => o.id)) : onClearSelection()} />
               </th>
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">Order Details</th>
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px]">Products Details</th>
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">Customer Details</th>
+              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">
+                <div className="flex items-center gap-2">
+                  <span>Order Details</span>
+                  <button className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"><FilterIcon active={false} /></button>
+                </div>
+              </th>
+              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px]">
+                <div className="flex items-center gap-2">
+                  <span>Products Details</span>
+                  <button className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"><FilterIcon active={false} /></button>
+                </div>
+              </th>
+              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">
+                <div className="flex items-center gap-2">
+                  <span>Customer Details</span>
+                  <button className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"><FilterIcon active={false} /></button>
+                </div>
+              </th>
               <th ref={amountRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[140px] relative">
                 <div className="flex items-center gap-2">
                   <span>Amount Details</span>
@@ -644,23 +651,32 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                       <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
                         <Pencil className="h-3 w-3 text-primary" />
                       </button>
-                      <div className="space-y-1 pr-6">
-                        <div className="flex items-start gap-1">
+                      <div className="space-y-1.5 pr-6">
+                        <div className="flex items-start gap-1.5">
                           <MapPin className="h-3 w-3 text-success mt-0.5 shrink-0" />
-                          <div>
+                          <div className="text-[11px] text-text-secondary leading-snug">
                             <p className="text-xs font-medium text-text-primary">{o.city || "–"}</p>
-                            <p className="text-[11px] text-text-secondary leading-snug">{o.address}</p>
-                            <div className="flex items-center gap-1 mt-0.5">
+                            <p>{(o as any).pickup_address || o.address || ''}</p>
+                            {(o as any).address2 && <p>{(o as any).address2}</p>}
+                            <p>
                               {isValidPincode(o.pincode) ? (
-                                <span className="text-[11px] font-medium text-success">{o.pincode}</span>
+                                <span className="font-medium text-success">{o.pincode}</span>
                               ) : (
-                                <span className="flex items-center gap-0.5 text-[11px] font-medium text-danger">
-                                  <X className="h-3 w-3" />{o.pincode || "N/A"}
-                                </span>
+                                <span className="font-medium text-danger">{o.pincode || "N/A"}</span>
                               )}
-                              <span className="text-[11px] text-text-muted">– {(o as any).state || o.city}</span>
-                            </div>
+                              <span className="text-text-muted"> – {(o as any).state || o.city}</span>
+                            </p>
                           </div>
+                        </div>
+                        {o.phone && (
+                          <div className="flex items-center gap-1.5">
+                            <Phone className="h-3 w-3 text-text-muted shrink-0" />
+                            <span className="text-[11px] text-text-primary">{o.phone}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1.5">
+                          <Mail className="h-3 w-3 text-text-muted shrink-0" />
+                          <a href={`mailto:${orderEmail}`} className="text-[11px] text-primary hover:underline">{orderEmail}</a>
                         </div>
                       </div>
                     </div>
@@ -710,10 +726,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                       {activeTab === "junk" ? (
                         <Button variant="outline" size="sm"
                           className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
-                          onClick={() => {
-                            // Navigate to Add Order with this order's data pre-filled
-                            const orderData = encodeURIComponent(JSON.stringify(o));
-                            window.location.href = `/dropshipper/add-order?edit=${o.id}`;
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            navigate(`/dropshipper/add-order?edit=${o.id}`);
                           }}>
                           <Pencil className="h-3 w-3" /> Edit
                         </Button>
