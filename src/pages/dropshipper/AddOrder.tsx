@@ -6,10 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Phone, Save, Pencil, Trash2 } from "lucide-react";
+import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Phone, Save, Pencil, Trash2, X } from "lucide-react";
 import { pickupAddresses as defaultPickupAddresses, orders as globalOrders } from "@/data/mockData";
 import { AddAddressModal } from "@/components/AddAddressModal";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 const steps = [
   { num: 1, label: "Pickup Address", icon: MapPin },
@@ -23,10 +24,12 @@ interface StepErrors {
   [key: string]: string;
 }
 
-const generateOrderId = () => {
-  const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `ORD-${ts}${rand}`.toUpperCase().slice(0, 16);
+// Numeric incrementing Order ID
+const getNextOrderId = () => {
+  const stored = localStorage.getItem("shipflow_next_order_num");
+  const num = stored ? parseInt(stored, 10) : 10001;
+  localStorage.setItem("shipflow_next_order_num", String(num + 1));
+  return String(num);
 };
 
 const mockCouriers = [
@@ -81,15 +84,33 @@ export default function AddOrder() {
   const [selectedReturn, setSelectedReturn] = useState("");
 
   // Step 2
-  const [consignee, setConsignee] = useState({ fullName: "", phone: "", email: "", altPhone: "" });
+  const [consignee, setConsignee] = useState({
+    fullName: "", phone: "", email: "", altPhone: "",
+    addressLine1: "", addressLine2: "", addressType: "Home", consigneeEmail: "",
+    pincode: "", city: "", state: "", country: "",
+  });
 
   // Step 3
-  const [shipment, setShipment] = useState({ orderId: generateOrderId(), paymentType: "Prepaid", codAmount: "" });
-  const [products, setProducts] = useState([{ name: "", qty: "", weight: "", price: "", category: "", sku: "", hsn: "" }]);
+  const [shipment, setShipment] = useState({ orderId: getNextOrderId(), paymentType: "Prepaid", codAmount: "" });
+  const [products, setProducts] = useState([{ name: "", qty: "", price: "", category: "", sku: "", hsn: "" }]);
   const [extraCharges, setExtraCharges] = useState("");
 
-  // Step 4
-  const [pkg, setPkg] = useState({ weight: "", length: "", width: "", height: "" });
+  // Step 4 — per-product weight & dimensions
+  const [packageDetails, setPackageDetails] = useState<{ weight: string; length: string; width: string; height: string }[]>([
+    { weight: "", length: "", width: "", height: "" }
+  ]);
+
+  // Sync packageDetails count with products
+  useEffect(() => {
+    const validProducts = products.filter(p => p.name.trim());
+    const count = Math.max(validProducts.length, 1);
+    setPackageDetails(prev => {
+      if (prev.length === count) return prev;
+      const updated = [...prev];
+      while (updated.length < count) updated.push({ weight: "", length: "", width: "", height: "" });
+      return updated.slice(0, count);
+    });
+  }, [products]);
 
   // Step 5
   const [courierMode, setCourierMode] = useState<"priority" | "courier">("priority");
@@ -115,19 +136,34 @@ export default function AddOrder() {
     try { return JSON.parse(localStorage.getItem("savedOrders") || "[]"); } catch { return []; }
   });
 
+  // Delete confirmation modal
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Saved order loaded notification
+  const [loadedNotification, setLoadedNotification] = useState(false);
+
   // Validation
   const [stepErrors, setStepErrors] = useState<StepErrors>({});
 
   const selectedPickupAddr = allAddresses.find(a => a.id === selectedPickup);
   const selectedReturnAddr = allAddresses.find(a => a.id === selectedReturn);
 
-  // Auto-calculated order amounts
-  const orderAmount = products.reduce((sum, p) => sum + (Number(p.price) || 0) * (Number(p.qty) || 0), 0);
+  // Order Amount = sum of prices (price per unit, NOT multiplied by qty)
+  const orderAmount = products.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
   const totalAmount = orderAmount + (Number(extraCharges) || 0);
+
+  // Auto-fill COD amount based on payment type
+  useEffect(() => {
+    if (shipment.paymentType === "COD") {
+      setShipment(p => ({ ...p, codAmount: totalAmount.toFixed(2) }));
+    } else {
+      setShipment(p => ({ ...p, codAmount: "0" }));
+    }
+  }, [shipment.paymentType, totalAmount]);
 
   useEffect(() => {
     if (currentStep === 3 && !shipment.orderId) {
-      setShipment(p => ({ ...p, orderId: generateOrderId() }));
+      setShipment(p => ({ ...p, orderId: getNextOrderId() }));
     }
   }, [currentStep]);
 
@@ -139,20 +175,28 @@ export default function AddOrder() {
     } else if (step === 2) {
       if (!consignee.fullName.trim()) errors.fullName = "Full name is required";
       if (!consignee.phone.trim() || consignee.phone.length !== 10) errors.phone = "Valid 10-digit phone is required";
+      if (!consignee.addressLine1.trim()) errors.addressLine1 = "Address Line 1 is required";
+      if (!consignee.pincode.trim()) errors.pincode = "Pin Code is required";
+      if (!consignee.city.trim()) errors.city = "City is required";
+      if (!consignee.state.trim()) errors.state = "State is required";
+      if (!consignee.country.trim()) errors.country = "Country is required";
     } else if (step === 3) {
       const hasProduct = products.some(p => p.name.trim());
       if (!hasProduct) errors.products = "At least one product is required";
-      if (shipment.paymentType === "COD" && !shipment.codAmount.trim()) errors.codAmount = "Collectible COD amount is required";
     } else if (step === 4) {
-      if (!pkg.weight.trim()) errors.weight = "Weight is required";
-      if (!pkg.length.trim() || !pkg.width.trim() || !pkg.height.trim()) errors.dimensions = "All dimensions are required";
+      const validProducts = products.filter(p => p.name.trim());
+      for (let i = 0; i < validProducts.length; i++) {
+        const pd = packageDetails[i];
+        if (!pd || !pd.weight.trim()) { errors.weight = "Weight is required for all products"; break; }
+        if (!pd.length.trim() || !pd.width.trim() || !pd.height.trim()) { errors.dimensions = "All dimensions are required"; break; }
+      }
     } else if (step === 5) {
       if (courierMode === "priority" && prioritySelections.length < 3) errors.courier = "Select exactly 3 courier priorities";
       if (courierMode === "courier" && !selectedCourier) errors.courier = "Select a courier";
     }
     setStepErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [selectedPickup, showReturn, selectedReturn, consignee, shipment, pkg, courierMode, prioritySelections, selectedCourier]);
+  }, [selectedPickup, showReturn, selectedReturn, consignee, shipment, packageDetails, products, courierMode, prioritySelections, selectedCourier]);
 
   const handleNext = () => {
     if (validateStep(currentStep)) {
@@ -184,7 +228,6 @@ export default function AddOrder() {
       if (prev.includes(courierId)) return prev.filter(c => c !== courierId);
       if (prev.length >= 3) return prev;
       const updated = [...prev, courierId];
-      // Auto-save when 3 are selected
       if (updated.length === 3) {
         localStorage.setItem(PRIORITY_STORAGE_KEY, JSON.stringify(updated));
         setUsingSavedPriorities(true);
@@ -203,7 +246,7 @@ export default function AddOrder() {
       consigneeName: consignee.fullName || "Unnamed",
       pickupLabel: pickupAddr?.label || "N/A",
       dateSaved: new Date().toLocaleString(),
-      data: { selectedPickup, showReturn, selectedReturn, consignee, shipment, products, pkg, courierMode, expressType, prioritySelections, selectedCourier },
+      data: { selectedPickup, showReturn, selectedReturn, consignee, shipment, products, packageDetails, courierMode, expressType, prioritySelections, selectedCourier, extraCharges },
     };
     const updated = [...savedOrders, saved];
     setSavedOrders(updated);
@@ -217,15 +260,25 @@ export default function AddOrder() {
     setShowReturn(d.showReturn);
     setSelectedReturn(d.selectedReturn);
     setConsignee(d.consignee);
-    setShipment({ ...d.shipment, orderId: generateOrderId() });
+    setShipment({ ...d.shipment, orderId: getNextOrderId() });
     setProducts(d.products);
-    setPkg(d.pkg);
+    if (d.packageDetails) setPackageDetails(d.packageDetails);
+    if (d.extraCharges !== undefined) setExtraCharges(d.extraCharges);
     setCourierMode(d.courierMode);
     setExpressType(d.expressType);
     setPrioritySelections(d.prioritySelections);
     setSelectedCourier(d.selectedCourier);
     setCurrentStep(1);
-    toast.success("Saved order loaded — Order ID regenerated");
+    setLoadedNotification(true);
+  };
+
+  const handleDeleteSavedOrder = () => {
+    if (!deleteConfirmId) return;
+    const updated = savedOrders.filter(s => s.id !== deleteConfirmId);
+    setSavedOrders(updated);
+    localStorage.setItem("savedOrders", JSON.stringify(updated));
+    setDeleteConfirmId(null);
+    toast.success("Saved order removed");
   };
 
   const handleSubmitOrder = () => {
@@ -236,31 +289,32 @@ export default function AddOrder() {
       ? mockCouriers.find(c => c.id === selectedCourier)?.name || "N/A"
       : prioritySelections.map(id => mockCouriers.find(c => c.id === id)?.name).filter(Boolean).join(", ");
 
+    const totalWeight = packageDetails.reduce((sum, pd) => sum + (Number(pd.weight) || 0), 0);
+    const dims = packageDetails.map(pd => `${pd.length}x${pd.width}x${pd.height}`).join("; ");
+
     const newOrder = {
       id: shipment.orderId,
       customer: consignee.fullName,
       phone: `+91 ${consignee.phone}`,
-      address: [pickupAddr?.addressLine1, pickupAddr?.addressLine2].filter(Boolean).join(", ") || "N/A",
-      city: pickupAddr?.city || "N/A",
-      pincode: pickupAddr?.pincode || "N/A",
-      weight: `${pkg.weight} kg`,
+      address: [consignee.addressLine1, consignee.addressLine2].filter(Boolean).join(", ") || "N/A",
+      city: consignee.city || "N/A",
+      pincode: consignee.pincode || "N/A",
+      weight: `${totalWeight} kg`,
       courier: courierName as any,
       payment: shipment.paymentType as any,
       status: "ready-to-ship" as any,
       date: new Date().toISOString().split("T")[0],
       awb: `AWB${Date.now().toString().slice(-9)}`,
-      amount: orderAmount + Number(extraCharges || 0),
-      products: products.filter(p => p.name).map(p => ({ name: p.name, qty: Number(p.qty) || 1, price: Number(p.price) || 0, weight: p.weight || "0.5 kg", category: p.category, sku: p.sku, hsn: p.hsn })),
-      dimensions: `${pkg.length}x${pkg.width}x${pkg.height} cm`,
+      amount: totalAmount,
+      products: products.filter(p => p.name).map(p => ({ name: p.name, qty: Number(p.qty) || 1, price: Number(p.price) || 0, weight: "0.5 kg", category: p.category, sku: p.sku, hsn: p.hsn })),
+      dimensions: dims + " cm",
       zone: "B",
       pickupAddress: pickupAddr?.label || "",
       source: "manual",
     };
 
-    // Add to in-memory list
     globalOrders.unshift(newOrder);
 
-    // Persist to localStorage for order detail page lookup
     const stored = localStorage.getItem("shipflow_orders");
     const localOrders: any[] = stored ? JSON.parse(stored) : [];
     localOrders.unshift(newOrder);
@@ -273,9 +327,22 @@ export default function AddOrder() {
   const canNext = currentStep < 5;
   const canPrev = currentStep > 1;
 
+  const validProducts = products.filter(p => p.name.trim());
+
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Add Order" breadcrumb={["Dropshipper", "Add Order"]} />
+
+      {/* Loaded notification popup - top-right */}
+      {loadedNotification && (
+        <div className="fixed top-20 right-6 z-50 rounded-lg border border-border bg-card shadow-lg p-4 flex items-center gap-3 max-w-sm">
+          <span className="text-success text-lg">✅</span>
+          <span className="text-sm text-text-primary">Saved order loaded — Order ID regenerated</span>
+          <button onClick={() => setLoadedNotification(false)} className="ml-2 text-text-muted hover:text-text-primary">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-6">
         {/* Left stepper */}
@@ -347,7 +414,7 @@ export default function AddOrder() {
                 </Button>
               </div>
 
-              {/* Right panel: Pickup + Return Address cards + Saved Orders */}
+              {/* Right panel */}
               <div className="w-full lg:w-80 space-y-4">
                 {selectedPickupAddr && (
                   <div className="rounded-lg border border-border bg-card p-5 relative">
@@ -368,7 +435,6 @@ export default function AddOrder() {
                   </div>
                 )}
 
-                {/* FIX 1: Return Address card shown when toggle is on and address selected */}
                 {showReturn && selectedReturnAddr && (
                   <div className="rounded-lg border border-border bg-card p-5 relative">
                     <div className="absolute top-4 right-4">
@@ -388,23 +454,31 @@ export default function AddOrder() {
                   </div>
                 )}
 
-                {/* FIX 5: Saved Orders in Step 1 right panel */}
+                {/* Saved Orders with delete icon */}
                 {savedOrders.length > 0 && (
                   <div className="rounded-lg border border-border bg-card p-4">
                     <h4 className="font-semibold text-text-primary mb-3 text-sm">Saved Orders</h4>
                     <div className="space-y-2 max-h-48 overflow-y-auto">
                       {savedOrders.map(s => (
-                        <button key={s.id} onClick={() => loadSavedOrder(s)}
-                          className="w-full text-left rounded-md border border-border p-2.5 hover:bg-surface-2/50 transition-colors text-xs">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="font-mono text-primary font-medium">{s.orderId}</span>
-                              <p className="text-text-secondary mt-0.5">{s.consigneeName}</p>
-                              <p className="text-text-muted">{s.pickupLabel}</p>
+                        <div key={s.id} className="flex items-center gap-2">
+                          <button onClick={() => loadSavedOrder(s)}
+                            className="flex-1 text-left rounded-md border border-border p-2.5 hover:bg-surface-2/50 transition-colors text-xs">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <span className="font-mono text-primary font-medium">{s.orderId}</span>
+                                <p className="text-text-secondary mt-0.5">{s.consigneeName}</p>
+                                <p className="text-text-muted">{s.pickupLabel}</p>
+                              </div>
+                              <span className="text-text-muted whitespace-nowrap ml-2">{s.dateSaved}</span>
                             </div>
-                            <span className="text-text-muted whitespace-nowrap ml-2">{s.dateSaved}</span>
-                          </div>
-                        </button>
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(s.id); }}
+                            className="shrink-0 h-8 w-8 flex items-center justify-center rounded border border-border text-text-muted hover:text-danger hover:border-danger/50 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -460,6 +534,61 @@ export default function AddOrder() {
                   </div>
                 </div>
               </div>
+
+              {/* Address fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
+                <div>
+                  <Label>Address Line 1<span className="text-danger">*</span></Label>
+                  <Input value={consignee.addressLine1} onChange={e => setConsignee(p => ({ ...p, addressLine1: e.target.value }))}
+                    placeholder="Enter Address Line 1..." className={stepErrors.addressLine1 ? "border-danger" : ""} />
+                  {stepErrors.addressLine1 && <p className="text-xs text-danger mt-1">{stepErrors.addressLine1}</p>}
+                </div>
+                <div>
+                  <Label>Address Line 2</Label>
+                  <Input value={consignee.addressLine2} onChange={e => setConsignee(p => ({ ...p, addressLine2: e.target.value }))}
+                    placeholder="Enter Address Line 2..." />
+                </div>
+                <div>
+                  <Label>Address Type</Label>
+                  <select value={consignee.addressType} onChange={e => setConsignee(p => ({ ...p, addressType: e.target.value }))}
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+                    <option value="Home">Home</option>
+                    <option value="Work">Work</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <Label>Email</Label>
+                  <Input value={consignee.email ? `${consignee.email}@gmail.com` : ""} readOnly
+                    placeholder="Enter Consignee email..." className="bg-surface-2 text-text-muted cursor-not-allowed" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div>
+                  <Label>Pin Code<span className="text-danger">*</span></Label>
+                  <Input value={consignee.pincode} onChange={e => setConsignee(p => ({ ...p, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                    placeholder="Enter pincode..." className={stepErrors.pincode ? "border-danger" : ""} />
+                  {stepErrors.pincode && <p className="text-xs text-danger mt-1">{stepErrors.pincode}</p>}
+                </div>
+                <div>
+                  <Label>City<span className="text-danger">*</span></Label>
+                  <Input value={consignee.city} onChange={e => setConsignee(p => ({ ...p, city: e.target.value }))}
+                    placeholder="Enter city..." className={stepErrors.city ? "border-danger" : ""} />
+                  {stepErrors.city && <p className="text-xs text-danger mt-1">{stepErrors.city}</p>}
+                </div>
+                <div>
+                  <Label>State<span className="text-danger">*</span></Label>
+                  <Input value={consignee.state} onChange={e => setConsignee(p => ({ ...p, state: e.target.value }))}
+                    placeholder="Enter state..." className={stepErrors.state ? "border-danger" : ""} />
+                  {stepErrors.state && <p className="text-xs text-danger mt-1">{stepErrors.state}</p>}
+                </div>
+                <div>
+                  <Label>Country<span className="text-danger">*</span></Label>
+                  <Input value={consignee.country} onChange={e => setConsignee(p => ({ ...p, country: e.target.value }))}
+                    placeholder="Enter country..." className={stepErrors.country ? "border-danger" : ""} />
+                  {stepErrors.country && <p className="text-xs text-danger mt-1">{stepErrors.country}</p>}
+                </div>
+              </div>
             </div>
           )}
 
@@ -470,13 +599,14 @@ export default function AddOrder() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label>Order ID</Label>
-                  <Input value={shipment.orderId} readOnly className="bg-surface-2 text-text-muted cursor-not-allowed" />
+                  <Input value={shipment.orderId} readOnly tabIndex={-1}
+                    className="bg-muted text-muted-foreground cursor-not-allowed border-muted pointer-events-none" />
                 </div>
                 <div>
                   <Label>Payment Type<span className="text-danger">*</span></Label>
                   <div className="flex gap-2 mt-1">
                     {["Prepaid", "COD"].map(t => (
-                      <button key={t} onClick={() => setShipment(p => ({ ...p, paymentType: t, codAmount: t === "Prepaid" ? "" : p.codAmount }))}
+                      <button key={t} onClick={() => setShipment(p => ({ ...p, paymentType: t }))}
                         className={cn("flex-1 py-2.5 rounded-lg text-sm font-medium border-2 transition-all",
                           shipment.paymentType === t
                             ? "border-primary bg-primary text-primary-foreground"
@@ -491,17 +621,18 @@ export default function AddOrder() {
               {stepErrors.products && <p className="text-xs text-danger">{stepErrors.products}</p>}
               {products.map((prod, i) => (
                 <div key={i} className="space-y-3 border border-border rounded-lg p-4">
-                  <div className="grid grid-cols-[1fr_80px_1fr_1fr_auto] gap-3 items-end">
+                  <div className="grid grid-cols-[1fr_80px_1fr_auto] gap-3 items-end">
                     <div><Label>Product Name<span className="text-danger">*</span></Label><Input value={prod.name} onChange={e => { const np = [...products]; np[i].name = e.target.value; setProducts(np); }} placeholder="Enter product name..." /></div>
                     <div><Label>Qty<span className="text-danger">*</span></Label><Input value={prod.qty} onChange={e => { const np = [...products]; np[i].qty = e.target.value; setProducts(np); }} placeholder="Qty..." type="number" /></div>
-                    <div><Label>Weight (kg)</Label><Input value={prod.weight} onChange={e => { const np = [...products]; np[i].weight = e.target.value; setProducts(np); }} placeholder="0.5" type="number" /></div>
                     <div><Label>Price (₹)</Label><Input value={prod.price} onChange={e => { const np = [...products]; np[i].price = e.target.value; setProducts(np); }} placeholder="0" type="number" /></div>
                     <div>
                       {products.length > 1 && (
-                        <Button variant="ghost" size="icon" className="h-9 w-9 text-text-muted hover:text-danger hover:bg-danger/10"
-                          onClick={() => setProducts(p => p.filter((_, idx) => idx !== i))}>
+                        <button
+                          onClick={() => setProducts(p => p.filter((_, idx) => idx !== i))}
+                          className="h-9 w-9 flex items-center justify-center rounded-md border border-border text-text-muted hover:text-danger hover:border-danger/50 hover:bg-danger/5 transition-colors"
+                        >
                           <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -519,11 +650,12 @@ export default function AddOrder() {
                       </select>
                     </div>
                     <div><Label>SKU</Label><Input value={prod.sku} onChange={e => { const np = [...products]; np[i].sku = e.target.value; setProducts(np); }} placeholder="SKU" /></div>
-                    <div><Label>HSN</Label><Input value={prod.hsn} readOnly className="bg-surface-2 text-text-muted cursor-not-allowed" placeholder="HSN" /></div>
+                    <div><Label>HSN</Label><Input value={prod.hsn} readOnly tabIndex={-1}
+                      className="bg-muted text-muted-foreground cursor-not-allowed border-muted pointer-events-none" placeholder="HSN" /></div>
                   </div>
                 </div>
               ))}
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setProducts(p => [...p, { name: "", qty: "", weight: "", price: "", category: "", sku: "", hsn: "" }])}>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setProducts(p => [...p, { name: "", qty: "", price: "", category: "", sku: "", hsn: "" }])}>
                 <Plus className="h-3.5 w-3.5" />Add Product
               </Button>
 
@@ -532,7 +664,8 @@ export default function AddOrder() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <Label>Order Amount<span className="text-danger">*</span></Label>
-                  <Input value={orderAmount.toFixed(2)} readOnly className="bg-surface-2 text-text-muted cursor-not-allowed mt-1" placeholder="Enter order Amount" />
+                  <Input value={orderAmount.toFixed(2)} readOnly tabIndex={-1}
+                    className="bg-muted text-muted-foreground cursor-not-allowed border-muted pointer-events-none mt-1" />
                 </div>
                 <div>
                   <Label>Extra Charges (if any)</Label>
@@ -543,55 +676,81 @@ export default function AddOrder() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <Label>Total Amount<span className="text-danger">*</span></Label>
-                  <Input value={totalAmount.toFixed(2)} readOnly className="bg-surface-2/80 text-text-muted cursor-not-allowed mt-1" placeholder="Total Amount" />
+                  <Input value={totalAmount.toFixed(2)} readOnly tabIndex={-1}
+                    className="bg-muted text-muted-foreground cursor-not-allowed border-muted pointer-events-none mt-1" />
                 </div>
                 <div>
                   <Label>Collectible COD Amount<span className="text-danger">*</span></Label>
-                  <Input value={shipment.codAmount} onChange={e => setShipment(p => ({ ...p, codAmount: e.target.value }))}
-                    placeholder="Enter Collectible COD Amount" type="number" className={cn("mt-1", stepErrors.codAmount ? "border-danger" : "")} />
-                  {stepErrors.codAmount && <p className="text-xs text-danger mt-1">{stepErrors.codAmount}</p>}
+                  <Input value={shipment.codAmount} readOnly tabIndex={-1}
+                    className="bg-muted text-muted-foreground cursor-not-allowed border-muted pointer-events-none mt-1" />
                 </div>
               </div>
             </div>
           )}
 
-          {/* Step 4 - Package Details */}
+          {/* Step 4 - Package Details (per product) */}
           {currentStep === 4 && (
             <div className="rounded-lg border border-border bg-card p-6 space-y-4">
               <h3 className="font-semibold text-text-primary">Package Details</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <Label>Actual Weight<span className="text-danger">*</span></Label>
-                  <div className="flex gap-2 mt-1">
-                    <Input value={pkg.weight} onChange={e => setPkg(p => ({ ...p, weight: e.target.value }))}
-                      placeholder="Enter weight..." type="number" className={cn("flex-1", stepErrors.weight ? "border-danger" : "")} />
-                    <span className="flex items-center text-sm text-text-muted px-2 bg-surface-2 rounded-md border border-border">KG</span>
+              {(validProducts.length > 0 ? validProducts : [{ name: "Product 1" }]).map((prod, i) => (
+                <div key={i} className="border border-border rounded-lg p-4 space-y-3">
+                  <p className="text-sm font-medium text-text-primary">{(prod as any).name || `Product ${i + 1}`}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label>Weight<span className="text-danger">*</span></Label>
+                      <div className="flex gap-2 mt-1">
+                        <Input value={packageDetails[i]?.weight || ""} onChange={e => {
+                          const updated = [...packageDetails];
+                          if (!updated[i]) updated[i] = { weight: "", length: "", width: "", height: "" };
+                          updated[i].weight = e.target.value;
+                          setPackageDetails(updated);
+                        }} placeholder="Enter weight..." type="number" className={cn("flex-1", stepErrors.weight ? "border-danger" : "")} />
+                        <span className="flex items-center text-sm text-text-muted px-2 bg-surface-2 rounded-md border border-border">KG</span>
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Dimensions<span className="text-danger">*</span></Label>
+                      <div className="flex gap-2 mt-1 items-center">
+                        <Input value={packageDetails[i]?.length || ""} min="0" onChange={e => {
+                          const updated = [...packageDetails];
+                          if (!updated[i]) updated[i] = { weight: "", length: "", width: "", height: "" };
+                          updated[i].length = e.target.value;
+                          setPackageDetails(updated);
+                        }} placeholder="L" type="number" className={stepErrors.dimensions ? "border-danger" : ""} />
+                        <span className="text-text-muted">×</span>
+                        <Input value={packageDetails[i]?.width || ""} min="0" onChange={e => {
+                          const updated = [...packageDetails];
+                          if (!updated[i]) updated[i] = { weight: "", length: "", width: "", height: "" };
+                          updated[i].width = e.target.value;
+                          setPackageDetails(updated);
+                        }} placeholder="W" type="number" className={stepErrors.dimensions ? "border-danger" : ""} />
+                        <span className="text-text-muted">×</span>
+                        <Input value={packageDetails[i]?.height || ""} min="0" onChange={e => {
+                          const updated = [...packageDetails];
+                          if (!updated[i]) updated[i] = { weight: "", length: "", width: "", height: "" };
+                          updated[i].height = e.target.value;
+                          setPackageDetails(updated);
+                        }} placeholder="H" type="number" className={stepErrors.dimensions ? "border-danger" : ""} />
+                        <span className="flex items-center text-sm text-text-muted px-2 bg-surface-2 rounded-md border border-border">cm</span>
+                      </div>
+                    </div>
                   </div>
-                  {stepErrors.weight && <p className="text-xs text-danger mt-1">{stepErrors.weight}</p>}
                 </div>
-                <div>
-                  <Label>Dimensions<span className="text-danger">*</span></Label>
-                  <div className="flex gap-2 mt-1 items-center">
-                    <Input value={pkg.length} min="0" onChange={e => setPkg(p => ({ ...p, length: Math.max(0, Number(e.target.value)).toString() || "" }))}
-                      placeholder="Length" type="number" className={stepErrors.dimensions ? "border-danger" : ""} />
-                    <span className="text-text-muted">×</span>
-                    <Input value={pkg.width} min="0" onChange={e => setPkg(p => ({ ...p, width: Math.max(0, Number(e.target.value)).toString() || "" }))}
-                      placeholder="Width" type="number" className={stepErrors.dimensions ? "border-danger" : ""} />
-                    <span className="text-text-muted">×</span>
-                    <Input value={pkg.height} min="0" onChange={e => setPkg(p => ({ ...p, height: Math.max(0, Number(e.target.value)).toString() || "" }))}
-                      placeholder="Height" type="number" className={stepErrors.dimensions ? "border-danger" : ""} />
-                    <span className="flex items-center text-sm text-text-muted px-2 bg-surface-2 rounded-md border border-border">cm</span>
-                  </div>
-                  {stepErrors.dimensions && <p className="text-xs text-danger mt-1">{stepErrors.dimensions}</p>}
-                </div>
-              </div>
+              ))}
+              {stepErrors.weight && <p className="text-xs text-danger mt-1">{stepErrors.weight}</p>}
+              {stepErrors.dimensions && <p className="text-xs text-danger mt-1">{stepErrors.dimensions}</p>}
               <div>
                 <Label className="mb-2 block">Weight Presets</Label>
                 <div className="flex flex-wrap gap-3">
                   {["0.5 KG", "1 KG", "2 KG", "5 KG", "Other"].map(w => (
                     <label key={w} className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
                       <input type="radio" name="weight-preset" className="accent-primary" defaultChecked={w === "Other"}
-                        onChange={() => { if (w !== "Other") setPkg(p => ({ ...p, weight: w.replace(" KG", "") })); }} />
+                        onChange={() => {
+                          if (w !== "Other") {
+                            const val = w.replace(" KG", "");
+                            setPackageDetails(prev => prev.map(pd => ({ ...pd, weight: val })));
+                          }
+                        }} />
                       {w}
                     </label>
                   ))}
@@ -603,7 +762,6 @@ export default function AddOrder() {
           {/* Step 5 - Courier */}
           {currentStep === 5 && (
             <div className="rounded-lg border border-border bg-card p-6 space-y-5">
-              {/* Express dropdown */}
               <div>
                 <Label>Express<span className="text-danger">*</span></Label>
                 <select value={expressType} onChange={e => setExpressType(e.target.value)}
@@ -614,7 +772,6 @@ export default function AddOrder() {
                 </select>
               </div>
 
-              {/* Choose Courier radio */}
               <div>
                 <div className="flex gap-4">
                   {([["priority", "Priority Selection"], ["courier", "Courier Selection"]] as const).map(([val, label]) => (
@@ -627,7 +784,6 @@ export default function AddOrder() {
                 </div>
               </div>
 
-              {/* Priority Selection - lock after 3 choices */}
               {courierMode === "priority" && (
                 <>
                   {prioritySelections.length === 3 && !editingPriorities ? (
@@ -683,23 +839,30 @@ export default function AddOrder() {
 
               {stepErrors.courier && <p className="text-xs text-danger mt-1">{stepErrors.courier}</p>}
 
-              {/* Saved Orders in Step 5 */}
               {savedOrders.length > 0 && (
                 <div className="mt-6 border-t border-border pt-4">
                   <h4 className="font-medium text-text-primary mb-2">Saved Orders</h4>
                   <div className="space-y-2 max-h-40 overflow-y-auto">
                     {savedOrders.map(s => (
-                      <button key={s.id} onClick={() => loadSavedOrder(s)}
-                        className="w-full text-left rounded-lg border border-border p-3 hover:bg-surface-2/50 transition-colors text-sm flex justify-between items-center">
-                        <div>
-                          <span className="font-mono text-primary font-medium">{s.orderId}</span>
-                          <span className="mx-2 text-text-muted">•</span>
-                          <span className="text-text-secondary">{s.consigneeName}</span>
-                          <span className="mx-2 text-text-muted">•</span>
-                          <span className="text-text-muted">{s.pickupLabel}</span>
-                        </div>
-                        <span className="text-xs text-text-muted">{s.dateSaved}</span>
-                      </button>
+                      <div key={s.id} className="flex items-center gap-2">
+                        <button onClick={() => loadSavedOrder(s)}
+                          className="flex-1 text-left rounded-lg border border-border p-3 hover:bg-surface-2/50 transition-colors text-sm flex justify-between items-center">
+                          <div>
+                            <span className="font-mono text-primary font-medium">{s.orderId}</span>
+                            <span className="mx-2 text-text-muted">•</span>
+                            <span className="text-text-secondary">{s.consigneeName}</span>
+                            <span className="mx-2 text-text-muted">•</span>
+                            <span className="text-text-muted">{s.pickupLabel}</span>
+                          </div>
+                          <span className="text-xs text-text-muted">{s.dateSaved}</span>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(s.id); }}
+                          className="shrink-0 h-8 w-8 flex items-center justify-center rounded border border-border text-text-muted hover:text-danger hover:border-danger/50 transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -733,6 +896,20 @@ export default function AddOrder() {
       </div>
 
       <AddAddressModal open={showAddModal} onClose={() => setShowAddModal(false)} onSave={handleAddAddress} />
+
+      {/* Delete confirmation modal */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Saved Order</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-text-secondary">Are you sure you want to remove this saved order?</p>
+          <DialogFooter className="flex gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>No</Button>
+            <Button className="bg-danger text-white hover:bg-danger/90" onClick={handleDeleteSavedOrder}>Yes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
