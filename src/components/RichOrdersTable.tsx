@@ -649,23 +649,32 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                       <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
                         <Pencil className="h-3 w-3 text-primary" />
                       </button>
-                      <div className="space-y-1 pr-6">
-                        <div className="flex items-start gap-1">
+                      <div className="space-y-1.5 pr-6">
+                        <div className="flex items-start gap-1.5">
                           <MapPin className="h-3 w-3 text-success mt-0.5 shrink-0" />
-                          <div>
+                          <div className="text-[11px] text-text-secondary leading-snug">
                             <p className="text-xs font-medium text-text-primary">{o.city || "–"}</p>
-                            <p className="text-[11px] text-text-secondary leading-snug">{o.address}</p>
-                            <div className="flex items-center gap-1 mt-0.5">
+                            <p>{(o as any).pickup_address || o.address || ''}</p>
+                            {(o as any).address2 && <p>{(o as any).address2}</p>}
+                            <p>
                               {isValidPincode(o.pincode) ? (
-                                <span className="text-[11px] font-medium text-success">{o.pincode}</span>
+                                <span className="font-medium text-success">{o.pincode}</span>
                               ) : (
-                                <span className="flex items-center gap-0.5 text-[11px] font-medium text-danger">
-                                  <X className="h-3 w-3" />{o.pincode || "N/A"}
-                                </span>
+                                <span className="font-medium text-danger">{o.pincode || "N/A"}</span>
                               )}
-                              <span className="text-[11px] text-text-muted">– {(o as any).state || o.city}</span>
-                            </div>
+                              <span className="text-text-muted"> – {(o as any).state || o.city}</span>
+                            </p>
                           </div>
+                        </div>
+                        {o.phone && (
+                          <div className="flex items-center gap-1.5">
+                            <Phone className="h-3 w-3 text-text-muted shrink-0" />
+                            <span className="text-[11px] text-text-primary">{o.phone}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1.5">
+                          <Mail className="h-3 w-3 text-text-muted shrink-0" />
+                          <a href={`mailto:${orderEmail}`} className="text-[11px] text-primary hover:underline">{orderEmail}</a>
                         </div>
                       </div>
                     </div>
