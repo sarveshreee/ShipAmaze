@@ -288,6 +288,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
 
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [editingRemark, setEditingRemark] = useState<string | null>(null);
+  const [junkConfirmId, setJunkConfirmId] = useState<string | null>(null);
 
   // Edit modals
   const [editProductOrder, setEditProductOrder] = useState<Order | null>(null);
