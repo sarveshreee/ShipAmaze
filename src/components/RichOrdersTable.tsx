@@ -3,7 +3,7 @@ import { type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { printShippingLabel } from "@/components/ShippingLabel";
