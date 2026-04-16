@@ -548,16 +548,32 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     <input type="checkbox" className="rounded border-border accent-primary" checked={selected.has(o.id)} onChange={() => onToggleSelect(o.id)} />
                   </td>
 
-                  {/* Order Details */}
+                  {/* Order Details - redesigned per image 3 */}
                   <td className="p-3 border-r border-border">
-                    <div className="space-y-1">
-                      <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-medium text-xs hover:underline font-mono">{o.id}</button>
-                      <p className="text-[11px] text-text-muted">{o.date}</p>
+                    <div className="space-y-1.5">
+                      <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-semibold text-sm hover:underline">{o.id}</button>
+                      <div className="flex items-center gap-1 text-text-muted">
+                        <Clock className="h-3 w-3" />
+                        <span className="text-[11px]">{(() => {
+                          const d = o.date ? new Date(o.date) : new Date();
+                          const day = d.getDate();
+                          const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                          const yr = String(d.getFullYear()).slice(2);
+                          const hrs = d.getHours();
+                          const mins = String(d.getMinutes()).padStart(2, '0');
+                          const ampm = hrs >= 12 ? 'pm' : 'am';
+                          const h12 = hrs % 12 || 12;
+                          return `${day} ${months[d.getMonth()]}' ${yr} ${h12}:${mins} ${ampm}`;
+                        })()}</span>
+                      </div>
                       <p className="text-xs text-text-secondary">Order #{o.id.replace(/\D/g, '') || o.id}</p>
+                      <div className="border-t border-border pt-1.5 mt-1.5">
+                        <p className="text-xs"><span className="text-text-muted">Tag Status : </span><span className={cn("font-semibold", o.payment === "COD" ? "text-primary" : "text-success")}>{o.payment}</span></p>
+                      </div>
                     </div>
                   </td>
 
-                  {/* Products Details */}
+                  {/* Products Details - no package icons */}
                   <td className="p-3 border-r border-border">
                     <div className="relative">
                       <button className="absolute top-0 right-0 p-1 rounded hover:bg-primary-light transition-colors" onClick={() => setEditProductOrder(o)}>
@@ -567,14 +583,29 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                         <div key={pi} className={cn("pb-2", pi > 0 && "pt-2 border-t border-border/50")}>
                           <div className="flex justify-between text-[11px] text-text-muted mb-1 pr-6">
                             <span>SKU: {(p as any).sku || `SKU-${pi + 1}`}</span>
-                            <span>QTY: {p.qty.toFixed(2)}</span>
+                            <span>QTY: {p.qty?.toFixed?.(2) ?? p.qty}</span>
                           </div>
                           <p className="text-xs text-text-primary leading-snug">{p.name}</p>
-                          <div className="mt-1.5 h-10 w-10 rounded bg-surface-2 flex items-center justify-center">
-                            <Package className="h-4 w-4 text-text-muted" />
-                          </div>
                         </div>
                       )) : <p className="text-xs text-text-muted">No products</p>}
+                    </div>
+                  </td>
+
+                  {/* Customer Details - new column */}
+                  <td className="p-3 border-r border-border">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <User className="h-3 w-3 text-text-muted shrink-0" />
+                        <p className="text-xs font-medium text-text-primary">{o.customer}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Phone className="h-3 w-3 text-primary shrink-0" />
+                        <span className="text-[11px] text-primary">{o.phone}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Mail className="h-3 w-3 text-primary shrink-0" />
+                        <span className="text-[11px] text-primary">{orderEmail}</span>
+                      </div>
                     </div>
                   </td>
 
