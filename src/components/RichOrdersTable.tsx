@@ -425,7 +425,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               </th>
               <th ref={addressRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[220px] relative">
                 <div className="flex items-center gap-2">
-                  <span>Address</span>
+                  <span>Pickup Address</span>
                   <button onClick={() => setAddressFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
                     <FilterIcon active={addressFilter.selectedStates.size > 0 || addressFilter.validPincodes || addressFilter.invalidPincodes || addressFilter.invalidContact} />
