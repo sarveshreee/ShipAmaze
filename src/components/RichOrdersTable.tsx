@@ -528,13 +528,13 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} className="border-b border-border">
-                  {Array.from({ length: 8 }).map((_, j) => (
+                  {Array.from({ length: 10 }).map((_, j) => (
                     <td key={j} className="p-4 border-r border-border last:border-r-0"><div className="h-4 bg-surface-2 rounded animate-pulse" /></td>
                   ))}
                 </tr>
               ))
             ) : filteredOrders.length === 0 ? (
-              <tr><td colSpan={8} className="p-12 text-center text-text-muted">
+              <tr><td colSpan={10} className="p-12 text-center text-text-muted">
                 <Package className="h-10 w-10 mx-auto mb-2 opacity-40" />
                 <p className="font-medium">No orders found</p>
                 <p className="text-xs mt-1">Try adjusting your filters</p>
