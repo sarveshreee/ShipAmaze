@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User } from "lucide-react";
+import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -286,10 +286,16 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   const [addressFilter, setAddressFilter] = useState({ open: false, search: "", selectedStates: new Set<string>(), validPincodes: false, invalidPincodes: false, invalidContact: false });
   const [commFilter, setCommFilter] = useState({ open: false, ivrSelected: new Set<string>(), whatsappSelected: new Set<string>() });
 
+  // New filters for Order Details and Customer Details
+  const [orderDetailsFilter, setOrderDetailsFilter] = useState({ open: false, dateFrom: "", dateTo: "", paymentType: "" as "" | "COD" | "Prepaid" });
+  const [customerFilter, setCustomerFilter] = useState({ open: false, search: "", city: "" });
+
   const productRef = useRef<HTMLTableCellElement>(null);
   const amountRef = useRef<HTMLTableCellElement>(null);
   const addressRef = useRef<HTMLTableCellElement>(null);
   const commRef = useRef<HTMLTableCellElement>(null);
+  const orderDetailsRef = useRef<HTMLTableCellElement>(null);
+  const customerRef = useRef<HTMLTableCellElement>(null);
 
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [editingRemark, setEditingRemark] = useState<string | null>(null);
@@ -301,8 +307,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   const [editAddressOrder, setEditAddressOrder] = useState<Order | null>(null);
 
   const allProductNames = Array.from(new Set(orders.flatMap(o => (o.products || []).map(p => p.name))));
+  const allCities = Array.from(new Set(orders.map(o => o.city).filter(Boolean)));
 
   const filteredOrders = orders.filter(o => {
+    // Product filter
     if (productFilter.selectedNames.size > 0) {
       const orderProductNames = (o.products || []).map(p => p.name);
       if (productFilter.mode === "AND") {
@@ -313,8 +321,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
         if (Array.from(productFilter.selectedNames).some(n => orderProductNames.includes(n))) return false;
       }
     }
+    // Amount filter
     if (amountFilter.from && o.amount < Number(amountFilter.from)) return false;
     if (amountFilter.to && o.amount > Number(amountFilter.to)) return false;
+    // Address filter
     if (addressFilter.invalidPincodes) {
       if (o.pincode && /^\d{6}$/.test(o.pincode)) return false;
     }
@@ -324,6 +334,26 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
     if (addressFilter.selectedStates.size > 0) {
       const cityLower = (o.city || "").toLowerCase();
       if (!Array.from(addressFilter.selectedStates).some(s => cityLower.includes(s.toLowerCase()))) return false;
+    }
+    // Order Details filter
+    if (orderDetailsFilter.dateFrom) {
+      const orderDate = o.date ? new Date(o.date) : new Date();
+      if (orderDate < new Date(orderDetailsFilter.dateFrom)) return false;
+    }
+    if (orderDetailsFilter.dateTo) {
+      const orderDate = o.date ? new Date(o.date) : new Date();
+      if (orderDate > new Date(orderDetailsFilter.dateTo)) return false;
+    }
+    if (orderDetailsFilter.paymentType) {
+      if (o.payment !== orderDetailsFilter.paymentType) return false;
+    }
+    // Customer filter
+    if (customerFilter.search) {
+      const q = customerFilter.search.toLowerCase();
+      if (!(o.customer || "").toLowerCase().includes(q)) return false;
+    }
+    if (customerFilter.city) {
+      if ((o.city || "").toLowerCase() !== customerFilter.city.toLowerCase()) return false;
     }
     return true;
   });
@@ -363,6 +393,41 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
   };
 
+  const handleEditOrder = (order: Order) => {
+    // Store order data in localStorage for the AddOrder page to pick up
+    const editData = {
+      id: order.id,
+      customer: order.customer,
+      phone: order.phone,
+      email: (order as any).email || "",
+      altPhone: (order as any).phone2 || "",
+      address: order.address || "",
+      address2: (order as any).address2 || "",
+      addressType: (order as any).addressType || "Home",
+      pincode: order.pincode || "",
+      city: order.city || "",
+      state: (order as any).state || "",
+      country: (order as any).country || "India",
+      payment: order.payment || "Prepaid",
+      amount: order.amount || 0,
+      products: (order.products || []).map(p => ({
+        name: p.name || "",
+        qty: String(p.qty || 1),
+        price: String(p.price || 0),
+        category: (p as any).category || "",
+        sku: (p as any).sku || "",
+        hsn: (p as any).hsn || "",
+      })),
+      weight: order.weight || "",
+      dimensions: order.dimensions || "",
+      courier: order.courier || "",
+      pickupAddress: (order as any).pickupAddress || "",
+      status: order.status,
+    };
+    localStorage.setItem("shipflow_edit_order", JSON.stringify(editData));
+    navigate(`/dropshipper/add-order?edit=${order.id}`);
+  };
+
   const toggleCommSet = (set: Set<string>, item: string) => {
     const n = new Set(set); n.has(item) ? n.delete(item) : n.add(item); return n;
   };
@@ -382,6 +447,14 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
           <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
             <span>Count Order: <strong>{selected.size}</strong></span>
           </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onOpenProcessModal}>
+              <CheckSquare className="h-3.5 w-3.5" /> Process Selected
+            </Button>
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark" onClick={onBulkJunk}>
+              <Trash2 className="h-3.5 w-3.5" /> Bulk Junk
+            </Button>
+          </div>
         </div>
       )}
 
@@ -394,23 +467,111 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   checked={selected.size === filteredOrders.length && filteredOrders.length > 0}
                   onChange={e => e.target.checked ? onSelectAll(filteredOrders.map(o => o.id)) : onClearSelection()} />
               </th>
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">
+              {/* Order Details header with filter */}
+              <th ref={orderDetailsRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px] relative">
                 <div className="flex items-center gap-2">
                   <span>Order Details</span>
-                  <button className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"><FilterIcon active={false} /></button>
+                  <button onClick={() => setOrderDetailsFilter(f => ({ ...f, open: !f.open }))}
+                    className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
+                    <FilterIcon active={!!(orderDetailsFilter.dateFrom || orderDetailsFilter.dateTo || orderDetailsFilter.paymentType)} />
+                  </button>
                 </div>
+                <FilterPopover open={orderDetailsFilter.open} onClose={() => setOrderDetailsFilter(f => ({ ...f, open: false }))} anchorRef={orderDetailsRef}>
+                  <div className="space-y-3">
+                    <p className="font-semibold text-text-primary text-sm">Filter Orders</p>
+                    <div>
+                      <Label className="text-xs font-medium">Date From</Label>
+                      <Input type="date" value={orderDetailsFilter.dateFrom} onChange={e => setOrderDetailsFilter(f => ({ ...f, dateFrom: e.target.value }))} className="h-9 text-xs mt-1" />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-medium">Date To</Label>
+                      <Input type="date" value={orderDetailsFilter.dateTo} onChange={e => setOrderDetailsFilter(f => ({ ...f, dateTo: e.target.value }))} className="h-9 text-xs mt-1" />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-medium">Payment Type</Label>
+                      <select value={orderDetailsFilter.paymentType} onChange={e => setOrderDetailsFilter(f => ({ ...f, paymentType: e.target.value as any }))}
+                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-xs">
+                        <option value="">All</option>
+                        <option value="COD">COD</option>
+                        <option value="Prepaid">Prepaid</option>
+                      </select>
+                    </div>
+                    <div className="flex justify-between pt-3 border-t border-border">
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setOrderDetailsFilter({ open: false, dateFrom: "", dateTo: "", paymentType: "" })}>Clear</Button>
+                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setOrderDetailsFilter(f => ({ ...f, open: false }))}>Apply</Button>
+                    </div>
+                  </div>
+                </FilterPopover>
               </th>
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px]">
+              {/* Products Details header with filter */}
+              <th ref={productRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px] relative">
                 <div className="flex items-center gap-2">
                   <span>Products Details</span>
-                  <button className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"><FilterIcon active={false} /></button>
+                  <button onClick={() => setProductFilter(f => ({ ...f, open: !f.open }))}
+                    className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
+                    <FilterIcon active={productFilter.selectedNames.size > 0} />
+                  </button>
                 </div>
+                <FilterPopover open={productFilter.open} onClose={() => setProductFilter(f => ({ ...f, open: false }))} anchorRef={productRef}>
+                  <div className="space-y-3">
+                    <p className="font-semibold text-text-primary text-sm">Filter by Product</p>
+                    <Input placeholder="Search product..." value={productFilter.search} onChange={e => setProductFilter(f => ({ ...f, search: e.target.value }))} className="h-9 text-xs" />
+                    <div className="flex gap-1">
+                      {(["AND", "OR", "NOT"] as const).map(m => (
+                        <button key={m} onClick={() => setProductFilter(f => ({ ...f, mode: m }))}
+                          className={cn("px-3 py-1 rounded text-xs font-medium", productFilter.mode === m ? "bg-primary text-primary-foreground" : "bg-surface-2 text-text-secondary")}>
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="max-h-[180px] overflow-auto space-y-1">
+                      {allProductNames.filter(n => n.toLowerCase().includes(productFilter.search.toLowerCase())).map(name => (
+                        <label key={name} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
+                          <input type="checkbox" className="rounded accent-primary" checked={productFilter.selectedNames.has(name)}
+                            onChange={() => setProductFilter(f => {
+                              const n = new Set(f.selectedNames); n.has(name) ? n.delete(name) : n.add(name); return { ...f, selectedNames: n };
+                            })} />
+                          {name}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex justify-between pt-3 border-t border-border">
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setProductFilter({ open: false, search: "", mode: "AND", selectedNames: new Set() })}>Clear</Button>
+                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setProductFilter(f => ({ ...f, open: false }))}>Apply</Button>
+                    </div>
+                  </div>
+                </FilterPopover>
               </th>
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">
+              {/* Customer Details header with filter */}
+              <th ref={customerRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px] relative">
                 <div className="flex items-center gap-2">
                   <span>Customer Details</span>
-                  <button className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"><FilterIcon active={false} /></button>
+                  <button onClick={() => setCustomerFilter(f => ({ ...f, open: !f.open }))}
+                    className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
+                    <FilterIcon active={!!(customerFilter.search || customerFilter.city)} />
+                  </button>
                 </div>
+                <FilterPopover open={customerFilter.open} onClose={() => setCustomerFilter(f => ({ ...f, open: false }))} anchorRef={customerRef}>
+                  <div className="space-y-3">
+                    <p className="font-semibold text-text-primary text-sm">Filter Customers</p>
+                    <div>
+                      <Label className="text-xs font-medium">Customer Name</Label>
+                      <Input placeholder="Search by name..." value={customerFilter.search} onChange={e => setCustomerFilter(f => ({ ...f, search: e.target.value }))} className="h-9 text-xs mt-1" />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-medium">City</Label>
+                      <select value={customerFilter.city} onChange={e => setCustomerFilter(f => ({ ...f, city: e.target.value }))}
+                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-xs">
+                        <option value="">All Cities</option>
+                        {allCities.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex justify-between pt-3 border-t border-border">
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setCustomerFilter({ open: false, search: "", city: "" })}>Clear</Button>
+                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setCustomerFilter(f => ({ ...f, open: false }))}>Apply</Button>
+                    </div>
+                  </div>
+                </FilterPopover>
               </th>
               <th ref={amountRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[140px] relative">
                 <div className="flex items-center gap-2">
@@ -493,7 +654,6 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                 </div>
                 <FilterPopover open={commFilter.open} onClose={() => setCommFilter(f => ({ ...f, open: false }))} anchorRef={commRef}>
                   <div className="space-y-3 min-w-[340px]">
-                    {/* IVR Section */}
                     <div className="flex items-center justify-between">
                       <p className="font-semibold text-text-primary text-sm">IVR</p>
                       <button className="text-xs text-primary font-semibold hover:underline" onClick={() => setCommFilter(f => ({ ...f, ivrSelected: new Set(IVR_OPTIONS) }))}>Select All</button>
@@ -507,11 +667,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                         </label>
                       ))}
                     </div>
-
-                    {/* Red divider */}
                     <div className="border-t-2 border-danger my-2" />
-
-                    {/* WhatsApp Section */}
                     <p className="font-semibold text-text-primary text-sm">Whatsapp</p>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                       {WHATSAPP_OPTIONS.map(opt => (
@@ -522,7 +678,6 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                         </label>
                       ))}
                     </div>
-
                     <div className="flex justify-between pt-3 border-t border-border">
                       <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setCommFilter({ open: false, ivrSelected: new Set(), whatsappSelected: new Set() })}>Clear</Button>
                       <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setCommFilter(f => ({ ...f, open: false }))}>Apply</Button>
@@ -557,80 +712,92 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     <input type="checkbox" className="rounded border-border accent-primary" checked={selected.has(o.id)} onChange={() => onToggleSelect(o.id)} />
                   </td>
 
-                  {/* Order Details - redesigned per image 3 */}
-                  <td className="p-3 border-r border-border">
-                    <div className="space-y-1.5">
-                      <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-semibold text-sm hover:underline">{o.id}</button>
-                      <div className="flex items-center gap-1 text-text-muted">
-                        <Clock className="h-3 w-3" />
-                        <span className="text-[11px]">{(() => {
-                          const d = o.date ? new Date(o.date) : new Date();
-                          const day = d.getDate();
-                          const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-                          const yr = String(d.getFullYear()).slice(2);
-                          const hrs = d.getHours();
-                          const mins = String(d.getMinutes()).padStart(2, '0');
-                          const ampm = hrs >= 12 ? 'pm' : 'am';
-                          const h12 = hrs % 12 || 12;
-                          return `${day} ${months[d.getMonth()]}' ${yr} ${h12}:${mins} ${ampm}`;
-                        })()}</span>
-                      </div>
-                      <p className="text-xs text-text-secondary">Order #{o.id.replace(/\D/g, '') || o.id}</p>
-                      <div className="border-t border-border pt-1.5 mt-1.5">
-                        <p className="text-xs"><span className="text-text-muted">Tag Status : </span><span className={cn("font-semibold", o.payment === "COD" ? "text-primary" : "text-success")}>{o.payment}</span></p>
-                      </div>
-                    </div>
-                  </td>
-
-                  {/* Products Details - no package icons */}
+                  {/* Order Details */}
                   <td className="p-3 border-r border-border">
                     <div className="relative">
-                      <button className="absolute top-0 right-0 p-1 rounded hover:bg-primary-light transition-colors" onClick={() => setEditProductOrder(o)}>
+                      <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => handleEditOrder(o)}>
                         <Pencil className="h-3 w-3 text-primary" />
                       </button>
-                      {products.length > 0 ? products.map((p, pi) => (
-                        <div key={pi} className={cn("pb-2", pi > 0 && "pt-2 border-t border-border/50")}>
-                          <div className="flex justify-between text-[11px] text-text-muted mb-1 pr-6">
-                            <span>SKU: {(p as any).sku || `SKU-${pi + 1}`}</span>
-                            <span>QTY: {p.qty?.toFixed?.(2) ?? p.qty}</span>
-                          </div>
-                          <p className="text-xs text-text-primary leading-snug">{p.name}</p>
+                      <div className="space-y-1.5 pr-6">
+                        <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-semibold text-sm hover:underline">{o.id}</button>
+                        <div className="flex items-center gap-1 text-text-muted">
+                          <Clock className="h-3 w-3" />
+                          <span className="text-[11px]">{(() => {
+                            const d = o.date ? new Date(o.date) : new Date();
+                            const day = d.getDate();
+                            const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                            const yr = String(d.getFullYear()).slice(2);
+                            const hrs = d.getHours();
+                            const mins = String(d.getMinutes()).padStart(2, '0');
+                            const ampm = hrs >= 12 ? 'pm' : 'am';
+                            const h12 = hrs % 12 || 12;
+                            return `${day} ${months[d.getMonth()]}' ${yr} ${h12}:${mins} ${ampm}`;
+                          })()}</span>
                         </div>
-                      )) : <p className="text-xs text-text-muted">No products</p>}
+                        <p className="text-xs text-text-secondary">Order #{o.id.replace(/\D/g, '') || o.id}</p>
+                        <div className="border-t border-border pt-1.5 mt-1.5">
+                          <p className="text-xs"><span className="text-text-muted">Tag Status : </span><span className={cn("font-semibold", o.payment === "COD" ? "text-primary" : "text-success")}>{o.payment}</span></p>
+                        </div>
+                      </div>
                     </div>
                   </td>
 
-                  {/* Customer Details - full consignee info */}
+                  {/* Products Details */}
                   <td className="p-3 border-r border-border">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <User className="h-3 w-3 text-text-muted shrink-0" />
-                        <p className="text-xs font-semibold text-text-primary">{o.customer}</p>
-                      </div>
-                      {((o as any).address || o.address) && (
-                        <div className="flex items-start gap-1.5">
-                          <MapPin className="h-3 w-3 text-text-muted shrink-0 mt-0.5" />
-                          <div className="text-[11px] text-text-secondary leading-snug">
-                            <p>{(o as any).address || ''}</p>
-                            {(o as any).address2 && <p>{(o as any).address2}</p>}
-                            <p>{o.pincode || ''}{o.pincode && o.city ? ' — ' : ''}{o.city || ''}{(o as any).state ? `, ${(o as any).state}` : ''}</p>
+                    <div className="relative">
+                      <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditProductOrder(o)}>
+                        <Pencil className="h-3 w-3 text-primary" />
+                      </button>
+                      <div className="pr-6">
+                        {products.length > 0 ? products.map((p, pi) => (
+                          <div key={pi} className={cn("pb-2", pi > 0 && "pt-2 border-t border-border/50")}>
+                            <div className="flex justify-between text-[11px] text-text-muted mb-1">
+                              <span>SKU: {(p as any).sku || `SKU-${pi + 1}`}</span>
+                              <span>QTY: {p.qty?.toFixed?.(2) ?? p.qty}</span>
+                            </div>
+                            <p className="text-xs text-text-primary leading-snug">{p.name}</p>
                           </div>
-                        </div>
-                      )}
-                      {o.phone && (
-                        <div className="flex items-center gap-1.5">
-                          <Phone className="h-3 w-3 text-text-muted shrink-0" />
-                          <span className="text-[11px] text-text-primary">{o.phone}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-1.5">
-                        <Mail className="h-3 w-3 text-text-muted shrink-0" />
-                        <a href={`mailto:${orderEmail}`} className="text-[11px] text-primary hover:underline">{orderEmail}</a>
+                        )) : <p className="text-xs text-text-muted">No products</p>}
                       </div>
                     </div>
                   </td>
 
-                  {/* Amount Details - fix #2: pencil at top-right, not overlapping */}
+                  {/* Customer Details */}
+                  <td className="p-3 border-r border-border">
+                    <div className="relative">
+                      <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
+                        <Pencil className="h-3 w-3 text-primary" />
+                      </button>
+                      <div className="space-y-1.5 pr-6">
+                        <div className="flex items-center gap-1.5">
+                          <User className="h-3 w-3 text-text-muted shrink-0" />
+                          <p className="text-xs font-semibold text-text-primary">{o.customer}</p>
+                        </div>
+                        {((o as any).address || o.address) && (
+                          <div className="flex items-start gap-1.5">
+                            <MapPin className="h-3 w-3 text-text-muted shrink-0 mt-0.5" />
+                            <div className="text-[11px] text-text-secondary leading-snug">
+                              <p>{(o as any).address || ''}</p>
+                              {(o as any).address2 && <p>{(o as any).address2}</p>}
+                              <p>{o.pincode || ''}{o.pincode && o.city ? ' — ' : ''}{o.city || ''}{(o as any).state ? `, ${(o as any).state}` : ''}</p>
+                            </div>
+                          </div>
+                        )}
+                        {o.phone && (
+                          <div className="flex items-center gap-1.5">
+                            <Phone className="h-3 w-3 text-text-muted shrink-0" />
+                            <span className="text-[11px] text-text-primary">{o.phone}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1.5">
+                          <Mail className="h-3 w-3 text-text-muted shrink-0" />
+                          <a href={`mailto:${orderEmail}`} className="text-[11px] text-primary hover:underline">{orderEmail}</a>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Amount Details */}
                   <td className="p-3 border-r border-border">
                     <div className="relative">
                       <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditPriceOrder(o)}>
@@ -729,7 +896,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                           onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
-                            navigate(`/dropshipper/add-order?edit=${o.id}`);
+                            handleEditOrder(o);
                           }}>
                           <Pencil className="h-3 w-3" /> Edit
                         </Button>
