@@ -136,8 +136,9 @@ export default function AddOrder() {
       if (!consignee.fullName.trim()) errors.fullName = "Full name is required";
       if (!consignee.phone.trim() || consignee.phone.length !== 10) errors.phone = "Valid 10-digit phone is required";
     } else if (step === 3) {
-      if (!shipment.invoiceValue.trim()) errors.invoiceValue = "Invoice value is required";
-      if (shipment.paymentType === "COD" && !shipment.codAmount.trim()) errors.codAmount = "COD amount is required";
+      const hasProduct = products.some(p => p.name.trim());
+      if (!hasProduct) errors.products = "At least one product is required";
+      if (shipment.paymentType === "COD" && !shipment.codAmount.trim()) errors.codAmount = "Collectible COD amount is required";
     } else if (step === 4) {
       if (!pkg.weight.trim()) errors.weight = "Weight is required";
       if (!pkg.length.trim() || !pkg.width.trim() || !pkg.height.trim()) errors.dimensions = "All dimensions are required";
@@ -244,8 +245,8 @@ export default function AddOrder() {
       status: "ready-to-ship" as any,
       date: new Date().toISOString().split("T")[0],
       awb: `AWB${Date.now().toString().slice(-9)}`,
-      amount: Number(shipment.invoiceValue) || 0,
-      products: products.filter(p => p.name).map(p => ({ name: p.name, qty: Number(p.qty) || 1, price: Number(p.price) || 0, weight: p.weight || "0.5 kg" })),
+      amount: orderAmount + Number(extraCharges || 0),
+      products: products.filter(p => p.name).map(p => ({ name: p.name, qty: Number(p.qty) || 1, price: Number(p.price) || 0, weight: p.weight || "0.5 kg", category: p.category, sku: p.sku, hsn: p.hsn })),
       dimensions: `${pkg.length}x${pkg.width}x${pkg.height} cm`,
       zone: "B",
       pickupAddress: pickupAddr?.label || "",
@@ -480,41 +481,73 @@ export default function AddOrder() {
                     ))}
                   </div>
                 </div>
-                <div>
-                  <Label>Invoice Value<span className="text-danger">*</span></Label>
-                  <Input value={shipment.invoiceValue} onChange={e => setShipment(p => ({ ...p, invoiceValue: e.target.value }))}
-                    placeholder="₹0.00" type="number" className={stepErrors.invoiceValue ? "border-danger" : ""} />
-                  {stepErrors.invoiceValue && <p className="text-xs text-danger mt-1">{stepErrors.invoiceValue}</p>}
-                </div>
-                {shipment.paymentType === "COD" && (
-                  <div>
-                    <Label>COD Amount<span className="text-danger">*</span></Label>
-                    <Input value={shipment.codAmount} onChange={e => setShipment(p => ({ ...p, codAmount: e.target.value }))}
-                      placeholder="₹0.00" type="number" className={stepErrors.codAmount ? "border-danger" : ""} />
-                    {stepErrors.codAmount && <p className="text-xs text-danger mt-1">{stepErrors.codAmount}</p>}
-                  </div>
-                )}
               </div>
+
               <h4 className="font-medium text-text-primary pt-2">Products</h4>
+              {stepErrors.products && <p className="text-xs text-danger">{stepErrors.products}</p>}
               {products.map((prod, i) => (
-                <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 items-end">
-                  <div><Label>Product Name</Label><Input value={prod.name} onChange={e => { const np = [...products]; np[i].name = e.target.value; setProducts(np); }} placeholder="Item name" /></div>
-                  <div><Label>Qty</Label><Input value={prod.qty} onChange={e => { const np = [...products]; np[i].qty = e.target.value; setProducts(np); }} placeholder="1" type="number" /></div>
-                  <div><Label>Weight (kg)</Label><Input value={prod.weight} onChange={e => { const np = [...products]; np[i].weight = e.target.value; setProducts(np); }} placeholder="0.5" type="number" /></div>
-                  <div><Label>Price (₹)</Label><Input value={prod.price} onChange={e => { const np = [...products]; np[i].price = e.target.value; setProducts(np); }} placeholder="0" type="number" /></div>
-                  <div>
-                    {products.length > 1 && (
-                      <Button variant="ghost" size="icon" className="h-9 w-9 text-text-muted hover:text-danger hover:bg-danger/10"
-                        onClick={() => setProducts(p => p.filter((_, idx) => idx !== i))}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+                <div key={i} className="space-y-3 border border-border rounded-lg p-4">
+                  <div className="grid grid-cols-[1fr_80px_1fr_1fr_auto] gap-3 items-end">
+                    <div><Label>Product Name<span className="text-danger">*</span></Label><Input value={prod.name} onChange={e => { const np = [...products]; np[i].name = e.target.value; setProducts(np); }} placeholder="Enter product name..." /></div>
+                    <div><Label>Qty<span className="text-danger">*</span></Label><Input value={prod.qty} onChange={e => { const np = [...products]; np[i].qty = e.target.value; setProducts(np); }} placeholder="Qty..." type="number" /></div>
+                    <div><Label>Weight (kg)</Label><Input value={prod.weight} onChange={e => { const np = [...products]; np[i].weight = e.target.value; setProducts(np); }} placeholder="0.5" type="number" /></div>
+                    <div><Label>Price (₹)</Label><Input value={prod.price} onChange={e => { const np = [...products]; np[i].price = e.target.value; setProducts(np); }} placeholder="0" type="number" /></div>
+                    <div>
+                      {products.length > 1 && (
+                        <Button variant="ghost" size="icon" className="h-9 w-9 text-text-muted hover:text-danger hover:bg-danger/10"
+                          onClick={() => setProducts(p => p.filter((_, idx) => idx !== i))}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 items-end">
+                    <div>
+                      <Label>Category</Label>
+                      <select value={prod.category} onChange={e => {
+                        const np = [...products];
+                        np[i].category = e.target.value;
+                        np[i].hsn = categoryHsnMap[e.target.value] || "";
+                        setProducts(np);
+                      }} className="w-full mt-1 rounded-md border border-border bg-background px-3 py-2 text-sm">
+                        <option value="">Product category...</option>
+                        {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div><Label>SKU</Label><Input value={prod.sku} onChange={e => { const np = [...products]; np[i].sku = e.target.value; setProducts(np); }} placeholder="SKU" /></div>
+                    <div><Label>HSN</Label><Input value={prod.hsn} readOnly className="bg-surface-2 text-text-muted cursor-not-allowed" placeholder="HSN" /></div>
                   </div>
                 </div>
               ))}
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setProducts(p => [...p, { name: "", qty: "", weight: "", price: "" }])}>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setProducts(p => [...p, { name: "", qty: "", weight: "", price: "", category: "", sku: "", hsn: "" }])}>
                 <Plus className="h-3.5 w-3.5" />Add Product
               </Button>
+
+              {/* Order Details */}
+              <h4 className="font-bold text-text-primary pt-4">Order Details:</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <Label>Order Amount<span className="text-danger">*</span></Label>
+                  <Input value={orderAmount.toFixed(2)} readOnly className="bg-surface-2 text-text-muted cursor-not-allowed mt-1" placeholder="Enter order Amount" />
+                </div>
+                <div>
+                  <Label>Extra Charges (if any)</Label>
+                  <Input value={extraCharges} onChange={e => setExtraCharges(e.target.value)} placeholder="0" type="number" className="mt-1" />
+                </div>
+                <div />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <Label>Total Amount<span className="text-danger">*</span></Label>
+                  <Input value={totalAmount.toFixed(2)} readOnly className="bg-surface-2/80 text-text-muted cursor-not-allowed mt-1" placeholder="Total Amount" />
+                </div>
+                <div>
+                  <Label>Collectible COD Amount<span className="text-danger">*</span></Label>
+                  <Input value={shipment.codAmount} onChange={e => setShipment(p => ({ ...p, codAmount: e.target.value }))}
+                    placeholder="Enter Collectible COD Amount" type="number" className={cn("mt-1", stepErrors.codAmount ? "border-danger" : "")} />
+                  {stepErrors.codAmount && <p className="text-xs text-danger mt-1">{stepErrors.codAmount}</p>}
+                </div>
+              </div>
             </div>
           )}
 
