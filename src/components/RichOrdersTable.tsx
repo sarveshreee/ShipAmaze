@@ -726,10 +726,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                       {activeTab === "junk" ? (
                         <Button variant="outline" size="sm"
                           className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
-                          onClick={() => {
-                            // Navigate to Add Order with this order's data pre-filled
-                            const orderData = encodeURIComponent(JSON.stringify(o));
-                            window.location.href = `/dropshipper/add-order?edit=${o.id}`;
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            navigate(`/dropshipper/add-order?edit=${o.id}`);
                           }}>
                           <Pencil className="h-3 w-3" /> Edit
                         </Button>
