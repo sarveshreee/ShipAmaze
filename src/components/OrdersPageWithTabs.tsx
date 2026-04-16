@@ -44,8 +44,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [processModalOpen, setProcessModalOpen] = useState(false);
   const isMobile = useIsMobile();
-  const { data: orders = [], isLoading: loading } = useOrders();
-  const queryClient = useQueryClient();
+  const { data: orders = [], isLoading: loading, refetch } = useOrders();
 
   const filterByTab = (o: Order, tab: string) => {
     if (tab === "all") return true;
