@@ -71,7 +71,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     const updated = stored.map((o: any) => o.id === id || o.orderId === id || o.order_id === id ? { ...o, status: "junk" } : o);
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
     toast.success("Order marked as Junk");
-    queryClient.invalidateQueries({ queryKey: ["orders"] });
+    refetch();
   };
 
   const handleBulkJunk = () => {
@@ -81,7 +81,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
     toast.success(`${selected.size} order(s) marked as Junk`);
     setSelected(new Set());
-    queryClient.invalidateQueries({ queryKey: ["orders"] });
+    refetch();
   };
 
   const handleExport = () => {
