@@ -125,6 +125,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     return "Dashboard";
   }, [location.pathname, nav]);
 
+  // Listen for sidebar toggle events from child components
+  useEffect(() => {
+    const handler = () => setSidebarCollapsed(prev => !prev);
+    window.addEventListener('toggle-sidebar', handler);
+    return () => window.removeEventListener('toggle-sidebar', handler);
+  }, []);
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
