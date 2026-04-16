@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Eye, Printer, Ban, Pencil, Filter, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User } from "lucide-react";
+import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { printShippingLabel } from "@/components/ShippingLabel";
@@ -273,9 +274,10 @@ interface Props {
   onOpenProcessModal?: () => void;
   onExport?: () => void;
   loading: boolean;
+  activeTab?: string;
 }
 
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onExport, loading }: Props) {
+export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onExport, loading, activeTab }: Props) {
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
   const [addressFilter, setAddressFilter] = useState({ open: false, search: "", selectedStates: new Set<string>(), validPincodes: false, invalidPincodes: false, invalidContact: false });
@@ -363,7 +365,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   };
 
   const FilterIcon = ({ active }: { active: boolean }) => (
-    <Filter className={cn("h-3.5 w-3.5 transition-colors", active ? "text-primary" : "text-text-muted")} />
+    <SlidersHorizontal className={cn("h-3.5 w-3.5 transition-colors", active ? "text-primary" : "text-text-muted")} />
   );
 
   return (
@@ -591,20 +593,32 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     </div>
                   </td>
 
-                  {/* Customer Details - new column */}
+                  {/* Customer Details - full consignee info */}
                   <td className="p-3 border-r border-border">
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex items-center gap-1.5">
                         <User className="h-3 w-3 text-text-muted shrink-0" />
-                        <p className="text-xs font-medium text-text-primary">{o.customer}</p>
+                        <p className="text-xs font-semibold text-text-primary">{o.customer}</p>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Phone className="h-3 w-3 text-primary shrink-0" />
-                        <span className="text-[11px] text-primary">{o.phone}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Mail className="h-3 w-3 text-primary shrink-0" />
-                        <span className="text-[11px] text-primary">{orderEmail}</span>
+                      {((o as any).address || o.address) && (
+                        <div className="flex items-start gap-1.5">
+                          <MapPin className="h-3 w-3 text-text-muted shrink-0 mt-0.5" />
+                          <div className="text-[11px] text-text-secondary leading-snug">
+                            <p>{(o as any).address || ''}</p>
+                            {(o as any).address2 && <p>{(o as any).address2}</p>}
+                            <p>{o.pincode || ''}{o.pincode && o.city ? ' — ' : ''}{o.city || ''}{(o as any).state ? `, ${(o as any).state}` : ''}</p>
+                          </div>
+                        </div>
+                      )}
+                      {o.phone && (
+                        <div className="flex items-center gap-1.5">
+                          <Phone className="h-3 w-3 text-text-muted shrink-0" />
+                          <span className="text-[11px] text-text-primary">{o.phone}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5">
+                        <Mail className="h-3 w-3 text-text-muted shrink-0" />
+                        <a href={`mailto:${orderEmail}`} className="text-[11px] text-primary hover:underline">{orderEmail}</a>
                       </div>
                     </div>
                   </td>
@@ -693,11 +707,23 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                           <Printer className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                      <Button variant="outline" size="sm"
-                        className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
-                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
-                        <Ban className="h-3 w-3" /> Junk
-                      </Button>
+                      {activeTab === "junk" ? (
+                        <Button variant="outline" size="sm"
+                          className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
+                          onClick={() => {
+                            // Navigate to Add Order with this order's data pre-filled
+                            const orderData = encodeURIComponent(JSON.stringify(o));
+                            window.location.href = `/dropshipper/add-order?edit=${o.id}`;
+                          }}>
+                          <Pencil className="h-3 w-3" /> Edit
+                        </Button>
+                      ) : (
+                        <Button variant="outline" size="sm"
+                          className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                          onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
+                          <Ban className="h-3 w-3" /> Junk
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>

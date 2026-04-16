@@ -47,9 +47,9 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const { data: orders = [], isLoading: loading, refetch } = useOrders();
 
   const filterByTab = (o: Order, tab: string) => {
-    if (tab === "all") return true;
-    if (tab === "channel") return (o as any).source === "channel";
-    if (tab === "manual") return (o as any).source === "manual" || !(o as any).source;
+    if (tab === "all") return (o as any).status !== "junk";
+    if (tab === "channel") return (o as any).source === "channel" && (o as any).status !== "junk";
+    if (tab === "manual") return ((o as any).source === "manual" || !(o as any).source) && (o as any).status !== "junk";
     return o.status === tab;
   };
 
@@ -144,6 +144,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onOpenProcessModal={() => setProcessModalOpen(true)}
           onExport={handleExport}
           loading={loading}
+          activeTab={activeTab}
         />
       )}
 
