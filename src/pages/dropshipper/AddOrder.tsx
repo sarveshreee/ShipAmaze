@@ -84,8 +84,9 @@ export default function AddOrder() {
   const [consignee, setConsignee] = useState({ fullName: "", phone: "", email: "", altPhone: "" });
 
   // Step 3
-  const [shipment, setShipment] = useState({ orderId: generateOrderId(), paymentType: "Prepaid", invoiceValue: "", codAmount: "" });
-  const [products, setProducts] = useState([{ name: "", qty: "", weight: "", price: "" }]);
+  const [shipment, setShipment] = useState({ orderId: generateOrderId(), paymentType: "Prepaid", codAmount: "" });
+  const [products, setProducts] = useState([{ name: "", qty: "", weight: "", price: "", category: "", sku: "", hsn: "" }]);
+  const [extraCharges, setExtraCharges] = useState("");
 
   // Step 4
   const [pkg, setPkg] = useState({ weight: "", length: "", width: "", height: "" });
