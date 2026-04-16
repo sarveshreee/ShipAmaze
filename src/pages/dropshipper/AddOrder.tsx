@@ -49,6 +49,25 @@ interface SavedOrder {
 
 const PRIORITY_STORAGE_KEY = "courierPriorities";
 
+const categoryHsnMap: Record<string, string> = {
+  "Electronics": "8542",
+  "Clothing": "6109",
+  "Footwear": "6404",
+  "Books": "4901",
+  "Cosmetics": "3304",
+  "Food & Beverages": "2106",
+  "Toys": "9503",
+  "Furniture": "9403",
+  "Jewelry": "7117",
+  "Sports": "9506",
+  "Health & Wellness": "3004",
+  "Stationery": "4820",
+  "Home Appliances": "8516",
+  "Mobile Accessories": "8544",
+  "Bags & Luggage": "4202",
+};
+const categoryOptions = Object.keys(categoryHsnMap);
+
 export default function AddOrder() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
