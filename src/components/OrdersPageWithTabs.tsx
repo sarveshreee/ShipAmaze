@@ -144,6 +144,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onOpenProcessModal={() => setProcessModalOpen(true)}
           onExport={handleExport}
           loading={loading}
+          activeTab={activeTab}
         />
       )}
 
