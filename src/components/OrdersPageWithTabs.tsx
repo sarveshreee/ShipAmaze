@@ -47,9 +47,9 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const { data: orders = [], isLoading: loading, refetch } = useOrders();
 
   const filterByTab = (o: Order, tab: string) => {
-    if (tab === "all") return true;
-    if (tab === "channel") return (o as any).source === "channel";
-    if (tab === "manual") return (o as any).source === "manual" || !(o as any).source;
+    if (tab === "all") return o.status !== "junk";
+    if (tab === "channel") return (o as any).source === "channel" && o.status !== "junk";
+    if (tab === "manual") return ((o as any).source === "manual" || !(o as any).source) && o.status !== "junk";
     return o.status === tab;
   };
 
