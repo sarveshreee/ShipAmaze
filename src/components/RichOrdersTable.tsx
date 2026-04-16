@@ -624,7 +624,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     </div>
                   </td>
 
-                  {/* Address - fix #3: pencil opens edit modal */}
+                  {/* Pickup Address */}
                   <td className="p-3 border-r border-border">
                     <div className="relative">
                       <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
@@ -634,7 +634,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                         <div className="flex items-start gap-1">
                           <MapPin className="h-3 w-3 text-success mt-0.5 shrink-0" />
                           <div>
-                            <p className="text-xs font-medium text-text-primary">{o.customer} –</p>
+                            <p className="text-xs font-medium text-text-primary">{o.city || "–"}</p>
                             <p className="text-[11px] text-text-secondary leading-snug">{o.address}</p>
                             <div className="flex items-center gap-1 mt-0.5">
                               {isValidPincode(o.pincode) ? (
@@ -644,17 +644,9 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                                   <X className="h-3 w-3" />{o.pincode || "N/A"}
                                 </span>
                               )}
-                              <span className="text-[11px] text-text-muted">– {o.city}</span>
+                              <span className="text-[11px] text-text-muted">– {(o as any).state || o.city}</span>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-1 mt-1">
-                          <Phone className="h-3 w-3 text-primary shrink-0" />
-                          <span className="text-[11px] text-primary">{o.phone}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Mail className="h-3 w-3 text-primary shrink-0" />
-                          <span className="text-[11px] text-primary">{orderEmail}</span>
                         </div>
                       </div>
                     </div>
