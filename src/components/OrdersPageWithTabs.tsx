@@ -7,7 +7,7 @@ import { TableSkeleton, OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
 import { RichOrdersTable } from "@/components/RichOrdersTable";
-import { useOrders } from "@/hooks/useSupabaseData";
+import { useOrders, useUpdateOrderStatus } from "@/hooks/useSupabaseData";
 import { type OrderStatus, type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
