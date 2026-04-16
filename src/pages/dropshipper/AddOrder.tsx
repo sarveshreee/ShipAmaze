@@ -131,6 +131,81 @@ export default function AddOrder() {
     } catch {}
   }, []);
 
+  // Load edit order data from localStorage when ?edit= param is present
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const editId = params.get("edit");
+    if (!editId) return;
+
+    try {
+      const editData = JSON.parse(localStorage.getItem("shipflow_edit_order") || "null");
+      if (!editData) return;
+
+      // Step 1: Find matching pickup address
+      const pickupMatch = allAddresses.find(a => a.label === editData.pickupAddress);
+      if (pickupMatch) setSelectedPickup(pickupMatch.id);
+
+      // Step 2: Consignee Details
+      const phone = (editData.phone || "").replace(/^\+91\s?/, "");
+      setConsignee({
+        fullName: editData.customer || "",
+        phone: phone,
+        email: editData.email || "",
+        altPhone: editData.altPhone || "",
+        addressLine1: editData.address || "",
+        addressLine2: editData.address2 || "",
+        addressType: editData.addressType || "Home",
+        consigneeEmail: editData.email || "",
+        pincode: editData.pincode || "",
+        city: editData.city || "",
+        state: editData.state || "",
+        country: editData.country || "India",
+      });
+
+      // Step 3: Shipment Details
+      const editProducts = (editData.products || []).length > 0
+        ? editData.products.map((p: any) => ({ name: p.name || "", qty: String(p.qty || ""), price: String(p.price || ""), category: p.category || "", sku: p.sku || "", hsn: p.hsn || "" }))
+        : [{ name: "", qty: "", price: "", category: "", sku: "", hsn: "" }];
+      setProducts(editProducts);
+      setShipment(prev => ({
+        ...prev,
+        orderId: editId,
+        paymentType: editData.payment || "Prepaid",
+        codAmount: editData.payment === "COD" ? String(editData.amount || 0) : "0",
+      }));
+
+      // Step 4: Package Details from weight/dimensions
+      if (editData.weight || editData.dimensions) {
+        const weightStr = (editData.weight || "").replace(/[^\d.]/g, "");
+        const dimParts = (editData.dimensions || "").split(";").map((d: string) => d.trim());
+        const pkgDetails = editProducts.filter((p: any) => p.name.trim()).map((_: any, i: number) => {
+          const dims = dimParts[i] ? dimParts[i].replace(/\s*cm\s*/gi, "").split("x") : [];
+          return {
+            weight: i === 0 ? weightStr : "",
+            length: dims[0] || "",
+            width: dims[1] || "",
+            height: dims[2] || "",
+          };
+        });
+        if (pkgDetails.length > 0) setPackageDetails(pkgDetails);
+      }
+
+      // Step 5: Courier
+      const mockCouriersList = ["ekart", "xpressbees", "delhivery", "amazon", "xbs", "ekartb2b"];
+      const courierMatch = mockCouriersList.find(c => (editData.courier || "").toLowerCase().includes(c));
+      if (courierMatch) {
+        setCourierMode("courier");
+        setSelectedCourier(courierMatch);
+      }
+
+      // Clean up
+      localStorage.removeItem("shipflow_edit_order");
+      setLoadedNotification(true);
+    } catch (e) {
+      console.error("Failed to load edit order data:", e);
+    }
+  }, []);
+
   // Saved orders
   const [savedOrders, setSavedOrders] = useState<SavedOrder[]>(() => {
     try { return JSON.parse(localStorage.getItem("savedOrders") || "[]"); } catch { return []; }
