@@ -50,7 +50,7 @@ function FilterPopover({ open, onClose, children, anchorRef }: FilterPopoverProp
   }, [open, onClose, anchorRef]);
   if (!open) return null;
   return (
-    <div ref={ref} className="absolute z-50 top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl p-4 min-w-[280px] max-h-[400px] overflow-auto">
+    <div ref={ref} className="absolute z-50 top-full left-0 mt-1 bg-card border border-border rounded-xl shadow-xl p-4 min-w-[280px] max-w-[340px] max-h-[400px] overflow-auto">
       {children}
     </div>
   );
@@ -715,10 +715,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   {/* Order Details */}
                   <td className="p-3 border-r border-border">
                     <div className="relative">
-                      <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => handleEditOrder(o)}>
-                        <Pencil className="h-3 w-3 text-primary" />
-                      </button>
-                      <div className="space-y-1.5 pr-6">
+                      <div className="space-y-1.5">
                         <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-semibold text-sm hover:underline">{o.id}</button>
                         <div className="flex items-center gap-1 text-text-muted">
                           <Clock className="h-3 w-3" />
@@ -814,39 +811,54 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
 
                   {/* Pickup Address */}
                   <td className="p-3 border-r border-border">
-                    <div className="relative">
-                      <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
-                        <Pencil className="h-3 w-3 text-primary" />
-                      </button>
-                      <div className="space-y-1.5 pr-6">
-                        <div className="flex items-start gap-1.5">
-                          <MapPin className="h-3 w-3 text-success mt-0.5 shrink-0" />
-                          <div className="text-[11px] text-text-secondary leading-snug">
-                            <p className="text-xs font-medium text-text-primary">{o.city || "–"}</p>
-                            <p>{(o as any).pickup_address || o.address || ''}</p>
-                            {(o as any).address2 && <p>{(o as any).address2}</p>}
-                            <p>
-                              {isValidPincode(o.pincode) ? (
-                                <span className="font-medium text-success">{o.pincode}</span>
-                              ) : (
-                                <span className="font-medium text-danger">{o.pincode || "N/A"}</span>
-                              )}
-                              <span className="text-text-muted"> – {(o as any).state || o.city}</span>
-                            </p>
+                    {(() => {
+                      const pickup = (o as any).pickup_address_data || (o as any).pickupAddress;
+                      const pickupLabel = typeof pickup === 'object' && pickup ? (pickup.label || pickup.city || 'Warehouse') : ((o as any).pickup_address || 'Main Warehouse');
+                      const pickupAddr1 = typeof pickup === 'object' && pickup ? (pickup.address_line1 || pickup.address1 || '') : '';
+                      const pickupAddr2 = typeof pickup === 'object' && pickup ? (pickup.address_line2 || pickup.address2 || '') : '';
+                      const pickupPincode = typeof pickup === 'object' && pickup ? (pickup.pincode || '') : '';
+                      const pickupCity = typeof pickup === 'object' && pickup ? (pickup.city || '') : '';
+                      const pickupState = typeof pickup === 'object' && pickup ? (pickup.state || '') : '';
+                      const pickupPhone = typeof pickup === 'object' && pickup ? (pickup.phone || '') : '';
+                      const pickupEmail = typeof pickup === 'object' && pickup ? (pickup.email || '') : '';
+                      const fullAddr = pickupAddr1 || (typeof pickup === 'string' ? pickup : '');
+                      return (
+                        <div className="relative">
+                          <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
+                            <Pencil className="h-3 w-3 text-primary" />
+                          </button>
+                          <div className="space-y-1.5 pr-6">
+                            <div className="flex items-start gap-1.5">
+                              <MapPin className="h-3 w-3 text-success mt-0.5 shrink-0" />
+                              <div className="text-[11px] text-text-secondary leading-snug">
+                                <p className="text-xs font-medium text-text-primary">{pickupLabel}</p>
+                                {fullAddr && <p>{fullAddr}</p>}
+                                {pickupAddr2 && <p>{pickupAddr2}</p>}
+                                <p>
+                                  {pickupPincode ? (
+                                    <span className="font-medium text-success">{pickupPincode}</span>
+                                  ) : null}
+                                  {pickupPincode && pickupCity ? ' – ' : ''}
+                                  <span className="text-text-muted">{pickupCity}{pickupState ? `, ${pickupState}` : ''}</span>
+                                </p>
+                              </div>
+                            </div>
+                            {pickupPhone && (
+                              <div className="flex items-center gap-1.5">
+                                <Phone className="h-3 w-3 text-text-muted shrink-0" />
+                                <span className="text-[11px] text-text-primary">{pickupPhone}</span>
+                              </div>
+                            )}
+                            {pickupEmail && (
+                              <div className="flex items-center gap-1.5">
+                                <Mail className="h-3 w-3 text-text-muted shrink-0" />
+                                <a href={`mailto:${pickupEmail}`} className="text-[11px] text-primary hover:underline">{pickupEmail}</a>
+                              </div>
+                            )}
                           </div>
                         </div>
-                        {o.phone && (
-                          <div className="flex items-center gap-1.5">
-                            <Phone className="h-3 w-3 text-text-muted shrink-0" />
-                            <span className="text-[11px] text-text-primary">{o.phone}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-1.5">
-                          <Mail className="h-3 w-3 text-text-muted shrink-0" />
-                          <a href={`mailto:${orderEmail}`} className="text-[11px] text-primary hover:underline">{orderEmail}</a>
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })()}
                   </td>
 
                   {/* Remarks */}
