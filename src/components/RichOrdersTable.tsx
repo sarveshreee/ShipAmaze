@@ -541,7 +541,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               </td></tr>
             ) : filteredOrders.map(o => {
               const products = o.products || [];
-              const orderEmail = (o as any).email || `${o.customer.toLowerCase().replace(/\s/g, '')}@email.com`;
+            const orderEmail = (o as any).email || `${(o.customer || '').toLowerCase().replace(/\s/g, '')}@email.com`;
               return (
                 <tr key={o.id} className={cn("border-b border-border last:border-0 align-top transition-colors", selected.has(o.id) && "bg-primary-light/30")}>
                   <td className="p-3 border-r border-border align-middle">
