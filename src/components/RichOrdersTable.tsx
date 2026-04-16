@@ -392,9 +392,24 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   checked={selected.size === filteredOrders.length && filteredOrders.length > 0}
                   onChange={e => e.target.checked ? onSelectAll(filteredOrders.map(o => o.id)) : onClearSelection()} />
               </th>
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">Order Details</th>
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px]">Products Details</th>
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">Customer Details</th>
+              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">
+                <div className="flex items-center gap-2">
+                  <span>Order Details</span>
+                  <button className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"><FilterIcon active={false} /></button>
+                </div>
+              </th>
+              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px]">
+                <div className="flex items-center gap-2">
+                  <span>Products Details</span>
+                  <button className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"><FilterIcon active={false} /></button>
+                </div>
+              </th>
+              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">
+                <div className="flex items-center gap-2">
+                  <span>Customer Details</span>
+                  <button className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"><FilterIcon active={false} /></button>
+                </div>
+              </th>
               <th ref={amountRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[140px] relative">
                 <div className="flex items-center gap-2">
                   <span>Amount Details</span>
