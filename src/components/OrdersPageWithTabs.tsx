@@ -145,6 +145,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onExport={handleExport}
           loading={loading}
           activeTab={activeTab}
+          onToggleSidebar={() => window.dispatchEvent(new Event('toggle-sidebar'))}
         />
       )}
 
