@@ -46,6 +46,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const [processModalOpen, setProcessModalOpen] = useState(false);
   const isMobile = useIsMobile();
   const { data: orders = [], isLoading: loading } = useOrders();
+  const queryClient = useQueryClient();
 
   const filterByTab = (o: Order, tab: string) => {
     if (tab === "all") return true;
@@ -72,7 +73,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     const updated = stored.map((o: any) => o.id === id || o.orderId === id || o.order_id === id ? { ...o, status: "junk" } : o);
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
     toast.success("Order marked as Junk");
-    window.location.reload();
+    queryClient.invalidateQueries({ queryKey: ["orders"] });
   };
 
   const handleBulkJunk = () => {
@@ -82,7 +83,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
     toast.success(`${selected.size} order(s) marked as Junk`);
     setSelected(new Set());
-    window.location.reload();
+    queryClient.invalidateQueries({ queryKey: ["orders"] });
   };
 
   const handleExport = () => {
