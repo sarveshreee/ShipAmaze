@@ -724,6 +724,25 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
       {editAddressOrder && (
         <EditAddressModal open={!!editAddressOrder} onClose={() => setEditAddressOrder(null)} order={editAddressOrder} onSave={handleEditAddressSave} />
       )}
+
+      {/* Junk Confirmation Dialog */}
+      <AlertDialog open={!!junkConfirmId} onOpenChange={(open) => !open && setJunkConfirmId(null)}>
+        <AlertDialogContent className="sm:max-w-[400px]">
+          <AlertDialogHeader>
+            <AlertDialogDescription className="text-sm text-text-primary">
+              Are you sure! You want to cancel this order? This action is irreversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex gap-3 sm:gap-3">
+            <AlertDialogCancel className="border-none shadow-none text-text-secondary hover:text-text-primary">No</AlertDialogCancel>
+            <AlertDialogAction
+              className="border border-primary text-primary bg-transparent hover:bg-primary-light"
+              onClick={() => { if (junkConfirmId) { onMarkJunk(junkConfirmId); setJunkConfirmId(null); } }}>
+              Yes, Cancel
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
