@@ -364,7 +364,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   };
 
   const FilterIcon = ({ active }: { active: boolean }) => (
-    <Filter className={cn("h-3.5 w-3.5 transition-colors", active ? "text-primary" : "text-text-muted")} />
+    <SlidersHorizontal className={cn("h-3.5 w-3.5 transition-colors", active ? "text-primary" : "text-text-muted")} />
   );
 
   return (
