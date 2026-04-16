@@ -401,10 +401,8 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   onChange={e => e.target.checked ? onSelectAll(filteredOrders.map(o => o.id)) : onClearSelection()} />
               </th>
               <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">Order Details</th>
-              {/* Products Details - NO filter icon per fix #1 */}
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px]">
-                Products Details
-              </th>
+              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px]">Products Details</th>
+              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px]">Customer Details</th>
               <th ref={amountRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[140px] relative">
                 <div className="flex items-center gap-2">
                   <span>Amount Details</span>
