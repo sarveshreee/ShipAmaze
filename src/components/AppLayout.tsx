@@ -90,6 +90,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const toggleSidebarCollapse = () => setSidebarCollapsed(prev => !prev);
   const [notifOpen, setNotifOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(["Orders"]));
 
@@ -128,8 +130,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-50 flex w-60 flex-col bg-sidebar transition-transform duration-200 lg:static lg:translate-x-0",
-        sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        "fixed inset-y-0 left-0 z-50 flex w-60 flex-col bg-sidebar transition-all duration-200 lg:static lg:translate-x-0",
+        sidebarOpen ? "translate-x-0" : "-translate-x-full",
+        sidebarCollapsed && "lg:w-0 lg:overflow-hidden lg:opacity-0"
       )}>
         <div className="flex h-[60px] items-center gap-2 px-5 border-b border-sidebar-border">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
