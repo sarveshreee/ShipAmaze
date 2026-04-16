@@ -121,6 +121,10 @@ export default function AddOrder() {
   const selectedPickupAddr = allAddresses.find(a => a.id === selectedPickup);
   const selectedReturnAddr = allAddresses.find(a => a.id === selectedReturn);
 
+  // Auto-calculated order amounts
+  const orderAmount = products.reduce((sum, p) => sum + (Number(p.price) || 0) * (Number(p.qty) || 0), 0);
+  const totalAmount = orderAmount + (Number(extraCharges) || 0);
+
   useEffect(() => {
     if (currentStep === 3 && !shipment.orderId) {
       setShipment(p => ({ ...p, orderId: generateOrderId() }));
