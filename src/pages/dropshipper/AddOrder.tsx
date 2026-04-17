@@ -836,7 +836,12 @@ export default function AddOrder() {
                         onChange={() => {
                           if (w !== "Other") {
                             const val = w.replace(" KG", "");
-                            setPackageDetails(prev => prev.map(pd => ({ ...pd, weight: val })));
+                            setPackageDetails(prev => {
+                              const base = prev.length > 0 ? prev : [{ weight: "", length: "", width: "", height: "" }];
+                              return base.map(pd => ({ ...pd, weight: val, length: val, width: val, height: val }));
+                            });
+                          } else {
+                            setPackageDetails(prev => prev.map(pd => ({ ...pd, weight: "", length: "", width: "", height: "" })));
                           }
                         }} />
                       {w}
