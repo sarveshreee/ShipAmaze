@@ -883,16 +883,19 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                           <Printer className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                      {activeTab === "junk" ? (
-                        <Button variant="outline" size="sm"
-                          className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            handleEditOrder(o);
-                          }}>
-                          <Pencil className="h-3 w-3" /> Edit
-                        </Button>
+                      {activeTab === "junk" ? null : activeTab === "reship" ? (
+                        <div className="flex gap-1.5">
+                          <Button variant="outline" size="sm"
+                            className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
+                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleEditOrder(o); }}>
+                            <Pencil className="h-3 w-3" /> Edit
+                          </Button>
+                          <Button variant="outline" size="sm"
+                            className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
+                            <Ban className="h-3 w-3" /> Junk
+                          </Button>
+                        </div>
                       ) : (
                         <Button variant="outline" size="sm"
                           className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
