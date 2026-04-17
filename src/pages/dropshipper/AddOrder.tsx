@@ -225,16 +225,21 @@ export default function AddOrder() {
 
   // Order Amount = sum of prices (price per unit, NOT multiplied by qty)
   const orderAmount = products.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
-  const totalAmount = orderAmount + (Number(extraCharges) || 0);
+  const computedTotal = orderAmount + (Number(extraCharges) || 0);
+  const [invoicePriceOverride, setInvoicePriceOverride] = useState<string | null>(null);
+  const totalAmount = invoicePriceOverride !== null && invoicePriceOverride !== ""
+    ? Number(invoicePriceOverride) || 0
+    : computedTotal;
 
-  // Auto-fill COD amount based on payment type
+  // Auto-fill COD amount based on payment type (user can still override)
   useEffect(() => {
     if (shipment.paymentType === "COD") {
       setShipment(p => ({ ...p, codAmount: totalAmount.toFixed(2) }));
     } else {
       setShipment(p => ({ ...p, codAmount: "0" }));
     }
-  }, [shipment.paymentType, totalAmount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipment.paymentType]);
 
   useEffect(() => {
     if (currentStep === 3 && !shipment.orderId) {
@@ -750,14 +755,22 @@ export default function AddOrder() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <Label>Total Amount<span className="text-danger">*</span></Label>
-                  <Input value={totalAmount.toFixed(2)} readOnly tabIndex={-1}
-                    className="bg-muted text-muted-foreground cursor-not-allowed border-muted pointer-events-none mt-1" />
+                  <Label>Invoice Price<span className="text-danger">*</span></Label>
+                  <Input
+                    value={invoicePriceOverride !== null ? invoicePriceOverride : computedTotal.toFixed(2)}
+                    onChange={e => setInvoicePriceOverride(e.target.value)}
+                    type="number"
+                    className="mt-1"
+                  />
                 </div>
                 <div>
                   <Label>Collectible COD Amount<span className="text-danger">*</span></Label>
-                  <Input value={shipment.codAmount} readOnly tabIndex={-1}
-                    className="bg-muted text-muted-foreground cursor-not-allowed border-muted pointer-events-none mt-1" />
+                  <Input
+                    value={shipment.codAmount}
+                    onChange={e => setShipment(p => ({ ...p, codAmount: e.target.value }))}
+                    type="number"
+                    className="mt-1"
+                  />
                 </div>
               </div>
             </div>
@@ -823,7 +836,12 @@ export default function AddOrder() {
                         onChange={() => {
                           if (w !== "Other") {
                             const val = w.replace(" KG", "");
-                            setPackageDetails(prev => prev.map(pd => ({ ...pd, weight: val })));
+                            setPackageDetails(prev => {
+                              const base = prev.length > 0 ? prev : [{ weight: "", length: "", width: "", height: "" }];
+                              return base.map(pd => ({ ...pd, weight: val, length: val, width: val, height: val }));
+                            });
+                          } else {
+                            setPackageDetails(prev => prev.map(pd => ({ ...pd, weight: "", length: "", width: "", height: "" })));
                           }
                         }} />
                       {w}
