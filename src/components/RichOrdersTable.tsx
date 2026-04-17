@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User, Trash2 } from "lucide-react";
+import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User, Trash2, Truck, Calendar, IndianRupee } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -643,48 +643,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   </div>
                 </FilterPopover>
               </th>
+              {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
+                <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[160px]">Courier Details</th>
+              )}
               <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[120px]">Remarks</th>
-              <th ref={commRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[130px] relative">
-                <div className="flex items-center gap-2">
-                  <span>Communication</span>
-                  <button onClick={() => setCommFilter(f => ({ ...f, open: !f.open }))}
-                    className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={commFilter.ivrSelected.size > 0 || commFilter.whatsappSelected.size > 0} />
-                  </button>
-                </div>
-                <FilterPopover open={commFilter.open} onClose={() => setCommFilter(f => ({ ...f, open: false }))} anchorRef={commRef}>
-                  <div className="space-y-3 min-w-[340px]">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-text-primary text-sm">IVR</p>
-                      <button className="text-xs text-primary font-semibold hover:underline" onClick={() => setCommFilter(f => ({ ...f, ivrSelected: new Set(IVR_OPTIONS) }))}>Select All</button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                      {IVR_OPTIONS.map(opt => (
-                        <label key={opt} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
-                          <input type="checkbox" className="rounded accent-primary" checked={commFilter.ivrSelected.has(opt)}
-                            onChange={() => setCommFilter(f => ({ ...f, ivrSelected: toggleCommSet(f.ivrSelected, opt) }))} />
-                          {opt}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="border-t-2 border-danger my-2" />
-                    <p className="font-semibold text-text-primary text-sm">Whatsapp</p>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                      {WHATSAPP_OPTIONS.map(opt => (
-                        <label key={opt} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
-                          <input type="checkbox" className="rounded accent-primary" checked={commFilter.whatsappSelected.has(opt)}
-                            onChange={() => setCommFilter(f => ({ ...f, whatsappSelected: toggleCommSet(f.whatsappSelected, opt) }))} />
-                          {opt}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="flex justify-between pt-3 border-t border-border">
-                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setCommFilter({ open: false, ivrSelected: new Set(), whatsappSelected: new Set() })}>Clear</Button>
-                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setCommFilter(f => ({ ...f, open: false }))}>Apply</Button>
-                    </div>
-                  </div>
-                </FilterPopover>
-              </th>
               <th className="p-3 text-center font-medium text-text-secondary min-w-[130px]">Action</th>
             </tr>
           </thead>
@@ -884,10 +846,34 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     </div>
                   </td>
 
-                  {/* Communication */}
-                  <td className="p-3 border-r border-border">
-                    <span className="text-xs text-text-muted"></span>
-                  </td>
+                  {/* Courier Details (conditional) */}
+                  {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
+                    <td className="p-3 border-r border-border">
+                      {(() => {
+                        const courierName = o.courier || (o as any).courier_name || "-";
+                        const eddDate = (o as any).edd ? new Date((o as any).edd) : (() => { const d = o.date ? new Date(o.date) : new Date(); d.setDate(d.getDate() + 4); return d; })();
+                        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                        const eddStr = `${eddDate.getDate()} ${months[eddDate.getMonth()]} '${String(eddDate.getFullYear()).slice(2)}`;
+                        const courierPrice = (o as any).courier_price ?? (o as any).shipping_charge ?? "—";
+                        return (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <Truck className="h-3 w-3 text-text-muted shrink-0" />
+                              <p className="text-xs font-semibold text-text-primary">{courierName}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3 w-3 text-text-muted shrink-0" />
+                              <span className="text-[11px] text-text-secondary">EDD: {eddStr}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <IndianRupee className="h-3 w-3 text-text-muted shrink-0" />
+                              <span className="text-[11px] text-text-primary font-medium">{typeof courierPrice === 'number' ? courierPrice.toFixed(2) : courierPrice}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </td>
+                  )}
 
                   {/* Action */}
                   <td className="p-3 align-middle">

@@ -23,6 +23,7 @@ const tabs: { label: string; filter: string }[] = [
   { label: "Channel", filter: "channel" },
   { label: "Manual", filter: "manual" },
   { label: "Ready to Ship", filter: "ready-to-ship" },
+  { label: "Pending Pickup", filter: "pending-pickup" },
   { label: "In Transit", filter: "in-transit" },
   { label: "Out for Delivery", filter: "out-for-delivery" },
   { label: "Delivered", filter: "delivered" },
@@ -50,6 +51,10 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     if (tab === "all") return (o as any).status !== "junk";
     if (tab === "channel") return (o as any).source === "channel" && (o as any).status !== "junk";
     if (tab === "manual") return ((o as any).source === "manual" || !(o as any).source) && (o as any).status !== "junk";
+    if (tab === "pending-pickup") {
+      // Courier assigned but courier hasn't picked up yet
+      return !!(o as any).courier && (o as any).status !== "junk" && ((o as any).status === "pending-pickup" || ((o as any).status === "ready-to-ship" && !(o as any).picked_up));
+    }
     return o.status === tab;
   };
 
