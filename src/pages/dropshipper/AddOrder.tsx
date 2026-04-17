@@ -755,14 +755,22 @@ export default function AddOrder() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <Label>Total Amount<span className="text-danger">*</span></Label>
-                  <Input value={totalAmount.toFixed(2)} readOnly tabIndex={-1}
-                    className="bg-muted text-muted-foreground cursor-not-allowed border-muted pointer-events-none mt-1" />
+                  <Label>Invoice Price<span className="text-danger">*</span></Label>
+                  <Input
+                    value={invoicePriceOverride !== null ? invoicePriceOverride : computedTotal.toFixed(2)}
+                    onChange={e => setInvoicePriceOverride(e.target.value)}
+                    type="number"
+                    className="mt-1"
+                  />
                 </div>
                 <div>
                   <Label>Collectible COD Amount<span className="text-danger">*</span></Label>
-                  <Input value={shipment.codAmount} readOnly tabIndex={-1}
-                    className="bg-muted text-muted-foreground cursor-not-allowed border-muted pointer-events-none mt-1" />
+                  <Input
+                    value={shipment.codAmount}
+                    onChange={e => setShipment(p => ({ ...p, codAmount: e.target.value }))}
+                    type="number"
+                    className="mt-1"
+                  />
                 </div>
               </div>
             </div>
