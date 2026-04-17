@@ -643,48 +643,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   </div>
                 </FilterPopover>
               </th>
+              {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
+                <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[160px]">Courier Details</th>
+              )}
               <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[120px]">Remarks</th>
-              <th ref={commRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[130px] relative">
-                <div className="flex items-center gap-2">
-                  <span>Communication</span>
-                  <button onClick={() => setCommFilter(f => ({ ...f, open: !f.open }))}
-                    className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={commFilter.ivrSelected.size > 0 || commFilter.whatsappSelected.size > 0} />
-                  </button>
-                </div>
-                <FilterPopover open={commFilter.open} onClose={() => setCommFilter(f => ({ ...f, open: false }))} anchorRef={commRef}>
-                  <div className="space-y-3 min-w-[340px]">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-text-primary text-sm">IVR</p>
-                      <button className="text-xs text-primary font-semibold hover:underline" onClick={() => setCommFilter(f => ({ ...f, ivrSelected: new Set(IVR_OPTIONS) }))}>Select All</button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                      {IVR_OPTIONS.map(opt => (
-                        <label key={opt} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
-                          <input type="checkbox" className="rounded accent-primary" checked={commFilter.ivrSelected.has(opt)}
-                            onChange={() => setCommFilter(f => ({ ...f, ivrSelected: toggleCommSet(f.ivrSelected, opt) }))} />
-                          {opt}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="border-t-2 border-danger my-2" />
-                    <p className="font-semibold text-text-primary text-sm">Whatsapp</p>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                      {WHATSAPP_OPTIONS.map(opt => (
-                        <label key={opt} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
-                          <input type="checkbox" className="rounded accent-primary" checked={commFilter.whatsappSelected.has(opt)}
-                            onChange={() => setCommFilter(f => ({ ...f, whatsappSelected: toggleCommSet(f.whatsappSelected, opt) }))} />
-                          {opt}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="flex justify-between pt-3 border-t border-border">
-                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setCommFilter({ open: false, ivrSelected: new Set(), whatsappSelected: new Set() })}>Clear</Button>
-                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setCommFilter(f => ({ ...f, open: false }))}>Apply</Button>
-                    </div>
-                  </div>
-                </FilterPopover>
-              </th>
               <th className="p-3 text-center font-medium text-text-secondary min-w-[130px]">Action</th>
             </tr>
           </thead>
