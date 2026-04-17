@@ -823,6 +823,30 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     })()}
                   </td>
 
+                  {/* Courier Details (conditional) - must come BEFORE Remarks to match header order */}
+                  {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
+                    <td className="p-3 border-r border-border">
+                      {(() => {
+                        const courierName = o.courier || (o as any).courier_name || "-";
+                        const eddDate = (o as any).edd ? new Date((o as any).edd) : (() => { const d = o.date ? new Date(o.date) : new Date(); d.setDate(d.getDate() + 4); return d; })();
+                        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                        const eddStr = `${eddDate.getDate()} ${months[eddDate.getMonth()]} '${String(eddDate.getFullYear()).slice(2)}`;
+                        return (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <Truck className="h-3 w-3 text-text-muted shrink-0" />
+                              <p className="text-xs font-semibold text-text-primary">{courierName}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3 w-3 text-text-muted shrink-0" />
+                              <span className="text-[11px] text-text-secondary">EDD: {eddStr}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </td>
+                  )}
+
                   {/* Remarks */}
                   <td className="p-3 border-r border-border">
                     <div className="relative min-h-[40px]">
@@ -845,35 +869,6 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                       )}
                     </div>
                   </td>
-
-                  {/* Courier Details (conditional) */}
-                  {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
-                    <td className="p-3 border-r border-border">
-                      {(() => {
-                        const courierName = o.courier || (o as any).courier_name || "-";
-                        const eddDate = (o as any).edd ? new Date((o as any).edd) : (() => { const d = o.date ? new Date(o.date) : new Date(); d.setDate(d.getDate() + 4); return d; })();
-                        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-                        const eddStr = `${eddDate.getDate()} ${months[eddDate.getMonth()]} '${String(eddDate.getFullYear()).slice(2)}`;
-                        const courierPrice = (o as any).courier_price ?? (o as any).shipping_charge ?? "—";
-                        return (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <Truck className="h-3 w-3 text-text-muted shrink-0" />
-                              <p className="text-xs font-semibold text-text-primary">{courierName}</p>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <Calendar className="h-3 w-3 text-text-muted shrink-0" />
-                              <span className="text-[11px] text-text-secondary">EDD: {eddStr}</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <IndianRupee className="h-3 w-3 text-text-muted shrink-0" />
-                              <span className="text-[11px] text-text-primary font-medium">{typeof courierPrice === 'number' ? courierPrice.toFixed(2) : courierPrice}</span>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </td>
-                  )}
 
                   {/* Action */}
                   <td className="p-3 align-middle">
