@@ -27,6 +27,7 @@ const tabs: { label: string; filter: string }[] = [
   { label: "In Transit", filter: "in-transit" },
   { label: "Out for Delivery", filter: "out-for-delivery" },
   { label: "Delivered", filter: "delivered" },
+  { label: "Reship", filter: "reship" },
   { label: "Failed", filter: "failed" },
   { label: "Junk", filter: "junk" },
 ];
@@ -48,14 +49,18 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const { data: orders = [], isLoading: loading, refetch } = useOrders();
 
   const filterByTab = (o: Order, tab: string) => {
-    if (tab === "all") return (o as any).status !== "junk";
-    if (tab === "channel") return (o as any).source === "channel" && (o as any).status !== "junk";
-    if (tab === "manual") return ((o as any).source === "manual" || !(o as any).source) && (o as any).status !== "junk";
+    const status = (o as any).status;
+    const isReship = status === "reship";
+    const isJunk = status === "junk";
+    if (tab === "all") return !isJunk && !isReship;
+    if (tab === "channel") return (o as any).source === "channel" && !isJunk && !isReship;
+    if (tab === "manual") return ((o as any).source === "manual" || !(o as any).source) && !isJunk && !isReship;
     if (tab === "pending-pickup") {
-      // Courier assigned but courier hasn't picked up yet
-      return !!(o as any).courier && (o as any).status !== "junk" && ((o as any).status === "pending-pickup" || ((o as any).status === "ready-to-ship" && !(o as any).picked_up));
+      return !!(o as any).courier && !isJunk && !isReship && (status === "pending-pickup" || (status === "ready-to-ship" && !(o as any).picked_up));
     }
-    return o.status === tab;
+    if (tab === "reship") return isReship;
+    if (tab === "junk") return isJunk;
+    return status === tab;
   };
 
   const filtered = orders.filter(o => {
@@ -71,20 +76,33 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const getCount = (filter: string) => orders.filter(o => filterByTab(o, filter)).length;
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
+  const targetStatusFor = (o: any) => (o && o.courier ? "reship" : "junk");
+
   const handleMarkJunk = (id: string) => {
     const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
-    const updated = stored.map((o: any) => o.id === id || o.orderId === id || o.order_id === id ? { ...o, status: "junk" } : o);
+    const updated = stored.map((o: any) => {
+      if (o.id === id || o.orderId === id || o.order_id === id) {
+        return { ...o, status: targetStatusFor(o) };
+      }
+      return o;
+    });
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
-    toast.success("Order marked as Junk");
+    const target = updated.find((o: any) => o.id === id || o.orderId === id || o.order_id === id);
+    toast.success(target?.status === "reship" ? "Order moved to Reship" : "Order marked as Junk");
     refetch();
   };
 
   const handleBulkJunk = () => {
     const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
     const selectedIds = Array.from(selected);
-    const updated = stored.map((o: any) => selectedIds.includes(o.id) || selectedIds.includes(o.orderId) || selectedIds.includes(o.order_id) ? { ...o, status: "junk" } : o);
+    const updated = stored.map((o: any) => {
+      if (selectedIds.includes(o.id) || selectedIds.includes(o.orderId) || selectedIds.includes(o.order_id)) {
+        return { ...o, status: targetStatusFor(o) };
+      }
+      return o;
+    });
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
-    toast.success(`${selected.size} order(s) marked as Junk`);
+    toast.success(`${selected.size} order(s) processed`);
     setSelected(new Set());
     refetch();
   };
