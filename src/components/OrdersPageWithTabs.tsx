@@ -23,6 +23,7 @@ const tabs: { label: string; filter: string }[] = [
   { label: "Channel", filter: "channel" },
   { label: "Manual", filter: "manual" },
   { label: "Ready to Ship", filter: "ready-to-ship" },
+  { label: "Pending Pickup", filter: "pending-pickup" },
   { label: "In Transit", filter: "in-transit" },
   { label: "Out for Delivery", filter: "out-for-delivery" },
   { label: "Delivered", filter: "delivered" },
