@@ -225,16 +225,21 @@ export default function AddOrder() {
 
   // Order Amount = sum of prices (price per unit, NOT multiplied by qty)
   const orderAmount = products.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
-  const totalAmount = orderAmount + (Number(extraCharges) || 0);
+  const computedTotal = orderAmount + (Number(extraCharges) || 0);
+  const [invoicePriceOverride, setInvoicePriceOverride] = useState<string | null>(null);
+  const totalAmount = invoicePriceOverride !== null && invoicePriceOverride !== ""
+    ? Number(invoicePriceOverride) || 0
+    : computedTotal;
 
-  // Auto-fill COD amount based on payment type
+  // Auto-fill COD amount based on payment type (user can still override)
   useEffect(() => {
     if (shipment.paymentType === "COD") {
       setShipment(p => ({ ...p, codAmount: totalAmount.toFixed(2) }));
     } else {
       setShipment(p => ({ ...p, codAmount: "0" }));
     }
-  }, [shipment.paymentType, totalAmount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipment.paymentType]);
 
   useEffect(() => {
     if (currentStep === 3 && !shipment.orderId) {
