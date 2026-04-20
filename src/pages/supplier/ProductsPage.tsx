@@ -433,6 +433,32 @@ export default function ProductsPage() {
           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={doDelete} className="bg-danger text-white hover:bg-danger/90">Delete</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk delete confirm */}
+      <AlertDialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>Delete {selected.size} products?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={bulkDelete} className="bg-danger text-white hover:bg-danger/90">Delete All</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk change category */}
+      <Dialog open={bulkCategoryOpen} onOpenChange={setBulkCategoryOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Change category for {selected.size} products</DialogTitle><DialogDescription>Pick existing or type a new category.</DialogDescription></DialogHeader>
+          <Input list="bulk-cat-list" placeholder="e.g. Apparel" value={bulkCategoryValue} onChange={e => setBulkCategoryValue(e.target.value)} />
+          <datalist id="bulk-cat-list">{categories.map(c => <option key={c} value={c} />)}</datalist>
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setBulkCategoryOpen(false)}>Cancel</Button><Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={bulkChangeCategory}>Apply</Button></div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk action bar */}
+      <BulkActionBar count={selected.size} onClear={clearSelection}>
+        <Button size="sm" variant="outline" onClick={() => bulkUpdateStatus("active")}><Power className="h-3.5 w-3.5 mr-1" />Activate</Button>
+        <Button size="sm" variant="outline" onClick={() => bulkUpdateStatus("inactive")}><Power className="h-3.5 w-3.5 mr-1" />Deactivate</Button>
+        <Button size="sm" variant="outline" onClick={() => setBulkCategoryOpen(true)}><FolderInput className="h-3.5 w-3.5 mr-1" />Category</Button>
+        <Button size="sm" variant="outline" className="text-danger border-danger/30 hover:bg-danger/10" onClick={() => setConfirmBulkDelete(true)}><Trash2 className="h-3.5 w-3.5 mr-1" />Delete</Button>
+      </BulkActionBar>
     </div>
   );
 }
