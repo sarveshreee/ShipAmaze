@@ -319,14 +319,28 @@ export default function ProductsPage() {
         </div>
       ) : (
         <>
+          {/* Select-all bar */}
+          <div className="flex items-center gap-3 mb-3 px-1 text-sm text-text-secondary">
+            <Checkbox checked={allOnPageSelected} onCheckedChange={togglePageAll} />
+            <span>{allOnPageSelected ? "Deselect" : "Select"} all on this page</span>
+            {selected.size > 0 && (
+              <button onClick={clearSelection} className="ml-auto text-xs text-primary hover:underline">Clear ({selected.size})</button>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {pageData.map(p => {
               const img = p.images[p.primary_image_index] || p.images[0];
+              const isSel = selected.has(p.id);
               return (
-                <div key={p.id} className="group rounded-xl bg-card shadow-card hover:shadow-card-lg transition-shadow overflow-hidden flex flex-col">
+                <div key={p.id} className={cn("group rounded-xl bg-card shadow-card hover:shadow-card-lg transition-shadow overflow-hidden flex flex-col", isSel && "ring-2 ring-primary")}>
                   <div className="relative aspect-square bg-surface-2 flex items-center justify-center">
                     {img ? <img src={img} alt={p.name} className="w-full h-full object-cover" /> : <Package className="h-10 w-10 text-text-muted" />}
-                    <div className="absolute top-2 left-2"><ProductStatusBadge status={p.status} /></div>
+                    <div className="absolute top-2 left-2 flex items-center gap-2">
+                      <div className={cn("h-6 w-6 rounded bg-card border border-border flex items-center justify-center transition-opacity", isSel ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
+                        <Checkbox checked={isSel} onCheckedChange={() => toggleOne(p.id)} />
+                      </div>
+                      <ProductStatusBadge status={p.status} />
+                    </div>
                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => { sessionStorage.setItem("product_preview", JSON.stringify({ ...p, tags: p.tags || [], variants: [] })); window.open("/product-preview", "_blank", "noopener"); }} title="Preview" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Eye className="h-3 w-3" /></button>
                       <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
