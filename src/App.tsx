@@ -12,6 +12,7 @@ import PublicTracking from "@/pages/PublicTracking";
 import PublicOrderDetail from "@/pages/PublicOrderDetail";
 import NotFound from "@/pages/NotFound";
 import ShopifyStore from "@/pages/ShopifyStore";
+import ProductPreview from "@/pages/ProductPreview";
 import { useCartSync } from "@/hooks/useCartSync";
 
 // Admin
@@ -82,6 +83,7 @@ function AppRoutes() {
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/track" element={<PublicTracking />} />
       <Route path="/order-detail" element={<PublicOrderDetail />} />
+      <Route path="/product-preview" element={<ProductPreview />} />
 
       {/* Admin */}
       <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
