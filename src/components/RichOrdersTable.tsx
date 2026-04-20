@@ -762,10 +762,16 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                       <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditPriceOrder(o)}>
                         <Pencil className="h-3 w-3 text-primary" />
                       </button>
-                      <div className="space-y-1 pr-6">
-                        <p className="text-xs"><span className="text-text-muted">Order Amt.: </span><span className="text-text-primary font-medium">{o.amount.toFixed(2)}</span></p>
+                      <div className="space-y-1.5 pr-6">
+                        <p className="text-sm font-bold text-text-primary">₹{o.amount.toFixed(2)}</p>
+                        <span className={cn(
+                          "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide",
+                          o.payment === "COD"
+                            ? "bg-warning-light text-warning-dark"
+                            : "bg-success-light text-success-dark"
+                        )}>{o.payment}</span>
                         {o.payment === "COD" && (
-                          <p className="text-xs"><span className="text-text-muted">COD Amt.: </span><span className="text-text-primary font-medium">{o.amount.toFixed(2)}</span></p>
+                          <p className="text-[11px] text-text-muted">COD: ₹{o.amount.toFixed(2)}</p>
                         )}
                       </div>
                     </div>
