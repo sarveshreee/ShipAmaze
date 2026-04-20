@@ -224,6 +224,7 @@ export default function ProductsPage() {
                     {img ? <img src={img} alt={p.name} className="w-full h-full object-cover" /> : <Package className="h-10 w-10 text-text-muted" />}
                     <div className="absolute top-2 left-2"><ProductStatusBadge status={p.status} /></div>
                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => { sessionStorage.setItem("product_preview", JSON.stringify({ ...p, tags: p.tags || [], variants: [] })); window.open("/product-preview", "_blank", "noopener"); }} title="Preview" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Eye className="h-3 w-3" /></button>
                       <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
                       <button onClick={() => setConfirmDelete(p)} title="Delete" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-danger hover:text-white"><Trash2 className="h-3 w-3" /></button>
                     </div>
