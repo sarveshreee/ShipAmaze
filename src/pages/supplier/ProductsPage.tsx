@@ -242,6 +242,7 @@ export default function ProductsPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => navigate(`/${role}/bulk-upload-products`)}><Upload className="h-4 w-4 mr-2" />Bulk Upload</Button>
+            <Button variant="outline" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
             <Button variant="outline" onClick={() => navigate(`/${role}/products?status=trash`)}><Trash2 className="h-4 w-4 mr-2" />Trash</Button>
             <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}>
               <Plus className="h-4 w-4 mr-2" />Add Product
