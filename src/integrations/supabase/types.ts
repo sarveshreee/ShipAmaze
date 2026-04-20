@@ -326,51 +326,260 @@ export type Database = {
         }
         Relationships: []
       }
-      products: {
+      product_requests: {
         Row: {
+          admin_remark: string | null
           category: string | null
+          compliance_docs: Json | null
+          created_at: string
+          description: string | null
+          estimated_price: number | null
+          expected_stock: number | null
+          id: string
+          images: Json | null
+          name: string
+          priority: string | null
+          proposed_sku: string | null
+          request_id: string
+          status: string
+          supplier_remarks: string | null
+          updated_at: string
+          user_id: string | null
+          variant_info: string | null
+        }
+        Insert: {
+          admin_remark?: string | null
+          category?: string | null
+          compliance_docs?: Json | null
+          created_at?: string
+          description?: string | null
+          estimated_price?: number | null
+          expected_stock?: number | null
+          id?: string
+          images?: Json | null
+          name: string
+          priority?: string | null
+          proposed_sku?: string | null
+          request_id: string
+          status?: string
+          supplier_remarks?: string | null
+          updated_at?: string
+          user_id?: string | null
+          variant_info?: string | null
+        }
+        Update: {
+          admin_remark?: string | null
+          category?: string | null
+          compliance_docs?: Json | null
+          created_at?: string
+          description?: string | null
+          estimated_price?: number | null
+          expected_stock?: number | null
+          id?: string
+          images?: Json | null
+          name?: string
+          priority?: string | null
+          proposed_sku?: string | null
+          request_id?: string
+          status?: string
+          supplier_remarks?: string | null
+          updated_at?: string
+          user_id?: string | null
+          variant_info?: string | null
+        }
+        Relationships: []
+      }
+      product_variants: {
+        Row: {
           created_at: string
           dimensions: string | null
-          hsn: string | null
           id: string
-          name: string
+          image: string | null
+          option1_name: string | null
+          option1_value: string | null
+          option2_name: string | null
+          option2_value: string | null
+          option3_name: string | null
+          option3_value: string | null
           price: number | null
-          selling_price: number | null
+          product_id: string
           sku: string | null
+          status: string
           stock: number | null
           updated_at: string
           user_id: string | null
           weight: string | null
         }
         Insert: {
-          category?: string | null
           created_at?: string
           dimensions?: string | null
-          hsn?: string | null
           id?: string
-          name: string
+          image?: string | null
+          option1_name?: string | null
+          option1_value?: string | null
+          option2_name?: string | null
+          option2_value?: string | null
+          option3_name?: string | null
+          option3_value?: string | null
           price?: number | null
-          selling_price?: number | null
+          product_id: string
           sku?: string | null
+          status?: string
           stock?: number | null
           updated_at?: string
           user_id?: string | null
           weight?: string | null
         }
         Update: {
-          category?: string | null
           created_at?: string
           dimensions?: string | null
-          hsn?: string | null
           id?: string
-          name?: string
+          image?: string | null
+          option1_name?: string | null
+          option1_value?: string | null
+          option2_name?: string | null
+          option2_value?: string | null
+          option3_name?: string | null
+          option3_value?: string | null
           price?: number | null
-          selling_price?: number | null
+          product_id?: string
           sku?: string | null
+          status?: string
           stock?: number | null
           updated_at?: string
           user_id?: string | null
           weight?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_variants_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          brand: string | null
+          care_instructions: string | null
+          category: string | null
+          cod_available: boolean | null
+          country_of_origin: string | null
+          created_at: string
+          dimensions: string | null
+          fragile: boolean | null
+          gst_percent: number | null
+          height_cm: number | null
+          hsn: string | null
+          id: string
+          images: Json | null
+          internal_notes: string | null
+          length_cm: number | null
+          long_description: string | null
+          manufacturer: string | null
+          min_order_qty: number | null
+          name: string
+          pickup_location_id: string | null
+          price: number | null
+          primary_image_index: number | null
+          returnable: boolean | null
+          selling_price: number | null
+          seo_description: string | null
+          seo_title: string | null
+          shipping_class: string | null
+          short_description: string | null
+          sku: string | null
+          status: string
+          stock: number | null
+          tags: string[] | null
+          unit: string | null
+          updated_at: string
+          user_id: string | null
+          warranty: string | null
+          weight: string | null
+          width_cm: number | null
+        }
+        Insert: {
+          brand?: string | null
+          care_instructions?: string | null
+          category?: string | null
+          cod_available?: boolean | null
+          country_of_origin?: string | null
+          created_at?: string
+          dimensions?: string | null
+          fragile?: boolean | null
+          gst_percent?: number | null
+          height_cm?: number | null
+          hsn?: string | null
+          id?: string
+          images?: Json | null
+          internal_notes?: string | null
+          length_cm?: number | null
+          long_description?: string | null
+          manufacturer?: string | null
+          min_order_qty?: number | null
+          name: string
+          pickup_location_id?: string | null
+          price?: number | null
+          primary_image_index?: number | null
+          returnable?: boolean | null
+          selling_price?: number | null
+          seo_description?: string | null
+          seo_title?: string | null
+          shipping_class?: string | null
+          short_description?: string | null
+          sku?: string | null
+          status?: string
+          stock?: number | null
+          tags?: string[] | null
+          unit?: string | null
+          updated_at?: string
+          user_id?: string | null
+          warranty?: string | null
+          weight?: string | null
+          width_cm?: number | null
+        }
+        Update: {
+          brand?: string | null
+          care_instructions?: string | null
+          category?: string | null
+          cod_available?: boolean | null
+          country_of_origin?: string | null
+          created_at?: string
+          dimensions?: string | null
+          fragile?: boolean | null
+          gst_percent?: number | null
+          height_cm?: number | null
+          hsn?: string | null
+          id?: string
+          images?: Json | null
+          internal_notes?: string | null
+          length_cm?: number | null
+          long_description?: string | null
+          manufacturer?: string | null
+          min_order_qty?: number | null
+          name?: string
+          pickup_location_id?: string | null
+          price?: number | null
+          primary_image_index?: number | null
+          returnable?: boolean | null
+          selling_price?: number | null
+          seo_description?: string | null
+          seo_title?: string | null
+          shipping_class?: string | null
+          short_description?: string | null
+          sku?: string | null
+          status?: string
+          stock?: number | null
+          tags?: string[] | null
+          unit?: string | null
+          updated_at?: string
+          user_id?: string | null
+          warranty?: string | null
+          weight?: string | null
+          width_cm?: number | null
         }
         Relationships: []
       }
