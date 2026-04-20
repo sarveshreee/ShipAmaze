@@ -12,6 +12,7 @@ import PublicTracking from "@/pages/PublicTracking";
 import PublicOrderDetail from "@/pages/PublicOrderDetail";
 import NotFound from "@/pages/NotFound";
 import ShopifyStore from "@/pages/ShopifyStore";
+import ProductPreview from "@/pages/ProductPreview";
 import { useCartSync } from "@/hooks/useCartSync";
 
 // Admin
