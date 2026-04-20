@@ -139,6 +139,103 @@ export default function ProductsPage() {
     setPriceReqFor(null); setPriceMsg("");
   };
 
+  // ===== Bulk operations =====
+  const toggleOne = (id: string) => {
+    setSelected(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+  const togglePageAll = () => {
+    const ids = pageData.map(p => p.id);
+    const allSelected = ids.every(id => selected.has(id));
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (allSelected) ids.forEach(id => n.delete(id));
+      else ids.forEach(id => n.add(id));
+      return n;
+    });
+  };
+  const clearSelection = () => setSelected(new Set());
+
+  const bulkUpdateStatus = async (status: SupplierProduct["status"]) => {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    if (isDemoMode) {
+      const stored = localStorage.getItem("supplier_products_demo");
+      const list = stored ? JSON.parse(stored) : [];
+      list.forEach((x: any) => { if (ids.includes(x.id)) x.status = status; });
+      localStorage.setItem("supplier_products_demo", JSON.stringify(list));
+    } else {
+      const { error } = await supabase.from("products").update({ status }).in("id", ids);
+      if (error) { toast.error(error.message); return; }
+    }
+    toast.success(`${ids.length} product${ids.length>1?"s":""} → ${status}`);
+    clearSelection();
+    refetch();
+  };
+
+  const bulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    if (isDemoMode) {
+      const stored = localStorage.getItem("supplier_products_demo");
+      const list = stored ? JSON.parse(stored) : [];
+      localStorage.setItem("supplier_products_demo", JSON.stringify(list.filter((x: any) => !ids.includes(x.id))));
+    } else {
+      const { error } = await supabase.from("products").delete().in("id", ids);
+      if (error) { toast.error(error.message); return; }
+    }
+    toast.success(`${ids.length} deleted`);
+    clearSelection();
+    setConfirmBulkDelete(false);
+    refetch();
+  };
+
+  const bulkChangeCategory = async () => {
+    const ids = Array.from(selected);
+    const cat = bulkCategoryValue.trim();
+    if (!ids.length || !cat) { toast.error("Enter a category"); return; }
+    if (isDemoMode) {
+      const stored = localStorage.getItem("supplier_products_demo");
+      const list = stored ? JSON.parse(stored) : [];
+      list.forEach((x: any) => { if (ids.includes(x.id)) x.category = cat; });
+      localStorage.setItem("supplier_products_demo", JSON.stringify(list));
+    } else {
+      const { error } = await supabase.from("products").update({ category: cat }).in("id", ids);
+      if (error) { toast.error(error.message); return; }
+    }
+    toast.success(`Category set on ${ids.length} product${ids.length>1?"s":""}`);
+    setBulkCategoryOpen(false);
+    setBulkCategoryValue("");
+    clearSelection();
+    refetch();
+  };
+
+  // ===== CSV Export (matches bulk upload template) =====
+  const exportCSV = () => {
+    if (!filtered.length) { toast.error("Nothing to export"); return; }
+    const headers = [
+      "name","sku","category","brand","status","price","selling_price","stock","weight","hsn",
+      "short_description","long_description","tags","unit","min_order_qty",
+      "length_cm","width_cm","height_cm","shipping_class","cod_available","returnable","fragile",
+      "gst_percent","country_of_origin","warranty","manufacturer","care_instructions","seo_title","seo_description"
+    ];
+    const rows = filtered.map(p => [
+      p.name, p.sku, p.category, p.brand, p.status, p.price, p.selling_price, p.stock, p.weight, p.hsn,
+      p.short_description, p.long_description, (p.tags || []).join("|"), p.unit, p.min_order_qty,
+      p.length_cm ?? "", p.width_cm ?? "", p.height_cm ?? "", p.shipping_class,
+      p.cod_available ? "true" : "false", p.returnable ? "true" : "false", p.fragile ? "true" : "false",
+      p.gst_percent, p.country_of_origin, p.warranty, p.manufacturer, p.care_instructions,
+      p.seo_title, p.seo_description
+    ] as (string|number)[]);
+    downloadCSV(`products-${new Date().toISOString().slice(0,10)}`, headers, rows);
+    toast.success(`Exported ${rows.length} product${rows.length>1?"s":""}`);
+  };
+
+  const allOnPageSelected = pageData.length > 0 && pageData.every(p => selected.has(p.id));
+
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="My Products" breadcrumb={[role.charAt(0).toUpperCase() + role.slice(1), "Products"]}
