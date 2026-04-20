@@ -62,6 +62,7 @@ import DropshipperPickupAddresses from "@/pages/dropshipper/DropshipperPickupAdd
 import SourceProduct from "@/pages/supplier/SourceProduct";
 import ProductsPage from "@/pages/supplier/ProductsPage";
 import NewProductRequest from "@/pages/supplier/NewProductRequest";
+import BulkUploadProducts from "@/pages/supplier/BulkUploadProducts";
 
 
 
@@ -138,6 +139,9 @@ function AppRoutes() {
       ))}
       {(["admin","vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-requests`} path={`/${r}/product-requests`} element={<ProtectedRoute><NewProductRequest /></ProtectedRoute>} />
+      ))}
+      {(["admin","vendor","dropshipper"] as const).map(r => (
+        <Route key={`${r}-bulk-products`} path={`/${r}/bulk-upload-products`} element={<ProtectedRoute><BulkUploadProducts /></ProtectedRoute>} />
       ))}
 
       <Route path="/" element={<Navigate to="/login" replace />} />
