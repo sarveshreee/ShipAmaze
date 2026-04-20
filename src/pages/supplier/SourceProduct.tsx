@@ -349,11 +349,11 @@ export default function SourceProduct() {
             <div><Label>Long Description</Label><Textarea rows={5} value={form.long_description} onChange={e => update({ long_description: e.target.value })} /></div>
 
             <h3 className="font-semibold text-text-primary border-b border-border pb-2 pt-2">Image Gallery *</h3>
-            <label className="block border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-warning transition-colors">
-              <input type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => onPickImages(e.target.files)} />
-              <ImageIcon className="h-8 w-8 mx-auto text-text-muted mb-2" />
-              <p className="text-sm font-medium text-text-primary">Click to upload images</p>
-              <p className="text-xs text-text-muted mt-1">PNG, JPG, WEBP — max 5MB each</p>
+            <label className={cn("block border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-warning transition-colors", uploading ? "opacity-60 cursor-wait" : "cursor-pointer")}>
+              <input type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploading} onChange={e => onPickImages(e.target.files)} />
+              {uploading ? <Loader2 className="h-8 w-8 mx-auto text-text-muted mb-2 animate-spin" /> : <ImageIcon className="h-8 w-8 mx-auto text-text-muted mb-2" />}
+              <p className="text-sm font-medium text-text-primary">{uploading ? "Uploading…" : "Click to upload images"}</p>
+              <p className="text-xs text-text-muted mt-1">PNG, JPG, WEBP — max 5MB each. Stored securely on Lovable Cloud.</p>
             </label>
             {form.images.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
