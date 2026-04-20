@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Search, Trash2, Pencil, Copy, Tag, FileText, IndianRupee, Package, Power } from "lucide-react";
+import { Plus, Search, Trash2, Pencil, Copy, Tag, FileText, IndianRupee, Package, Power, Upload, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -137,7 +137,8 @@ export default function ProductsPage() {
     <div className="animate-fade-in-up">
       <PageHeader title="My Products" breadcrumb={[role.charAt(0).toUpperCase() + role.slice(1), "Products"]}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => navigate(`/${role}/bulk-upload-products`)}><Upload className="h-4 w-4 mr-2" />Bulk Upload</Button>
             <Button variant="outline" onClick={() => navigate(`/${role}/products?status=trash`)}><Trash2 className="h-4 w-4 mr-2" />Trash</Button>
             <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}>
               <Plus className="h-4 w-4 mr-2" />Add Product
@@ -223,6 +224,7 @@ export default function ProductsPage() {
                     {img ? <img src={img} alt={p.name} className="w-full h-full object-cover" /> : <Package className="h-10 w-10 text-text-muted" />}
                     <div className="absolute top-2 left-2"><ProductStatusBadge status={p.status} /></div>
                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => { sessionStorage.setItem("product_preview", JSON.stringify({ ...p, tags: p.tags || [], variants: [] })); window.open("/product-preview", "_blank", "noopener"); }} title="Preview" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Eye className="h-3 w-3" /></button>
                       <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
                       <button onClick={() => setConfirmDelete(p)} title="Delete" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-danger hover:text-white"><Trash2 className="h-3 w-3" /></button>
                     </div>

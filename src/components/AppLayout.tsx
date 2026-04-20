@@ -28,6 +28,7 @@ const adminNav: NavGroup[] = [
   { title: "SUPPLIER", items: [
     { label: "Source A Product", icon: Plus, path: "/admin/source-product" },
     { label: "Products", icon: ShoppingBag, path: "/admin/products" },
+    { label: "Bulk Upload Products", icon: Upload, path: "/admin/bulk-upload-products" },
     { label: "New Product Request", icon: ClipboardList, path: "/admin/product-requests" },
   ]},
   { title: "MANAGEMENT", items: [
@@ -57,6 +58,7 @@ const vendorNav: NavGroup[] = [
   { title: "SUPPLIER", items: [
     { label: "Source A Product", icon: Plus, path: "/vendor/source-product", tabKey: "source-product" },
     { label: "Products", icon: ShoppingBag, path: "/vendor/products", tabKey: "products" },
+    { label: "Bulk Upload Products", icon: Upload, path: "/vendor/bulk-upload-products", tabKey: "bulk-upload-products" },
     { label: "New Product Request", icon: ClipboardList, path: "/vendor/product-requests", tabKey: "product-requests" },
   ]},
   { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders", tabKey: "orders" }] },
@@ -70,6 +72,7 @@ const dropshipperNav: NavGroup[] = [
   { title: "SUPPLIER", items: [
     { label: "Source A Product", icon: Plus, path: "/dropshipper/source-product", tabKey: "source-product" },
     { label: "Products", icon: ShoppingBag, path: "/dropshipper/products", tabKey: "products" },
+    { label: "Bulk Upload Products", icon: Upload, path: "/dropshipper/bulk-upload-products", tabKey: "bulk-upload-products" },
     { label: "New Product Request", icon: ClipboardList, path: "/dropshipper/product-requests", tabKey: "product-requests" },
   ]},
   { title: "ORDERS", items: [
