@@ -437,7 +437,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   );
 
   return (
-    <div className="rounded-lg bg-card shadow-card overflow-hidden">
+    <div className="rounded-lg bg-card border border-border overflow-hidden">
       {/* Action bar when orders are selected */}
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-3 bg-surface-2/80 border-b border-border flex-wrap">
@@ -461,14 +461,14 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b border-border bg-surface-2/50">
-              <th className="p-3 text-left w-10 border-r border-border">
+            <tr className="border-b border-border bg-transparent">
+              <th className="p-3 text-left w-10">
                 <input type="checkbox" className="rounded border-border accent-primary"
                   checked={selected.size === filteredOrders.length && filteredOrders.length > 0}
                   onChange={e => e.target.checked ? onSelectAll(filteredOrders.map(o => o.id)) : onClearSelection()} />
               </th>
               {/* Order Details header with filter */}
-              <th ref={orderDetailsRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px] relative">
+              <th ref={orderDetailsRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[180px] relative">
                 <div className="flex items-center gap-2">
                   <span>Order Details</span>
                   <button onClick={() => setOrderDetailsFilter(f => ({ ...f, open: !f.open }))}
@@ -504,7 +504,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                 </FilterPopover>
               </th>
               {/* Products Details header with filter */}
-              <th ref={productRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[200px] relative">
+              <th ref={productRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[200px] relative">
                 <div className="flex items-center gap-2">
                   <span>Products Details</span>
                   <button onClick={() => setProductFilter(f => ({ ...f, open: !f.open }))}
@@ -543,7 +543,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                 </FilterPopover>
               </th>
               {/* Customer Details header with filter */}
-              <th ref={customerRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[180px] relative">
+              <th ref={customerRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[180px] relative">
                 <div className="flex items-center gap-2">
                   <span>Customer Details</span>
                   <button onClick={() => setCustomerFilter(f => ({ ...f, open: !f.open }))}
@@ -573,7 +573,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   </div>
                 </FilterPopover>
               </th>
-              <th ref={amountRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[140px] relative">
+              <th ref={amountRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[140px] relative">
                 <div className="flex items-center gap-2">
                   <span>Amount Details</span>
                   <button onClick={() => setAmountFilter(f => ({ ...f, open: !f.open }))}
@@ -593,7 +593,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   </div>
                 </FilterPopover>
               </th>
-              <th ref={addressRef} className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[220px] relative">
+              <th ref={addressRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[220px] relative">
                 <div className="flex items-center gap-2">
                   <span>Pickup Address</span>
                   <button onClick={() => setAddressFilter(f => ({ ...f, open: !f.open }))}
@@ -644,9 +644,9 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                 </FilterPopover>
               </th>
               {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
-                <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[160px]">Courier Details</th>
+                <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[160px]">Courier Details</th>
               )}
-              <th className="p-3 text-left font-medium text-text-secondary border-r border-border min-w-[120px]">Remarks</th>
+              <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[120px]">Remarks</th>
               <th className="p-3 text-center font-medium text-text-secondary min-w-[130px]">Action</th>
             </tr>
           </thead>
@@ -655,7 +655,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} className="border-b border-border">
                   {Array.from({ length: 10 }).map((_, j) => (
-                    <td key={j} className="p-4 border-r border-border last:border-r-0"><div className="h-4 bg-surface-2 rounded animate-pulse" /></td>
+                    <td key={j} className="p-4"><div className="h-4 bg-surface-2 rounded animate-pulse" /></td>
                   ))}
                 </tr>
               ))
@@ -669,13 +669,13 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               const products = o.products || [];
             const orderEmail = (o as any).email || `${(o.customer || '').toLowerCase().replace(/\s/g, '')}@email.com`;
               return (
-                <tr key={o.id} className={cn("border-b border-border last:border-0 align-top transition-colors", selected.has(o.id) && "bg-primary-light/30")}>
-                  <td className="p-3 border-r border-border align-middle">
+                <tr key={o.id} className={cn("border-b border-border last:border-0 align-top transition-colors hover:bg-surface-2/40", selected.has(o.id) && "bg-primary-light/30")}>
+                  <td className="p-3 align-middle">
                     <input type="checkbox" className="rounded border-border accent-primary" checked={selected.has(o.id)} onChange={() => onToggleSelect(o.id)} />
                   </td>
 
                   {/* Order Details */}
-                  <td className="p-3 border-r border-border">
+                  <td className="p-3">
                     <div className="relative">
                       <div className="space-y-1.5">
                         <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-semibold text-sm hover:underline">{o.id}</button>
@@ -702,7 +702,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   </td>
 
                   {/* Products Details */}
-                  <td className="p-3 border-r border-border">
+                  <td className="p-3">
                     <div className="relative">
                       <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditProductOrder(o)}>
                         <Pencil className="h-3 w-3 text-primary" />
@@ -722,7 +722,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   </td>
 
                   {/* Customer Details */}
-                  <td className="p-3 border-r border-border">
+                  <td className="p-3">
                     <div className="relative">
                       <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
                         <Pencil className="h-3 w-3 text-primary" />
@@ -757,22 +757,28 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   </td>
 
                   {/* Amount Details */}
-                  <td className="p-3 border-r border-border">
+                  <td className="p-3">
                     <div className="relative">
                       <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditPriceOrder(o)}>
                         <Pencil className="h-3 w-3 text-primary" />
                       </button>
-                      <div className="space-y-1 pr-6">
-                        <p className="text-xs"><span className="text-text-muted">Order Amt.: </span><span className="text-text-primary font-medium">{o.amount.toFixed(2)}</span></p>
+                      <div className="space-y-1.5 pr-6">
+                        <p className="text-sm font-bold text-text-primary">₹{o.amount.toFixed(2)}</p>
+                        <span className={cn(
+                          "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide",
+                          o.payment === "COD"
+                            ? "bg-warning-light text-warning-dark"
+                            : "bg-success-light text-success-dark"
+                        )}>{o.payment}</span>
                         {o.payment === "COD" && (
-                          <p className="text-xs"><span className="text-text-muted">COD Amt.: </span><span className="text-text-primary font-medium">{o.amount.toFixed(2)}</span></p>
+                          <p className="text-[11px] text-text-muted">COD: ₹{o.amount.toFixed(2)}</p>
                         )}
                       </div>
                     </div>
                   </td>
 
                   {/* Pickup Address */}
-                  <td className="p-3 border-r border-border">
+                  <td className="p-3">
                     {(() => {
                       const pickup = (o as any).pickup_address_data || (o as any).pickupAddress;
                       const pickupLabel = typeof pickup === 'object' && pickup ? (pickup.label || pickup.city || 'Warehouse') : ((o as any).pickup_address || 'Main Warehouse');
@@ -825,7 +831,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
 
                   {/* Courier Details (conditional) - must come BEFORE Remarks to match header order */}
                   {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
-                    <td className="p-3 border-r border-border">
+                    <td className="p-3">
                       {(() => {
                         const courierName = o.courier || (o as any).courier_name || "-";
                         const eddDate = (o as any).edd ? new Date((o as any).edd) : (() => { const d = o.date ? new Date(o.date) : new Date(); d.setDate(d.getDate() + 4); return d; })();
@@ -848,7 +854,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   )}
 
                   {/* Remarks */}
-                  <td className="p-3 border-r border-border">
+                  <td className="p-3">
                     <div className="relative min-h-[40px]">
                       <button className="absolute top-0 right-0 p-1 rounded hover:bg-primary-light transition-colors" onClick={() => setEditingRemark(editingRemark === o.id ? null : o.id)}>
                         <Pencil className="h-3 w-3 text-primary" />
