@@ -6,13 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Search, Trash2, Pencil, Copy, Tag, FileText, IndianRupee, Package, Power, Upload, Eye } from "lucide-react";
+import { Plus, Search, Trash2, Pencil, Copy, Tag, FileText, IndianRupee, Package, Power, Upload, Eye, Download, CheckSquare, FolderInput } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSupplierProducts, type SupplierProduct } from "@/hooks/useSupplierProducts";
 import { ProductStatusBadge } from "@/components/supplier/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BulkActionBar } from "@/components/BulkActionBar";
+import { downloadCSV } from "@/lib/exportUtils";
 
 export default function ProductsPage() {
   const navigate = useNavigate();
@@ -30,7 +33,10 @@ export default function ProductsPage() {
   const [priceReqFor, setPriceReqFor] = useState<SupplierProduct | null>(null);
   const [priceMsg, setPriceMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<SupplierProduct | null>(null);
-
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkCategoryOpen, setBulkCategoryOpen] = useState(false);
+  const [bulkCategoryValue, setBulkCategoryValue] = useState("");
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const categories = useMemo(() => Array.from(new Set(data.map(p => p.category).filter(Boolean))), [data]);
 
   const filtered = useMemo(() => {
@@ -133,12 +139,110 @@ export default function ProductsPage() {
     setPriceReqFor(null); setPriceMsg("");
   };
 
+  // ===== Bulk operations =====
+  const toggleOne = (id: string) => {
+    setSelected(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+  const togglePageAll = () => {
+    const ids = pageData.map(p => p.id);
+    const allSelected = ids.every(id => selected.has(id));
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (allSelected) ids.forEach(id => n.delete(id));
+      else ids.forEach(id => n.add(id));
+      return n;
+    });
+  };
+  const clearSelection = () => setSelected(new Set());
+
+  const bulkUpdateStatus = async (status: SupplierProduct["status"]) => {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    if (isDemoMode) {
+      const stored = localStorage.getItem("supplier_products_demo");
+      const list = stored ? JSON.parse(stored) : [];
+      list.forEach((x: any) => { if (ids.includes(x.id)) x.status = status; });
+      localStorage.setItem("supplier_products_demo", JSON.stringify(list));
+    } else {
+      const { error } = await supabase.from("products").update({ status }).in("id", ids);
+      if (error) { toast.error(error.message); return; }
+    }
+    toast.success(`${ids.length} product${ids.length>1?"s":""} → ${status}`);
+    clearSelection();
+    refetch();
+  };
+
+  const bulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    if (isDemoMode) {
+      const stored = localStorage.getItem("supplier_products_demo");
+      const list = stored ? JSON.parse(stored) : [];
+      localStorage.setItem("supplier_products_demo", JSON.stringify(list.filter((x: any) => !ids.includes(x.id))));
+    } else {
+      const { error } = await supabase.from("products").delete().in("id", ids);
+      if (error) { toast.error(error.message); return; }
+    }
+    toast.success(`${ids.length} deleted`);
+    clearSelection();
+    setConfirmBulkDelete(false);
+    refetch();
+  };
+
+  const bulkChangeCategory = async () => {
+    const ids = Array.from(selected);
+    const cat = bulkCategoryValue.trim();
+    if (!ids.length || !cat) { toast.error("Enter a category"); return; }
+    if (isDemoMode) {
+      const stored = localStorage.getItem("supplier_products_demo");
+      const list = stored ? JSON.parse(stored) : [];
+      list.forEach((x: any) => { if (ids.includes(x.id)) x.category = cat; });
+      localStorage.setItem("supplier_products_demo", JSON.stringify(list));
+    } else {
+      const { error } = await supabase.from("products").update({ category: cat }).in("id", ids);
+      if (error) { toast.error(error.message); return; }
+    }
+    toast.success(`Category set on ${ids.length} product${ids.length>1?"s":""}`);
+    setBulkCategoryOpen(false);
+    setBulkCategoryValue("");
+    clearSelection();
+    refetch();
+  };
+
+  // ===== CSV Export (matches bulk upload template) =====
+  const exportCSV = () => {
+    if (!filtered.length) { toast.error("Nothing to export"); return; }
+    const headers = [
+      "name","sku","category","brand","status","price","selling_price","stock","weight","hsn",
+      "short_description","long_description","tags","unit","min_order_qty",
+      "length_cm","width_cm","height_cm","shipping_class","cod_available","returnable","fragile",
+      "gst_percent","country_of_origin","warranty","manufacturer","care_instructions","seo_title","seo_description"
+    ];
+    const rows = filtered.map(p => [
+      p.name, p.sku, p.category, p.brand, p.status, p.price, p.selling_price, p.stock, p.weight, p.hsn,
+      p.short_description, p.long_description, (p.tags || []).join("|"), p.unit, p.min_order_qty,
+      p.length_cm ?? "", p.width_cm ?? "", p.height_cm ?? "", p.shipping_class,
+      p.cod_available ? "true" : "false", p.returnable ? "true" : "false", p.fragile ? "true" : "false",
+      p.gst_percent, p.country_of_origin, p.warranty, p.manufacturer, p.care_instructions,
+      p.seo_title, p.seo_description
+    ] as (string|number)[]);
+    downloadCSV(`products-${new Date().toISOString().slice(0,10)}`, headers, rows);
+    toast.success(`Exported ${rows.length} product${rows.length>1?"s":""}`);
+  };
+
+  const allOnPageSelected = pageData.length > 0 && pageData.every(p => selected.has(p.id));
+
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="My Products" breadcrumb={[role.charAt(0).toUpperCase() + role.slice(1), "Products"]}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => navigate(`/${role}/bulk-upload-products`)}><Upload className="h-4 w-4 mr-2" />Bulk Upload</Button>
+            <Button variant="outline" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
             <Button variant="outline" onClick={() => navigate(`/${role}/products?status=trash`)}><Trash2 className="h-4 w-4 mr-2" />Trash</Button>
             <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}>
               <Plus className="h-4 w-4 mr-2" />Add Product
@@ -215,14 +319,28 @@ export default function ProductsPage() {
         </div>
       ) : (
         <>
+          {/* Select-all bar */}
+          <div className="flex items-center gap-3 mb-3 px-1 text-sm text-text-secondary">
+            <Checkbox checked={allOnPageSelected} onCheckedChange={togglePageAll} />
+            <span>{allOnPageSelected ? "Deselect" : "Select"} all on this page</span>
+            {selected.size > 0 && (
+              <button onClick={clearSelection} className="ml-auto text-xs text-primary hover:underline">Clear ({selected.size})</button>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {pageData.map(p => {
               const img = p.images[p.primary_image_index] || p.images[0];
+              const isSel = selected.has(p.id);
               return (
-                <div key={p.id} className="group rounded-xl bg-card shadow-card hover:shadow-card-lg transition-shadow overflow-hidden flex flex-col">
+                <div key={p.id} className={cn("group rounded-xl bg-card shadow-card hover:shadow-card-lg transition-shadow overflow-hidden flex flex-col", isSel && "ring-2 ring-primary")}>
                   <div className="relative aspect-square bg-surface-2 flex items-center justify-center">
                     {img ? <img src={img} alt={p.name} className="w-full h-full object-cover" /> : <Package className="h-10 w-10 text-text-muted" />}
-                    <div className="absolute top-2 left-2"><ProductStatusBadge status={p.status} /></div>
+                    <div className="absolute top-2 left-2 flex items-center gap-2">
+                      <div className={cn("h-6 w-6 rounded bg-card border border-border flex items-center justify-center transition-opacity", isSel ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
+                        <Checkbox checked={isSel} onCheckedChange={() => toggleOne(p.id)} />
+                      </div>
+                      <ProductStatusBadge status={p.status} />
+                    </div>
                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => { sessionStorage.setItem("product_preview", JSON.stringify({ ...p, tags: p.tags || [], variants: [] })); window.open("/product-preview", "_blank", "noopener"); }} title="Preview" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Eye className="h-3 w-3" /></button>
                       <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
@@ -315,6 +433,32 @@ export default function ProductsPage() {
           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={doDelete} className="bg-danger text-white hover:bg-danger/90">Delete</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk delete confirm */}
+      <AlertDialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>Delete {selected.size} products?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={bulkDelete} className="bg-danger text-white hover:bg-danger/90">Delete All</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk change category */}
+      <Dialog open={bulkCategoryOpen} onOpenChange={setBulkCategoryOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Change category for {selected.size} products</DialogTitle><DialogDescription>Pick existing or type a new category.</DialogDescription></DialogHeader>
+          <Input list="bulk-cat-list" placeholder="e.g. Apparel" value={bulkCategoryValue} onChange={e => setBulkCategoryValue(e.target.value)} />
+          <datalist id="bulk-cat-list">{categories.map(c => <option key={c} value={c} />)}</datalist>
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setBulkCategoryOpen(false)}>Cancel</Button><Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={bulkChangeCategory}>Apply</Button></div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk action bar */}
+      <BulkActionBar count={selected.size} onClear={clearSelection}>
+        <Button size="sm" variant="outline" onClick={() => bulkUpdateStatus("active")}><Power className="h-3.5 w-3.5 mr-1" />Activate</Button>
+        <Button size="sm" variant="outline" onClick={() => bulkUpdateStatus("inactive")}><Power className="h-3.5 w-3.5 mr-1" />Deactivate</Button>
+        <Button size="sm" variant="outline" onClick={() => setBulkCategoryOpen(true)}><FolderInput className="h-3.5 w-3.5 mr-1" />Category</Button>
+        <Button size="sm" variant="outline" className="text-danger border-danger/30 hover:bg-danger/10" onClick={() => setConfirmBulkDelete(true)}><Trash2 className="h-3.5 w-3.5 mr-1" />Delete</Button>
+      </BulkActionBar>
     </div>
   );
 }
