@@ -6,13 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Search, Trash2, Pencil, Copy, Tag, FileText, IndianRupee, Package, Power, Upload, Eye } from "lucide-react";
+import { Plus, Search, Trash2, Pencil, Copy, Tag, FileText, IndianRupee, Package, Power, Upload, Eye, Download, CheckSquare, FolderInput } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSupplierProducts, type SupplierProduct } from "@/hooks/useSupplierProducts";
 import { ProductStatusBadge } from "@/components/supplier/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BulkActionBar } from "@/components/BulkActionBar";
+import { downloadCSV } from "@/lib/exportUtils";
 
 export default function ProductsPage() {
   const navigate = useNavigate();
