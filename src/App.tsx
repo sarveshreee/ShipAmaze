@@ -57,6 +57,11 @@ import DropshipperNDR from "@/pages/dropshipper/DropshipperNDR";
 import DropshipperWeightDisputes from "@/pages/dropshipper/DropshipperWeightDisputes";
 import DropshipperPickupAddresses from "@/pages/dropshipper/DropshipperPickupAddresses";
 
+// Supplier (shared across all roles)
+import SourceProduct from "@/pages/supplier/SourceProduct";
+import ProductsPage from "@/pages/supplier/ProductsPage";
+import NewProductRequest from "@/pages/supplier/NewProductRequest";
+
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -121,6 +126,17 @@ function AppRoutes() {
       <Route path="/dropshipper/addresses" element={<ProtectedRoute><DropshipperPickupAddresses /></ProtectedRoute>} />
       <Route path="/dropshipper/tracking" element={<ProtectedRoute><PublicTracking /></ProtectedRoute>} />
       <Route path="/dropshipper/settings" element={<ProtectedRoute><DropshipperSettings /></ProtectedRoute>} />
+
+      {/* Supplier Product module — available in all role areas */}
+      {(["admin","vendor","dropshipper"] as const).map(r => (
+        <Route key={`${r}-supplier`} path={`/${r}/source-product`} element={<ProtectedRoute><SourceProduct /></ProtectedRoute>} />
+      ))}
+      {(["admin","vendor","dropshipper"] as const).map(r => (
+        <Route key={`${r}-products`} path={`/${r}/products`} element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
+      ))}
+      {(["admin","vendor","dropshipper"] as const).map(r => (
+        <Route key={`${r}-requests`} path={`/${r}/product-requests`} element={<ProtectedRoute><NewProductRequest /></ProtectedRoute>} />
+      ))}
 
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<NotFound />} />

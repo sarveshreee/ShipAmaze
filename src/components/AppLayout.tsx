@@ -25,6 +25,11 @@ const adminNav: NavGroup[] = [
     { label: "Returns & RTO", icon: Undo2, path: "/admin/returns" },
     { label: "Manifests & Pickups", icon: ClipboardList, path: "/admin/manifests" },
   ]},
+  { title: "SUPPLIER", items: [
+    { label: "Source A Product", icon: Plus, path: "/admin/source-product" },
+    { label: "Products", icon: ShoppingBag, path: "/admin/products" },
+    { label: "New Product Request", icon: ClipboardList, path: "/admin/product-requests" },
+  ]},
   { title: "MANAGEMENT", items: [
     { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue" },
     { label: "Rates & Shipping", icon: Calculator, path: "/admin/rates" },
@@ -49,6 +54,11 @@ const adminNav: NavGroup[] = [
 
 const vendorNav: NavGroup[] = [
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/vendor", tabKey: "dashboard" }] },
+  { title: "SUPPLIER", items: [
+    { label: "Source A Product", icon: Plus, path: "/vendor/source-product", tabKey: "source-product" },
+    { label: "Products", icon: ShoppingBag, path: "/vendor/products", tabKey: "products" },
+    { label: "New Product Request", icon: ClipboardList, path: "/vendor/product-requests", tabKey: "product-requests" },
+  ]},
   { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders", tabKey: "orders" }] },
   { title: "CATALOGUE", items: [{ label: "Catalogue", icon: ShoppingBag, path: "/vendor/catalogue", tabKey: "catalogue" }] },
   { title: "TEAM", items: [{ label: "Team", icon: Users2, path: "/vendor/team", tabKey: "team" }] },
@@ -57,6 +67,11 @@ const vendorNav: NavGroup[] = [
 
 const dropshipperNav: NavGroup[] = [
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/dropshipper", tabKey: "dashboard" }] },
+  { title: "SUPPLIER", items: [
+    { label: "Source A Product", icon: Plus, path: "/dropshipper/source-product", tabKey: "source-product" },
+    { label: "Products", icon: ShoppingBag, path: "/dropshipper/products", tabKey: "products" },
+    { label: "New Product Request", icon: ClipboardList, path: "/dropshipper/product-requests", tabKey: "product-requests" },
+  ]},
   { title: "ORDERS", items: [
     { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", children: [
       { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", shortcut: "G+O" },
