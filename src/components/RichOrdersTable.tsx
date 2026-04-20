@@ -873,16 +873,18 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   {/* Action */}
                   <td className="p-3 align-middle">
                     <div className="flex flex-col items-center gap-2">
-                      <div className="flex gap-1.5">
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light"
-                          onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')}>
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light"
-                          onClick={() => { printShippingLabel(o); toast.success("Printing label..."); }}>
-                          <Printer className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+                      {!["all", "channel", "manual", "ready-to-ship"].includes(activeTab) && (
+                        <div className="flex gap-1.5">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light"
+                            onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light"
+                            onClick={() => { printShippingLabel(o); toast.success("Printing label..."); }}>
+                            <Printer className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
                       {activeTab === "junk" ? null : activeTab === "reship" ? (
                         <div className="flex gap-1.5">
                           <Button variant="outline" size="sm"
