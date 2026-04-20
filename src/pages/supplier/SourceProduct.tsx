@@ -489,7 +489,16 @@ export default function SourceProduct() {
             <Button onClick={next} className="bg-warning text-warning-foreground hover:bg-warning/90">Next Step<ChevronRight className="h-4 w-4 ml-1" /></Button>
           ) : (
             <>
-              <Button variant="outline" onClick={() => toast.info("Preview coming soon")}><Eye className="h-4 w-4 mr-1" />Preview</Button>
+              <Button variant="outline" onClick={() => {
+                if (!form.name.trim()) { toast.error("Add a product name to preview"); setStep("details"); return; }
+                const previewData = {
+                  ...form,
+                  tags: form.tags ? form.tags.split(",").map(t => t.trim()).filter(Boolean) : [],
+                  variants,
+                };
+                sessionStorage.setItem("product_preview", JSON.stringify(previewData));
+                window.open("/product-preview", "_blank", "noopener");
+              }}><Eye className="h-4 w-4 mr-1" />Preview</Button>
               <Button onClick={() => save("active")} disabled={saving} className="bg-warning text-warning-foreground hover:bg-warning/90">
                 {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}Publish Product
               </Button>
