@@ -108,17 +108,45 @@ export default function SourceProduct() {
   const next = () => stepIndex < 3 && setStep(STEPS[stepIndex + 1].key);
   const back = () => stepIndex > 0 && setStep(STEPS[stepIndex - 1].key);
 
-  // Image handling
-  const onPickImages = (files: FileList | null) => {
+  const [uploading, setUploading] = useState(false);
+  // Image handling — uploads to Lovable Cloud Storage (product-images bucket)
+  const onPickImages = async (files: FileList | null) => {
     if (!files) return;
     const arr = Array.from(files).filter(f => /image\/(jpeg|png|webp|jpg)/.test(f.type) && f.size < 5 * 1024 * 1024);
     if (arr.length === 0) { toast.error("Only JPG/PNG/WEBP under 5MB"); return; }
-    const readers = arr.map(f => new Promise<string>(res => {
-      const r = new FileReader();
-      r.onload = () => res(r.result as string);
-      r.readAsDataURL(f);
-    }));
-    Promise.all(readers).then(urls => update({ images: [...form.images, ...urls] }));
+
+    if (isDemoMode || !userId) {
+      // Demo mode fallback: keep base64 so it works without auth
+      const readers = arr.map(f => new Promise<string>(res => {
+        const r = new FileReader();
+        r.onload = () => res(r.result as string);
+        r.readAsDataURL(f);
+      }));
+      const urls = await Promise.all(readers);
+      update({ images: [...form.images, ...urls] });
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const uploaded: string[] = [];
+      for (const file of arr) {
+        const ext = file.name.split(".").pop() || "jpg";
+        const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const { error } = await supabase.storage.from("product-images").upload(path, file, {
+          cacheControl: "3600", upsert: false, contentType: file.type,
+        });
+        if (error) throw error;
+        const { data } = supabase.storage.from("product-images").getPublicUrl(path);
+        uploaded.push(data.publicUrl);
+      }
+      update({ images: [...form.images, ...uploaded] });
+      toast.success(`${uploaded.length} image${uploaded.length > 1 ? "s" : ""} uploaded`);
+    } catch (err: any) {
+      toast.error(`Upload failed: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
   };
   const removeImage = (i: number) => {
     const next = form.images.filter((_, idx) => idx !== i);
