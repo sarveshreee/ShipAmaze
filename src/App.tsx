@@ -83,6 +83,7 @@ function AppRoutes() {
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/track" element={<PublicTracking />} />
       <Route path="/order-detail" element={<PublicOrderDetail />} />
+      <Route path="/product-preview" element={<ProductPreview />} />
 
       {/* Admin */}
       <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
