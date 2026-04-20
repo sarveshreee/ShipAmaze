@@ -33,7 +33,10 @@ export default function ProductsPage() {
   const [priceReqFor, setPriceReqFor] = useState<SupplierProduct | null>(null);
   const [priceMsg, setPriceMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<SupplierProduct | null>(null);
-
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkCategoryOpen, setBulkCategoryOpen] = useState(false);
+  const [bulkCategoryValue, setBulkCategoryValue] = useState("");
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const categories = useMemo(() => Array.from(new Set(data.map(p => p.category).filter(Boolean))), [data]);
 
   const filtered = useMemo(() => {
