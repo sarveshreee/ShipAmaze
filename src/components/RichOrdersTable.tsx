@@ -437,7 +437,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   );
 
   return (
-    <div className="rounded-lg bg-card shadow-card overflow-hidden">
+    <div className="rounded-lg bg-card border border-border overflow-hidden">
       {/* Action bar when orders are selected */}
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-3 bg-surface-2/80 border-b border-border flex-wrap">
