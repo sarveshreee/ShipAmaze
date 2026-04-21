@@ -68,6 +68,7 @@ const vendorNav: NavGroup[] = [
 ];
 
 const dropshipperNav: NavGroup[] = [
+  { title: "MARKETPLACE", items: [{ label: "Home", icon: Home, path: "/dropshipper/home", tabKey: "home" }] },
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/dropshipper", tabKey: "dashboard" }] },
   { title: "CATALOG", items: [
     { label: "Browse Products", icon: ShoppingBag, path: "/dropshipper/products", tabKey: "products" },
@@ -157,11 +158,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         sidebarCollapsed && "lg:w-0 lg:overflow-hidden lg:opacity-0"
       )}>
         <div className="flex h-[60px] items-center gap-2 px-5 border-b border-sidebar-border">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
-            <Package className="h-4 w-4 text-sidebar-primary-foreground" />
-          </div>
-          <span className="text-lg font-bold text-sidebar-primary-foreground">ShipFlow</span>
-          <button className="ml-auto lg:hidden text-sidebar-foreground" onClick={() => setSidebarOpen(false)}>
+          <Link to={role === "dropshipper" ? "/dropshipper/home" : `/${role}`} className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
+              <Package className="h-4 w-4 text-sidebar-primary-foreground" />
+            </div>
+            <span className="text-lg font-bold text-sidebar-primary-foreground truncate">ShipFlow</span>
+          </Link>
+          <button className="lg:hidden text-sidebar-foreground" onClick={() => setSidebarOpen(false)}>
             <X className="h-5 w-5" />
           </button>
         </div>
