@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      bank_accounts: {
+        Row: {
+          account_holder_name: string
+          account_number_masked: string
+          account_number_raw: string | null
+          account_type: string
+          bank_name: string
+          created_at: string
+          id: string
+          ifsc: string
+          is_primary: boolean
+          status: string
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          account_holder_name: string
+          account_number_masked: string
+          account_number_raw?: string | null
+          account_type?: string
+          bank_name: string
+          created_at?: string
+          id?: string
+          ifsc: string
+          is_primary?: boolean
+          status?: string
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          account_holder_name?: string
+          account_number_masked?: string
+          account_number_raw?: string | null
+          account_type?: string
+          bank_name?: string
+          created_at?: string
+          id?: string
+          ifsc?: string
+          is_primary?: boolean
+          status?: string
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       couriers: {
         Row: {
           active: boolean
@@ -110,6 +158,72 @@ export type Database = {
           total?: number | null
           updated_at?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      kyc_profiles: {
+        Row: {
+          aadhaar_number: string | null
+          account_type: string
+          address: string | null
+          authorized_person_name: string | null
+          authorized_person_pan: string | null
+          business_name: string | null
+          cin_number: string | null
+          created_at: string
+          dob: string | null
+          full_name: string | null
+          gst_number: string | null
+          id: string
+          pan_number: string | null
+          reviewed_at: string | null
+          status: string
+          submitted_at: string | null
+          updated_at: string
+          uploaded_docs: Json | null
+          user_id: string
+        }
+        Insert: {
+          aadhaar_number?: string | null
+          account_type?: string
+          address?: string | null
+          authorized_person_name?: string | null
+          authorized_person_pan?: string | null
+          business_name?: string | null
+          cin_number?: string | null
+          created_at?: string
+          dob?: string | null
+          full_name?: string | null
+          gst_number?: string | null
+          id?: string
+          pan_number?: string | null
+          reviewed_at?: string | null
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+          uploaded_docs?: Json | null
+          user_id: string
+        }
+        Update: {
+          aadhaar_number?: string | null
+          account_type?: string
+          address?: string | null
+          authorized_person_name?: string | null
+          authorized_person_pan?: string | null
+          business_name?: string | null
+          cin_number?: string | null
+          created_at?: string
+          dob?: string | null
+          full_name?: string | null
+          gst_number?: string | null
+          id?: string
+          pan_number?: string | null
+          reviewed_at?: string | null
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+          uploaded_docs?: Json | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -682,6 +796,36 @@ export type Database = {
         }
         Relationships: []
       }
+      routing_settings: {
+        Row: {
+          auto_route_enabled: boolean
+          created_at: string
+          default_vendor_id: string | null
+          default_vendor_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auto_route_enabled?: boolean
+          created_at?: string
+          default_vendor_id?: string | null
+          default_vendor_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auto_route_enabled?: boolean
+          created_at?: string
+          default_vendor_id?: string | null
+          default_vendor_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       tab_permissions: {
         Row: {
           created_at: string
@@ -709,6 +853,48 @@ export type Database = {
           tab_key?: string
           updated_at?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      team_members: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          invited_at: string
+          last_resent_at: string | null
+          owner_user_id: string
+          permissions: string[]
+          role: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          full_name: string
+          id?: string
+          invited_at?: string
+          last_resent_at?: string | null
+          owner_user_id: string
+          permissions?: string[]
+          role?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          invited_at?: string
+          last_resent_at?: string | null
+          owner_user_id?: string
+          permissions?: string[]
+          role?: string
+          status?: string
+          updated_at?: string
         }
         Relationships: []
       }
