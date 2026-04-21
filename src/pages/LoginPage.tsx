@@ -19,7 +19,7 @@ const roles: { value: Role; label: string; icon: React.ReactNode }[] = [
 const redirectMap: Record<Role, string> = {
   admin: "/admin",
   vendor: "/vendor",
-  dropshipper: "/dropshipper",
+  dropshipper: "/dropshipper/home",
 };
 
 export default function LoginPage() {
