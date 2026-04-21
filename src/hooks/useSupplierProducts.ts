@@ -41,6 +41,9 @@ export type SupplierProduct = {
   created_at: string;
   updated_at: string;
   user_id: string | null;
+  vendor_id: string | null;
+  vendor_name: string | null;
+  uploaded_by_role: "admin" | "vendor" | "dropshipper" | null;
 };
 
 const mapRow = (r: any): SupplierProduct => ({
@@ -82,10 +85,13 @@ const mapRow = (r: any): SupplierProduct => ({
   created_at: r.created_at,
   updated_at: r.updated_at,
   user_id: r.user_id,
+  vendor_id: r.vendor_id || null,
+  vendor_name: r.vendor_name || null,
+  uploaded_by_role: r.uploaded_by_role || null,
 });
 
 export function useSupplierProducts() {
-  const { isDemoMode, role } = useAuth();
+  const { isDemoMode, role, userId } = useAuth();
   const [data, setData] = useState<SupplierProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -93,15 +99,28 @@ export function useSupplierProducts() {
     setIsLoading(true);
     if (isDemoMode) {
       const stored = localStorage.getItem("supplier_products_demo");
-      setData(stored ? JSON.parse(stored) : []);
+      let list: SupplierProduct[] = stored ? JSON.parse(stored) : [];
+      // Demo role-based filtering
+      if (role === "vendor") {
+        list = list.filter(p => (p.vendor_id || p.user_id) === `demo-vendor`);
+      } else if (role === "dropshipper") {
+        list = list.filter(p => p.status === "active");
+      }
+      setData(list);
       setIsLoading(false);
       return;
     }
     let q = supabase.from("products").select("*").order("created_at", { ascending: false });
+    // Role-based filtering (RLS also enforces, this is for clarity)
+    if (role === "vendor" && userId) {
+      q = q.eq("vendor_id", userId);
+    } else if (role === "dropshipper") {
+      q = q.eq("status", "active");
+    }
     const { data: rows, error } = await q;
     if (!error) setData((rows || []).map(mapRow));
     setIsLoading(false);
-  }, [isDemoMode, role]);
+  }, [isDemoMode, role, userId]);
 
   useEffect(() => { void load(); }, [load]);
 
