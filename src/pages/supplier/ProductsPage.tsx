@@ -296,14 +296,25 @@ export default function ProductsPage() {
           <SelectTrigger className="w-[160px]"><SelectValue placeholder="Category" /></SelectTrigger>
           <SelectContent><SelectItem value="all">All Categories</SelectItem>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="active">Active</SelectItem><SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem><SelectItem value="pending">Pending</SelectItem>
-          </SelectContent>
-        </Select>
+        {isAdmin && (
+          <Select value={vendorFilter} onValueChange={v => { setVendorFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Vendor" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Vendors</SelectItem>
+              {vendors.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+        {!isDropshipper && (
+          <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="active">Active</SelectItem><SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="inactive">Inactive</SelectItem><SelectItem value="pending">Pending</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
           <SelectContent>
