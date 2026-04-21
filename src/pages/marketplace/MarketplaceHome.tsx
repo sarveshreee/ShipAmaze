@@ -47,8 +47,8 @@ export default function MarketplaceHome() {
       {/* Marketplace top bar */}
       <div className="flex flex-wrap items-center gap-3 bg-card rounded-xl border p-3">
         <Link to={`/${role}/home`} className="flex items-center gap-2 font-bold text-primary text-lg shrink-0">
-          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">D</div>
-          dropdash
+          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">S</div>
+          Shipflow
           <span className="hidden sm:inline text-xs font-normal text-muted-foreground border-l pl-2 ml-1">B2B Marketplace</span>
         </Link>
         <div className="flex-1 min-w-[200px] relative">
