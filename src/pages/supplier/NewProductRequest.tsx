@@ -57,6 +57,8 @@ export default function NewProductRequest() {
       const payload = {
         request_id: editing?.request_id || `PRQ-${Date.now()}`,
         user_id: userId,
+        vendor_id: role === "vendor" ? userId : null,
+        vendor_name: role === "vendor" ? (userName || null) : null,
         name: form.name, category: form.category || null, proposed_sku: form.proposed_sku || null,
         estimated_price: form.estimated_price, description: form.description || null,
         supplier_remarks: form.supplier_remarks || null, priority: form.priority,
