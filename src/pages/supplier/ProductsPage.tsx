@@ -341,19 +341,23 @@ export default function ProductsPage() {
           <p className="text-sm text-text-muted mt-1">Try adjusting your filters or add a new product.</p>
           <div className="flex gap-2 justify-center mt-4">
             <Button variant="outline" onClick={resetFilters}>Reset Filters</Button>
-            <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}><Plus className="h-4 w-4 mr-1" />Add Product</Button>
+            {canManage && (
+              <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}><Plus className="h-4 w-4 mr-1" />Add Product</Button>
+            )}
           </div>
         </div>
       ) : (
         <>
           {/* Select-all bar */}
-          <div className="flex items-center gap-3 mb-3 px-1 text-sm text-text-secondary">
-            <Checkbox checked={allOnPageSelected} onCheckedChange={togglePageAll} />
-            <span>{allOnPageSelected ? "Deselect" : "Select"} all on this page</span>
-            {selected.size > 0 && (
-              <button onClick={clearSelection} className="ml-auto text-xs text-primary hover:underline">Clear ({selected.size})</button>
-            )}
-          </div>
+          {canManage && (
+            <div className="flex items-center gap-3 mb-3 px-1 text-sm text-text-secondary">
+              <Checkbox checked={allOnPageSelected} onCheckedChange={togglePageAll} />
+              <span>{allOnPageSelected ? "Deselect" : "Select"} all on this page</span>
+              {selected.size > 0 && (
+                <button onClick={clearSelection} className="ml-auto text-xs text-primary hover:underline">Clear ({selected.size})</button>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {pageData.map(p => {
               const img = p.images[p.primary_image_index] || p.images[0];
@@ -363,15 +367,21 @@ export default function ProductsPage() {
                   <div className="relative aspect-square bg-surface-2 flex items-center justify-center">
                     {img ? <img src={img} alt={p.name} className="w-full h-full object-cover" /> : <Package className="h-10 w-10 text-text-muted" />}
                     <div className="absolute top-2 left-2 flex items-center gap-2">
-                      <div className={cn("h-6 w-6 rounded bg-card border border-border flex items-center justify-center transition-opacity", isSel ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
-                        <Checkbox checked={isSel} onCheckedChange={() => toggleOne(p.id)} />
-                      </div>
+                      {canManage && (
+                        <div className={cn("h-6 w-6 rounded bg-card border border-border flex items-center justify-center transition-opacity", isSel ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
+                          <Checkbox checked={isSel} onCheckedChange={() => toggleOne(p.id)} />
+                        </div>
+                      )}
                       <ProductStatusBadge status={p.status} />
                     </div>
                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => { sessionStorage.setItem("product_preview", JSON.stringify({ ...p, tags: p.tags || [], variants: [] })); window.open("/product-preview", "_blank", "noopener"); }} title="Preview" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Eye className="h-3 w-3" /></button>
-                      <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
-                      <button onClick={() => setConfirmDelete(p)} title="Delete" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-danger hover:text-white"><Trash2 className="h-3 w-3" /></button>
+                      {canManage && (
+                        <>
+                          <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
+                          <button onClick={() => setConfirmDelete(p)} title="Delete" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-danger hover:text-white"><Trash2 className="h-3 w-3" /></button>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="p-3 flex flex-col flex-1">
@@ -381,19 +391,37 @@ export default function ProductsPage() {
                       <span className="font-mono">{p.sku || "—"}</span>
                       <span>{p.brand || "Self"}</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5 mt-3">
-                      <Button size="sm" variant="outline" className="h-7 text-[11px] text-warning border-warning/30 hover:bg-warning-light" onClick={() => setVariantsFor(p)}><Tag className="h-3 w-3 mr-1" />Variants</Button>
-                      <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setDetailsFor(p)}><FileText className="h-3 w-3 mr-1" />Details</Button>
-                    </div>
-                    <Button size="sm" variant="outline" className="h-7 mt-1.5 text-[11px] text-primary border-primary/30 hover:bg-primary/10" onClick={() => setPriceReqFor(p)}>
-                      <IndianRupee className="h-3 w-3 mr-1" />Price Request
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-7 mt-1 text-[11px]" onClick={() => updateStatus(p, p.status === "active" ? "inactive" : "active")}>
-                      <Power className="h-3 w-3 mr-1" />{p.status === "active" ? "Deactivate" : "Activate"}
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-7 mt-1 text-[11px]" onClick={() => duplicate(p)}>
-                      <Copy className="h-3 w-3 mr-1" />Duplicate
-                    </Button>
+                    {isAdmin && p.vendor_name && (
+                      <div className="mt-2 text-[11px] text-text-muted border-t border-border pt-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-text-secondary truncate"><span className="font-semibold">Vendor:</span> {p.vendor_name}</span>
+                          {p.uploaded_by_role && <span className="px-1.5 py-0.5 rounded bg-surface-2 capitalize">{p.uploaded_by_role}</span>}
+                        </div>
+                        {p.created_at && <p className="mt-0.5">Uploaded {new Date(p.created_at).toLocaleDateString()}</p>}
+                      </div>
+                    )}
+                    {isDropshipper ? (
+                      <div className="grid grid-cols-2 gap-1.5 mt-3">
+                        <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setDetailsFor(p)}><FileText className="h-3 w-3 mr-1" />View</Button>
+                        <Button size="sm" className="h-7 text-[11px] bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/create-order?product=${p.id}`)}><Package className="h-3 w-3 mr-1" />Sell</Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-1.5 mt-3">
+                          <Button size="sm" variant="outline" className="h-7 text-[11px] text-warning border-warning/30 hover:bg-warning-light" onClick={() => setVariantsFor(p)}><Tag className="h-3 w-3 mr-1" />Variants</Button>
+                          <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setDetailsFor(p)}><FileText className="h-3 w-3 mr-1" />Details</Button>
+                        </div>
+                        <Button size="sm" variant="outline" className="h-7 mt-1.5 text-[11px] text-primary border-primary/30 hover:bg-primary/10" onClick={() => setPriceReqFor(p)}>
+                          <IndianRupee className="h-3 w-3 mr-1" />Price Request
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 mt-1 text-[11px]" onClick={() => updateStatus(p, p.status === "active" ? "inactive" : "active")}>
+                          <Power className="h-3 w-3 mr-1" />{p.status === "active" ? "Deactivate" : "Activate"}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 mt-1 text-[11px]" onClick={() => duplicate(p)}>
+                          <Copy className="h-3 w-3 mr-1" />Duplicate
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
