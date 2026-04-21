@@ -22,9 +22,15 @@ export default function ProductsPage() {
   const { role, isDemoMode, userId } = useAuth();
   const { data, isLoading, refetch } = useSupplierProducts();
 
+  const isAdmin = role === "admin";
+  const isVendor = role === "vendor";
+  const isDropshipper = role === "dropshipper";
+  const canManage = isAdmin || isVendor; // dropshippers are read-only
+
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [vendorFilter, setVendorFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
   const [pageSize, setPageSize] = useState(12);
   const [page, setPage] = useState(1);
@@ -38,6 +44,11 @@ export default function ProductsPage() {
   const [bulkCategoryValue, setBulkCategoryValue] = useState("");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const categories = useMemo(() => Array.from(new Set(data.map(p => p.category).filter(Boolean))), [data]);
+  const vendors = useMemo(() => {
+    const map = new Map<string, string>();
+    data.forEach(p => { if (p.vendor_id) map.set(p.vendor_id, p.vendor_name || p.vendor_id.slice(0, 8)); });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [data]);
 
   const filtered = useMemo(() => {
     let arr = data.filter(p => {
