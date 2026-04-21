@@ -53,10 +53,11 @@ export default function ProductsPage() {
   const filtered = useMemo(() => {
     let arr = data.filter(p => {
       const q = search.toLowerCase();
-      const matchSearch = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.status.includes(q);
+      const matchSearch = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.status.includes(q) || (p.vendor_name || "").toLowerCase().includes(q);
       const matchCat = categoryFilter === "all" || p.category === categoryFilter;
       const matchStatus = statusFilter === "all" || p.status === statusFilter;
-      return matchSearch && matchCat && matchStatus;
+      const matchVendor = vendorFilter === "all" || p.vendor_id === vendorFilter;
+      return matchSearch && matchCat && matchStatus && matchVendor;
     });
     if (sortBy === "newest") arr = [...arr].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     if (sortBy === "oldest") arr = [...arr].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
@@ -64,7 +65,7 @@ export default function ProductsPage() {
     if (sortBy === "price-desc") arr = [...arr].sort((a, b) => b.selling_price - a.selling_price);
     if (sortBy === "name") arr = [...arr].sort((a, b) => a.name.localeCompare(b.name));
     return arr;
-  }, [data, search, categoryFilter, statusFilter, sortBy]);
+  }, [data, search, categoryFilter, statusFilter, vendorFilter, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageData = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -76,7 +77,7 @@ export default function ProductsPage() {
     inactive: data.filter(p => p.status === "inactive").length,
   }), [data]);
 
-  const resetFilters = () => { setSearch(""); setCategoryFilter("all"); setStatusFilter("all"); setSortBy("newest"); setPage(1); };
+  const resetFilters = () => { setSearch(""); setCategoryFilter("all"); setStatusFilter("all"); setVendorFilter("all"); setSortBy("newest"); setPage(1); };
 
   const updateStatus = async (p: SupplierProduct, status: SupplierProduct["status"]) => {
     if (isDemoMode) {
