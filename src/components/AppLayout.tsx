@@ -8,7 +8,7 @@ import { useState } from "react";
 import { notifications } from "@/data/mockData";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp
+  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
