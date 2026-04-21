@@ -357,6 +357,29 @@ export default function SourceProduct() {
         {step === "details" && (
           <>
             <h3 className="font-semibold text-text-primary border-b border-border pb-2">Basic Information</h3>
+            {role === "admin" && (
+              <div className="rounded-lg border border-warning/30 bg-warning-light/40 p-3">
+                <Label className="text-warning-dark">Assign to Vendor *</Label>
+                <Select value={vendorId} onValueChange={setVendorId}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select a vendor to own this product" /></SelectTrigger>
+                  <SelectContent>
+                    {vendorList.length === 0 && <SelectItem value="none" disabled>No vendors found</SelectItem>}
+                    {vendorList.map(v => (
+                      <SelectItem key={v.user_id} value={v.user_id}>
+                        {v.business_name || v.full_name} <span className="text-text-muted text-xs ml-1">({v.user_id.slice(0,8)})</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-text-muted mt-1">As an admin, you must assign every product to a vendor.</p>
+              </div>
+            )}
+            {role === "vendor" && (
+              <div className="rounded-lg border border-border bg-surface-2 p-3 text-sm">
+                <span className="text-text-muted">Owner:</span> <span className="font-semibold text-text-primary">{userName}</span>
+                <span className="text-text-muted text-xs ml-2">(auto-assigned)</span>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Label>Product Category *</Label>
