@@ -346,6 +346,8 @@ export type Database = {
           updated_at: string
           user_id: string | null
           variant_info: string | null
+          vendor_id: string | null
+          vendor_name: string | null
         }
         Insert: {
           admin_remark?: string | null
@@ -366,6 +368,8 @@ export type Database = {
           updated_at?: string
           user_id?: string | null
           variant_info?: string | null
+          vendor_id?: string | null
+          vendor_name?: string | null
         }
         Update: {
           admin_remark?: string | null
@@ -386,6 +390,8 @@ export type Database = {
           updated_at?: string
           user_id?: string | null
           variant_info?: string | null
+          vendor_id?: string | null
+          vendor_name?: string | null
         }
         Relationships: []
       }
@@ -496,7 +502,10 @@ export type Database = {
           tags: string[] | null
           unit: string | null
           updated_at: string
+          uploaded_by_role: Database["public"]["Enums"]["app_role"] | null
           user_id: string | null
+          vendor_id: string | null
+          vendor_name: string | null
           warranty: string | null
           weight: string | null
           width_cm: number | null
@@ -536,7 +545,10 @@ export type Database = {
           tags?: string[] | null
           unit?: string | null
           updated_at?: string
+          uploaded_by_role?: Database["public"]["Enums"]["app_role"] | null
           user_id?: string | null
+          vendor_id?: string | null
+          vendor_name?: string | null
           warranty?: string | null
           weight?: string | null
           width_cm?: number | null
@@ -576,7 +588,10 @@ export type Database = {
           tags?: string[] | null
           unit?: string | null
           updated_at?: string
+          uploaded_by_role?: Database["public"]["Enums"]["app_role"] | null
           user_id?: string | null
+          vendor_id?: string | null
+          vendor_name?: string | null
           warranty?: string | null
           weight?: string | null
           width_cm?: number | null

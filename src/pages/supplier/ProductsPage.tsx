@@ -22,9 +22,15 @@ export default function ProductsPage() {
   const { role, isDemoMode, userId } = useAuth();
   const { data, isLoading, refetch } = useSupplierProducts();
 
+  const isAdmin = role === "admin";
+  const isVendor = role === "vendor";
+  const isDropshipper = role === "dropshipper";
+  const canManage = isAdmin || isVendor; // dropshippers are read-only
+
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [vendorFilter, setVendorFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
   const [pageSize, setPageSize] = useState(12);
   const [page, setPage] = useState(1);
@@ -38,14 +44,20 @@ export default function ProductsPage() {
   const [bulkCategoryValue, setBulkCategoryValue] = useState("");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const categories = useMemo(() => Array.from(new Set(data.map(p => p.category).filter(Boolean))), [data]);
+  const vendors = useMemo(() => {
+    const map = new Map<string, string>();
+    data.forEach(p => { if (p.vendor_id) map.set(p.vendor_id, p.vendor_name || p.vendor_id.slice(0, 8)); });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [data]);
 
   const filtered = useMemo(() => {
     let arr = data.filter(p => {
       const q = search.toLowerCase();
-      const matchSearch = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.status.includes(q);
+      const matchSearch = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.status.includes(q) || (p.vendor_name || "").toLowerCase().includes(q);
       const matchCat = categoryFilter === "all" || p.category === categoryFilter;
       const matchStatus = statusFilter === "all" || p.status === statusFilter;
-      return matchSearch && matchCat && matchStatus;
+      const matchVendor = vendorFilter === "all" || p.vendor_id === vendorFilter;
+      return matchSearch && matchCat && matchStatus && matchVendor;
     });
     if (sortBy === "newest") arr = [...arr].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     if (sortBy === "oldest") arr = [...arr].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
@@ -53,7 +65,7 @@ export default function ProductsPage() {
     if (sortBy === "price-desc") arr = [...arr].sort((a, b) => b.selling_price - a.selling_price);
     if (sortBy === "name") arr = [...arr].sort((a, b) => a.name.localeCompare(b.name));
     return arr;
-  }, [data, search, categoryFilter, statusFilter, sortBy]);
+  }, [data, search, categoryFilter, statusFilter, vendorFilter, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageData = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -65,7 +77,7 @@ export default function ProductsPage() {
     inactive: data.filter(p => p.status === "inactive").length,
   }), [data]);
 
-  const resetFilters = () => { setSearch(""); setCategoryFilter("all"); setStatusFilter("all"); setSortBy("newest"); setPage(1); };
+  const resetFilters = () => { setSearch(""); setCategoryFilter("all"); setStatusFilter("all"); setVendorFilter("all"); setSortBy("newest"); setPage(1); };
 
   const updateStatus = async (p: SupplierProduct, status: SupplierProduct["status"]) => {
     if (isDemoMode) {
@@ -238,15 +250,19 @@ export default function ProductsPage() {
 
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="My Products" breadcrumb={[role.charAt(0).toUpperCase() + role.slice(1), "Products"]}
+      <PageHeader title={isAdmin ? "All Products" : isDropshipper ? "Product Catalog" : "My Products"} breadcrumb={[role.charAt(0).toUpperCase() + role.slice(1), "Products"]}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => navigate(`/${role}/bulk-upload-products`)}><Upload className="h-4 w-4 mr-2" />Bulk Upload</Button>
             <Button variant="outline" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
-            <Button variant="outline" onClick={() => navigate(`/${role}/products?status=trash`)}><Trash2 className="h-4 w-4 mr-2" />Trash</Button>
-            <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}>
-              <Plus className="h-4 w-4 mr-2" />Add Product
-            </Button>
+            {canManage && (
+              <>
+                <Button variant="outline" onClick={() => navigate(`/${role}/bulk-upload-products`)}><Upload className="h-4 w-4 mr-2" />Bulk Upload</Button>
+                <Button variant="outline" onClick={() => navigate(`/${role}/products?status=trash`)}><Trash2 className="h-4 w-4 mr-2" />Trash</Button>
+                <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}>
+                  <Plus className="h-4 w-4 mr-2" />Add Product
+                </Button>
+              </>
+            )}
           </div>
         }
       />
@@ -280,14 +296,25 @@ export default function ProductsPage() {
           <SelectTrigger className="w-[160px]"><SelectValue placeholder="Category" /></SelectTrigger>
           <SelectContent><SelectItem value="all">All Categories</SelectItem>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="active">Active</SelectItem><SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem><SelectItem value="pending">Pending</SelectItem>
-          </SelectContent>
-        </Select>
+        {isAdmin && (
+          <Select value={vendorFilter} onValueChange={v => { setVendorFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Vendor" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Vendors</SelectItem>
+              {vendors.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+        {!isDropshipper && (
+          <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="active">Active</SelectItem><SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="inactive">Inactive</SelectItem><SelectItem value="pending">Pending</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -314,19 +341,23 @@ export default function ProductsPage() {
           <p className="text-sm text-text-muted mt-1">Try adjusting your filters or add a new product.</p>
           <div className="flex gap-2 justify-center mt-4">
             <Button variant="outline" onClick={resetFilters}>Reset Filters</Button>
-            <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}><Plus className="h-4 w-4 mr-1" />Add Product</Button>
+            {canManage && (
+              <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}><Plus className="h-4 w-4 mr-1" />Add Product</Button>
+            )}
           </div>
         </div>
       ) : (
         <>
           {/* Select-all bar */}
-          <div className="flex items-center gap-3 mb-3 px-1 text-sm text-text-secondary">
-            <Checkbox checked={allOnPageSelected} onCheckedChange={togglePageAll} />
-            <span>{allOnPageSelected ? "Deselect" : "Select"} all on this page</span>
-            {selected.size > 0 && (
-              <button onClick={clearSelection} className="ml-auto text-xs text-primary hover:underline">Clear ({selected.size})</button>
-            )}
-          </div>
+          {canManage && (
+            <div className="flex items-center gap-3 mb-3 px-1 text-sm text-text-secondary">
+              <Checkbox checked={allOnPageSelected} onCheckedChange={togglePageAll} />
+              <span>{allOnPageSelected ? "Deselect" : "Select"} all on this page</span>
+              {selected.size > 0 && (
+                <button onClick={clearSelection} className="ml-auto text-xs text-primary hover:underline">Clear ({selected.size})</button>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {pageData.map(p => {
               const img = p.images[p.primary_image_index] || p.images[0];
@@ -336,15 +367,21 @@ export default function ProductsPage() {
                   <div className="relative aspect-square bg-surface-2 flex items-center justify-center">
                     {img ? <img src={img} alt={p.name} className="w-full h-full object-cover" /> : <Package className="h-10 w-10 text-text-muted" />}
                     <div className="absolute top-2 left-2 flex items-center gap-2">
-                      <div className={cn("h-6 w-6 rounded bg-card border border-border flex items-center justify-center transition-opacity", isSel ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
-                        <Checkbox checked={isSel} onCheckedChange={() => toggleOne(p.id)} />
-                      </div>
+                      {canManage && (
+                        <div className={cn("h-6 w-6 rounded bg-card border border-border flex items-center justify-center transition-opacity", isSel ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
+                          <Checkbox checked={isSel} onCheckedChange={() => toggleOne(p.id)} />
+                        </div>
+                      )}
                       <ProductStatusBadge status={p.status} />
                     </div>
                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => { sessionStorage.setItem("product_preview", JSON.stringify({ ...p, tags: p.tags || [], variants: [] })); window.open("/product-preview", "_blank", "noopener"); }} title="Preview" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Eye className="h-3 w-3" /></button>
-                      <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
-                      <button onClick={() => setConfirmDelete(p)} title="Delete" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-danger hover:text-white"><Trash2 className="h-3 w-3" /></button>
+                      {canManage && (
+                        <>
+                          <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
+                          <button onClick={() => setConfirmDelete(p)} title="Delete" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-danger hover:text-white"><Trash2 className="h-3 w-3" /></button>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="p-3 flex flex-col flex-1">
@@ -354,19 +391,37 @@ export default function ProductsPage() {
                       <span className="font-mono">{p.sku || "—"}</span>
                       <span>{p.brand || "Self"}</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5 mt-3">
-                      <Button size="sm" variant="outline" className="h-7 text-[11px] text-warning border-warning/30 hover:bg-warning-light" onClick={() => setVariantsFor(p)}><Tag className="h-3 w-3 mr-1" />Variants</Button>
-                      <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setDetailsFor(p)}><FileText className="h-3 w-3 mr-1" />Details</Button>
-                    </div>
-                    <Button size="sm" variant="outline" className="h-7 mt-1.5 text-[11px] text-primary border-primary/30 hover:bg-primary/10" onClick={() => setPriceReqFor(p)}>
-                      <IndianRupee className="h-3 w-3 mr-1" />Price Request
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-7 mt-1 text-[11px]" onClick={() => updateStatus(p, p.status === "active" ? "inactive" : "active")}>
-                      <Power className="h-3 w-3 mr-1" />{p.status === "active" ? "Deactivate" : "Activate"}
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-7 mt-1 text-[11px]" onClick={() => duplicate(p)}>
-                      <Copy className="h-3 w-3 mr-1" />Duplicate
-                    </Button>
+                    {isAdmin && p.vendor_name && (
+                      <div className="mt-2 text-[11px] text-text-muted border-t border-border pt-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-text-secondary truncate"><span className="font-semibold">Vendor:</span> {p.vendor_name}</span>
+                          {p.uploaded_by_role && <span className="px-1.5 py-0.5 rounded bg-surface-2 capitalize">{p.uploaded_by_role}</span>}
+                        </div>
+                        {p.created_at && <p className="mt-0.5">Uploaded {new Date(p.created_at).toLocaleDateString()}</p>}
+                      </div>
+                    )}
+                    {isDropshipper ? (
+                      <div className="grid grid-cols-2 gap-1.5 mt-3">
+                        <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setDetailsFor(p)}><FileText className="h-3 w-3 mr-1" />View</Button>
+                        <Button size="sm" className="h-7 text-[11px] bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/create-order?product=${p.id}`)}><Package className="h-3 w-3 mr-1" />Sell</Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-1.5 mt-3">
+                          <Button size="sm" variant="outline" className="h-7 text-[11px] text-warning border-warning/30 hover:bg-warning-light" onClick={() => setVariantsFor(p)}><Tag className="h-3 w-3 mr-1" />Variants</Button>
+                          <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setDetailsFor(p)}><FileText className="h-3 w-3 mr-1" />Details</Button>
+                        </div>
+                        <Button size="sm" variant="outline" className="h-7 mt-1.5 text-[11px] text-primary border-primary/30 hover:bg-primary/10" onClick={() => setPriceReqFor(p)}>
+                          <IndianRupee className="h-3 w-3 mr-1" />Price Request
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 mt-1 text-[11px]" onClick={() => updateStatus(p, p.status === "active" ? "inactive" : "active")}>
+                          <Power className="h-3 w-3 mr-1" />{p.status === "active" ? "Deactivate" : "Activate"}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 mt-1 text-[11px]" onClick={() => duplicate(p)}>
+                          <Copy className="h-3 w-3 mr-1" />Duplicate
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
