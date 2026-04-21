@@ -50,13 +50,35 @@ export default function SourceProduct() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const editId = params.get("id");
-  const { role, userId, isDemoMode } = useAuth();
+  const { role, userId, userName, isDemoMode } = useAuth();
   const [step, setStep] = useState<StepKey>("details");
   const [form, setForm] = useState(emptyForm);
   const [variants, setVariants] = useState<Variant[]>([]);
   const [variantGroups, setVariantGroups] = useState<{ name: string; values: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [vendorId, setVendorId] = useState<string>("");
+  const [vendorList, setVendorList] = useState<{ user_id: string; full_name: string; business_name: string | null }[]>([]);
+
+  // Block dropshippers from this page entirely
+  useEffect(() => {
+    if (role === "dropshipper") {
+      toast.error("Dropshippers cannot create products");
+      navigate(`/${role}/products`, { replace: true });
+    }
+  }, [role, navigate]);
+
+  // Admin: load vendor list for selection
+  useEffect(() => {
+    if (role !== "admin" || isDemoMode) return;
+    (async () => {
+      const { data: roles } = await supabase.from("user_roles").select("user_id").eq("role", "vendor");
+      const ids = (roles || []).map(r => r.user_id);
+      if (!ids.length) return;
+      const { data: profs } = await supabase.from("profiles").select("user_id, full_name, business_name").in("user_id", ids);
+      setVendorList((profs || []) as any);
+    })();
+  }, [role, isDemoMode]);
 
   // Load existing product if editing
   useEffect(() => {
@@ -204,8 +226,26 @@ export default function SourceProduct() {
   // Save
   const save = async (status: "draft" | "active") => {
     if (!validate(status === "active")) return;
+    // Admin must pick a vendor
+    if (role === "admin" && !vendorId) {
+      toast.error("Please select a vendor for this product");
+      setStep("details");
+      return;
+    }
     setSaving(true);
     try {
+      // Determine vendor binding
+      let finalVendorId: string | null = null;
+      let finalVendorName: string | null = null;
+      if (role === "vendor") {
+        finalVendorId = userId;
+        finalVendorName = userName || null;
+      } else if (role === "admin") {
+        finalVendorId = vendorId;
+        const v = vendorList.find(x => x.user_id === vendorId);
+        finalVendorName = v?.business_name || v?.full_name || null;
+      }
+
       const payload = {
         name: form.name, sku: form.sku || null, category: form.category || null, brand: form.brand || null,
         short_description: form.short_description || null, long_description: form.long_description || null,
@@ -226,6 +266,9 @@ export default function SourceProduct() {
         internal_notes: form.internal_notes || null,
         dimensions: [form.length_cm, form.width_cm, form.height_cm].filter(Boolean).join("x") || null,
         user_id: userId,
+        vendor_id: finalVendorId,
+        vendor_name: finalVendorName,
+        uploaded_by_role: role,
       };
 
       if (isDemoMode) {
