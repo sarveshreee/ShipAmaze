@@ -14,9 +14,9 @@ export const MARKETPLACE_CATEGORIES = [
   { slug: "kids", name: "Kids", emoji: "🧸" },
 ];
 
-// Use Unsplash keyword search so each image actually matches the product topic.
+// Use Loremflickr — deterministic keyword-matched images that reliably load (unlike source.unsplash.com which now redirects/blocks hotlinking).
 const img = (keywords: string, seed: number) =>
-  `https://source.unsplash.com/600x600/?${encodeURIComponent(keywords)}&sig=${seed}`;
+  `https://loremflickr.com/600/600/${encodeURIComponent(keywords.replace(/,/g, "/"))}?lock=${seed}`;
 
 type Seed = { name: string; keywords: string; price: number };
 
