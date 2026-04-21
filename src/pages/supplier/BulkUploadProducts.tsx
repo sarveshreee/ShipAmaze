@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -56,7 +56,15 @@ interface ParsedRow {
 
 export default function BulkUploadProducts() {
   const navigate = useNavigate();
-  const { role, userId, isDemoMode } = useAuth();
+  const { role, userId, userName, isDemoMode } = useAuth();
+
+  // Block dropshippers
+  useEffect(() => {
+    if (role === "dropshipper") {
+      toast.error("Dropshippers cannot upload products");
+      navigate(`/${role}/products`, { replace: true });
+    }
+  }, [role, navigate]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState("");
