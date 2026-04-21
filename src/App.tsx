@@ -84,7 +84,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/store" element={<ShopifyStore />} />
-      <Route path="/login" element={isAuthenticated ? <Navigate to={`/${role}`} replace /> : <LoginPage />} />
+      <Route path="/login" element={isAuthenticated ? <Navigate to={role === "dropshipper" ? "/dropshipper/home" : `/${role}`} replace /> : <LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/track" element={<PublicTracking />} />
       <Route path="/order-detail" element={<PublicOrderDetail />} />
