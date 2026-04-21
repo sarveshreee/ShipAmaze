@@ -64,6 +64,10 @@ import ProductsPage from "@/pages/supplier/ProductsPage";
 import NewProductRequest from "@/pages/supplier/NewProductRequest";
 import BulkUploadProducts from "@/pages/supplier/BulkUploadProducts";
 
+// Marketplace (Home)
+import MarketplaceHome from "@/pages/marketplace/MarketplaceHome";
+import MarketplaceProductDetail from "@/pages/marketplace/MarketplaceProductDetail";
+
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -142,6 +146,14 @@ function AppRoutes() {
       ))}
       {(["admin","vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-bulk-products`} path={`/${r}/bulk-upload-products`} element={<ProtectedRoute><BulkUploadProducts /></ProtectedRoute>} />
+      ))}
+
+      {/* Marketplace Home — available across roles */}
+      {(["admin","vendor","dropshipper"] as const).map(r => (
+        <Route key={`${r}-home`} path={`/${r}/home`} element={<ProtectedRoute><MarketplaceHome /></ProtectedRoute>} />
+      ))}
+      {(["admin","vendor","dropshipper"] as const).map(r => (
+        <Route key={`${r}-home-pdp`} path={`/${r}/home/product/:id`} element={<ProtectedRoute><MarketplaceProductDetail /></ProtectedRoute>} />
       ))}
 
       <Route path="/" element={<Navigate to="/login" replace />} />
