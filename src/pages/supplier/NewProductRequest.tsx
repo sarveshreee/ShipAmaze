@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,13 +21,21 @@ const empty = {
 };
 
 export default function NewProductRequest() {
-  const { role, userId, isDemoMode } = useAuth();
+  const navigate = useNavigate();
+  const { role, userId, userName, isDemoMode } = useAuth();
   const { data, isLoading, refetch } = useProductRequests();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ProductRequest | null>(null);
   const [viewing, setViewing] = useState<ProductRequest | null>(null);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (role === "dropshipper") {
+      toast.error("Dropshippers cannot create product requests");
+      navigate(`/${role}/products`, { replace: true });
+    }
+  }, [role, navigate]);
 
   const reset = () => { setForm(empty); setEditing(null); };
   const openCreate = () => { reset(); setOpen(true); };
