@@ -280,6 +280,7 @@ interface Props {
   onToggleSidebar?: () => void;
   showProcessSelected?: boolean;
   showMoveTo?: boolean;
+  showLockedMoveTo?: boolean;
   showStatusColumn?: boolean;
   statusFilter?: string;
   onStatusFilterChange?: (s: string) => void;
@@ -305,7 +306,7 @@ function ShippingStatusBadge({ status }: { status: string }) {
   );
 }
 
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showStatusColumn = false, statusFilter = "all", onStatusFilterChange }: Props) {
+export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showLockedMoveTo = false, showStatusColumn = false, statusFilter = "all", onStatusFilterChange }: Props) {
   const navigate = useNavigate();
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
