@@ -683,6 +683,9 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
                 <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[160px]">Courier Details</th>
               )}
+              {showStatusColumn && (
+                <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[140px]">Status</th>
+              )}
               <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[120px]">Remarks</th>
               <th className="p-3 text-center font-medium text-text-secondary min-w-[130px]">Action</th>
             </tr>
