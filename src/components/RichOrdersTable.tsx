@@ -381,6 +381,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
     if (customerFilter.city) {
       if ((o.city || "").toLowerCase() !== customerFilter.city.toLowerCase()) return false;
     }
+    // Status column filter (only applies in All / Channel / Manual)
+    if (showStatusColumn && statusFilter && statusFilter !== "all") {
+      if ((o as any).status !== statusFilter) return false;
+    }
     return true;
   });
 
