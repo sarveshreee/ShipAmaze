@@ -950,7 +950,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                           </Button>
                         </div>
                       )}
-                      {activeTab === "junk" ? null : activeTab === "reship" ? (
+                      {viewOnly ? null : activeTab === "junk" ? null : activeTab === "reship" ? (
                         <div className="flex gap-1.5">
                           <Button variant="outline" size="sm"
                             className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
