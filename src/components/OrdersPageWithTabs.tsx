@@ -248,6 +248,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           showStatusColumn={showStatusColumn}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
+          viewOnly={isDropshipper}
         />
       )}
 
