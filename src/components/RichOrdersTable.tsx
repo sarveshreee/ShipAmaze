@@ -484,6 +484,17 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                 <Truck className="h-3.5 w-3.5" /> Move To
               </Button>
             )}
+            {showLockedMoveTo && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled
+                title="Admin permission required to process orders"
+                className="h-8 text-xs gap-1.5 opacity-60 cursor-not-allowed"
+              >
+                <Truck className="h-3.5 w-3.5" /> Move To
+              </Button>
+            )}
             {showProcessSelected && (
               <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onOpenProcessModal}>
                 <CheckSquare className="h-3.5 w-3.5" /> Process Selected
