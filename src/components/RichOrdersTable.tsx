@@ -893,7 +893,13 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     </td>
                   )}
 
-                  {/* Remarks */}
+                  {/* Status (conditional - only on All / Channel / Manual) */}
+                  {showStatusColumn && (
+                    <td className="p-3 align-middle">
+                      <ShippingStatusBadge status={(o as any).status} />
+                    </td>
+                  )}
+
                   <td className="p-3">
                     <div className="relative min-h-[40px]">
                       <button className="absolute top-0 right-0 p-1 rounded hover:bg-primary-light transition-colors" onClick={() => setEditingRemark(editingRemark === o.id ? null : o.id)}>
