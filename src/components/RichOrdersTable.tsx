@@ -280,6 +280,7 @@ interface Props {
   onToggleSidebar?: () => void;
   showProcessSelected?: boolean;
   showMoveTo?: boolean;
+  showLockedMoveTo?: boolean;
   showStatusColumn?: boolean;
   statusFilter?: string;
   onStatusFilterChange?: (s: string) => void;
@@ -305,7 +306,7 @@ function ShippingStatusBadge({ status }: { status: string }) {
   );
 }
 
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showStatusColumn = false, statusFilter = "all", onStatusFilterChange }: Props) {
+export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showLockedMoveTo = false, showStatusColumn = false, statusFilter = "all", onStatusFilterChange }: Props) {
   const navigate = useNavigate();
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
@@ -480,6 +481,17 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
           <div className="ml-auto flex items-center gap-2">
             {showMoveTo && (
               <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary-light" onClick={onOpenMoveTo}>
+                <Truck className="h-3.5 w-3.5" /> Move To
+              </Button>
+            )}
+            {showLockedMoveTo && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled
+                title="Admin permission required to process orders"
+                className="h-8 text-xs gap-1.5 opacity-60 cursor-not-allowed"
+              >
                 <Truck className="h-3.5 w-3.5" /> Move To
               </Button>
             )}

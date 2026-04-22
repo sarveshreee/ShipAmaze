@@ -63,6 +63,7 @@ const vendorNav: NavGroup[] = [
   ]},
   { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders", tabKey: "orders" }] },
   { title: "CATALOGUE", items: [{ label: "Catalogue", icon: ShoppingBag, path: "/vendor/catalogue", tabKey: "catalogue" }] },
+  { title: "FINANCE", items: [{ label: "Payouts", icon: Wallet, path: "/vendor/payouts", tabKey: "payouts" }] },
   { title: "TEAM", items: [{ label: "Team", icon: Users2, path: "/vendor/team", tabKey: "team" }] },
   { title: "", items: [{ label: "Settings", icon: Settings, path: "/vendor/settings", tabKey: "settings" }] },
 ];

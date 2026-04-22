@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, AlertTriangle } from "lucide-react";
+import { getAllowedTargets } from "@/hooks/usePermissions";
 
 export const MOVABLE_STATUSES = [
   { value: "ready-to-ship", label: "Ready to Ship" },
@@ -19,9 +20,11 @@ interface Props {
   selectedCount: number;
   currentStatusSummary: { status: string; count: number }[];
   onConfirm: (newStatus: string) => void;
+  isAdmin?: boolean;
+  activeTab?: string;
 }
 
-export function MoveToModal({ open, onClose, selectedCount, currentStatusSummary, onConfirm }: Props) {
+export function MoveToModal({ open, onClose, selectedCount, currentStatusSummary, onConfirm, isAdmin = false, activeTab }: Props) {
   const [target, setTarget] = useState<string>("");
 
   useEffect(() => {
@@ -29,6 +32,20 @@ export function MoveToModal({ open, onClose, selectedCount, currentStatusSummary
   }, [open]);
 
   const labelFor = (s: string) => MOVABLE_STATUSES.find(m => m.value === s)?.label || s;
+
+  // Validate uniformity: all selected orders should be in the same stage (for non-admins)
+  const uniqueStatuses = currentStatusSummary.map(s => s.status);
+  const hasMixedStatuses = uniqueStatuses.length > 1;
+  const dominantStatus = uniqueStatuses[0] || activeTab || "";
+
+  const allowedTargets = useMemo(() => {
+    if (isAdmin) return [...MOVABLE_STATUSES];
+    if (hasMixedStatuses || !dominantStatus) return [];
+    return getAllowedTargets(dominantStatus, false, [...MOVABLE_STATUSES]);
+  }, [isAdmin, hasMixedStatuses, dominantStatus]);
+
+  const blocked = !isAdmin && hasMixedStatuses;
+  const noTransitions = !isAdmin && !hasMixedStatuses && allowedTargets.length === 0;
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -57,30 +74,55 @@ export function MoveToModal({ open, onClose, selectedCount, currentStatusSummary
             )}
           </div>
 
-          <div>
-            <Label className="text-sm font-medium">Move To</Label>
-            <Select value={target} onValueChange={setTarget}>
-              <SelectTrigger className="mt-1.5">
-                <SelectValue placeholder="Select destination status" />
-              </SelectTrigger>
-              <SelectContent>
-                {MOVABLE_STATUSES.map(s => (
-                  <SelectItem key={s.value} value={s.value}>
-                    <span className="flex items-center gap-2">
-                      <ArrowRight className="h-3.5 w-3.5 text-primary" />
-                      {s.label}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {blocked && (
+            <div className="flex gap-2 rounded-lg border border-warning/40 bg-warning-light/40 p-3 text-sm">
+              <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+              <p className="text-text-primary">
+                Selected orders belong to different stages. Please select valid orders from the same processing stage.
+              </p>
+            </div>
+          )}
+
+          {noTransitions && (
+            <div className="flex gap-2 rounded-lg border border-warning/40 bg-warning-light/40 p-3 text-sm">
+              <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+              <p className="text-text-primary">
+                No valid forward transitions available for this stage. Contact admin for special handling.
+              </p>
+            </div>
+          )}
+
+          {!blocked && !noTransitions && (
+            <div>
+              <Label className="text-sm font-medium">Move To</Label>
+              <Select value={target} onValueChange={setTarget}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Select destination status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allowedTargets.map(s => (
+                    <SelectItem key={s.value} value={s.value}>
+                      <span className="flex items-center gap-2">
+                        <ArrowRight className="h-3.5 w-3.5 text-primary" />
+                        {s.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!isAdmin && (
+                <p className="mt-1.5 text-xs text-text-muted">
+                  Showing valid forward transitions from <span className="font-medium">{labelFor(dominantStatus)}</span>.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button
-            disabled={!target || selectedCount === 0}
+            disabled={!target || selectedCount === 0 || blocked || noTransitions}
             className="bg-primary text-primary-foreground hover:bg-primary-dark"
             onClick={() => target && onConfirm(target)}
           >
