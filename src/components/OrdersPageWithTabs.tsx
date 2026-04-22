@@ -237,6 +237,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onToggleSidebar={() => window.dispatchEvent(new Event('toggle-sidebar'))}
           showProcessSelected={showProcessSelected}
           showMoveTo={showMoveTo}
+          showLockedMoveTo={showLockedMoveTo}
           showStatusColumn={showStatusColumn}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
