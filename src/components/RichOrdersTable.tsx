@@ -471,7 +471,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   return (
     <div className="rounded-lg bg-card border border-border overflow-hidden">
       {/* Action bar when orders are selected */}
-      {selected.size > 0 && (
+      {selected.size > 0 && !viewOnly && (
         <div className="flex items-center gap-3 px-4 py-3 bg-surface-2/80 border-b border-border flex-wrap">
           <button onClick={onToggleSidebar} className="p-1.5 rounded-md hover:bg-surface-2 transition-colors" title="Enlarge to full screen">
             <Monitor className="h-4 w-4 text-primary" />
