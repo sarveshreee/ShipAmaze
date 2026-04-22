@@ -471,16 +471,23 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
       {/* Action bar when orders are selected */}
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-3 bg-surface-2/80 border-b border-border flex-wrap">
-          <button onClick={onToggleSidebar} className="p-1.5 rounded-md hover:bg-surface-2 transition-colors" title="Toggle sidebar">
+          <button onClick={onToggleSidebar} className="p-1.5 rounded-md hover:bg-surface-2 transition-colors" title="Enlarge to full screen">
             <Monitor className="h-4 w-4 text-primary" />
           </button>
           <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
             <span>Count Order: <strong>{selected.size}</strong></span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onOpenProcessModal}>
-              <CheckSquare className="h-3.5 w-3.5" /> Process Selected
-            </Button>
+            {showMoveTo && (
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary-light" onClick={onOpenMoveTo}>
+                <Truck className="h-3.5 w-3.5" /> Move To
+              </Button>
+            )}
+            {showProcessSelected && (
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onOpenProcessModal}>
+                <CheckSquare className="h-3.5 w-3.5" /> Process Selected
+              </Button>
+            )}
             <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark" onClick={onBulkJunk}>
               <Trash2 className="h-3.5 w-3.5" /> Bulk Junk
             </Button>
