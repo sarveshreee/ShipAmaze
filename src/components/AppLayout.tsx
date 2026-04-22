@@ -69,10 +69,7 @@ const vendorNav: NavGroup[] = [
 
 const dropshipperNav: NavGroup[] = [
   { title: "MARKETPLACE", items: [{ label: "Home", icon: Home, path: "/dropshipper/home", tabKey: "home" }] },
-  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/dropshipper", tabKey: "dashboard" }] },
-  { title: "CATALOG", items: [
-    { label: "Browse Products", icon: ShoppingBag, path: "/dropshipper/products", tabKey: "products" },
-  ]},
+  { title: "OVERVIEW", items: [{ label: "Analytics", icon: LayoutDashboard, path: "/dropshipper", tabKey: "dashboard" }] },
   { title: "ORDERS", items: [
     { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", children: [
       { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", shortcut: "G+O" },
@@ -169,21 +166,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
           {nav.map((group, gi) => (
             <div key={gi}>
-              {group.title && (() => {
-                const groupChildPaths = group.items.flatMap(item => {
-                  const children = (item as any).children as NavItem[] | undefined;
-                  return children ? children.map(c => c.path) : [item.path];
-                });
-                const groupActive = groupChildPaths.some(p => location.pathname === p);
-                return (
-                  <p className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-wider font-bold text-sidebar-foreground" style={{ opacity: 1, fontWeight: 700 }}>
-                    {group.title}
-                  </p>
-                );
-              })()}
+              {group.title && (
+                <p className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider font-semibold text-sidebar-foreground/60">
+                  {group.title}
+                </p>
+              )}
               {group.items.map(item => {
                 const hasChildren = !!(item as any).children?.length;
                 const children = (item as any).children as NavItem[] | undefined;
