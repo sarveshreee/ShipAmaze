@@ -59,18 +59,19 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const showStatusColumn = STATUS_FILTER_TABS.has(activeTab);
   const isAdmin = role === "admin";
+  const isDropshipper = role === "dropshipper";
 
   // Operational processing actions are restricted to specific tabs
   const PROCESS_TABS = new Set(["ready-to-ship", "pending-pickup", "in-transit", "out-for-delivery"]);
   const tabAllowsProcessing = PROCESS_TABS.has(activeTab);
 
-  // Process Selected: admin only
-  const showProcessSelected = isAdmin && tabAllowsProcessing;
+  // Process Selected: admin only (never dropshipper)
+  const showProcessSelected = isAdmin && tabAllowsProcessing && !isDropshipper;
 
-  // Move To: admin always (in valid tabs); vendor/dropshipper only if permission granted
-  const canMove = isAdmin || perms.canSelfProcessOrders;
+  // Move To: admin always (in valid tabs); vendor only if permission granted. Dropshipper: never.
+  const canMove = !isDropshipper && (isAdmin || perms.canSelfProcessOrders);
   const showMoveTo = tabAllowsProcessing && canMove;
-  const showLockedMoveTo = tabAllowsProcessing && !canMove && !isAdmin;
+  const showLockedMoveTo = false; // Dropshipper sees nothing, not even disabled state
 
   const filterByTab = (o: Order, tab: string) => {
     const status = (o as any).status;
