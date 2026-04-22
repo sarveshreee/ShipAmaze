@@ -262,6 +262,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         selectedCount={selected.size}
         currentStatusSummary={selectedSummary}
         onConfirm={handleMoveTo}
+        isAdmin={isAdmin}
+        activeTab={activeTab}
       />
     </div>
   );
