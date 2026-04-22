@@ -59,19 +59,18 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const showStatusColumn = STATUS_FILTER_TABS.has(activeTab);
   const isAdmin = role === "admin";
-  const isDropshipper = role === "dropshipper";
 
   // Operational processing actions are restricted to specific tabs
   const PROCESS_TABS = new Set(["ready-to-ship", "pending-pickup", "in-transit", "out-for-delivery"]);
   const tabAllowsProcessing = PROCESS_TABS.has(activeTab);
 
-  // Process Selected: admin only (never dropshipper)
-  const showProcessSelected = isAdmin && tabAllowsProcessing && !isDropshipper;
+  // Process Selected: admin only
+  const showProcessSelected = isAdmin && tabAllowsProcessing;
 
-  // Move To: admin always (in valid tabs); vendor only if permission granted. Dropshipper: never.
-  const canMove = !isDropshipper && (isAdmin || perms.canSelfProcessOrders);
+  // Move To: admin always (in valid tabs); vendor/dropshipper only if permission granted
+  const canMove = isAdmin || perms.canSelfProcessOrders;
   const showMoveTo = tabAllowsProcessing && canMove;
-  const showLockedMoveTo = false; // Dropshipper sees nothing, not even disabled state
+  const showLockedMoveTo = tabAllowsProcessing && !canMove && !isAdmin;
 
   const filterByTab = (o: Order, tab: string) => {
     const status = (o as any).status;
@@ -178,12 +177,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         }
       />
 
-      {isDropshipper && (
-        <div className="mb-3 rounded-md border border-border bg-surface-2/40 px-3 py-2 text-xs text-text-secondary">
-          This panel is view-only. Order processing is handled by Admin/Vendor.
-        </div>
-      )}
-
       {/* Status tabs */}
       <div className="flex gap-1 overflow-x-auto pb-2 mb-4 border-b border-border -mx-4 px-4 lg:mx-0 lg:px-0">
         {tabs.map(tab => (
@@ -248,7 +241,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           showStatusColumn={showStatusColumn}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
-          viewOnly={isDropshipper}
         />
       )}
 
