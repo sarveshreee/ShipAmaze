@@ -273,13 +273,39 @@ interface Props {
   onMarkJunk: (id: string) => void;
   onBulkJunk?: () => void;
   onOpenProcessModal?: () => void;
+  onOpenMoveTo?: () => void;
   onExport?: () => void;
   loading: boolean;
   activeTab?: string;
   onToggleSidebar?: () => void;
+  showProcessSelected?: boolean;
+  showMoveTo?: boolean;
+  showStatusColumn?: boolean;
+  statusFilter?: string;
+  onStatusFilterChange?: (s: string) => void;
 }
 
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onExport, loading, activeTab, onToggleSidebar }: Props) {
+const SHIPPING_STATUS_OPTIONS = [
+  { value: "ready-to-ship", label: "Ready to Ship", cls: "bg-green-50 text-green-700 border-green-200" },
+  { value: "pending-pickup", label: "Pending Pickup", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  { value: "in-transit", label: "In Transit", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  { value: "out-for-delivery", label: "Out for Delivery", cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  { value: "delivered", label: "Delivered", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+];
+
+function ShippingStatusBadge({ status }: { status: string }) {
+  const opt = SHIPPING_STATUS_OPTIONS.find(o => o.value === status);
+  if (!opt) {
+    return <span className="inline-flex items-center rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-text-secondary">—</span>;
+  }
+  return (
+    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", opt.cls)}>
+      {opt.label}
+    </span>
+  );
+}
+
+export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showStatusColumn = false, statusFilter = "all", onStatusFilterChange }: Props) {
   const navigate = useNavigate();
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
@@ -354,6 +380,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
     }
     if (customerFilter.city) {
       if ((o.city || "").toLowerCase() !== customerFilter.city.toLowerCase()) return false;
+    }
+    // Status column filter (only applies in All / Channel / Manual)
+    if (showStatusColumn && statusFilter && statusFilter !== "all") {
+      if ((o as any).status !== statusFilter) return false;
     }
     return true;
   });
@@ -441,16 +471,23 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
       {/* Action bar when orders are selected */}
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-3 bg-surface-2/80 border-b border-border flex-wrap">
-          <button onClick={onToggleSidebar} className="p-1.5 rounded-md hover:bg-surface-2 transition-colors" title="Toggle sidebar">
+          <button onClick={onToggleSidebar} className="p-1.5 rounded-md hover:bg-surface-2 transition-colors" title="Enlarge to full screen">
             <Monitor className="h-4 w-4 text-primary" />
           </button>
           <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
             <span>Count Order: <strong>{selected.size}</strong></span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onOpenProcessModal}>
-              <CheckSquare className="h-3.5 w-3.5" /> Process Selected
-            </Button>
+            {showMoveTo && (
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary-light" onClick={onOpenMoveTo}>
+                <Truck className="h-3.5 w-3.5" /> Move To
+              </Button>
+            )}
+            {showProcessSelected && (
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onOpenProcessModal}>
+                <CheckSquare className="h-3.5 w-3.5" /> Process Selected
+              </Button>
+            )}
             <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark" onClick={onBulkJunk}>
               <Trash2 className="h-3.5 w-3.5" /> Bulk Junk
             </Button>
@@ -645,6 +682,9 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               </th>
               {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
                 <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[160px]">Courier Details</th>
+              )}
+              {showStatusColumn && (
+                <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[140px]">Status</th>
               )}
               <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[120px]">Remarks</th>
               <th className="p-3 text-center font-medium text-text-secondary min-w-[130px]">Action</th>
@@ -853,7 +893,13 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     </td>
                   )}
 
-                  {/* Remarks */}
+                  {/* Status (conditional - only on All / Channel / Manual) */}
+                  {showStatusColumn && (
+                    <td className="p-3 align-middle">
+                      <ShippingStatusBadge status={(o as any).status} />
+                    </td>
+                  )}
+
                   <td className="p-3">
                     <div className="relative min-h-[40px]">
                       <button className="absolute top-0 right-0 p-1 rounded hover:bg-primary-light transition-colors" onClick={() => setEditingRemark(editingRemark === o.id ? null : o.id)}>

@@ -1,22 +1,23 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { OrderDetailDrawer } from "@/components/OrderDetailDrawer";
 import { OrderCardList } from "@/components/OrderCardList";
-import { TableSkeleton, OrderCardSkeleton } from "@/components/SkeletonLoaders";
+import { OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
 import { RichOrdersTable } from "@/components/RichOrdersTable";
+import { MoveToModal, MOVABLE_STATUSES } from "@/components/MoveToModal";
 import { useOrders } from "@/hooks/useSupabaseData";
-import { type OrderStatus, type Order } from "@/data/mockData";
+import { type Order } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Download, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
-import { printShippingLabel, printBulkLabels } from "@/components/ShippingLabel";
 import { downloadCSV } from "@/lib/exportUtils";
+import { useAuth } from "@/contexts/AuthContext";
 
 const tabs: { label: string; filter: string }[] = [
   { label: "All", filter: "all" },
@@ -32,21 +33,31 @@ const tabs: { label: string; filter: string }[] = [
   { label: "Junk", filter: "junk" },
 ];
 
+const STATUS_FILTER_TABS = new Set(["all", "channel", "manual"]);
+
 interface Props {
   breadcrumbPrefix: string;
   showActions?: boolean;
   showChannelView?: boolean;
 }
 
-export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = true, showChannelView = false }: Props) {
+export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = true }: Props) {
   const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [processModalOpen, setProcessModalOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const isMobile = useIsMobile();
   const { data: orders = [], isLoading: loading, refetch } = useOrders();
+  const { role } = useAuth();
+
+  const showStatusColumn = STATUS_FILTER_TABS.has(activeTab);
+  const isAdmin = role === "admin";
+  const showProcessSelected = isAdmin;
+  const showMoveTo = !isAdmin; // dropshipper + vendor
 
   const filterByTab = (o: Order, tab: string) => {
     const status = (o as any).status;
@@ -78,6 +89,17 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
   const targetStatusFor = (o: any) => (o && o.courier ? "reship" : "junk");
 
+  const selectedSummary = useMemo(() => {
+    const map = new Map<string, number>();
+    filtered.forEach(o => {
+      if (selected.has(o.id)) {
+        const s = (o as any).status || "unknown";
+        map.set(s, (map.get(s) || 0) + 1);
+      }
+    });
+    return Array.from(map.entries()).map(([status, count]) => ({ status, count }));
+  }, [filtered, selected]);
+
   const handleMarkJunk = (id: string) => {
     const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
     const updated = stored.map((o: any) => {
@@ -107,6 +129,23 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     refetch();
   };
 
+  const handleMoveTo = (newStatus: string) => {
+    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
+    const selectedIds = Array.from(selected);
+    const updated = stored.map((o: any) => {
+      if (selectedIds.includes(o.id) || selectedIds.includes(o.orderId) || selectedIds.includes(o.order_id)) {
+        return { ...o, status: newStatus, picked_up: newStatus !== "ready-to-ship" ? true : o.picked_up };
+      }
+      return o;
+    });
+    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+    const label = MOVABLE_STATUSES.find(m => m.value === newStatus)?.label || newStatus;
+    toast.success(`${selected.size} order(s) moved to ${label}`);
+    setSelected(new Set());
+    setMoveOpen(false);
+    refetch();
+  };
+
   const handleExport = () => {
     const data = selected.size > 0 ? filtered.filter(o => selected.has(o.id)) : filtered;
     downloadCSV("orders_export", ["ID","Customer","City","Status","Payment","Amount","Date","AWB","Courier"], data.map(o => [o.id, o.customer, o.city, o.status, o.payment, o.amount, o.date, o.awb, o.courier]));
@@ -128,7 +167,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       {/* Status tabs */}
       <div className="flex gap-1 overflow-x-auto pb-2 mb-4 border-b border-border -mx-4 px-4 lg:mx-0 lg:px-0">
         {tabs.map(tab => (
-          <button key={tab.filter} onClick={() => setActiveTab(tab.filter)}
+          <button key={tab.filter} onClick={() => { setActiveTab(tab.filter); setStatusFilter("all"); }}
             className={cn("flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-[2px]",
               activeTab === tab.filter ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
             )}>
@@ -140,19 +179,32 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         ))}
       </div>
 
-      {/* Search */}
+      {/* Search + Status filter */}
       <div className="flex flex-wrap gap-2 mb-4">
         <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
           <Input placeholder="Search orders..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
+        {showStatusColumn && (
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[180px] shrink-0">
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              {MOVABLE_STATUSES.map(s => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <Button variant="outline" size="icon" className="sm:hidden shrink-0" onClick={handleExport}><Download className="h-4 w-4" /></Button>
       </div>
 
       {isMobile ? (
         loading ? <OrderCardSkeleton /> : (
           filtered.length === 0 ? (
-            <EmptyState icon={Package} title="No orders found" description="Try adjusting your search or filter criteria" actionLabel="Clear Filters" onAction={() => { setSearch(""); setActiveTab("all"); }} />
+            <EmptyState icon={Package} title="No orders found" description="Try adjusting your search or filter criteria" actionLabel="Clear Filters" onAction={() => { setSearch(""); setActiveTab("all"); setStatusFilter("all"); }} />
           ) : <OrderCardList orders={filtered} onViewOrder={openOrder} />
         )
       ) : (
@@ -165,10 +217,16 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onMarkJunk={handleMarkJunk}
           onBulkJunk={handleBulkJunk}
           onOpenProcessModal={() => setProcessModalOpen(true)}
+          onOpenMoveTo={() => setMoveOpen(true)}
           onExport={handleExport}
           loading={loading}
           activeTab={activeTab}
           onToggleSidebar={() => window.dispatchEvent(new Event('toggle-sidebar'))}
+          showProcessSelected={showProcessSelected}
+          showMoveTo={showMoveTo}
+          showStatusColumn={showStatusColumn}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
         />
       )}
 
@@ -183,6 +241,14 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           setProcessModalOpen(false);
           setSelected(new Set());
         }}
+      />
+
+      <MoveToModal
+        open={moveOpen}
+        onClose={() => setMoveOpen(false)}
+        selectedCount={selected.size}
+        currentStatusSummary={selectedSummary}
+        onConfirm={handleMoveTo}
       />
     </div>
   );
