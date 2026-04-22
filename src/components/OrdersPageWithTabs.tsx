@@ -178,6 +178,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         }
       />
 
+      {isDropshipper && (
+        <div className="mb-3 rounded-md border border-border bg-surface-2/40 px-3 py-2 text-xs text-text-secondary">
+          This panel is view-only. Order processing is handled by Admin/Vendor.
+        </div>
+      )}
+
       {/* Status tabs */}
       <div className="flex gap-1 overflow-x-auto pb-2 mb-4 border-b border-border -mx-4 px-4 lg:mx-0 lg:px-0">
         {tabs.map(tab => (
