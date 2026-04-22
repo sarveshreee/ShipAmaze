@@ -18,6 +18,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import { downloadCSV } from "@/lib/exportUtils";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/hooks/usePermissions";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const tabs: { label: string; filter: string }[] = [
   { label: "All", filter: "all" },
@@ -53,6 +55,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const isMobile = useIsMobile();
   const { data: orders = [], isLoading: loading, refetch } = useOrders();
   const { role } = useAuth();
+  const perms = usePermissions();
 
   const showStatusColumn = STATUS_FILTER_TABS.has(activeTab);
   const isAdmin = role === "admin";
@@ -64,9 +67,10 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   // Process Selected: admin only
   const showProcessSelected = isAdmin && tabAllowsProcessing;
 
-  // Move To: available to all roles in valid tabs
-  const showMoveTo = tabAllowsProcessing;
-  const showLockedMoveTo = false;
+  // Move To: admin always (in valid tabs); vendor/dropshipper only if permission granted
+  const canMove = isAdmin || perms.canSelfProcessOrders;
+  const showMoveTo = tabAllowsProcessing && canMove;
+  const showLockedMoveTo = tabAllowsProcessing && !canMove && !isAdmin;
 
   const filterByTab = (o: Order, tab: string) => {
     const status = (o as any).status;
