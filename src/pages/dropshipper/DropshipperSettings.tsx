@@ -101,15 +101,12 @@ export default function DropshipperSettings() {
       </p>
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto p-1 bg-surface-2 rounded-xl mb-5">
+        <TabsList className="grid w-full grid-cols-3 h-auto p-1 bg-surface-2 rounded-xl mb-5">
           <TabsTrigger value="kyc" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
             <Shield className="h-4 w-4" /> KYC
           </TabsTrigger>
           <TabsTrigger value="bank" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
             <Building2 className="h-4 w-4" /> Bank
-          </TabsTrigger>
-          <TabsTrigger value="routing" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
-            <Truck className="h-4 w-4" /> Routing
           </TabsTrigger>
           <TabsTrigger value="team" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
             <Users2 className="h-4 w-4" /> Team
@@ -118,7 +115,6 @@ export default function DropshipperSettings() {
 
         <TabsContent value="kyc" className="mt-0"><KycTab userId={userId} isDemoMode={isDemoMode} /></TabsContent>
         <TabsContent value="bank" className="mt-0"><BankTab userId={userId} isDemoMode={isDemoMode} /></TabsContent>
-        <TabsContent value="routing" className="mt-0"><RoutingTab userId={userId} isDemoMode={isDemoMode} /></TabsContent>
         <TabsContent value="team" className="mt-0"><TeamTab userId={userId} isDemoMode={isDemoMode} /></TabsContent>
       </Tabs>
     </div>
