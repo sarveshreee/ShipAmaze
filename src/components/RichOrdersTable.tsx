@@ -284,6 +284,7 @@ interface Props {
   showStatusColumn?: boolean;
   statusFilter?: string;
   onStatusFilterChange?: (s: string) => void;
+  viewOnly?: boolean;
 }
 
 const SHIPPING_STATUS_OPTIONS = [
@@ -306,7 +307,7 @@ function ShippingStatusBadge({ status }: { status: string }) {
   );
 }
 
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showLockedMoveTo = false, showStatusColumn = false, statusFilter = "all", onStatusFilterChange }: Props) {
+export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showLockedMoveTo = false, showStatusColumn = false, statusFilter = "all", onStatusFilterChange, viewOnly = false }: Props) {
   const navigate = useNavigate();
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
@@ -470,7 +471,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   return (
     <div className="rounded-lg bg-card border border-border overflow-hidden">
       {/* Action bar when orders are selected */}
-      {selected.size > 0 && (
+      {selected.size > 0 && !viewOnly && (
         <div className="flex items-center gap-3 px-4 py-3 bg-surface-2/80 border-b border-border flex-wrap">
           <button onClick={onToggleSidebar} className="p-1.5 rounded-md hover:bg-surface-2 transition-colors" title="Enlarge to full screen">
             <Monitor className="h-4 w-4 text-primary" />
@@ -949,7 +950,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                           </Button>
                         </div>
                       )}
-                      {activeTab === "junk" ? null : activeTab === "reship" ? (
+                      {viewOnly ? null : activeTab === "junk" ? null : activeTab === "reship" ? (
                         <div className="flex gap-1.5">
                           <Button variant="outline" size="sm"
                             className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
