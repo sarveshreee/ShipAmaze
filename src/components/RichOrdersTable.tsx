@@ -284,6 +284,7 @@ interface Props {
   showStatusColumn?: boolean;
   statusFilter?: string;
   onStatusFilterChange?: (s: string) => void;
+  viewOnly?: boolean;
 }
 
 const SHIPPING_STATUS_OPTIONS = [
