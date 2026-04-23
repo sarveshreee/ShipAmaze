@@ -42,6 +42,7 @@ import VendorTeam from "@/pages/vendor/VendorTeam";
 import VendorSettings from "@/pages/vendor/VendorSettings";
 import VendorCatalogue from "@/pages/vendor/VendorCatalogue";
 import VendorPayouts from "@/pages/vendor/VendorPayouts";
+import VendorWarehouse from "@/pages/vendor/VendorWarehouse";
 import AdminPermissions from "@/pages/admin/AdminPermissions";
 
 // Dropshipper
@@ -119,6 +120,7 @@ function AppRoutes() {
       <Route path="/vendor/team" element={<ProtectedRoute><VendorTeam /></ProtectedRoute>} />
       <Route path="/vendor/settings" element={<ProtectedRoute><VendorSettings /></ProtectedRoute>} />
       <Route path="/vendor/payouts" element={<ProtectedRoute><VendorPayouts /></ProtectedRoute>} />
+      <Route path="/vendor/warehouse" element={<ProtectedRoute><VendorWarehouse /></ProtectedRoute>} />
 
       {/* Dropshipper */}
       <Route path="/dropshipper" element={<ProtectedRoute><DropshipperDashboard /></ProtectedRoute>} />
