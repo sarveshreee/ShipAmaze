@@ -179,7 +179,7 @@ export default function VendorProducts() {
     }
   };
 
-
+  const exportCSV = () => {
     if (!filtered.length) {
       toast.error("Nothing to export");
       return;
