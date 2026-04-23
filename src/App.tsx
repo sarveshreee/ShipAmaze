@@ -63,6 +63,7 @@ import DropshipperPickupAddresses from "@/pages/dropshipper/DropshipperPickupAdd
 // Supplier (shared across all roles)
 import SourceProduct from "@/pages/supplier/SourceProduct";
 import ProductsPage from "@/pages/supplier/ProductsPage";
+import VendorProducts from "@/pages/vendor/VendorProducts";
 import NewProductRequest from "@/pages/supplier/NewProductRequest";
 import BulkUploadProducts from "@/pages/supplier/BulkUploadProducts";
 import ChangePassword from "@/pages/ChangePassword";
@@ -143,7 +144,9 @@ function AppRoutes() {
       {(["admin","vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-supplier`} path={`/${r}/source-product`} element={<ProtectedRoute><SourceProduct /></ProtectedRoute>} />
       ))}
-      {(["admin","vendor","dropshipper"] as const).map(r => (
+      {/* Vendor uses dedicated table-based My Products view */}
+      <Route path="/vendor/products" element={<ProtectedRoute><VendorProducts /></ProtectedRoute>} />
+      {(["admin","dropshipper"] as const).map(r => (
         <Route key={`${r}-products`} path={`/${r}/products`} element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
       ))}
       {(["admin","vendor","dropshipper"] as const).map(r => (
