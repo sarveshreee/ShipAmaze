@@ -37,8 +37,8 @@ const shortId = (id: string) => {
 
 export default function VendorProducts() {
   const navigate = useNavigate();
-  const { role } = useAuth();
-  const { data, isLoading } = useSupplierProducts();
+  const { role, isDemoMode } = useAuth();
+  const { data, isLoading, refetch } = useSupplierProducts();
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -50,6 +50,11 @@ export default function VendorProducts() {
   const [imageModal, setImageModal] = useState<{ product: SupplierProduct; index: number } | null>(null);
   const [seqFor, setSeqFor] = useState<SupplierProduct | null>(null);
   const [variantsFor, setVariantsFor] = useState<SupplierProduct | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const categories = useMemo(
     () => Array.from(new Set(data.map((p) => p.category).filter(Boolean))),
