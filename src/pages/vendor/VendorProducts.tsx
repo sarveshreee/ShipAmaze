@@ -1,15 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Plus, Search, Trash2, Pencil, Package, Upload, Download,
-  ChevronLeft, ChevronRight, MoreVertical, Layers, Images, X,
+  ChevronLeft, ChevronRight, MoreVertical, Layers, Images, X, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -36,8 +37,8 @@ const shortId = (id: string) => {
 
 export default function VendorProducts() {
   const navigate = useNavigate();
-  const { role } = useAuth();
-  const { data, isLoading } = useSupplierProducts();
+  const { role, isDemoMode } = useAuth();
+  const { data, isLoading, refetch } = useSupplierProducts();
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -49,6 +50,11 @@ export default function VendorProducts() {
   const [imageModal, setImageModal] = useState<{ product: SupplierProduct; index: number } | null>(null);
   const [seqFor, setSeqFor] = useState<SupplierProduct | null>(null);
   const [variantsFor, setVariantsFor] = useState<SupplierProduct | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const categories = useMemo(
     () => Array.from(new Set(data.map((p) => p.category).filter(Boolean))),
@@ -91,6 +97,85 @@ export default function VendorProducts() {
     }),
     [data]
   );
+
+  // Clear selections when filters/page change so we never act on hidden rows
+  useEffect(() => { setSelectedIds(new Set()); }, [search, categoryFilter, statusFilter, sortBy, page, pageSize]);
+
+
+  const toggleOne = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleAllOnPage = (ids: string[], checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => { if (checked) next.add(id); else next.delete(id); });
+      return next;
+    });
+  };
+
+  const handleDeleteClick = () => {
+    if (selectedIds.size === 0) {
+      toast.error("Select at least one product to delete");
+      return;
+    }
+    setDeleteOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setDeleting(true);
+    try {
+      if (isDemoMode) {
+        const stored = localStorage.getItem("supplier_products_demo");
+        const list = stored ? JSON.parse(stored) : [];
+        const next = list.filter((p: any) => !ids.includes(p.id));
+        localStorage.setItem("supplier_products_demo", JSON.stringify(next));
+      } else {
+        const { error } = await supabase.from("products").delete().in("id", ids);
+        if (error) throw error;
+      }
+      toast.success(`${ids.length} product${ids.length > 1 ? "s" : ""} deleted`);
+      setSelectedIds(new Set());
+      setDeleteOpen(false);
+      await refetch();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const toggleActive = async (p: SupplierProduct) => {
+    const nextStatus: "active" | "inactive" = p.status === "active" ? "inactive" : "active";
+    setTogglingId(p.id);
+    try {
+      if (isDemoMode) {
+        const stored = localStorage.getItem("supplier_products_demo");
+        const list = stored ? JSON.parse(stored) : [];
+        const idx = list.findIndex((x: any) => x.id === p.id);
+        if (idx >= 0) {
+          list[idx].status = nextStatus;
+          list[idx].updated_at = new Date().toISOString();
+          localStorage.setItem("supplier_products_demo", JSON.stringify(list));
+        }
+      } else {
+        const { error } = await supabase.from("products").update({ status: nextStatus }).eq("id", p.id);
+        if (error) throw error;
+      }
+      toast.success(`Marked ${nextStatus === "active" ? "Active" : "Inactive"}`);
+      await refetch();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update");
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   const exportCSV = () => {
     if (!filtered.length) {
@@ -136,8 +221,14 @@ export default function VendorProducts() {
             <Button variant="outline" onClick={() => navigate(`/${role}/bulk-upload-products`)}>
               <Upload className="h-4 w-4 mr-2" />Bulk Upload
             </Button>
-            <Button variant="outline" onClick={() => navigate(`/${role}/products?status=trash`)}>
-              <Trash2 className="h-4 w-4 mr-2" />Trash
+            <Button
+              variant="outline"
+              onClick={handleDeleteClick}
+              disabled={selectedIds.size === 0}
+              className={cn(selectedIds.size > 0 && "border-danger text-danger hover:bg-danger-light hover:text-danger-dark")}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
             </Button>
             <Button
               className="bg-warning text-warning-foreground hover:bg-warning/90"
@@ -236,15 +327,27 @@ export default function VendorProducts() {
       ) : (
         <div className="rounded-xl bg-card shadow-card overflow-hidden">
           <div className="overflow-x-auto">
+            {(() => {
+              const pageIdList = pageData.map((p) => p.id);
+              const allOnPageSelected = pageIdList.length > 0 && pageIdList.every((id) => selectedIds.has(id));
+              const someOnPageSelected = pageIdList.some((id) => selectedIds.has(id)) && !allOnPageSelected;
+              return (
             <table className="w-full text-sm">
               <thead className="bg-surface-2 text-text-secondary text-xs uppercase tracking-wide sticky top-0">
                 <tr>
+                  <th className="px-3 py-3 text-left font-semibold w-10">
+                    <Checkbox
+                      checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
+                      onCheckedChange={(v) => toggleAllOnPage(pageIdList, !!v)}
+                      aria-label="Select all on page"
+                    />
+                  </th>
                   <th className="px-3 py-3 text-left font-semibold">Product Id</th>
                   <th className="px-3 py-3 text-left font-semibold">DD Id</th>
                   <th className="px-3 py-3 text-left font-semibold">Image</th>
                   <th className="px-3 py-3 text-left font-semibold min-w-[160px]">Product Details</th>
                   <th className="px-3 py-3 text-left font-semibold">Created On</th>
-                  <th className="px-3 py-3 text-left font-semibold">Activated On</th>
+                  <th className="px-3 py-3 text-left font-semibold">Is Activate</th>
                   <th className="px-3 py-3 text-left font-semibold">TP Price</th>
                   <th className="px-3 py-3 text-left font-semibold">App Price</th>
                   <th className="px-3 py-3 text-left font-semibold">Stock</th>
@@ -256,8 +359,17 @@ export default function VendorProducts() {
               <tbody>
                 {pageData.map((p) => {
                   const img = p.images?.[p.primary_image_index] || p.images?.[0];
+                  const isSelected = selectedIds.has(p.id);
+                  const isActive = p.status === "active";
                   return (
-                    <tr key={p.id} className="border-t border-border hover:bg-surface-1 transition-colors">
+                    <tr key={p.id} className={cn("border-t border-border hover:bg-surface-1 transition-colors", isSelected && "bg-primary/5")}>
+                      <td className="px-3 py-3 align-top">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(v) => toggleOne(p.id, !!v)}
+                          aria-label={`Select ${p.name}`}
+                        />
+                      </td>
                       <td className="px-3 py-3 align-top text-text-primary font-medium">{shortId(p.id)}</td>
                       <td className="px-3 py-3 align-top text-text-secondary">{shortId(p.id + "dd").slice(1)}</td>
                       <td className="px-3 py-3 align-top">
@@ -293,8 +405,23 @@ export default function VendorProducts() {
                         {p.sku && <div className="text-[11px] font-mono text-text-muted mt-0.5">{p.sku}</div>}
                       </td>
                       <td className="px-3 py-3 align-top text-text-secondary whitespace-nowrap">{fmtDate(p.created_at)}</td>
-                      <td className="px-3 py-3 align-top text-text-secondary whitespace-nowrap">
-                        {p.status === "active" ? fmtDate(p.updated_at) : <span className="text-text-muted">—</span>}
+                      <td className="px-3 py-3 align-top whitespace-nowrap">
+                        <button
+                          type="button"
+                          disabled={togglingId === p.id}
+                          onClick={() => toggleActive(p)}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition",
+                            isActive
+                              ? "bg-success-light text-success-dark border-success/30 hover:bg-success/20"
+                              : "bg-surface-2 text-text-muted border-border hover:bg-danger-light hover:text-danger-dark hover:border-danger/30",
+                            togglingId === p.id && "opacity-60 cursor-wait"
+                          )}
+                          title={isActive ? "Click to mark Inactive" : "Click to mark Active"}
+                        >
+                          <span className={cn("h-1.5 w-1.5 rounded-full", isActive ? "bg-success" : "bg-text-muted")} />
+                          {isActive ? "Active" : "Inactive"}
+                        </button>
                       </td>
                       <td className="px-3 py-3 align-top text-text-primary">{p.price}</td>
                       <td className="px-3 py-3 align-top text-text-primary">{p.selling_price}</td>
@@ -335,6 +462,12 @@ export default function VendorProducts() {
                             <DropdownMenuItem onClick={() => setSeqFor(p)}>
                               <Images className="h-4 w-4 mr-2 text-primary" />Image Sequence
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-danger focus:text-danger"
+                              onClick={() => { setSelectedIds(new Set([p.id])); setDeleteOpen(true); }}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />Delete
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>
@@ -343,6 +476,8 @@ export default function VendorProducts() {
                 })}
               </tbody>
             </table>
+              );
+            })()}
           </div>
 
           {/* Pagination */}
@@ -372,6 +507,40 @@ export default function VendorProducts() {
           </div>
         </div>
       )}
+
+      {/* Delete confirmation modal */}
+      <Dialog open={deleteOpen} onOpenChange={(o) => !deleting && setDeleteOpen(o)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="h-9 w-9 rounded-full bg-danger-light text-danger-dark flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5" />
+              </span>
+              Delete Products
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete{" "}
+              <span className="font-semibold text-text-primary">
+                {selectedIds.size} selected product{selectedIds.size > 1 ? "s" : ""}
+              </span>
+              ? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-danger text-danger-foreground hover:bg-danger/90"
+              onClick={confirmDelete}
+              disabled={deleting}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Image preview modal */}
       <Dialog open={!!imageModal} onOpenChange={(o) => !o && setImageModal(null)}>

@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { hsnForCategory } from "@/lib/hsnMap";
 
 type StepKey = "details" | "variants" | "shipping" | "other";
 const STEPS: { key: StepKey; label: string }[] = [
@@ -383,7 +384,13 @@ export default function SourceProduct() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Label>Product Category *</Label>
-                <Select value={form.category} onValueChange={v => update({ category: v })}>
+                <Select value={form.category} onValueChange={v => {
+                  const mapped = hsnForCategory(v);
+                  // Auto-fill HSN if empty or if it matched the previous category's default (so changes flow through)
+                  const prevDefault = hsnForCategory(form.category);
+                  const shouldAutoFill = !form.hsn || form.hsn === prevDefault;
+                  update({ category: v, ...(shouldAutoFill && mapped ? { hsn: mapped } : {}) });
+                }}>
                   <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
                     {["Apparel","Electronics","Home & Kitchen","Beauty","Sports","Toys","Books","Automotive","Arts & Entertainment"].map(c => (
