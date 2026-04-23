@@ -67,7 +67,7 @@ const vendorNav: NavGroup[] = [
   { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders", tabKey: "orders" }] },
   { title: "LOGISTICS", items: [{ label: "Warehouse", icon: Warehouse, path: "/vendor/warehouse", tabKey: "warehouse" }] },
   { title: "FINANCE", items: [{ label: "Payouts", icon: Wallet, path: "/vendor/payouts", tabKey: "payouts" }] },
-  { title: "TEAM", items: [{ label: "Team", icon: Users2, path: "/vendor/team", tabKey: "team" }] },
+  
   { title: "", items: [{ label: "Change Password", icon: Shield, path: "/vendor/change-password", tabKey: "change-password" }] },
 ];
 
