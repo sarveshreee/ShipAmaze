@@ -26,7 +26,7 @@ const adminNav: NavGroup[] = [
     { label: "Manifests & Pickups", icon: ClipboardList, path: "/admin/manifests" },
   ]},
   { title: "SUPPLIER", items: [
-    { label: "Source A Product", icon: Plus, path: "/admin/source-product" },
+    { label: "Add a Product", icon: Plus, path: "/admin/source-product" },
     { label: "Products", icon: ShoppingBag, path: "/admin/products" },
     { label: "Bulk Upload Products", icon: Upload, path: "/admin/bulk-upload-products" },
     { label: "New Product Request", icon: ClipboardList, path: "/admin/product-requests" },
@@ -50,23 +50,25 @@ const adminNav: NavGroup[] = [
     { label: "Reports", icon: FileText, path: "/admin/reports" },
     { label: "Support", icon: Headphones, path: "/admin/support" },
   ]},
-  { title: "", items: [{ label: "Settings", icon: Settings, path: "/admin/settings" }] },
+  { title: "", items: [
+    { label: "Change Password", icon: Shield, path: "/admin/change-password" },
+    { label: "Settings", icon: Settings, path: "/admin/settings" },
+  ]},
 ];
 
 const vendorNav: NavGroup[] = [
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/vendor", tabKey: "dashboard" }] },
   { title: "SUPPLIER", items: [
-    { label: "Source A Product", icon: Plus, path: "/vendor/source-product", tabKey: "source-product" },
+    { label: "Add a Product", icon: Plus, path: "/vendor/source-product", tabKey: "source-product" },
     { label: "Products", icon: ShoppingBag, path: "/vendor/products", tabKey: "products" },
     { label: "Bulk Upload Products", icon: Upload, path: "/vendor/bulk-upload-products", tabKey: "bulk-upload-products" },
     { label: "New Product Request", icon: ClipboardList, path: "/vendor/product-requests", tabKey: "product-requests" },
   ]},
   { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders", tabKey: "orders" }] },
   { title: "LOGISTICS", items: [{ label: "Warehouse", icon: Warehouse, path: "/vendor/warehouse", tabKey: "warehouse" }] },
-  { title: "CATALOGUE", items: [{ label: "Catalogue", icon: ShoppingBag, path: "/vendor/catalogue", tabKey: "catalogue" }] },
   { title: "FINANCE", items: [{ label: "Payouts", icon: Wallet, path: "/vendor/payouts", tabKey: "payouts" }] },
   { title: "TEAM", items: [{ label: "Team", icon: Users2, path: "/vendor/team", tabKey: "team" }] },
-  { title: "", items: [{ label: "Settings", icon: Settings, path: "/vendor/settings", tabKey: "settings" }] },
+  { title: "", items: [{ label: "Change Password", icon: Shield, path: "/vendor/change-password", tabKey: "change-password" }] },
 ];
 
 const dropshipperNav: NavGroup[] = [
