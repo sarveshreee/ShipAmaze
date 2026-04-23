@@ -226,8 +226,8 @@ export default function SourceProduct() {
   // Save
   const save = async (status: "draft" | "active") => {
     if (!validate(status === "active")) return;
-    // Admin must pick a vendor
-    if (role === "admin" && !vendorId) {
+    // Admin must pick a vendor (skip in demo mode)
+    if (role === "admin" && !isDemoMode && !vendorId) {
       toast.error("Please select a vendor for this product");
       setStep("details");
       return;
