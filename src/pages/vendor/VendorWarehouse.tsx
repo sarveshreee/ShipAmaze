@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CheckCircle2, XCircle, Filter, Plus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Warehouse as WarehouseIcon } from "lucide-react";
+import { Filter, Plus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Warehouse as WarehouseIcon } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useVendorWarehouses, type Warehouse } from "@/hooks/useVendorWarehouses";
 import WarehouseFormModal from "@/components/vendor/WarehouseFormModal";
@@ -121,22 +121,21 @@ export default function VendorWarehouse() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>warehouseName</TableHead>
-                <TableHead>Contact Person</TableHead>
+                <TableHead>Warehouse Name</TableHead>
+                <TableHead>Contact Person Name</TableHead>
                 <TableHead>Phone Number</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Address</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead>Warehouse Type</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : pageRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-16">
+                  <TableCell colSpan={7} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center">
                         <WarehouseIcon className="h-7 w-7 text-muted-foreground" />
@@ -157,18 +156,11 @@ export default function VendorWarehouse() {
                       {w.isDefault && <Badge variant="secondary" className="ml-2 text-xs">Default</Badge>}
                     </TableCell>
                     <TableCell>{w.contactPerson}</TableCell>
-                    <TableCell>{w.phoneNumber}</TableCell>
+                    <TableCell>+91 {w.phoneNumber}</TableCell>
                     <TableCell className="max-w-[200px] truncate" title={w.email}>{w.email}</TableCell>
                     <TableCell className="max-w-[260px] whitespace-pre-wrap text-sm leading-relaxed">
                       {[w.addressLine1, w.addressLine2, w.landmark, `${w.city}, ${w.state}`, w.pincode, w.country]
                         .filter(Boolean).join("\n")}
-                    </TableCell>
-                    <TableCell>
-                      {w.status === "Active" ? (
-                        <CheckCircle2 className="h-5 w-5 text-green-600" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-muted-foreground" />
-                      )}
                     </TableCell>
                     <TableCell>{w.warehouseType}</TableCell>
                     <TableCell className="text-right">

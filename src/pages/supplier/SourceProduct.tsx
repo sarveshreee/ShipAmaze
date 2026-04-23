@@ -226,8 +226,8 @@ export default function SourceProduct() {
   // Save
   const save = async (status: "draft" | "active") => {
     if (!validate(status === "active")) return;
-    // Admin must pick a vendor
-    if (role === "admin" && !vendorId) {
+    // Admin must pick a vendor (skip in demo mode)
+    if (role === "admin" && !isDemoMode && !vendorId) {
       toast.error("Please select a vendor for this product");
       setStep("details");
       return;
@@ -238,8 +238,8 @@ export default function SourceProduct() {
       let finalVendorId: string | null = null;
       let finalVendorName: string | null = null;
       if (role === "vendor") {
-        finalVendorId = userId;
-        finalVendorName = userName || null;
+        finalVendorId = userId || "demo-vendor";
+        finalVendorName = userName || "Vendor";
       } else if (role === "admin") {
         finalVendorId = vendorId;
         const v = vendorList.find(x => x.user_id === vendorId);

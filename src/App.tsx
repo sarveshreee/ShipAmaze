@@ -65,6 +65,7 @@ import SourceProduct from "@/pages/supplier/SourceProduct";
 import ProductsPage from "@/pages/supplier/ProductsPage";
 import NewProductRequest from "@/pages/supplier/NewProductRequest";
 import BulkUploadProducts from "@/pages/supplier/BulkUploadProducts";
+import ChangePassword from "@/pages/ChangePassword";
 
 // Marketplace (Home)
 import MarketplaceHome from "@/pages/marketplace/MarketplaceHome";
@@ -158,6 +159,10 @@ function AppRoutes() {
       ))}
       {(["admin","vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-home-pdp`} path={`/${r}/home/product/:id`} element={<ProtectedRoute><MarketplaceProductDetail /></ProtectedRoute>} />
+      ))}
+
+      {(["admin","vendor","dropshipper"] as const).map(r => (
+        <Route key={`${r}-change-password`} path={`/${r}/change-password`} element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
       ))}
 
       <Route path="/" element={<Navigate to="/login" replace />} />
