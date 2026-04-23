@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CheckCircle2, XCircle, Filter, Plus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Warehouse as WarehouseIcon } from "lucide-react";
-import PageHeader from "@/components/PageHeader";
+import { PageHeader } from "@/components/PageHeader";
 import { useVendorWarehouses, type Warehouse } from "@/hooks/useVendorWarehouses";
 import WarehouseFormModal from "@/components/vendor/WarehouseFormModal";
 import { toast } from "sonner";
@@ -69,8 +69,7 @@ export default function VendorWarehouse() {
     <div className="space-y-4">
       <PageHeader
         title="Warehouse"
-        description="Manage your pickup warehouses"
-        breadcrumbs={[{ label: "Vendor", href: "/vendor" }, { label: "Warehouse" }]}
+        breadcrumb={["Vendor", "Warehouse"]}
         actions={
           <Button variant="outline" onClick={() => setShowFilters((s) => !s)}>
             <Filter className="h-4 w-4" /> Filters
