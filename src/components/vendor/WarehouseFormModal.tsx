@@ -101,12 +101,24 @@ export default function WarehouseFormModal({ open, onOpenChange, initial, onSubm
             <Input value={form.warehouseName} onChange={(e) => set("warehouseName", e.target.value)} />
           </div>
           <div>
-            <Label>Contact Person *</Label>
+            <Label>Contact Person Name *</Label>
             <Input value={form.contactPerson} onChange={(e) => set("contactPerson", e.target.value)} />
           </div>
           <div>
             <Label>Phone Number *</Label>
-            <Input value={form.phoneNumber} maxLength={10} onChange={(e) => set("phoneNumber", e.target.value.replace(/\D/g, ""))} />
+            <div className="flex">
+              <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-input bg-muted text-sm text-muted-foreground">
+                +91
+              </span>
+              <Input
+                className="rounded-l-none"
+                value={form.phoneNumber}
+                maxLength={10}
+                placeholder="10-digit mobile number"
+                inputMode="numeric"
+                onChange={(e) => set("phoneNumber", e.target.value.replace(/\D/g, "").slice(0, 10))}
+              />
+            </div>
           </div>
           <div className="md:col-span-2">
             <Label>Email *</Label>
