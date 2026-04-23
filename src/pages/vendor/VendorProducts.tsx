@@ -98,7 +98,88 @@ export default function VendorProducts() {
     [data]
   );
 
-  const exportCSV = () => {
+  // Clear selections when filters/page change so we never act on hidden rows
+  useEffect(() => { setSelectedIds(new Set()); }, [search, categoryFilter, statusFilter, sortBy, page, pageSize]);
+
+  const pageIds = useMemo(() => new Set<string>(), []);
+  // (we recompute below via pageData)
+
+  const toggleOne = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleAllOnPage = (ids: string[], checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => { if (checked) next.add(id); else next.delete(id); });
+      return next;
+    });
+  };
+
+  const handleDeleteClick = () => {
+    if (selectedIds.size === 0) {
+      toast.error("Select at least one product to delete");
+      return;
+    }
+    setDeleteOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setDeleting(true);
+    try {
+      if (isDemoMode) {
+        const stored = localStorage.getItem("supplier_products_demo");
+        const list = stored ? JSON.parse(stored) : [];
+        const next = list.filter((p: any) => !ids.includes(p.id));
+        localStorage.setItem("supplier_products_demo", JSON.stringify(next));
+      } else {
+        const { error } = await supabase.from("products").delete().in("id", ids);
+        if (error) throw error;
+      }
+      toast.success(`${ids.length} product${ids.length > 1 ? "s" : ""} deleted`);
+      setSelectedIds(new Set());
+      setDeleteOpen(false);
+      await refetch();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const toggleActive = async (p: SupplierProduct) => {
+    const nextStatus: "active" | "inactive" = p.status === "active" ? "inactive" : "active";
+    setTogglingId(p.id);
+    try {
+      if (isDemoMode) {
+        const stored = localStorage.getItem("supplier_products_demo");
+        const list = stored ? JSON.parse(stored) : [];
+        const idx = list.findIndex((x: any) => x.id === p.id);
+        if (idx >= 0) {
+          list[idx].status = nextStatus;
+          list[idx].updated_at = new Date().toISOString();
+          localStorage.setItem("supplier_products_demo", JSON.stringify(list));
+        }
+      } else {
+        const { error } = await supabase.from("products").update({ status: nextStatus }).eq("id", p.id);
+        if (error) throw error;
+      }
+      toast.success(`Marked ${nextStatus === "active" ? "Active" : "Inactive"}`);
+      await refetch();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update");
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+
     if (!filtered.length) {
       toast.error("Nothing to export");
       return;
