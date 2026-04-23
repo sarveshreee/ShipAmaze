@@ -221,8 +221,14 @@ export default function VendorProducts() {
             <Button variant="outline" onClick={() => navigate(`/${role}/bulk-upload-products`)}>
               <Upload className="h-4 w-4 mr-2" />Bulk Upload
             </Button>
-            <Button variant="outline" onClick={() => navigate(`/${role}/products?status=trash`)}>
-              <Trash2 className="h-4 w-4 mr-2" />Trash
+            <Button
+              variant="outline"
+              onClick={handleDeleteClick}
+              disabled={selectedIds.size === 0}
+              className={cn(selectedIds.size > 0 && "border-danger text-danger hover:bg-danger-light hover:text-danger-dark")}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
             </Button>
             <Button
               className="bg-warning text-warning-foreground hover:bg-warning/90"
