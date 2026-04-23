@@ -508,6 +508,40 @@ export default function VendorProducts() {
         </div>
       )}
 
+      {/* Delete confirmation modal */}
+      <Dialog open={deleteOpen} onOpenChange={(o) => !deleting && setDeleteOpen(o)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="h-9 w-9 rounded-full bg-danger-light text-danger-dark flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5" />
+              </span>
+              Delete Products
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete{" "}
+              <span className="font-semibold text-text-primary">
+                {selectedIds.size} selected product{selectedIds.size > 1 ? "s" : ""}
+              </span>
+              ? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-danger text-danger-foreground hover:bg-danger/90"
+              onClick={confirmDelete}
+              disabled={deleting}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Image preview modal */}
       <Dialog open={!!imageModal} onOpenChange={(o) => !o && setImageModal(null)}>
         <DialogContent className="max-w-2xl">
