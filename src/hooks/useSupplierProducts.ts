@@ -102,7 +102,10 @@ export function useSupplierProducts() {
       let list: SupplierProduct[] = stored ? JSON.parse(stored) : [];
       // Demo role-based filtering
       if (role === "vendor") {
-        list = list.filter(p => (p.vendor_id || p.user_id) === `demo-vendor`);
+        list = list.filter(p => {
+          const owner = p.vendor_id || p.user_id;
+          return !owner || owner === "demo-vendor" || owner === userId;
+        });
       } else if (role === "dropshipper") {
         list = list.filter(p => p.status === "active");
       }
