@@ -327,15 +327,27 @@ export default function VendorProducts() {
       ) : (
         <div className="rounded-xl bg-card shadow-card overflow-hidden">
           <div className="overflow-x-auto">
+            {(() => {
+              const pageIdList = pageData.map((p) => p.id);
+              const allOnPageSelected = pageIdList.length > 0 && pageIdList.every((id) => selectedIds.has(id));
+              const someOnPageSelected = pageIdList.some((id) => selectedIds.has(id)) && !allOnPageSelected;
+              return (
             <table className="w-full text-sm">
               <thead className="bg-surface-2 text-text-secondary text-xs uppercase tracking-wide sticky top-0">
                 <tr>
+                  <th className="px-3 py-3 text-left font-semibold w-10">
+                    <Checkbox
+                      checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
+                      onCheckedChange={(v) => toggleAllOnPage(pageIdList, !!v)}
+                      aria-label="Select all on page"
+                    />
+                  </th>
                   <th className="px-3 py-3 text-left font-semibold">Product Id</th>
                   <th className="px-3 py-3 text-left font-semibold">DD Id</th>
                   <th className="px-3 py-3 text-left font-semibold">Image</th>
                   <th className="px-3 py-3 text-left font-semibold min-w-[160px]">Product Details</th>
                   <th className="px-3 py-3 text-left font-semibold">Created On</th>
-                  <th className="px-3 py-3 text-left font-semibold">Activated On</th>
+                  <th className="px-3 py-3 text-left font-semibold">Is Activate</th>
                   <th className="px-3 py-3 text-left font-semibold">TP Price</th>
                   <th className="px-3 py-3 text-left font-semibold">App Price</th>
                   <th className="px-3 py-3 text-left font-semibold">Stock</th>
@@ -347,8 +359,17 @@ export default function VendorProducts() {
               <tbody>
                 {pageData.map((p) => {
                   const img = p.images?.[p.primary_image_index] || p.images?.[0];
+                  const isSelected = selectedIds.has(p.id);
+                  const isActive = p.status === "active";
                   return (
-                    <tr key={p.id} className="border-t border-border hover:bg-surface-1 transition-colors">
+                    <tr key={p.id} className={cn("border-t border-border hover:bg-surface-1 transition-colors", isSelected && "bg-primary/5")}>
+                      <td className="px-3 py-3 align-top">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(v) => toggleOne(p.id, !!v)}
+                          aria-label={`Select ${p.name}`}
+                        />
+                      </td>
                       <td className="px-3 py-3 align-top text-text-primary font-medium">{shortId(p.id)}</td>
                       <td className="px-3 py-3 align-top text-text-secondary">{shortId(p.id + "dd").slice(1)}</td>
                       <td className="px-3 py-3 align-top">
@@ -384,8 +405,23 @@ export default function VendorProducts() {
                         {p.sku && <div className="text-[11px] font-mono text-text-muted mt-0.5">{p.sku}</div>}
                       </td>
                       <td className="px-3 py-3 align-top text-text-secondary whitespace-nowrap">{fmtDate(p.created_at)}</td>
-                      <td className="px-3 py-3 align-top text-text-secondary whitespace-nowrap">
-                        {p.status === "active" ? fmtDate(p.updated_at) : <span className="text-text-muted">—</span>}
+                      <td className="px-3 py-3 align-top whitespace-nowrap">
+                        <button
+                          type="button"
+                          disabled={togglingId === p.id}
+                          onClick={() => toggleActive(p)}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition",
+                            isActive
+                              ? "bg-success-light text-success-dark border-success/30 hover:bg-success/20"
+                              : "bg-surface-2 text-text-muted border-border hover:bg-danger-light hover:text-danger-dark hover:border-danger/30",
+                            togglingId === p.id && "opacity-60 cursor-wait"
+                          )}
+                          title={isActive ? "Click to mark Inactive" : "Click to mark Active"}
+                        >
+                          <span className={cn("h-1.5 w-1.5 rounded-full", isActive ? "bg-success" : "bg-text-muted")} />
+                          {isActive ? "Active" : "Inactive"}
+                        </button>
                       </td>
                       <td className="px-3 py-3 align-top text-text-primary">{p.price}</td>
                       <td className="px-3 py-3 align-top text-text-primary">{p.selling_price}</td>
@@ -426,6 +462,12 @@ export default function VendorProducts() {
                             <DropdownMenuItem onClick={() => setSeqFor(p)}>
                               <Images className="h-4 w-4 mr-2 text-primary" />Image Sequence
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-danger focus:text-danger"
+                              onClick={() => { setSelectedIds(new Set([p.id])); setDeleteOpen(true); }}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />Delete
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>
@@ -433,6 +475,10 @@ export default function VendorProducts() {
                   );
                 })}
               </tbody>
+            </table>
+              );
+            })()}
+          </div>
             </table>
           </div>
 
