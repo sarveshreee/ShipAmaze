@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { hsnForCategory } from "@/lib/hsnMap";
 
 type StepKey = "details" | "variants" | "shipping" | "other";
 const STEPS: { key: StepKey; label: string }[] = [
