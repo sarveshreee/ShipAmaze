@@ -101,8 +101,6 @@ export default function VendorProducts() {
   // Clear selections when filters/page change so we never act on hidden rows
   useEffect(() => { setSelectedIds(new Set()); }, [search, categoryFilter, statusFilter, sortBy, page, pageSize]);
 
-  const pageIds = useMemo(() => new Set<string>(), []);
-  // (we recompute below via pageData)
 
   const toggleOne = (id: string, checked: boolean) => {
     setSelectedIds((prev) => {
