@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build/cache artifacts
+.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
