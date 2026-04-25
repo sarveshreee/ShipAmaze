@@ -1,0 +1,171 @@
+/** Domain types for orders and logistics UI — no mock rows */
+
+export type OrderStatus =
+  | "delivered"
+  | "in-transit"
+  | "out-for-delivery"
+  | "ndr"
+  | "rto"
+  | "pending"
+  | "ready-to-ship"
+  | "not-picked"
+  | "cancelled"
+  | "draft"
+  | "on-process"
+  | "rts";
+
+export type PaymentType = "COD" | "Prepaid";
+
+export type CourierName =
+  | "Delhivery"
+  | "Blue Dart"
+  | "DTDC"
+  | "Ekart"
+  | "XpressBees"
+  | "Shadowfax";
+
+export interface Order {
+  id: string;
+  customer: string;
+  phone: string;
+  address: string;
+  city: string;
+  pincode: string;
+  weight: string;
+  courier: CourierName;
+  payment: PaymentType;
+  status: OrderStatus;
+  date: string;
+  awb: string;
+  amount: number;
+  products: { name: string; qty: number; price: number; weight: string }[];
+  dimensions?: string;
+  zone?: string;
+  pickupAddress?: string;
+}
+
+export interface Dropshipper {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  totalOrders: number;
+  activeOrders: number;
+  wallet: number;
+  status: "Active" | "Inactive";
+  kycVerified?: boolean;
+  joinDate?: string;
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  city: string;
+  pin: string;
+  assignedVendors: number;
+  ordersToday: number;
+  status: "Active" | "Inactive";
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+}
+
+export interface Transaction {
+  id: string;
+  date: string;
+  description: string;
+  txnId: string;
+  type: "Credit" | "Debit";
+  amount: number;
+  balance: number;
+}
+
+export interface WeightDispute {
+  id: string;
+  orderId: string;
+  awb: string;
+  courier: CourierName;
+  sellerWeight: string;
+  courierWeight: string;
+  diff: string;
+  chargedAmount: number;
+  expectedAmount: number;
+  status: "Open" | "Accepted" | "Rejected" | "Escalated";
+  date: string;
+}
+
+export interface ReturnOrder {
+  id: string;
+  originalOrderId: string;
+  awb: string;
+  customer: string;
+  reason: string;
+  courier: CourierName;
+  status:
+    | "Return Requested"
+    | "Pickup Scheduled"
+    | "In Transit"
+    | "Received"
+    | "Refund Processed"
+    | "Cancelled";
+  date: string;
+  refundAmount: number;
+  weight: string;
+}
+
+export interface PickupAddress {
+  id: string;
+  label: string;
+  contactName: string;
+  phone: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  pincode: string;
+  isDefault: boolean;
+}
+
+export interface Manifest {
+  id: string;
+  date: string;
+  courier: CourierName;
+  ordersCount: number;
+  totalWeight: string;
+  pickupAddress: string;
+  status: "Generated" | "Scheduled" | "Picked Up" | "Cancelled";
+  pickupTime?: string;
+}
+
+export interface CODRemittance {
+  id: string;
+  dropshipper: string;
+  ordersCount: number;
+  codAmount: number;
+  deductions: number;
+  netPayable: number;
+  status: "Pending" | "Processing" | "Settled" | "On Hold";
+  settleDate: string;
+  utr?: string;
+}
+
+export interface Invoice {
+  id: string;
+  date: string;
+  period: string;
+  orders: number;
+  shippingCharges: number;
+  codCharges: number;
+  gst: number;
+  total: number;
+  status: "Paid" | "Unpaid" | "Overdue";
+  downloadUrl?: string;
+}
+
+export interface PincodeService {
+  pincode: string;
+  city: string;
+  state: string;
+  zone: string;
+  couriers: { name: CourierName; surface: boolean; air: boolean; cod: boolean; estimatedDays: string }[];
+}
