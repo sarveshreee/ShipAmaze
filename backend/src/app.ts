@@ -8,6 +8,7 @@ import * as resourceController from "./controllers/resourceController.js";
 import * as accountController from "./controllers/accountController.js";
 import * as productDetailController from "./controllers/productDetailController.js";
 import * as shopifyController from "./controllers/shopifyController.js";
+import velocityRouter from "./modules/velocity/velocity.routes.js";
 
 export function createApp() {
   const app = express();
@@ -109,6 +110,9 @@ export function createApp() {
   api.get("/shopify/status", authMiddleware, shopifyController.getStatus);
   api.post("/shopify/disconnect", authMiddleware, shopifyController.disconnect);
   api.post("/shopify/sync-orders", authMiddleware, shopifyController.syncOrders);
+
+  // Velocity Shipping courier integration
+  api.use("/velocity", velocityRouter);
 
   app.use("/api", api);
   app.use(errorMiddleware);

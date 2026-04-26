@@ -1,11 +1,18 @@
 import mongoose, { Schema, type Document, type Model, type Types } from "mongoose";
 
+export interface ITrackingActivity {
+  date: string;
+  activity: string;
+  location: string;
+}
+
 export interface IOrder extends Document {
   orderId: string;
   customer: string;
   phone: string;
   address: string;
   city: string;
+  state?: string;
   pincode: string;
   weight: string;
   courier: string;
@@ -22,7 +29,32 @@ export interface IOrder extends Document {
   vendorId?: Types.ObjectId;
   externalSource?: string;
   externalOrderName?: string;
+  // Velocity Shipping fields (all optional – never break existing data)
+  velocityOrderId?: string;
+  velocityShipmentId?: string;
+  velocityReturnId?: string;
+  courierCompanyId?: number;
+  courierName?: string;
+  labelUrl?: string;
+  manifestUrl?: string;
+  shippingCharges?: number;
+  codCharges?: number;
+  rtoCharges?: number;
+  shipmentStatus?: string;
+  trackingUrl?: string;
+  trackingActivities?: ITrackingActivity[];
+  velocityWarehouseId?: string;
+  assignedDateTime?: Date;
 }
+
+const trackingActivitySchema = new Schema<ITrackingActivity>(
+  {
+    date: { type: String, default: "" },
+    activity: { type: String, default: "" },
+    location: { type: String, default: "" },
+  },
+  { _id: false }
+);
 
 const orderSchema = new Schema<IOrder>(
   {
@@ -31,6 +63,7 @@ const orderSchema = new Schema<IOrder>(
     phone: { type: String, default: "" },
     address: { type: String, default: "" },
     city: { type: String, default: "" },
+    state: { type: String, default: "" },
     pincode: { type: String, default: "" },
     weight: { type: String, default: "" },
     courier: { type: String, default: "Delhivery" },
@@ -47,11 +80,30 @@ const orderSchema = new Schema<IOrder>(
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
     externalSource: { type: String },
     externalOrderName: { type: String },
+    // Velocity Shipping
+    velocityOrderId: { type: String, sparse: true },
+    velocityShipmentId: { type: String, sparse: true },
+    velocityReturnId: { type: String },
+    courierCompanyId: { type: Number },
+    courierName: { type: String },
+    labelUrl: { type: String },
+    manifestUrl: { type: String },
+    shippingCharges: { type: Number },
+    codCharges: { type: Number },
+    rtoCharges: { type: Number },
+    shipmentStatus: { type: String },
+    trackingUrl: { type: String },
+    trackingActivities: { type: [trackingActivitySchema], default: undefined },
+    velocityWarehouseId: { type: String },
+    assignedDateTime: { type: Date },
   },
   { timestamps: true }
 );
 
 orderSchema.index({ awb: 1 });
 orderSchema.index({ createdBy: 1 });
+orderSchema.index({ velocityShipmentId: 1 });
+orderSchema.index({ shipmentStatus: 1 });
+orderSchema.index({ courierName: 1 });
 
 export const Order: Model<IOrder> = mongoose.models.Order || mongoose.model<IOrder>("Order", orderSchema);

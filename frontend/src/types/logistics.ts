@@ -24,15 +24,22 @@ export type CourierName =
   | "XpressBees"
   | "Shadowfax";
 
+export interface TrackingActivity {
+  date: string;
+  activity: string;
+  location: string;
+}
+
 export interface Order {
   id: string;
   customer: string;
   phone: string;
   address: string;
   city: string;
+  state?: string;
   pincode: string;
   weight: string;
-  courier: CourierName;
+  courier: CourierName | string;
   payment: PaymentType;
   status: OrderStatus;
   date: string;
@@ -42,6 +49,21 @@ export interface Order {
   dimensions?: string;
   zone?: string;
   pickupAddress?: string;
+  // Velocity Shipping fields
+  velocityOrderId?: string;
+  velocityShipmentId?: string;
+  courierCompanyId?: number;
+  courierName?: string;
+  labelUrl?: string;
+  manifestUrl?: string;
+  shippingCharges?: number;
+  codCharges?: number;
+  rtoCharges?: number;
+  shipmentStatus?: string;
+  trackingUrl?: string;
+  trackingActivities?: TrackingActivity[];
+  velocityWarehouseId?: string;
+  assignedDateTime?: string;
 }
 
 export interface Dropshipper {

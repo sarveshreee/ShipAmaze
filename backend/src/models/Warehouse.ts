@@ -11,6 +11,7 @@ export interface IWarehouse extends Document {
   contactName?: string;
   phone?: string;
   isDefault?: boolean;
+  velocityWarehouseId?: string;
 }
 
 const warehouseSchema = new Schema<IWarehouse>(
@@ -25,6 +26,7 @@ const warehouseSchema = new Schema<IWarehouse>(
     contactName: String,
     phone: String,
     isDefault: { type: Boolean, default: false },
+    velocityWarehouseId: { type: String },
   },
   { timestamps: true }
 );

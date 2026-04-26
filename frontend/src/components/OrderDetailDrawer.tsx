@@ -6,12 +6,14 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Order, OrderStatus } from "@/types/logistics";
 import {
-  User, Phone, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
-  Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw, Loader2
+  User, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
+  Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw, Loader2,
+  Zap, Download, ExternalLink, RotateCcw
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import * as orderService from "@/services/orderService";
+import * as velocityService from "@/services/velocityService";
 import { printShippingLabel } from "@/components/ShippingLabel";
 
 interface OrderDetailDrawerProps {
@@ -39,6 +41,10 @@ const allStatuses: OrderStatus[] = ['pending', 'ready-to-ship', 'not-picked', 'i
 
 export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: OrderDetailDrawerProps) {
   const [updating, setUpdating] = useState(false);
+  const [shippingLoading, setShippingLoading] = useState(false);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [liveActivities, setLiveActivities] = useState<Order["trackingActivities"]>(undefined);
+
   if (!order) return null;
 
   const currentStep = statusToStep[order.status] ?? -1;
@@ -67,7 +73,70 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
 
   const cancelOrder = async () => {
     if (!confirm(`Cancel order ${order.id}?`)) return;
-    await updateStatus("cancelled");
+
+    // If Velocity AWB exists, cancel through provider
+    const awbToCancel = order.awb || order.velocityShipmentId;
+    if (awbToCancel) {
+      setUpdating(true);
+      try {
+        await velocityService.cancelShipment({ awbs: [awbToCancel], orderId: order.id });
+        toast.success(`Shipment ${awbToCancel} cancellation requested`);
+        onOrderUpdated?.();
+        return;
+      } catch (err: unknown) {
+        toast.error(`Cancel failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      } finally {
+        setUpdating(false);
+      }
+    } else {
+      await updateStatus("cancelled");
+    }
+  };
+
+  const generateAwb = async () => {
+    if (!order.velocityWarehouseId && !order.pickupAddress) {
+      toast.error("Set a Velocity warehouse on this order first");
+      return;
+    }
+    setShippingLoading(true);
+    try {
+      const resp = await velocityService.createForwardShipment({ orderId: order.id });
+      toast.success(`AWB generated: ${resp.data.awb_code} via ${resp.data.carrier_name}`);
+      onOrderUpdated?.();
+    } catch (err: unknown) {
+      toast.error(`AWB generation failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setShippingLoading(false);
+    }
+  };
+
+  const fetchLiveTracking = async () => {
+    const awb = order.awb;
+    if (!awb) { toast.error("No AWB on this order yet"); return; }
+    setTrackingLoading(true);
+    try {
+      const resp = await velocityService.trackShipment({ awb, orderId: order.id });
+      setLiveActivities(resp.data.activities);
+      toast.success("Tracking updated");
+    } catch (err: unknown) {
+      toast.error(`Tracking failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
+  const createReturnPickup = async () => {
+    if (!confirm(`Create return pickup for order ${order.id}?`)) return;
+    setShippingLoading(true);
+    try {
+      const resp = await velocityService.createReverseShipment({ orderId: order.id });
+      toast.success(`Return pickup created: AWB ${resp.data.awb_code}`);
+      onOrderUpdated?.();
+    } catch (err: unknown) {
+      toast.error(`Return pickup failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setShippingLoading(false);
+    }
   };
 
   return (
@@ -116,8 +185,8 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
             </h4>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { icon: Hash, label: "AWB", value: order.awb, copyable: true },
-                { icon: Truck, label: "Courier", value: order.courier },
+                { icon: Hash, label: "AWB", value: order.awb || order.velocityShipmentId || "—", copyable: true },
+                { icon: Truck, label: "Courier", value: order.courierName || order.courier || "—" },
                 { icon: Weight, label: "Weight", value: order.weight },
                 { icon: IndianRupee, label: "Amount", value: `₹${order.amount}` },
               ].map(item => (
@@ -125,7 +194,7 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
                   <div className="flex items-center gap-1.5 mb-1">
                     <item.icon className="h-3 w-3 text-text-muted" />
                     <span className="text-[10px] font-medium uppercase tracking-wider text-text-muted">{item.label}</span>
-                    {item.copyable && (
+                    {item.copyable && item.value !== "—" && (
                       <button onClick={() => copyToClipboard(item.value)} className="ml-auto text-text-muted hover:text-primary">
                         <Copy className="h-3 w-3" />
                       </button>
@@ -138,6 +207,46 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
             <div className="flex gap-2 mt-2">
               <PaymentBadge type={order.payment} />
             </div>
+
+            {/* Velocity Charges */}
+            {(order.shippingCharges !== undefined || order.codCharges !== undefined) && (
+              <div className="mt-3 rounded-lg border border-border bg-surface-2/40 p-3 grid grid-cols-3 gap-2 text-center">
+                {order.shippingCharges !== undefined && (
+                  <div>
+                    <p className="text-[10px] text-text-muted uppercase tracking-wider">Shipping</p>
+                    <p className="text-sm font-semibold text-text-primary">₹{order.shippingCharges}</p>
+                  </div>
+                )}
+                {order.codCharges !== undefined && (
+                  <div>
+                    <p className="text-[10px] text-text-muted uppercase tracking-wider">COD Fee</p>
+                    <p className="text-sm font-semibold text-text-primary">₹{order.codCharges}</p>
+                  </div>
+                )}
+                {order.rtoCharges !== undefined && (
+                  <div>
+                    <p className="text-[10px] text-text-muted uppercase tracking-wider">RTO</p>
+                    <p className="text-sm font-semibold text-text-primary">₹{order.rtoCharges}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Label download */}
+            {order.labelUrl && (
+              <div className="mt-3 flex gap-2">
+                <a href={order.labelUrl} download className="flex-1">
+                  <Button variant="outline" size="sm" className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30">
+                    <Download className="h-3.5 w-3.5" /> Download Label
+                  </Button>
+                </a>
+                <a href={order.labelUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
+                  <Button variant="outline" size="sm" className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30">
+                    <ExternalLink className="h-3.5 w-3.5" /> Open Label
+                  </Button>
+                </a>
+              </div>
+            )}
           </section>
 
           {/* Products */}
@@ -165,12 +274,38 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
 
           {/* Timeline */}
           <section>
-            <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-              <Calendar className="h-3.5 w-3.5" /> Shipment Timeline
+            <h4 className="flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+              <span className="flex items-center gap-2"><Calendar className="h-3.5 w-3.5" /> Shipment Timeline</span>
+              {order.awb && (
+                <button
+                  onClick={fetchLiveTracking}
+                  disabled={trackingLoading}
+                  className="flex items-center gap-1 text-[10px] text-primary hover:opacity-80 disabled:opacity-50"
+                >
+                  {trackingLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  Refresh
+                </button>
+              )}
             </h4>
-            <div className="rounded-xl border border-border bg-card p-4">
-              <TimelineTracker steps={steps} currentStep={currentStep} />
-            </div>
+
+            {/* Live Velocity tracking activities */}
+            {(liveActivities ?? order.trackingActivities)?.length ? (
+              <div className="rounded-xl border border-border bg-card divide-y divide-border">
+                {(liveActivities ?? order.trackingActivities)!.map((act, i) => (
+                  <div key={i} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm text-text-primary font-medium">{act.activity}</p>
+                      <span className="text-[10px] text-text-muted whitespace-nowrap">{act.date}</span>
+                    </div>
+                    {act.location && <p className="text-xs text-text-muted mt-0.5">{act.location}</p>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-card p-4">
+                <TimelineTracker steps={steps} currentStep={currentStep} />
+              </div>
+            )}
           </section>
 
           <Separator />
@@ -201,13 +336,44 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
               Quick Actions
             </h4>
             <div className="grid grid-cols-2 gap-2 pb-4">
+              {/* Generate AWB – show only when no AWB yet */}
+              {!order.awb && (
+                <Button
+                  className="gap-2 h-10 bg-primary text-primary-foreground hover:bg-primary/90 col-span-2"
+                  onClick={generateAwb}
+                  disabled={shippingLoading || updating}
+                >
+                  {shippingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                  Generate AWB / Ship Now
+                </Button>
+              )}
+
               <Button variant="outline" className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30" onClick={() => printShippingLabel(order)}>
                 <Printer className="h-4 w-4" /> Print Label
               </Button>
               <Button variant="outline" className="gap-2 h-10 text-warning hover:bg-warning-light hover:border-warning/30" onClick={() => updateStatus('ndr')}>
                 <AlertTriangle className="h-4 w-4" /> Raise NDR
               </Button>
-              <Button variant="outline" className="gap-2 h-10 text-danger hover:bg-danger-light hover:border-danger/30 col-span-2" onClick={cancelOrder}>
+
+              {/* Return pickup – show when delivered or ndr */}
+              {(order.status === "delivered" || order.status === "ndr") && (
+                <Button
+                  variant="outline"
+                  className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30 col-span-2"
+                  onClick={createReturnPickup}
+                  disabled={shippingLoading}
+                >
+                  {shippingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                  Create Return Pickup
+                </Button>
+              )}
+
+              <Button
+                variant="outline"
+                className="gap-2 h-10 text-danger hover:bg-danger-light hover:border-danger/30 col-span-2"
+                onClick={cancelOrder}
+                disabled={updating}
+              >
                 <XCircle className="h-4 w-4" /> Cancel Order
               </Button>
             </div>
