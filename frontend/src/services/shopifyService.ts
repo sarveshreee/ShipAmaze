@@ -21,14 +21,10 @@ export async function getShopifyStatus(): Promise<ShopifyStatus> {
 }
 
 /**
- * Fetches the Shopify OAuth URL from the backend, then navigates the browser there.
- * The browser will be redirected to Shopify and then back to /api/shopify/callback.
+ * Fetches the Shopify OAuth URL from the backend.
  */
-export async function initiateShopifyConnect(shop: string): Promise<void> {
-  const data = await apiClient.get<{ url: string }>(
-    `/shopify/connect?shop=${encodeURIComponent(shop)}`
-  );
-  window.location.href = data.url;
+export async function initiateShopifyConnect(shop: string): Promise<{ url: string }> {
+  return apiClient.get<{ url: string }>(`/shopify/connect?shop=${encodeURIComponent(shop)}`);
 }
 
 export async function syncOrders(): Promise<ShopifySyncResult> {

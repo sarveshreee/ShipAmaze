@@ -22,6 +22,9 @@ function cfg() {
   return { apiKey, apiSecret, scopes, redirectUri };
 }
 
+const SHOPIFY_SUCCESS_REDIRECT = "http://localhost:8080/dropshipper/settings?shopify=connected";
+const SHOPIFY_ERROR_REDIRECT = "http://localhost:8080/dropshipper/settings?shopify=error";
+
 /* ------------------------------------------------------------------ */
 /*  HMAC verification (validates Shopify callback authenticity)         */
 /* ------------------------------------------------------------------ */
@@ -37,23 +40,29 @@ function verifyShopifyHmac(query: Record<string, string>, secret: string): boole
 }
 
 /* ------------------------------------------------------------------ */
-/*  State token: encode userId + nonce into a signed string            */
+/*  State store: temporary OAuth state (in-memory)                      */
 /* ------------------------------------------------------------------ */
-function encodeState(userId: string): string {
-  const nonce = randomBytes(8).toString("hex");
-  const raw = `${userId}:${nonce}`;
-  return Buffer.from(raw).toString("base64url");
+type OAuthStateRecord = { userId: string; createdAtMs: number };
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const oauthStateStore = new Map<string, OAuthStateRecord>();
+
+function createOAuthState(userId: string): string {
+  const state = randomBytes(16).toString("hex");
+  oauthStateStore.set(state, { userId, createdAtMs: Date.now() });
+  return state;
 }
 
-function decodeState(state: string): { userId: string } {
-  try {
-    const raw = Buffer.from(state, "base64url").toString("utf8");
-    const [userId] = raw.split(":");
-    if (!userId) throw new Error("bad state");
-    return { userId };
-  } catch {
-    throw new AppError(400, "Invalid OAuth state");
-  }
+function consumeOAuthState(state: string): { userId: string } {
+  const rec = oauthStateStore.get(state);
+  oauthStateStore.delete(state);
+  if (!rec) throw new AppError(400, "Invalid OAuth state");
+  if (Date.now() - rec.createdAtMs > OAUTH_STATE_TTL_MS) throw new AppError(400, "Expired OAuth state");
+  return { userId: rec.userId };
+}
+
+function isValidShopDomain(shop: string): boolean {
+  const s = shop.trim().toLowerCase();
+  return /^(?!-)[a-z0-9-]+(?<!-)\.myshopify\.com$/.test(s);
 }
 
 /* ------------------------------------------------------------------ */
@@ -67,15 +76,22 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
   const shop = (req.query.shop as string | undefined)?.trim();
   if (!shop) throw new AppError(400, "shop query param is required (e.g. ?shop=mystore.myshopify.com)");
 
-  const shopDomain = shop.includes(".myshopify.com") ? shop : `${shop}.myshopify.com`;
-  const state = encodeState(String(req.user._id));
+  if (!isValidShopDomain(shop)) {
+    throw new AppError(400, "Invalid shop domain. It must end with .myshopify.com (e.g. mystore.myshopify.com)");
+  }
+
+  const shopDomain = shop.toLowerCase();
+  const state = createOAuthState(String(req.user._id));
 
   const oauthUrl =
     `https://${shopDomain}/admin/oauth/authorize` +
     `?client_id=${apiKey}` +
     `&scope=${encodeURIComponent(scopes)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&state=${state}`;
+    `&state=${state}` +
+    `&grant_options[]=per-user`;
+
+  console.log("Shopify connect URL:", oauthUrl);
 
   res.json({ url: oauthUrl });
 });
@@ -88,15 +104,33 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   const query = req.query as Record<string, string>;
 
   if (!verifyShopifyHmac(query, apiSecret)) {
-    return res.redirect(`${process.env.CORS_ORIGIN || "http://localhost:8080"}/settings?shopify=error&reason=invalid_hmac`);
+    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    return;
   }
 
   const { code, shop, state } = query;
-  if (!code || !shop || !state) {
-    return res.redirect(`${process.env.CORS_ORIGIN || "http://localhost:8080"}/settings?shopify=error&reason=missing_params`);
+  if (!code || !shop) {
+    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    return;
   }
 
-  const { userId } = decodeState(state);
+  if (!isValidShopDomain(shop)) {
+    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    return;
+  }
+
+  if (!state) {
+    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    return;
+  }
+
+  let userId: string;
+  try {
+    userId = consumeOAuthState(state).userId;
+  } catch {
+    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    return;
+  }
 
   // Exchange code for access token
   const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
@@ -106,7 +140,8 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   });
 
   if (!tokenRes.ok) {
-    return res.redirect(`${process.env.CORS_ORIGIN || "http://localhost:8080"}/settings?shopify=error&reason=token_exchange_failed`);
+    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    return;
   }
 
   const tokenData = (await tokenRes.json()) as { access_token: string; scope: string };
@@ -119,7 +154,8 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   const { User } = await import("../models/User.js");
   const user = await User.findById(userId);
   if (!user) {
-    return res.redirect(`${process.env.CORS_ORIGIN || "http://localhost:8080"}/settings?shopify=error&reason=user_not_found`);
+    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    return;
   }
 
   const accessTokenEncrypted = encrypt(access_token);
@@ -139,8 +175,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     { upsert: true, new: true }
   );
 
-  const origin = process.env.CORS_ORIGIN || "http://localhost:8080";
-  res.redirect(`${origin}/settings?shopify=connected&shop=${encodeURIComponent(shopDetails.myshopify_domain)}`);
+  res.redirect(SHOPIFY_SUCCESS_REDIRECT);
 });
 
 /* ------------------------------------------------------------------ */
@@ -155,7 +190,8 @@ export const getStatus = asyncHandler(async (req: AuthRequest, res: Response) =>
   }).lean();
 
   if (!conn) {
-    return res.json({ connected: false });
+    res.json({ connected: false });
+    return;
   }
 
   res.json({

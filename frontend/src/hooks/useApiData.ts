@@ -58,6 +58,17 @@ function useApiQuery<T>(key: string, queryFn: () => Promise<T[]>): SimpleQueryRe
     }
   }, [queryFn]);
 
+  // Allow any part of the app to request a refetch for this query key
+  // (e.g. after syncing Shopify orders).
+  useEffect(() => {
+    const eventName = `shipamaze:refetch:${key}`;
+    const handler = () => {
+      void load();
+    };
+    window.addEventListener(eventName, handler);
+    return () => window.removeEventListener(eventName, handler);
+  }, [key, load]);
+
   useEffect(() => {
     let isMounted = true;
     void (async () => {

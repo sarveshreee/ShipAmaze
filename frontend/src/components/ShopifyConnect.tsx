@@ -55,32 +55,32 @@ export default function ShopifyConnect() {
     if (shopifyParam === "connected") {
       toast.success("Shopify store connected successfully!");
       // Clean the URL without reload
-      const clean = window.location.pathname;
-      window.history.replaceState({}, "", clean);
+      window.history.replaceState({}, document.title, window.location.pathname);
       void loadStatus();
     } else if (shopifyParam === "error") {
-      const reason = params.get("reason") ?? "unknown";
-      toast.error(`Shopify connection failed: ${reason.replace(/_/g, " ")}`);
-      window.history.replaceState({}, "", window.location.pathname);
+      toast.error("Shopify connection failed");
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [loadStatus]);
 
   const handleConnect = async () => {
     const raw = shop.trim();
     if (!raw) {
-      toast.error("Enter your Shopify store URL");
+      toast.error("Shop domain is required");
       return;
     }
-    // Normalise: strip protocol/trailing slash, accept both formats
-    const normalised = raw
-      .replace(/^https?:\/\//, "")
-      .replace(/\/$/, "")
-      .replace(/\.myshopify\.com$/, "");
+    // Normalise: strip protocol/trailing slash
+    const normalised = raw.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+    if (!normalised.toLowerCase().endsWith(".myshopify.com")) {
+      toast.error("Invalid shop domain. It must end with .myshopify.com");
+      return;
+    }
 
     setConnecting(true);
     try {
-      await shopifyService.initiateShopifyConnect(normalised);
-      // Browser navigates away — no further code runs
+      const { url } = await shopifyService.initiateShopifyConnect(normalised);
+      window.location.href = url;
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to start Shopify connection");
       setConnecting(false);
@@ -90,11 +90,11 @@ export default function ShopifyConnect() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const result = await shopifyService.syncOrders();
-      toast.success(
-        `Sync complete — ${result.inserted} new, ${result.updated} updated (${result.synced} total)`
-      );
+      await shopifyService.syncOrders();
+      toast.success("Orders synced successfully");
       void loadStatus();
+      // If an orders list is currently mounted, ask it to refetch.
+      window.dispatchEvent(new Event("shipamaze:refetch:orders"));
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Sync failed");
     } finally {
@@ -203,18 +203,14 @@ export default function ShopifyConnect() {
           <div className="space-y-2">
             <Label htmlFor="shopify-domain">Your Shopify store URL</Label>
             <div className="flex gap-2">
-              <div className="relative flex-1">
+              <div className="flex-1">
                 <Input
                   id="shopify-domain"
-                  placeholder="mystore"
+                  placeholder="mystore.myshopify.com"
                   value={shop}
                   onChange={(e) => setShop(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && void handleConnect()}
-                  className="pr-32"
                 />
-                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-text-muted">
-                  .myshopify.com
-                </span>
               </div>
               <Button
                 onClick={handleConnect}
@@ -226,8 +222,7 @@ export default function ShopifyConnect() {
               </Button>
             </div>
             <p className="text-xs text-text-muted">
-              Enter just the store name (e.g. <span className="font-mono">mystore</span>) or the full
-              URL.
+              Enter your store domain (e.g. <span className="font-mono">mystore.myshopify.com</span>).
             </p>
           </div>
 
