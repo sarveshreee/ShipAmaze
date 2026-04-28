@@ -1,8 +1,9 @@
 import { apiClient } from "@/lib/apiClient";
 import type { Order } from "@/types/logistics";
 
-export async function listOrders() {
-  return apiClient.get<Order[]>("/orders");
+export async function listOrders(view?: "junk") {
+  const qs = view ? `?view=${encodeURIComponent(view)}` : "";
+  return apiClient.get<Order[]>(`/orders${qs}`);
 }
 
 export async function createOrder(body: Record<string, unknown>) {
@@ -23,4 +24,14 @@ export async function trackByAwb(awb: string) {
 
 export async function getPublicOrder(orderId: string) {
   return apiClient.get<Order>(`/orders/public/${encodeURIComponent(orderId)}`);
+}
+
+export async function createShipment(body: { orderId: string; courierId: string; warehouseId: string }) {
+  return apiClient.post<{ success: true; trackingId: string; shipmentId: string }>("/orders/create-shipment", body);
+}
+
+export async function moveOrderToJunk(id: string, junkReason?: string) {
+  return apiClient.post<{ success: true; message: string }>(`/orders/${encodeURIComponent(id)}/junk`, {
+    junkReason,
+  });
 }

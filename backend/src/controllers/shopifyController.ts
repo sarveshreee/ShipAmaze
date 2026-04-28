@@ -258,6 +258,7 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
         sku: li.sku,
       })),
       createdBy: req.user!._id,
+      channel: "Shopify",
       externalSource: "shopify",
       externalOrderName: so.name,
     };
@@ -268,6 +269,9 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       existing.amount = mapped.amount;
       existing.products = mapped.products;
       existing.payment = mapped.payment;
+      existing.channel = "Shopify";
+      existing.externalSource = "shopify";
+      existing.externalOrderName = so.name;
       await existing.save();
       updated++;
     } else {

@@ -7,11 +7,10 @@ import { EmptyState } from "@/components/EmptyState";
 import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
 import { RichOrdersTable } from "@/components/RichOrdersTable";
 import { MoveToModal, MOVABLE_STATUSES } from "@/components/MoveToModal";
-import { useOrders } from "@/hooks/useApiData";
+import { useCouriers, useOrders } from "@/hooks/useApiData";
 import type { Order } from "@/types/logistics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Download, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -20,6 +19,8 @@ import { downloadCSV } from "@/lib/exportUtils";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import * as orderService from "@/services/orderService";
+import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
 
 const tabs: { label: string; filter: string }[] = [
   { label: "All", filter: "all" },
@@ -35,8 +36,6 @@ const tabs: { label: string; filter: string }[] = [
   { label: "Junk", filter: "junk" },
 ];
 
-const STATUS_FILTER_TABS = new Set(["all", "channel", "manual"]);
-
 interface Props {
   breadcrumbPrefix: string;
   showActions?: boolean;
@@ -46,18 +45,19 @@ interface Props {
 export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = true }: Props) {
   const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [processModalOpen, setProcessModalOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const isMobile = useIsMobile();
-  const { data: orders = [], isLoading: loading, refetch } = useOrders();
+  const listView = activeTab === "junk" ? "junk" : undefined;
+  const { data: orders = [], isLoading: loading, refetch } = useOrders(listView);
+  const { data: couriers = [] } = useCouriers();
+  const { warehouses } = useVendorWarehouses();
   const { role } = useAuth();
   const perms = usePermissions();
 
-  const showStatusColumn = STATUS_FILTER_TABS.has(activeTab);
   const isAdmin = role === "admin";
 
   // Operational processing actions are restricted to specific tabs
@@ -75,10 +75,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const filterByTab = (o: Order, tab: string) => {
     const status = (o as any).status;
     const isReship = status === "reship";
-    const isJunk = status === "junk";
+    const isJunk = Boolean((o as any).isJunk);
+    const channel = ((o as any).channel as string | undefined) ?? "";
+    const externalSource = ((o as any).externalSource as string | undefined) ?? "";
     if (tab === "all") return !isJunk && !isReship;
-    if (tab === "channel") return (o as any).source === "channel" && !isJunk && !isReship;
-    if (tab === "manual") return ((o as any).source === "manual" || !(o as any).source) && !isJunk && !isReship;
+    if (tab === "channel") return (channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship;
+    if (tab === "manual") return !(channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship;
     if (tab === "pending-pickup") {
       return !!(o as any).courier && !isJunk && !isReship && (status === "pending-pickup" || (status === "ready-to-ship" && !(o as any).picked_up));
     }
@@ -100,8 +102,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const getCount = (filter: string) => orders.filter(o => filterByTab(o, filter)).length;
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
-  const targetStatusFor = (o: any) => (o && o.courier ? "reship" : "junk");
-
   const selectedSummary = useMemo(() => {
     const map = new Map<string, number>();
     filtered.forEach(o => {
@@ -113,33 +113,27 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     return Array.from(map.entries()).map(([status, count]) => ({ status, count }));
   }, [filtered, selected]);
 
-  const handleMarkJunk = (id: string) => {
-    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
-    const updated = stored.map((o: any) => {
-      if (o.id === id || o.orderId === id || o.order_id === id) {
-        return { ...o, status: targetStatusFor(o) };
-      }
-      return o;
-    });
-    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
-    const target = updated.find((o: any) => o.id === id || o.orderId === id || o.order_id === id);
-    toast.success(target?.status === "reship" ? "Order moved to Reship" : "Order marked as Junk");
-    refetch();
+  const handleMarkJunk = async (id: string) => {
+    try {
+      await orderService.moveOrderToJunk(id);
+      toast.success("Order moved to junk");
+      await refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to move order to junk");
+    }
   };
 
-  const handleBulkJunk = () => {
-    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
-    const selectedIds = Array.from(selected);
-    const updated = stored.map((o: any) => {
-      if (selectedIds.includes(o.id) || selectedIds.includes(o.orderId) || selectedIds.includes(o.order_id)) {
-        return { ...o, status: targetStatusFor(o) };
-      }
-      return o;
-    });
-    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
-    toast.success(`${selected.size} order(s) processed`);
-    setSelected(new Set());
-    refetch();
+  const handleBulkJunk = async () => {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    try {
+      await Promise.all(ids.map((id) => orderService.moveOrderToJunk(id)));
+      toast.success(`${ids.length} order(s) moved to junk`);
+      setSelected(new Set());
+      await refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to process selected orders");
+    }
   };
 
   const handleMoveTo = (newStatus: string) => {
@@ -180,7 +174,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       {/* Status tabs */}
       <div className="flex gap-1 overflow-x-auto pb-2 mb-4 border-b border-border -mx-4 px-4 lg:mx-0 lg:px-0">
         {tabs.map(tab => (
-          <button key={tab.filter} onClick={() => { setActiveTab(tab.filter); setStatusFilter("all"); }}
+          <button key={tab.filter} onClick={() => { setActiveTab(tab.filter); }}
             className={cn("flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-[2px]",
               activeTab === tab.filter ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
             )}>
@@ -192,32 +186,19 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         ))}
       </div>
 
-      {/* Search + Status filter */}
+      {/* Search */}
       <div className="flex flex-wrap gap-2 mb-4">
         <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
           <Input placeholder="Search orders..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
-        {showStatusColumn && (
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px] shrink-0">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              {MOVABLE_STATUSES.map(s => (
-                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
         <Button variant="outline" size="icon" className="sm:hidden shrink-0" onClick={handleExport}><Download className="h-4 w-4" /></Button>
       </div>
 
       {isMobile ? (
         loading ? <OrderCardSkeleton /> : (
           filtered.length === 0 ? (
-            <EmptyState icon={Package} title="No orders found" description="Try adjusting your search or filter criteria" actionLabel="Clear Filters" onAction={() => { setSearch(""); setActiveTab("all"); setStatusFilter("all"); }} />
+            <EmptyState icon={Package} title="No orders found" description="Try adjusting your search or filter criteria" actionLabel="Clear Filters" onAction={() => { setSearch(""); setActiveTab("all"); }} />
           ) : <OrderCardList orders={filtered} onViewOrder={openOrder} />
         )
       ) : (
@@ -238,13 +219,27 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           showProcessSelected={showProcessSelected}
           showMoveTo={showMoveTo}
           showLockedMoveTo={showLockedMoveTo}
-          showStatusColumn={showStatusColumn}
-          statusFilter={statusFilter}
-          onStatusFilterChange={setStatusFilter}
+          couriers={couriers}
+          warehouses={warehouses}
+          onCreateShipment={async (payload) => {
+            await orderService.createShipment(payload);
+            await refetch();
+          }}
         />
       )}
 
-      <OrderDetailDrawer order={selectedOrder} open={drawerOpen} onClose={() => setDrawerOpen(false)} onOrderUpdated={() => { setDrawerOpen(false); }} />
+      <OrderDetailDrawer
+        order={selectedOrder}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onOrderUpdated={async () => {
+          const refreshed = await refetch();
+          const nextOrders = refreshed.data ?? [];
+          if (!selectedOrder) return;
+          const updated = nextOrders.find((o) => o.id === selectedOrder.id) ?? null;
+          setSelectedOrder(updated);
+        }}
+      />
 
       <ProcessSelectedModal
         open={processModalOpen}

@@ -125,15 +125,24 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     dimensions: o.dimensions as string | undefined,
     zone: o.zone as string | undefined,
     pickupAddress: o.pickupAddress as string | undefined,
+    channel: o.channel as string | undefined,
+    externalSource: o.externalSource as string | undefined,
+    externalOrderName: o.externalOrderName as string | undefined,
+    shipmentCreated: Boolean(o.shipmentCreated),
+    shipmentId: o.shipmentId as string | undefined,
+    trackingId: o.trackingId as string | undefined,
+    isJunk: Boolean(o.isJunk),
+    junkedAt: o.junkedAt as string | undefined,
+    junkReason: o.junkReason as string | undefined,
   };
 }
 
-export function useOrders() {
+export function useOrders(view?: "junk") {
   const queryFn = useCallback(async () => {
-    const rows = await orderService.listOrders();
+    const rows = await orderService.listOrders(view);
     return (rows as unknown as Record<string, unknown>[]).map(mapOrderRow);
-  }, []);
-  return useApiQuery<Order>("orders", queryFn);
+  }, [view]);
+  return useApiQuery<Order>(`orders:${view ?? "default"}`, queryFn);
 }
 
 export function useManifests() {
@@ -250,6 +259,7 @@ export function useProducts() {
 }
 
 export type CourierRow = {
+  id: string;
   name: string;
   active: boolean;
   priority: number;
@@ -267,6 +277,7 @@ export function useCouriers() {
   const queryFn = useCallback(async () => {
     const rows = (await courierService.listCouriers()) as unknown as Record<string, unknown>[];
     return rows.map((c) => ({
+      id: String(c._id ?? c.id ?? ""),
       name: String(c.name ?? ""),
       active: Boolean(c.active ?? true),
       priority: Number(c.priority ?? 0),

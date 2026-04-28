@@ -9,6 +9,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { AppError } from "../../middleware/errorMiddleware.js";
 import { Order, type IOrder } from "../../models/Order.js";
 import { Warehouse } from "../../models/Warehouse.js";
+import { Vendor } from "../../models/Vendor.js";
 import * as velocityService from "./velocity.service.js";
 import { mapVelocityStatus } from "./velocity.mapper.js";
 import type {
@@ -135,9 +136,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
   if (body.orderId) {
     localOrder = await Order.findOne({ orderId: body.orderId });
     if (!localOrder) throw new AppError(404, `Order ${body.orderId} not found`);
-    if (req.user.role === "dropshipper" && String(localOrder.createdBy) !== String(req.user._id)) {
-      throw new AppError(403, "Forbidden");
-    }
+    await assertOrderAccess(req.user, localOrder);
   }
 
   const payload = buildForwardPayload(body, localOrder);
@@ -177,9 +176,7 @@ export const createForwardOrderOnly = asyncHandler(async (req: AuthRequest, res:
   if (body.orderId) {
     localOrder = await Order.findOne({ orderId: body.orderId });
     if (!localOrder) throw new AppError(404, `Order ${body.orderId} not found`);
-    if (req.user.role === "dropshipper" && String(localOrder.createdBy) !== String(req.user._id)) {
-      throw new AppError(403, "Forbidden");
-    }
+    await assertOrderAccess(req.user, localOrder);
   }
 
   const payload = buildForwardPayload(body, localOrder);
@@ -214,9 +211,7 @@ export const createForwardShipmentLater = asyncHandler(async (req: AuthRequest, 
   if (localOrderId) {
     const localOrder = await Order.findOne({ orderId: localOrderId });
     if (localOrder) {
-      if (req.user.role === "dropshipper" && String(localOrder.createdBy) !== String(req.user._id)) {
-        throw new AppError(403, "Forbidden");
-      }
+      await assertOrderAccess(req.user, localOrder);
       localOrder.awb = result.awb_code ?? localOrder.awb;
       localOrder.courier = result.carrier_name ?? localOrder.courier;
       localOrder.velocityShipmentId = result.shipment_id;
@@ -246,9 +241,7 @@ export const createReverseShipment = asyncHandler(async (req: AuthRequest, res: 
   if (body.orderId) {
     localOrder = await Order.findOne({ orderId: body.orderId });
     if (!localOrder) throw new AppError(404, `Order ${body.orderId} not found`);
-    if (req.user.role === "dropshipper" && String(localOrder.createdBy) !== String(req.user._id)) {
-      throw new AppError(403, "Forbidden");
-    }
+    await assertOrderAccess(req.user, localOrder);
   }
 
   const partial = buildReversePayload(body, localOrder);
@@ -291,10 +284,31 @@ export const createReverseOrderOnly = asyncHandler(async (req: AuthRequest, res:
 export const createReverseShipmentLater = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
-  const { order_id, carrier_id } = req.body as { order_id?: string; carrier_id?: number };
+  const { order_id, carrier_id, localOrderId } = req.body as {
+    order_id?: string;
+    carrier_id?: number;
+    localOrderId?: string;
+  };
   if (!order_id) throw new AppError(400, "order_id is required");
 
   const result = await velocityService.createReverseShipmentLater({ order_id, carrier_id });
+
+  if (localOrderId) {
+    const localOrder = await Order.findOne({ orderId: localOrderId });
+    if (localOrder) {
+      await assertOrderAccess(req.user, localOrder);
+      localOrder.velocityShipmentId = result.shipment_id;
+      localOrder.awb = result.awb_code ?? localOrder.awb;
+      localOrder.courier = result.carrier_name ?? localOrder.courier;
+      localOrder.courierName = result.carrier_name;
+      localOrder.courierCompanyId = result.carrier_id;
+      localOrder.labelUrl = result.label_url;
+      localOrder.shipmentStatus = result.status;
+      localOrder.status = mapVelocityStatus(result.status) || localOrder.status;
+      await localOrder.save();
+    }
+  }
+
   res.json({ success: true, data: result });
 });
 
@@ -311,9 +325,7 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
   if (orderId && result.success) {
     const localOrder = await Order.findOne({ orderId });
     if (localOrder) {
-      if (req.user.role === "dropshipper" && String(localOrder.createdBy) !== String(req.user._id)) {
-        throw new AppError(403, "Forbidden");
-      }
+      await assertOrderAccess(req.user, localOrder);
       localOrder.status = "cancelled";
       localOrder.shipmentStatus = "cancelled";
       await localOrder.save();
@@ -326,8 +338,18 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
 // ─── Tracking (authenticated) ─────────────────────────────
 
 export const trackShipment = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+
   const { awb, orderId } = req.body as { awb?: string; orderId?: string };
   if (!awb) throw new AppError(400, "awb is required");
+
+  if (orderId) {
+    const localOrderById = await Order.findOne({ orderId });
+    if (localOrderById) await assertOrderAccess(req.user, localOrderById);
+  } else {
+    const localOrderByAwb = await Order.findOne({ awb });
+    if (localOrderByAwb) await assertOrderAccess(req.user, localOrderByAwb);
+  }
 
   const result = await velocityService.trackShipment({ awb });
 
@@ -526,4 +548,26 @@ function buildReversePayload(
       })) ?? [{ name: "Product", qty: 1, price: localOrder?.amount ?? 0 }],
     qc: body.qc as boolean | undefined,
   };
+}
+
+async function assertOrderAccess(user: NonNullable<AuthRequest["user"]>, order: IOrder) {
+  if (user.role === "admin") return;
+
+  if (user.role === "dropshipper") {
+    if (String(order.createdBy) !== String(user._id)) {
+      throw new AppError(403, "Forbidden");
+    }
+    return;
+  }
+
+  if (user.role === "vendor") {
+    const vendor = await Vendor.findOne({ userId: user._id }).select("_id").lean();
+    if (!vendor) throw new AppError(403, "Forbidden");
+    if (String(order.vendorId ?? "") !== String(vendor._id)) {
+      throw new AppError(403, "Forbidden");
+    }
+    return;
+  }
+
+  throw new AppError(403, "Forbidden");
 }

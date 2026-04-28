@@ -79,7 +79,7 @@ VELOCITY_TOKEN_CACHE_TTL_MINUTES=1320
 4. Label download / open via the label buttons in the Order drawer.
 
 5. Tracking page (/track) shows real Velocity timeline pulled from:
-   POST /api/velocity/track/public/:awb
+   GET /api/velocity/track/public/:awb
 
 6. If delivery fails → order moves to NDR status automatically.
 

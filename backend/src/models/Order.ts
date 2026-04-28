@@ -29,6 +29,13 @@ export interface IOrder extends Document {
   vendorId?: Types.ObjectId;
   externalSource?: string;
   externalOrderName?: string;
+  channel?: string;
+  shipmentCreated?: boolean;
+  shipmentId?: string;
+  trackingId?: string;
+  isJunk?: boolean;
+  junkedAt?: Date;
+  junkReason?: string;
   // Velocity Shipping fields (all optional – never break existing data)
   velocityOrderId?: string;
   velocityShipmentId?: string;
@@ -80,6 +87,13 @@ const orderSchema = new Schema<IOrder>(
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
     externalSource: { type: String },
     externalOrderName: { type: String },
+    channel: { type: String, default: "Manual" },
+    shipmentCreated: { type: Boolean, default: false },
+    shipmentId: { type: String },
+    trackingId: { type: String },
+    isJunk: { type: Boolean, default: false, index: true },
+    junkedAt: { type: Date },
+    junkReason: { type: String },
     // Velocity Shipping
     velocityOrderId: { type: String, sparse: true },
     velocityShipmentId: { type: String, sparse: true },

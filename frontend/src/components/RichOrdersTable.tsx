@@ -281,32 +281,12 @@ interface Props {
   showProcessSelected?: boolean;
   showMoveTo?: boolean;
   showLockedMoveTo?: boolean;
-  showStatusColumn?: boolean;
-  statusFilter?: string;
-  onStatusFilterChange?: (s: string) => void;
+  couriers?: Array<{ id: string; name: string }>;
+  warehouses?: Array<{ id: string; warehouseName: string; city?: string }>;
+  onCreateShipment?: (payload: { orderId: string; courierId: string; warehouseId: string }) => Promise<void>;
 }
 
-const SHIPPING_STATUS_OPTIONS = [
-  { value: "ready-to-ship", label: "Ready to Ship", cls: "bg-green-50 text-green-700 border-green-200" },
-  { value: "pending-pickup", label: "Pending Pickup", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  { value: "in-transit", label: "In Transit", cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  { value: "out-for-delivery", label: "Out for Delivery", cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  { value: "delivered", label: "Delivered", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-];
-
-function ShippingStatusBadge({ status }: { status: string }) {
-  const opt = SHIPPING_STATUS_OPTIONS.find(o => o.value === status);
-  if (!opt) {
-    return <span className="inline-flex items-center rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-text-secondary">—</span>;
-  }
-  return (
-    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", opt.cls)}>
-      {opt.label}
-    </span>
-  );
-}
-
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showLockedMoveTo = false, showStatusColumn = false, statusFilter = "all", onStatusFilterChange }: Props) {
+export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showLockedMoveTo = false, couriers = [], warehouses = [], onCreateShipment }: Props) {
   const navigate = useNavigate();
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
@@ -327,6 +307,10 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [editingRemark, setEditingRemark] = useState<string | null>(null);
   const [junkConfirmId, setJunkConfirmId] = useState<string | null>(null);
+  const [shipmentModalOrder, setShipmentModalOrder] = useState<Order | null>(null);
+  const [selectedCourierId, setSelectedCourierId] = useState("");
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
+  const [shipmentSubmitting, setShipmentSubmitting] = useState(false);
 
   // Edit modals
   const [editProductOrder, setEditProductOrder] = useState<Order | null>(null);
@@ -382,14 +366,13 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
     if (customerFilter.city) {
       if ((o.city || "").toLowerCase() !== customerFilter.city.toLowerCase()) return false;
     }
-    // Status column filter (only applies in All / Channel / Manual)
-    if (showStatusColumn && statusFilter && statusFilter !== "all") {
-      if ((o as any).status !== statusFilter) return false;
-    }
     return true;
   });
 
   const isValidPincode = (pin: string | undefined) => pin != null && /^\d{6}$/.test(pin);
+  const channelLabel = (o: Order) =>
+    o.channel === "Shopify" || o.externalSource === "shopify" ? "Shopify" : "Manual";
+  const shipmentStatus = (o: Order) => (o.shipmentCreated ? "Shipped" : "Pending");
 
   const handleEditProductSave = (orderId: string, products: any[], codAmount: number) => {
     const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
@@ -622,6 +605,8 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   </div>
                 </FilterPopover>
               </th>
+              <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[110px]">Channel</th>
+              <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[160px]">Shipment Status</th>
               <th ref={amountRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[140px] relative">
                 <div className="flex items-center gap-2">
                   <span>Amount Details</span>
@@ -694,9 +679,6 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               </th>
               {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
                 <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[160px]">Courier Details</th>
-              )}
-              {showStatusColumn && (
-                <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[140px]">Status</th>
               )}
               <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[120px]">Remarks</th>
               <th className="p-3 text-center font-medium text-text-secondary min-w-[130px]">Action</th>
@@ -808,6 +790,31 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     </div>
                   </td>
 
+                  {/* Channel */}
+                  <td className="p-3 align-middle">
+                    <span className={cn(
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                      channelLabel(o) === "Shopify" ? "bg-blue-50 text-blue-700" : "bg-surface-2 text-text-secondary"
+                    )}>
+                      {channelLabel(o)}
+                    </span>
+                  </td>
+
+                  {/* Shipment Status */}
+                  <td className="p-3 align-middle">
+                    <div className="space-y-1">
+                      <span className={cn(
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                        shipmentStatus(o) === "Shipped" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                      )}>
+                        {shipmentStatus(o)}
+                      </span>
+                      {o.trackingId && (
+                        <p className="text-[11px] text-text-muted font-mono">TRK: {o.trackingId}</p>
+                      )}
+                    </div>
+                  </td>
+
                   {/* Amount Details */}
                   <td className="p-3">
                     <div className="relative">
@@ -905,13 +912,6 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     </td>
                   )}
 
-                  {/* Status (conditional - only on All / Channel / Manual) */}
-                  {showStatusColumn && (
-                    <td className="p-3 align-middle">
-                      <ShippingStatusBadge status={(o as any).status} />
-                    </td>
-                  )}
-
                   <td className="p-3">
                     <div className="relative min-h-[40px]">
                       <button className="absolute top-0 right-0 p-1 rounded hover:bg-primary-light transition-colors" onClick={() => setEditingRemark(editingRemark === o.id ? null : o.id)}>
@@ -963,11 +963,29 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                           </Button>
                         </div>
                       ) : (
-                        <Button variant="outline" size="sm"
-                          className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
-                          onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
-                          <Ban className="h-3 w-3" /> Junk
-                        </Button>
+                        <div className="flex flex-col gap-1.5">
+                          {!o.shipmentCreated && !o.isJunk && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setShipmentModalOrder(o);
+                                setSelectedCourierId("");
+                                setSelectedWarehouseId("");
+                              }}
+                            >
+                              <Truck className="h-3 w-3" /> Create Shipment
+                            </Button>
+                          )}
+                          <Button variant="outline" size="sm"
+                            className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
+                            <Ban className="h-3 w-3" /> Junk
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </td>
@@ -1001,7 +1019,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
         <AlertDialogContent className="sm:max-w-[400px]">
           <AlertDialogHeader>
             <AlertDialogDescription className="text-sm text-text-primary">
-              Are you sure! You want to cancel this order? This action is irreversible.
+              Are you sure you want to move this order to Junk?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex gap-3 sm:gap-3">
@@ -1009,11 +1027,79 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
             <AlertDialogAction
               className="border border-primary text-primary bg-transparent hover:bg-primary-light"
               onClick={() => { if (junkConfirmId) { onMarkJunk(junkConfirmId); setJunkConfirmId(null); } }}>
-              Yes, Cancel
+              Yes, Move to Junk
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Create Shipment Dialog */}
+      <Dialog open={!!shipmentModalOrder} onOpenChange={(open) => !open && setShipmentModalOrder(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Create Shipment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-xs font-medium">Courier</Label>
+              <select
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                value={selectedCourierId}
+                onChange={(e) => setSelectedCourierId(e.target.value)}
+              >
+                <option value="">Select courier</option>
+                {couriers.map((c) => (
+                  <option key={c.id || c.name} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs font-medium">Warehouse</Label>
+              <select
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                value={selectedWarehouseId}
+                onChange={(e) => setSelectedWarehouseId(e.target.value)}
+              >
+                <option value="">Select warehouse</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.warehouseName}{w.city ? ` (${w.city})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="secondary" onClick={() => setShipmentModalOrder(null)}>Cancel</Button>
+            <Button
+              onClick={async () => {
+                if (!shipmentModalOrder || !onCreateShipment) return;
+                if (!selectedCourierId || !selectedWarehouseId) {
+                  toast.error("Please select courier and warehouse");
+                  return;
+                }
+                setShipmentSubmitting(true);
+                try {
+                  await onCreateShipment({
+                    orderId: shipmentModalOrder.id,
+                    courierId: selectedCourierId,
+                    warehouseId: selectedWarehouseId,
+                  });
+                  toast.success("Shipment created successfully");
+                  setShipmentModalOrder(null);
+                } catch (err: unknown) {
+                  toast.error(err instanceof Error ? err.message : "Failed to create shipment");
+                } finally {
+                  setShipmentSubmitting(false);
+                }
+              }}
+              disabled={shipmentSubmitting}
+            >
+              {shipmentSubmitting ? "Creating..." : "Create Shipment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

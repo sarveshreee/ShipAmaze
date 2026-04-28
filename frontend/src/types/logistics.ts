@@ -10,6 +10,8 @@ export type OrderStatus =
   | "ready-to-ship"
   | "not-picked"
   | "cancelled"
+  | "junk"
+  | "shipped"
   | "draft"
   | "on-process"
   | "rts";
@@ -64,6 +66,15 @@ export interface Order {
   trackingActivities?: TrackingActivity[];
   velocityWarehouseId?: string;
   assignedDateTime?: string;
+  channel?: string;
+  externalSource?: string;
+  externalOrderName?: string;
+  shipmentCreated?: boolean;
+  shipmentId?: string;
+  trackingId?: string;
+  isJunk?: boolean;
+  junkedAt?: string;
+  junkReason?: string;
 }
 
 export interface Dropshipper {

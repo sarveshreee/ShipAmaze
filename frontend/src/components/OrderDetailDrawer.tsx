@@ -74,8 +74,8 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
   const cancelOrder = async () => {
     if (!confirm(`Cancel order ${order.id}?`)) return;
 
-    // If Velocity AWB exists, cancel through provider
-    const awbToCancel = order.awb || order.velocityShipmentId;
+    // Cancel through provider only when a true AWB exists
+    const awbToCancel = order.awb;
     if (awbToCancel) {
       setUpdating(true);
       try {
@@ -104,7 +104,13 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
       toast.success(`AWB generated: ${resp.data.awb_code} via ${resp.data.carrier_name}`);
       onOrderUpdated?.();
     } catch (err: unknown) {
-      toast.error(`AWB generation failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      const normalized = message.toLowerCase();
+      if (normalized.includes("already") && (normalized.includes("awb") || normalized.includes("shipment"))) {
+        toast.info("AWB already exists for this order");
+      } else {
+        toast.error(`AWB generation failed: ${message}`);
+      }
     } finally {
       setShippingLoading(false);
     }
@@ -118,6 +124,7 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
       const resp = await velocityService.trackShipment({ awb, orderId: order.id });
       setLiveActivities(resp.data.activities);
       toast.success("Tracking updated");
+      onOrderUpdated?.();
     } catch (err: unknown) {
       toast.error(`Tracking failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
