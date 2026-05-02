@@ -116,7 +116,6 @@ const orderSchema = new Schema<IOrder>(
 
 orderSchema.index({ awb: 1 });
 orderSchema.index({ createdBy: 1 });
-orderSchema.index({ velocityShipmentId: 1 });
 orderSchema.index({ shipmentStatus: 1 });
 orderSchema.index({ courierName: 1 });
 
