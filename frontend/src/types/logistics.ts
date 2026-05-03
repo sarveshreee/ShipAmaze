@@ -72,9 +72,12 @@ export interface Order {
   shipmentCreated?: boolean;
   shipmentId?: string;
   trackingId?: string;
+  /** Mongo Pickup document id when order used saved pickup address */
+  pickupAddressId?: string;
   isJunk?: boolean;
   junkedAt?: string;
   junkReason?: string;
+  movedToReadyAt?: string;
 }
 
 export interface Dropshipper {
@@ -103,6 +106,10 @@ export interface Vendor {
   email?: string;
 }
 
+export type WalletTxnStatus = "completed" | "pending" | "failed";
+
+export type WalletTxnDisplayType = "Credit" | "Debit" | "COD" | "Recharge" | "Deduction";
+
 export interface Transaction {
   id: string;
   date: string;
@@ -111,6 +118,10 @@ export interface Transaction {
   type: "Credit" | "Debit";
   amount: number;
   balance: number;
+  status: WalletTxnStatus;
+  displayType: WalletTxnDisplayType;
+  ledgerType?: string;
+  createdAt?: string;
 }
 
 export interface WeightDispute {
@@ -151,12 +162,15 @@ export interface PickupAddress {
   label: string;
   contactName: string;
   phone: string;
+  email?: string;
   addressLine1: string;
   addressLine2: string;
   city: string;
   state: string;
   pincode: string;
+  country?: string;
   isDefault: boolean;
+  isActive?: boolean;
 }
 
 export interface Manifest {

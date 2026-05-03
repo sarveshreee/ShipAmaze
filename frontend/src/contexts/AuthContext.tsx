@@ -20,6 +20,10 @@ interface AuthContextType {
     role: UserRole
   ) => Promise<{ error?: string; user?: AuthUser }>;
   logout: () => void;
+  /** Replace session user from API (e.g. after profile save). */
+  applyUser: (u: AuthUser) => void;
+  /** Reload user from GET /auth/me */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -32,6 +36,8 @@ const AuthContext = createContext<AuthContextType>({
   loginWithEmail: async () => ({}),
   signupWithEmail: async () => ({}),
   logout: () => {},
+  applyUser: () => {},
+  refreshUser: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -112,6 +118,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const applyUser = (u: AuthUser) => {
+    setUser(u);
+  };
+
+  const refreshUser = async () => {
+    try {
+      const { user: u } = await authService.getCurrentUser();
+      setUser(u);
+    } catch {
+      setUser(null);
+    }
+  };
+
   const value: AuthContextType = {
     isAuthenticated: !!user,
     user,
@@ -122,6 +141,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loginWithEmail,
     signupWithEmail,
     logout,
+    applyUser,
+    refreshUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

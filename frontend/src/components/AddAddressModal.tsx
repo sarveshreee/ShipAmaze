@@ -5,8 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { MapPin, Phone, Calendar, Search, X, ArrowLeft } from "lucide-react";
-import { toast } from "sonner";
-
 interface AddressData {
   tag: string;
   label: string;
@@ -91,7 +89,6 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
       country: address.country,
     });
     onClose();
-    toast.success("Address saved successfully");
   };
 
   const tags = ["Home", "Work", "Warehouse", "Other"];

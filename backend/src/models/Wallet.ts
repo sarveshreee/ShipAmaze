@@ -4,6 +4,8 @@ export interface IWallet extends Document {
   userId: Types.ObjectId;
   balance: number;
   currency: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const walletSchema = new Schema<IWallet>(

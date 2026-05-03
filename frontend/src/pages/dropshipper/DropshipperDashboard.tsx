@@ -34,7 +34,7 @@ export default function DropshipperDashboard() {
   const activeNDR = useMemo(() => ndrRows.filter((n) => n.status === "Active").length, [ndrRows]);
   const [showNDRBanner, setShowNDRBanner] = useState(activeNDR > 0);
 
-  const stats = useReactMemo(() => {
+  const stats = useMemo(() => {
     const total = orders.length;
     const delivered = orders.filter((o) => o.status === "delivered").length;
     const inTransit = orders.filter((o) => o.status === "in-transit" || o.status === "out-for-delivery").length;

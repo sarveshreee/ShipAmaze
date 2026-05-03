@@ -3,15 +3,28 @@ import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useTabPermissions } from "@/hooks/useTabPermissions";
+import { useWalletSummary } from "@/hooks/useApiData";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
-  LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Search, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Users2, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home
+  LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X,
+  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { AddFundsModal } from "@/components/AddFundsModal";
+import { ProfileEditModal } from "@/components/ProfileEditModal";
+import type { UserRole } from "@/services/authService";
 
 interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; }
 interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[]; }
@@ -99,8 +112,32 @@ const dropshipperNav: NavGroup[] = [
 
 const roleNavMap = { admin: adminNav, vendor: vendorNav, dropshipper: dropshipperNav };
 
+function settingsPathForRole(role: UserRole) {
+  if (role === "admin") return "/admin/settings";
+  if (role === "vendor") return "/vendor/settings";
+  return "/dropshipper/settings";
+}
+
+function walletPagePath(role: UserRole) {
+  if (role === "dropshipper") return "/dropshipper/wallet";
+  if (role === "vendor") return "/vendor/payouts";
+  return "/admin/finance";
+}
+
+function formatInrTop(n: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { role, userName, logout } = useAuth();
+  const { role, userName, logout, user, applyUser } = useAuth();
+  const { data: walletSummary, isLoading: walletLoading } = useWalletSummary();
+  const [addFundsOpen, setAddFundsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [walletPopoverOpen, setWalletPopoverOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { isTabEnabled } = useTabPermissions();
   const location = useLocation();
@@ -141,6 +178,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     }
     return "Dashboard";
   }, [location.pathname, nav]);
+
+  const displayBalance = walletSummary?.balance ?? 0;
+  const pendingCod = walletSummary?.pendingCod ?? 0;
+  const avatarLetter = (user?.name ?? userName ?? "U").trim().charAt(0).toUpperCase();
+  const avatarSrc = user?.avatarUrl?.trim() ? user.avatarUrl.trim() : null;
+
+  const onLogoutClick = () => {
+    logout();
+    navigate("/login");
+  };
 
   // Listen for sidebar toggle events from child components
   useEffect(() => {
@@ -233,19 +280,48 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="border-t border-sidebar-border p-3">
-          <div className="flex items-center gap-3 rounded-lg px-3 py-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-accent text-sm font-medium text-sidebar-foreground">
-              {userName.charAt(0) || "U"}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="truncate text-sm font-medium text-sidebar-primary-foreground">{userName || "User"}</p>
-              <p className="truncate text-xs text-sidebar-foreground/60 capitalize">{role}</p>
-            </div>
-            <button onClick={() => { logout(); navigate("/login"); }} className="text-sidebar-foreground/60 hover:text-sidebar-primary-foreground">
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
+        <div className="border-t border-sidebar-border p-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none ring-sidebar-primary focus-visible:ring-2 hover:bg-sidebar-accent transition-colors"
+              >
+                {avatarSrc ? (
+                  <img src={avatarSrc} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover border border-sidebar-border" />
+                ) : (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sm font-medium text-sidebar-foreground">
+                    {avatarLetter}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="truncate text-sm font-medium text-sidebar-primary-foreground">{userName || "User"}</p>
+                  <p className="truncate text-xs text-sidebar-foreground/60 capitalize">{role}</p>
+                </div>
+                <ChevronDown className="h-4 w-4 shrink-0 text-sidebar-foreground/50 -rotate-90" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-56">
+              <DropdownMenuLabel className="font-normal">
+                <p className="truncate text-sm font-medium">{userName || "User"}</p>
+                <p className="truncate text-xs text-muted-foreground">{user?.email ?? ""}</p>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setProfileOpen(true)}>
+                <User className="h-4 w-4 mr-2" />
+                Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onLogoutClick} className="text-danger focus:text-danger">
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </aside>
 
@@ -255,14 +331,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <Menu className="h-5 w-5" />
           </button>
           <h2 className="text-lg font-semibold text-text-primary truncate">{pageTitle}</h2>
-          <div className="flex-1" />
-
-          <Button variant="ghost" size="icon" className="text-text-secondary" onClick={() => {
-            const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true });
-            document.dispatchEvent(event);
-          }}>
-            <Search className="h-4 w-4" />
-          </Button>
+          <div className="flex-1 min-w-0" />
 
           <Button variant="ghost" size="icon" className="text-text-secondary" onClick={toggleTheme}>
             {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
@@ -298,15 +367,88 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             )}
           </div>
 
-          <div className="hidden sm:flex items-center gap-1 rounded-full bg-success-light px-3 py-1 text-sm font-medium text-success-dark">
-            <IndianRupee className="h-3 w-3" />12,450
-          </div>
+          <Popover open={walletPopoverOpen} onOpenChange={setWalletPopoverOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-sm font-medium text-text-primary hover:bg-surface-2 transition-colors shrink-0"
+              >
+                <IndianRupee className="h-3.5 w-3.5 text-success shrink-0" />
+                {walletLoading ? (
+                  <span className="h-4 w-20 animate-pulse rounded-md bg-surface-2" />
+                ) : (
+                  <span className="tabular-nums">{formatInrTop(displayBalance)}</span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72 p-0">
+              <div className="border-b border-border p-4 space-y-1">
+                <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Available balance</p>
+                <p className="text-xl font-semibold tabular-nums text-text-primary">{formatInrTop(displayBalance)}</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-text-muted pt-3">Pending COD</p>
+                <p className="text-sm font-medium tabular-nums text-text-primary">{formatInrTop(pendingCod)}</p>
+              </div>
+              <div className="flex flex-col gap-0.5 p-2">
+                <Button
+                  variant="ghost"
+                  className="justify-start h-9 px-2"
+                  onClick={() => {
+                    setWalletPopoverOpen(false);
+                    setAddFundsOpen(true);
+                  }}
+                >
+                  Add balance
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="justify-start h-9 px-2"
+                  onClick={() => {
+                    setWalletPopoverOpen(false);
+                    navigate(walletPagePath(role));
+                  }}
+                >
+                  View wallet
+                  <ChevronRight className="h-4 w-4 ml-auto opacity-60" />
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
 
-          <div className="flex items-center gap-2 ml-1">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
-              {userName.charAt(0) || "U"}
-            </div>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card hover:bg-surface-2 transition-colors outline-none ring-primary focus-visible:ring-2"
+                aria-label="Account menu"
+              >
+                {avatarSrc ? (
+                  <img src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
+                ) : (
+                  <span className="text-xs font-semibold text-primary">{avatarLetter}</span>
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuLabel className="font-normal">
+                <p className="truncate text-sm font-medium">{userName || "User"}</p>
+                <p className="truncate text-xs text-muted-foreground">{user?.email ?? ""}</p>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setProfileOpen(true)}>
+                <User className="h-4 w-4 mr-2" />
+                Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onLogoutClick} className="text-danger focus:text-danger">
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-20 lg:pb-6">
@@ -316,6 +458,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
       <MobileBottomNav />
       <CommandPalette />
+      <AddFundsModal open={addFundsOpen} onOpenChange={setAddFundsOpen} />
+      <ProfileEditModal open={profileOpen} onOpenChange={setProfileOpen} user={user} onSaved={applyUser} />
     </div>
   );
 }

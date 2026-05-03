@@ -1,5 +1,7 @@
 import mongoose, { Schema, type Document, type Model, type Types } from "mongoose";
 
+export type TransactionStatus = "completed" | "pending" | "failed";
+
 export interface ITransaction extends Document {
   userId: Types.ObjectId;
   txnId: string;
@@ -8,6 +10,9 @@ export interface ITransaction extends Document {
   type: "Credit" | "Debit";
   amount: number;
   balance: number;
+  status?: TransactionStatus;
+  /** Business category for reporting and UI (e.g. manual_credit_request, cod_settlement). */
+  ledgerType?: string;
 }
 
 const transactionSchema = new Schema<ITransaction>(
@@ -19,6 +24,12 @@ const transactionSchema = new Schema<ITransaction>(
     type: { type: String, enum: ["Credit", "Debit"], required: true },
     amount: { type: Number, required: true },
     balance: { type: Number, default: 0 },
+    status: {
+      type: String,
+      enum: ["completed", "pending", "failed"],
+      default: "completed",
+    },
+    ledgerType: { type: String, default: "general" },
   },
   { timestamps: true }
 );

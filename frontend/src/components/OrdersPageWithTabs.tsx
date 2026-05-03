@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { OrderDetailDrawer } from "@/components/OrderDetailDrawer";
 import { OrderCardList } from "@/components/OrderCardList";
@@ -6,7 +6,6 @@ import { OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
 import { RichOrdersTable } from "@/components/RichOrdersTable";
-import { MoveToModal, MOVABLE_STATUSES } from "@/components/MoveToModal";
 import { useCouriers, useOrders } from "@/hooks/useApiData";
 import type { Order } from "@/types/logistics";
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import { downloadCSV } from "@/lib/exportUtils";
 import { useAuth } from "@/contexts/AuthContext";
-import { usePermissions } from "@/hooks/usePermissions";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import * as orderService from "@/services/orderService";
 import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
@@ -49,14 +47,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [processModalOpen, setProcessModalOpen] = useState(false);
-  const [moveOpen, setMoveOpen] = useState(false);
   const isMobile = useIsMobile();
   const listView = activeTab === "junk" ? "junk" : undefined;
   const { data: orders = [], isLoading: loading, refetch } = useOrders(listView);
   const { data: couriers = [] } = useCouriers();
   const { warehouses } = useVendorWarehouses();
   const { role } = useAuth();
-  const perms = usePermissions();
 
   const isAdmin = role === "admin";
 
@@ -67,10 +63,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   // Process Selected: admin only
   const showProcessSelected = isAdmin && tabAllowsProcessing;
 
-  // Move To: admin always (in valid tabs); vendor/dropshipper only if permission granted
-  const canMove = isAdmin || perms.canSelfProcessOrders;
-  const showMoveTo = tabAllowsProcessing && canMove;
-  const showLockedMoveTo = tabAllowsProcessing && !canMove && !isAdmin;
+  const BULK_MOVE_TO_READY_TABS = new Set(["all", "channel", "manual"]);
+  const showBulkMoveToReady = BULK_MOVE_TO_READY_TABS.has(activeTab);
 
   const filterByTab = (o: Order, tab: string) => {
     const status = (o as any).status;
@@ -102,17 +96,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const getCount = (filter: string) => orders.filter(o => filterByTab(o, filter)).length;
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
-  const selectedSummary = useMemo(() => {
-    const map = new Map<string, number>();
-    filtered.forEach(o => {
-      if (selected.has(o.id)) {
-        const s = (o as any).status || "unknown";
-        map.set(s, (map.get(s) || 0) + 1);
-      }
-    });
-    return Array.from(map.entries()).map(([status, count]) => ({ status, count }));
-  }, [filtered, selected]);
-
   const handleMarkJunk = async (id: string) => {
     try {
       await orderService.moveOrderToJunk(id);
@@ -136,21 +119,17 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     }
   };
 
-  const handleMoveTo = (newStatus: string) => {
-    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
-    const selectedIds = Array.from(selected);
-    const updated = stored.map((o: any) => {
-      if (selectedIds.includes(o.id) || selectedIds.includes(o.orderId) || selectedIds.includes(o.order_id)) {
-        return { ...o, status: newStatus, picked_up: newStatus !== "ready-to-ship" ? true : o.picked_up };
-      }
-      return o;
-    });
-    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
-    const label = MOVABLE_STATUSES.find(m => m.value === newStatus)?.label || newStatus;
-    toast.success(`${selected.size} order(s) moved to ${label}`);
-    setSelected(new Set());
-    setMoveOpen(false);
-    refetch();
+  const handleBulkMoveToReady = async () => {
+    const orderIds = Array.from(selected);
+    if (!orderIds.length) return;
+    try {
+      await orderService.bulkMoveOrders(orderIds, "ready_to_ship");
+      toast.success("Orders moved to Ready to Ship");
+      setSelected(new Set());
+      await refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to move orders");
+    }
   };
 
   const handleExport = () => {
@@ -211,14 +190,13 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onMarkJunk={handleMarkJunk}
           onBulkJunk={handleBulkJunk}
           onOpenProcessModal={() => setProcessModalOpen(true)}
-          onOpenMoveTo={() => setMoveOpen(true)}
+          onBulkMoveToReady={handleBulkMoveToReady}
           onExport={handleExport}
           loading={loading}
           activeTab={activeTab}
           onToggleSidebar={() => window.dispatchEvent(new Event('toggle-sidebar'))}
           showProcessSelected={showProcessSelected}
-          showMoveTo={showMoveTo}
-          showLockedMoveTo={showLockedMoveTo}
+          showBulkMoveToReady={showBulkMoveToReady}
           couriers={couriers}
           warehouses={warehouses}
           onCreateShipment={async (payload) => {
@@ -250,16 +228,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           setProcessModalOpen(false);
           setSelected(new Set());
         }}
-      />
-
-      <MoveToModal
-        open={moveOpen}
-        onClose={() => setMoveOpen(false)}
-        selectedCount={selected.size}
-        currentStatusSummary={selectedSummary}
-        onConfirm={handleMoveTo}
-        isAdmin={isAdmin}
-        activeTab={activeTab}
       />
     </div>
   );

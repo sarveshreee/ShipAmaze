@@ -25,6 +25,7 @@ export function createApp() {
   api.post("/auth/register", authController.register);
   api.post("/auth/login", authController.login);
   api.get("/auth/me", authMiddleware, authController.me);
+  api.put("/users/profile", authMiddleware, authController.updateProfile);
   api.post("/auth/logout", authMiddleware, authController.logout);
   api.post("/auth/change-password", authMiddleware, authController.changePassword);
 
@@ -34,6 +35,7 @@ export function createApp() {
   api.get("/orders", authMiddleware, orderController.listOrders);
   api.post("/orders", authMiddleware, orderController.createOrder);
   api.post("/orders/bulk", authMiddleware, orderController.createOrdersBulk);
+  api.post("/orders/bulk-move", authMiddleware, orderController.bulkMoveOrders);
   api.post("/orders/create-shipment", authMiddleware, orderController.createShipment);
   api.post("/orders/:id/junk", authMiddleware, orderController.markOrderJunk);
   api.patch("/orders/:orderId/status", authMiddleware, orderController.updateOrderStatus);
@@ -63,6 +65,7 @@ export function createApp() {
   api.post("/pincodes", authMiddleware, resourceController.upsertPincode);
 
   api.get("/wallet", authMiddleware, resourceController.getWallet);
+  api.post("/wallet/add-funds", authMiddleware, resourceController.addFunds);
   api.get("/wallet/transactions", authMiddleware, resourceController.listTransactions);
   api.get("/wallet/cod-remittances", authMiddleware, resourceController.listCodRemittances);
 
@@ -78,6 +81,12 @@ export function createApp() {
 
   api.get("/pickups", authMiddleware, resourceController.listPickups);
   api.post("/pickups", authMiddleware, resourceController.createPickup);
+
+  api.get("/pickup-addresses", authMiddleware, resourceController.listPickupAddresses);
+  api.post("/pickup-addresses", authMiddleware, resourceController.createPickupAddress);
+  api.put("/pickup-addresses/:id", authMiddleware, resourceController.updatePickupAddress);
+  api.delete("/pickup-addresses/:id", authMiddleware, resourceController.deletePickupAddress);
+  api.patch("/pickup-addresses/:id/default", authMiddleware, resourceController.setDefaultPickupAddress);
 
   api.get("/weight-disputes", authMiddleware, resourceController.listWeightDisputes);
 

@@ -20,7 +20,17 @@ import { CodRemittance } from "../models/CodRemittance.js";
 import { Product } from "../models/Product.js";
 import { ProductRequest } from "../models/ProductRequest.js";
 import { TabPermission } from "../models/TabPermission.js";
-import mongoose from "mongoose";
+import mongoose, { type Types } from "mongoose";
+import { randomBytes } from "crypto";
+
+function transactionDisplayType(ledgerType: string | undefined, type: "Credit" | "Debit"): string {
+  const lt = (ledgerType || "general").toLowerCase();
+  if (lt === "manual_credit_request" || lt === "recharge") return "Recharge";
+  if (lt === "cod" || lt === "cod_settlement") return "COD";
+  if (lt === "deduction" || lt === "shipping" || lt === "fee") return "Deduction";
+  if (type === "Debit") return "Debit";
+  return "Credit";
+}
 
 export const listVendors = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
@@ -171,23 +181,133 @@ export const upsertPincode = asyncHandler(async (req: AuthRequest, res: Response
 
 export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const w = await Wallet.findOne({ userId: req.user._id });
-  res.json({ balance: w?.balance ?? 0, currency: w?.currency ?? "INR" });
+  const uid = req.user._id;
+  let w = await Wallet.findOne({ userId: uid });
+  if (!w) {
+    w = await Wallet.create({ userId: uid, balance: 0, currency: "INR" });
+  }
+
+  const [pendingCodAgg, rechargeAgg, deductionAgg] = await Promise.all([
+    CodRemittance.aggregate<{ total?: number }>([
+      {
+        $match: {
+          userId: uid,
+          status: { $in: ["Pending", "Processing"] },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$codAmount" } } },
+    ]),
+    Transaction.aggregate<{ total?: number }>([
+      {
+        $match: {
+          $and: [
+            { userId: uid },
+            { $or: [{ status: "completed" }, { status: { $exists: false } }, { status: null }] },
+            { type: "Credit" },
+            {
+              $or: [
+                { ledgerType: { $exists: false } },
+                { ledgerType: null },
+                { ledgerType: "" },
+                { ledgerType: "general" },
+                { ledgerType: "recharge" },
+                { ledgerType: "manual_credit_request" },
+              ],
+            },
+          ],
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+    Transaction.aggregate<{ total?: number }>([
+      {
+        $match: {
+          $and: [
+            { userId: uid },
+            { $or: [{ status: "completed" }, { status: { $exists: false } }, { status: null }] },
+            { type: "Debit" },
+          ],
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+  ]);
+
+  const pendingCod = pendingCodAgg[0]?.total ?? 0;
+  const totalRecharge = rechargeAgg[0]?.total ?? 0;
+  const totalDeductions = deductionAgg[0]?.total ?? 0;
+  const lastSyncedAt = (w.updatedAt ?? w.createdAt ?? new Date()).toISOString();
+
+  res.json({
+    balance: w.balance ?? 0,
+    pendingCod,
+    totalRecharge,
+    totalDeductions,
+    lastSyncedAt,
+    currency: w.currency ?? "INR",
+  });
+});
+
+export const addFunds = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const raw = (req.body as { amount?: unknown }).amount;
+  const amount = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(amount) || amount < 100) {
+    throw new AppError(400, "Minimum add-funds amount is ₹100");
+  }
+
+  let w = await Wallet.findOne({ userId: req.user._id });
+  if (!w) {
+    w = await Wallet.create({ userId: req.user._id, balance: 0, currency: "INR" });
+  }
+  const balanceAfter = w.balance ?? 0;
+  const txnId = `WREQ-${Date.now()}-${randomBytes(4).toString("hex")}`;
+  const dateStr = new Date().toISOString().slice(0, 10);
+
+  await Transaction.create({
+    userId: req.user._id,
+    txnId,
+    date: dateStr,
+    description: `Add funds — ₹${amount} (pending payment / manual credit request)`,
+    type: "Credit",
+    amount,
+    balance: balanceAfter,
+    status: "pending",
+    ledgerType: "manual_credit_request",
+  });
+
+  res.status(201).json({
+    success: true,
+    message: "Funds request recorded. Balance will update after payment is confirmed.",
+    transaction: { txnId, amount, status: "pending" as const },
+  });
 });
 
 export const listTransactions = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   const rows = await Transaction.find({ userId: req.user._id }).sort({ createdAt: -1 }).lean();
   res.json(
-    rows.map((t) => ({
-      id: t.txnId,
-      date: t.date,
-      description: t.description,
-      txnId: t.txnId,
-      type: t.type,
-      amount: t.amount,
-      balance: t.balance,
-    }))
+    rows.map((t) => {
+      const ledgerType = (t as { ledgerType?: string }).ledgerType ?? "general";
+      const status = (t as { status?: string }).status ?? "completed";
+      const createdAt = (t as { createdAt?: Date }).createdAt;
+      const date =
+        t.date ||
+        (createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "");
+      return {
+        id: t.txnId,
+        date,
+        description: t.description,
+        txnId: t.txnId,
+        type: t.type,
+        amount: t.amount,
+        balance: t.balance,
+        status,
+        ledgerType,
+        displayType: transactionDisplayType(ledgerType, t.type as "Credit" | "Debit"),
+        createdAt: createdAt ? new Date(createdAt).toISOString() : undefined,
+      };
+    })
   );
 });
 
@@ -295,29 +415,165 @@ export const listManifests = asyncHandler(async (_req: AuthRequest, res: Respons
   );
 });
 
-export const listPickups = asyncHandler(async (req: AuthRequest, res: Response) => {
+function mapPickupDoc(a: {
+  _id: unknown;
+  label: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+  country?: string;
+  isDefault?: boolean;
+  isActive?: boolean;
+}) {
+  return {
+    id: String(a._id),
+    label: a.label,
+    contactName: a.contactName ?? "",
+    phone: a.phone ?? "",
+    email: a.email ?? "",
+    addressLine1: a.addressLine1,
+    addressLine2: a.addressLine2 ?? "",
+    city: a.city,
+    state: a.state,
+    pincode: a.pincode,
+    country: a.country ?? "India",
+    isDefault: Boolean(a.isDefault),
+    isActive: a.isActive !== false,
+  };
+}
+
+async function clearDefaultPickupsForUser(userId: Types.ObjectId) {
+  await Pickup.updateMany({ userId }, { $set: { isDefault: false } });
+}
+
+export const listPickupAddresses = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const rows = await Pickup.find({ userId: req.user._id }).sort({ createdAt: -1 }).lean();
-  res.json(
-    rows.map((a) => ({
-      id: String(a._id),
-      label: a.label,
-      contactName: a.contactName,
-      phone: a.phone,
-      addressLine1: a.addressLine1,
-      addressLine2: a.addressLine2,
-      city: a.city,
-      state: a.state,
-      pincode: a.pincode,
-      isDefault: a.isDefault,
-    }))
-  );
+  const rows = await Pickup.find({
+    userId: req.user._id,
+    $or: [{ isActive: true }, { isActive: { $exists: false } }],
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+  res.json(rows.map(mapPickupDoc));
 });
 
-export const createPickup = asyncHandler(async (req: AuthRequest, res: Response) => {
+/** @deprecated Use GET /pickup-addresses — kept for older clients */
+export const listPickups = listPickupAddresses;
+
+export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const doc = await Pickup.create({ ...req.body, userId: req.user._id });
-  res.status(201).json(doc);
+  const b = req.body as Record<string, unknown>;
+  const label = String(b.label ?? "").trim();
+  const addressLine1 = String(b.addressLine1 ?? "").trim();
+  const city = String(b.city ?? "").trim();
+  const state = String(b.state ?? "").trim();
+  const pincode = String(b.pincode ?? "").trim();
+  if (!label || !addressLine1 || !city || !state || !pincode) {
+    throw new AppError(400, "label, addressLine1, city, state, and pincode are required");
+  }
+
+  const wantDefault = Boolean(b.isDefault);
+  const count = await Pickup.countDocuments({ userId: req.user._id });
+  const makeDefault = wantDefault || count === 0;
+  if (makeDefault) await clearDefaultPickupsForUser(req.user._id);
+
+  const doc = await Pickup.create({
+    userId: req.user._id,
+    label,
+    contactName: String(b.contactName ?? "").trim(),
+    phone: String(b.phone ?? "").trim(),
+    email: String(b.email ?? "").trim(),
+    addressLine1,
+    addressLine2: String(b.addressLine2 ?? "").trim(),
+    city,
+    state,
+    pincode,
+    country: String(b.country ?? "India").trim() || "India",
+    isDefault: makeDefault,
+    isActive: b.isActive === false ? false : true,
+  });
+  res.status(201).json(mapPickupDoc(doc.toObject()));
+});
+
+/** @deprecated Use POST /pickup-addresses */
+export const createPickup = createPickupAddress;
+
+export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
+  const existing = await Pickup.findOne({ _id: id, userId: req.user._id });
+  if (!existing) throw new AppError(404, "Pickup address not found");
+
+  const b = req.body as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+  if (b.label !== undefined) patch.label = String(b.label).trim();
+  if (b.contactName !== undefined) patch.contactName = String(b.contactName).trim();
+  if (b.phone !== undefined) patch.phone = String(b.phone).trim();
+  if (b.email !== undefined) patch.email = String(b.email).trim();
+  if (b.addressLine1 !== undefined) patch.addressLine1 = String(b.addressLine1).trim();
+  if (b.addressLine2 !== undefined) patch.addressLine2 = String(b.addressLine2).trim();
+  if (b.city !== undefined) patch.city = String(b.city).trim();
+  if (b.state !== undefined) patch.state = String(b.state).trim();
+  if (b.pincode !== undefined) patch.pincode = String(b.pincode).trim();
+  if (b.country !== undefined) patch.country = String(b.country).trim() || "India";
+  if (b.isActive !== undefined) patch.isActive = Boolean(b.isActive);
+
+  if (b.isDefault === true) {
+    await clearDefaultPickupsForUser(req.user._id);
+    patch.isDefault = true;
+  }
+
+  Object.assign(existing, patch);
+  const label = String(existing.label ?? "").trim();
+  const addressLine1 = String(existing.addressLine1 ?? "").trim();
+  const city = String(existing.city ?? "").trim();
+  const state = String(existing.state ?? "").trim();
+  const pincode = String(existing.pincode ?? "").trim();
+  if (!label || !addressLine1 || !city || !state || !pincode) {
+    throw new AppError(400, "label, addressLine1, city, state, and pincode are required");
+  }
+  await existing.save();
+  res.json(mapPickupDoc(existing.toObject()));
+});
+
+export const deletePickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
+  const doc = await Pickup.findOne({ _id: id, userId: req.user._id });
+  if (!doc) throw new AppError(404, "Pickup address not found");
+
+  const wasDefault = doc.isDefault;
+  await Pickup.deleteOne({ _id: id, userId: req.user._id });
+
+  if (wasDefault) {
+    const next = await Pickup.findOne({ userId: req.user._id }).sort({ createdAt: -1 });
+    if (next) {
+      next.isDefault = true;
+      await next.save();
+    }
+  }
+
+  res.json({ success: true });
+});
+
+export const setDefaultPickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
+  const doc = await Pickup.findOne({ _id: id, userId: req.user._id, isActive: { $ne: false } });
+  if (!doc) throw new AppError(404, "Pickup address not found");
+
+  await clearDefaultPickupsForUser(req.user._id);
+  doc.isDefault = true;
+  await doc.save();
+  res.json(mapPickupDoc(doc.toObject()));
 });
 
 export const listWeightDisputes = asyncHandler(async (_req: AuthRequest, res: Response) => {

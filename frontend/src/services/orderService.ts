@@ -35,3 +35,10 @@ export async function moveOrderToJunk(id: string, junkReason?: string) {
     junkReason,
   });
 }
+
+export async function bulkMoveOrders(orderIds: string[], targetStatus: "ready_to_ship") {
+  return apiClient.post<{ success: true; updatedCount: number }>("/orders/bulk-move", {
+    orderIds,
+    targetStatus,
+  });
+}

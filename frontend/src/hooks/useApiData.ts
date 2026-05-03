@@ -21,6 +21,7 @@ import type {
   PickupAddress,
   PincodeService,
 } from "@/types/logistics";
+import type { WalletSummary } from "@/services/walletService";
 
 type QueryStatus = "pending" | "success" | "error";
 
@@ -131,9 +132,17 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     shipmentCreated: Boolean(o.shipmentCreated),
     shipmentId: o.shipmentId as string | undefined,
     trackingId: o.trackingId as string | undefined,
+    pickupAddressId: o.pickupAddressId != null ? String(o.pickupAddressId) : undefined,
     isJunk: Boolean(o.isJunk),
     junkedAt: o.junkedAt as string | undefined,
     junkReason: o.junkReason as string | undefined,
+    shipmentStatus: o.shipmentStatus as string | undefined,
+    movedToReadyAt:
+      o.movedToReadyAt != null
+        ? typeof o.movedToReadyAt === "string"
+          ? (o.movedToReadyAt as string)
+          : new Date(o.movedToReadyAt as Date).toISOString()
+        : undefined,
   };
 }
 
@@ -175,6 +184,39 @@ export function useWeightDisputes() {
 export function useTransactions() {
   const queryFn = useCallback(async () => walletService.listTransactions(), []);
   return useApiQuery<Transaction>("transactions", queryFn);
+}
+
+/** Wallet summary for topbar and wallet page (refetch via `shipamaze:refetch:wallet`). */
+export function useWalletSummary() {
+  const [data, setData] = useState<WalletSummary | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const s = await walletService.getWalletSummary();
+      setData(s);
+      setError(null);
+    } catch (err) {
+      setError(toError(err));
+      setData(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    const ev = () => void load();
+    window.addEventListener("shipamaze:refetch:wallet", ev);
+    return () => window.removeEventListener("shipamaze:refetch:wallet", ev);
+  }, [load]);
+
+  return { data, error, isLoading, refetch: load };
 }
 
 export type NdrRow = {
@@ -300,7 +342,7 @@ export function useCodRemittances() {
 }
 
 export function usePickupAddresses() {
-  const queryFn = useCallback(async () => pickupService.listPickups(), []);
+  const queryFn = useCallback(async () => pickupService.listPickupAddresses(), []);
   return useApiQuery<PickupAddress>("pickup_addresses", queryFn);
 }
 

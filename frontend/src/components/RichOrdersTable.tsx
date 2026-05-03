@@ -11,6 +11,12 @@ import { printShippingLabel } from "@/components/ShippingLabel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const INDIAN_STATES = [
   "Andaman and Nicobar Islands","Andhra Pradesh","Arunachal Pradesh","Assam","Bihar",
@@ -273,21 +279,22 @@ interface Props {
   onMarkJunk: (id: string) => void;
   onBulkJunk?: () => void;
   onOpenProcessModal?: () => void;
-  onOpenMoveTo?: () => void;
   onExport?: () => void;
   loading: boolean;
   activeTab?: string;
   onToggleSidebar?: () => void;
   showProcessSelected?: boolean;
-  showMoveTo?: boolean;
-  showLockedMoveTo?: boolean;
+  /** All / Manual / Channel tabs: bulk move to Ready to Ship only */
+  showBulkMoveToReady?: boolean;
+  onBulkMoveToReady?: () => Promise<void>;
   couriers?: Array<{ id: string; name: string }>;
   warehouses?: Array<{ id: string; warehouseName: string; city?: string }>;
   onCreateShipment?: (payload: { orderId: string; courierId: string; warehouseId: string }) => Promise<void>;
 }
 
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onOpenMoveTo, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showMoveTo = false, showLockedMoveTo = false, couriers = [], warehouses = [], onCreateShipment }: Props) {
+export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showBulkMoveToReady = false, onBulkMoveToReady, couriers = [], warehouses = [], onCreateShipment }: Props) {
   const navigate = useNavigate();
+  const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
   const [addressFilter, setAddressFilter] = useState({ open: false, search: "", selectedStates: new Set<string>(), validPincodes: false, invalidPincodes: false, invalidContact: false });
@@ -436,6 +443,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
       dimensions: order.dimensions || "",
       courier: order.courier || "",
       pickupAddress: (order as any).pickupAddress || "",
+      pickupAddressId: (order as any).pickupAddressId || "",
       status: order.status,
     };
     localStorage.setItem("shipflow_edit_order", JSON.stringify(editData));
@@ -462,21 +470,51 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
             <span>Count Order: <strong>{selected.size}</strong></span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {showMoveTo && (
-              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary-light" onClick={onOpenMoveTo}>
-                <Truck className="h-3.5 w-3.5" /> Move To
-              </Button>
-            )}
-            {showLockedMoveTo && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled
-                title="Admin permission required to process orders"
-                className="h-8 text-xs gap-1.5 opacity-60 cursor-not-allowed"
-              >
-                <Truck className="h-3.5 w-3.5" /> Move To
-              </Button>
+            {showBulkMoveToReady && onBulkMoveToReady && (
+              <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary-light">
+                      <Truck className="h-3.5 w-3.5" /> Move To
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[10rem]">
+                    <DropdownMenuItem
+                      className="cursor-pointer"
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setBulkMoveToReadyConfirmOpen(true);
+                      }}
+                    >
+                      Ready to Ship
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <AlertDialog open={bulkMoveToReadyConfirmOpen} onOpenChange={setBulkMoveToReadyConfirmOpen}>
+                  <AlertDialogContent className="sm:max-w-[400px]">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Move to Ready to Ship</AlertDialogTitle>
+                      <AlertDialogDescription className="text-sm text-text-primary">
+                        Move selected orders to Ready to Ship?
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="flex gap-3 sm:gap-3">
+                      <AlertDialogCancel className="border-none shadow-none text-text-secondary hover:text-text-primary">
+                        Cancel
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-primary text-primary-foreground hover:bg-primary-dark"
+                        onClick={() => {
+                          setBulkMoveToReadyConfirmOpen(false);
+                          void onBulkMoveToReady();
+                        }}
+                      >
+                        Confirm
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
             )}
             {showProcessSelected && (
               <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onOpenProcessModal}>

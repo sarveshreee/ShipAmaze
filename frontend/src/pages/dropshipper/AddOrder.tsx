@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Phone, Save, Pencil, Trash2, X } from "lucide-react";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import * as orderService from "@/services/orderService";
+import * as pickupService from "@/services/pickupService";
 import type { PickupAddress } from "@/types/logistics";
 import { AddAddressModal } from "@/components/AddAddressModal";
 import { toast } from "sonner";
@@ -75,12 +76,11 @@ const categoryOptions = Object.keys(categoryHsnMap);
 
 export default function AddOrder() {
   const navigate = useNavigate();
-  const { data: apiPickups = [] } = usePickupAddresses();
+  const { data: apiPickups = [], isLoading: pickupsLoading, refetch: refetchPickups } = usePickupAddresses();
   const [currentStep, setCurrentStep] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  const [extraAddresses, setExtraAddresses] = useState<PickupAddress[]>([]);
-  const allAddresses = [...apiPickups, ...extraAddresses];
+  const allAddresses = apiPickups;
 
   const [selectedPickup, setSelectedPickup] = useState("");
   const [showReturn, setShowReturn] = useState(false);
@@ -134,53 +134,70 @@ export default function AddOrder() {
     } catch {}
   }, []);
 
-  // Load edit order data from localStorage when ?edit= param is present
+  const editAppliedRef = useRef(false);
+
+  // Load edit order data from localStorage when ?edit= param is present (after pickup list fetch)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const editId = params.get("edit");
-    if (!editId) return;
+    if (!editId || editAppliedRef.current) return;
+    if (pickupsLoading) return;
 
     try {
-      const editData = JSON.parse(localStorage.getItem("shipflow_edit_order") || "null");
+      const editData = JSON.parse(localStorage.getItem("shipflow_edit_order") || "null") as Record<string, unknown> | null;
       if (!editData) return;
 
+      editAppliedRef.current = true;
+
+      const d = editData;
+
       // Step 1: Find matching pickup address
-      const pickupMatch = allAddresses.find(a => a.label === editData.pickupAddress);
+      const pickupMatch =
+        (d.pickupAddressId && allAddresses.find((a) => a.id === String(d.pickupAddressId))) ||
+        (d.pickupAddress && allAddresses.find((a) => a.label === d.pickupAddress));
       if (pickupMatch) setSelectedPickup(pickupMatch.id);
 
       // Step 2: Consignee Details
-      const phone = (editData.phone || "").replace(/^\+91\s?/, "");
+      const phone = String(d.phone ?? "").replace(/^\+91\s?/, "");
       setConsignee({
-        fullName: editData.customer || "",
+        fullName: String(d.customer ?? ""),
         phone: phone,
-        email: editData.email || "",
-        altPhone: editData.altPhone || "",
-        addressLine1: editData.address || "",
-        addressLine2: editData.address2 || "",
-        addressType: editData.addressType || "Home",
-        consigneeEmail: editData.email || "",
-        pincode: editData.pincode || "",
-        city: editData.city || "",
-        state: editData.state || "",
-        country: editData.country || "India",
+        email: String(d.email ?? ""),
+        altPhone: String(d.altPhone ?? ""),
+        addressLine1: String(d.address ?? ""),
+        addressLine2: String(d.address2 ?? ""),
+        addressType: String(d.addressType ?? "Home"),
+        consigneeEmail: String(d.email ?? ""),
+        pincode: String(d.pincode ?? ""),
+        city: String(d.city ?? ""),
+        state: String(d.state ?? ""),
+        country: String(d.country ?? "India"),
       });
 
       // Step 3: Shipment Details
-      const editProducts = (editData.products || []).length > 0
-        ? editData.products.map((p: any) => ({ name: p.name || "", qty: String(p.qty || ""), price: String(p.price || ""), category: p.category || "", sku: p.sku || "", hsn: p.hsn || "" }))
+      const rawProducts = d.products;
+      const editProducts = Array.isArray(rawProducts) && rawProducts.length > 0
+        ? (rawProducts as Record<string, unknown>[]).map((p) => ({
+            name: String(p.name ?? ""),
+            qty: String(p.qty ?? ""),
+            price: String(p.price ?? ""),
+            category: String(p.category ?? ""),
+            sku: String(p.sku ?? ""),
+            hsn: String(p.hsn ?? ""),
+          }))
         : [{ name: "", qty: "", price: "", category: "", sku: "", hsn: "" }];
       setProducts(editProducts);
       setShipment(prev => ({
         ...prev,
         orderId: editId,
-        paymentType: editData.payment || "Prepaid",
-        codAmount: editData.payment === "COD" ? String(editData.amount || 0) : "0",
+        paymentType: String(d.payment ?? "Prepaid"),
+        codAmount: d.payment === "COD" ? String(d.amount ?? 0) : "0",
       }));
 
       // Step 4: Package Details from weight/dimensions
-      if (editData.weight || editData.dimensions) {
-        const weightStr = (editData.weight || "").replace(/[^\d.]/g, "");
-        const dimParts = (editData.dimensions || "").split(";").map((d: string) => d.trim());
+      if (d.weight || d.dimensions) {
+        const weightStr = String(d.weight ?? "").replace(/[^\d.]/g, "");
+        const dimParts = String(d.dimensions ?? "").split(";").map((x: string) => x.trim());
         const pkgDetails = editProducts.filter((p: any) => p.name.trim()).map((_: any, i: number) => {
           const dims = dimParts[i] ? dimParts[i].replace(/\s*cm\s*/gi, "").split("x") : [];
           return {
@@ -195,7 +212,7 @@ export default function AddOrder() {
 
       // Step 5: Courier
       const mockCouriersList = ["ekart", "xpressbees", "delhivery", "amazon", "xbs", "ekartb2b"];
-      const courierMatch = mockCouriersList.find(c => (editData.courier || "").toLowerCase().includes(c));
+      const courierMatch = mockCouriersList.find((c) => String(d.courier ?? "").toLowerCase().includes(c));
       if (courierMatch) {
         setCourierMode("courier");
         setSelectedCourier(courierMatch);
@@ -206,8 +223,9 @@ export default function AddOrder() {
       setLoadedNotification(true);
     } catch (e) {
       console.error("Failed to load edit order data:", e);
+      editAppliedRef.current = false;
     }
-  }, []);
+  }, [pickupsLoading, allAddresses]);
 
   // Saved orders
   const [savedOrders, setSavedOrders] = useState<SavedOrder[]>(() => {
@@ -253,7 +271,7 @@ export default function AddOrder() {
   const validateStep = useCallback((step: number): boolean => {
     const errors: StepErrors = {};
     if (step === 1) {
-      if (!selectedPickup) errors.pickup = "Please select a pickup address to continue";
+      if (!selectedPickup) errors.pickup = "Please select pickup address";
       if (showReturn && !selectedReturn) errors.return = "Please select a return address to continue";
     } else if (step === 2) {
       if (!consignee.fullName.trim()) errors.fullName = "Full name is required";
@@ -289,21 +307,39 @@ export default function AddOrder() {
 
   const handleStepClick = (_stepNum: number) => {};
 
-  const handleAddAddress = (addr: any) => {
-    const newAddr = {
-      id: `custom-${Date.now()}`,
-      label: addr.label,
-      contactName: addr.contactName,
-      phone: addr.phone,
-      addressLine1: addr.addressLine1,
-      addressLine2: addr.addressLine2,
-      city: addr.city,
-      state: addr.state,
-      pincode: addr.pincode,
-      isDefault: false,
-    };
-    setExtraAddresses(prev => [...prev, newAddr]);
-    setSelectedPickup(newAddr.id);
+  const handleAddAddress = async (addr: {
+    tag: string;
+    label: string;
+    contactName: string;
+    phone: string;
+    addressLine1: string;
+    addressLine2: string;
+    city: string;
+    state: string;
+    pincode: string;
+    country: string;
+  }) => {
+    try {
+      const created = await pickupService.createPickupAddress({
+        label: addr.label?.trim() || `${addr.tag} — ${addr.city}`,
+        contactName: addr.contactName.trim(),
+        phone: addr.phone.trim(),
+        addressLine1: addr.addressLine1.trim(),
+        addressLine2: addr.addressLine2.trim(),
+        city: addr.city.trim(),
+        state: addr.state.trim(),
+        pincode: addr.pincode.trim(),
+        country: addr.country?.trim() || "India",
+        isDefault: false,
+      });
+      window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses"));
+      await refetchPickups();
+      setSelectedPickup(created.id);
+      setShowAddModal(false);
+      toast.success("Pickup address saved");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Could not save pickup address");
+    }
   };
 
   const handlePriorityClick = (courierId: string) => {
@@ -409,6 +445,7 @@ export default function AddOrder() {
         dimensions: `${dims} cm`,
         zone: "B",
         pickupAddress: pickupAddr?.label || "",
+        pickupAddressId: selectedPickup || undefined,
       });
       toast.success("Order submitted successfully!");
       navigate("/dropshipper/orders");
@@ -469,13 +506,19 @@ export default function AddOrder() {
               <div className="flex-1 space-y-5">
                 <div>
                   <Label className="text-sm font-medium">Select Pickup Address<span className="text-danger">*</span></Label>
-                  <select value={selectedPickup} onChange={e => setSelectedPickup(e.target.value)}
-                    className={cn("mt-1 w-full rounded-md border bg-background px-3 py-2.5 text-sm",
+                  <select
+                    value={selectedPickup}
+                    onChange={(e) => setSelectedPickup(e.target.value)}
+                    className={cn(
+                      "mt-1 w-full rounded-md border bg-background px-3 py-2.5 text-sm",
                       stepErrors.pickup ? "border-danger" : "border-border"
-                    )}>
+                    )}
+                  >
                     <option value="">-- Select Pickup Address --</option>
-                    {allAddresses.map(a => (
-                      <option key={a.id} value={a.id}>{a.label}</option>
+                    {allAddresses.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label}
+                      </option>
                     ))}
                   </select>
                   {stepErrors.pickup && <p className="text-xs text-danger mt-1">{stepErrors.pickup}</p>}
@@ -509,21 +552,69 @@ export default function AddOrder() {
 
               {/* Right panel */}
               <div className="w-full lg:w-80 space-y-4">
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-2">Pickup locations</h4>
+                  {pickupsLoading ? (
+                    <p className="text-sm text-text-muted py-4">Loading addresses…</p>
+                  ) : allAddresses.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border bg-surface-2/30 p-4 text-center">
+                      <p className="text-sm text-text-secondary">No pickup address found. Add one first.</p>
+                      <Button asChild className="mt-3 w-full bg-primary text-primary-foreground hover:bg-primary-dark" size="sm">
+                        <Link to="/dropshipper/pickup-addresses">Add Pickup Address</Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {allAddresses.map((a) => {
+                        const sel = selectedPickup === a.id;
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPickup(a.id);
+                              setStepErrors((prev) => ({ ...prev, pickup: "" }));
+                            }}
+                            className={cn(
+                              "w-full text-left rounded-lg border p-3 transition-colors",
+                              sel ? "border-primary bg-primary-light/50 ring-1 ring-primary/30" : "border-border bg-card hover:bg-surface-2/50"
+                            )}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-semibold text-text-primary truncate">{a.label}</p>
+                              {a.isDefault && (
+                                <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground">Default</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-text-muted mt-1">
+                              {a.city} · {a.pincode}
+                            </p>
+                            <p className="text-xs text-text-secondary mt-0.5 truncate">{a.contactName}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {selectedPickupAddr && (
-                  <div className="rounded-lg border border-border bg-card p-5 relative">
-                    <div className="absolute top-4 right-4">
-                      <div className="h-10 w-10 rounded-full bg-primary-light flex items-center justify-center">
-                        <MapPin className="h-5 w-5 text-primary" />
+                  <div className="rounded-lg border border-border bg-card p-4 relative">
+                    <div className="absolute top-3 right-3">
+                      <div className="h-9 w-9 rounded-full bg-primary-light flex items-center justify-center">
+                        <MapPin className="h-4 w-4 text-primary" />
                       </div>
                     </div>
-                    <h4 className="font-semibold text-text-primary mb-3">Pickup Address</h4>
+                    <h4 className="font-semibold text-text-primary text-sm mb-2">Selected</h4>
                     <p className="text-sm text-text-secondary font-medium">{selectedPickupAddr.label}</p>
-                    <p className="text-sm text-primary font-medium mt-1">{selectedPickupAddr.contactName}</p>
-                    <p className="text-sm text-text-secondary mt-1">{selectedPickupAddr.addressLine1}</p>
-                    <p className="text-sm text-text-secondary">{selectedPickupAddr.addressLine2}</p>
-                    <p className="text-sm text-text-secondary">{selectedPickupAddr.city}, {selectedPickupAddr.state}, {selectedPickupAddr.pincode}</p>
-                    <div className="flex items-center gap-1.5 mt-2 text-sm text-text-secondary">
-                      <Phone className="h-3.5 w-3.5" />{selectedPickupAddr.phone}
+                    <p className="text-xs text-text-muted mt-1 line-clamp-3">
+                      {[selectedPickupAddr.addressLine1, selectedPickupAddr.addressLine2].filter(Boolean).join(", ")}
+                    </p>
+                    <p className="text-xs text-text-muted mt-1">
+                      {selectedPickupAddr.city}, {selectedPickupAddr.state} — {selectedPickupAddr.pincode}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-2 text-xs text-text-secondary">
+                      <Phone className="h-3 w-3 shrink-0" />
+                      {selectedPickupAddr.phone}
                     </div>
                   </div>
                 )}

@@ -5,12 +5,15 @@ export interface IPickup extends Document {
   label: string;
   contactName: string;
   phone: string;
+  email?: string;
   addressLine1: string;
   addressLine2?: string;
   city: string;
   state: string;
   pincode: string;
+  country: string;
   isDefault: boolean;
+  isActive: boolean;
 }
 
 const pickupSchema = new Schema<IPickup>(
@@ -19,12 +22,15 @@ const pickupSchema = new Schema<IPickup>(
     label: { type: String, required: true },
     contactName: { type: String, default: "" },
     phone: { type: String, default: "" },
+    email: { type: String, default: "" },
     addressLine1: { type: String, required: true },
     addressLine2: String,
     city: { type: String, required: true },
     state: { type: String, required: true },
     pincode: { type: String, required: true },
+    country: { type: String, default: "India" },
     isDefault: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

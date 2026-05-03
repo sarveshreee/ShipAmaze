@@ -24,8 +24,16 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-async function toPublicUser(user: { _id: unknown; name: string; email: string; role: string; permissions: string[]; companyName: string }) {
-  const profile = await Profile.findOne({ userId: user._id });
+async function toPublicUser(user: {
+  _id: unknown;
+  name: string;
+  email: string;
+  role: string;
+  permissions: string[];
+  companyName: string;
+  phone?: string;
+}) {
+  const profile = await Profile.findOne({ userId: user._id }).lean();
   return {
     id: String(user._id),
     name: user.name,
@@ -33,7 +41,10 @@ async function toPublicUser(user: { _id: unknown; name: string; email: string; r
     role: user.role,
     permissions: user.permissions,
     companyName: user.companyName,
-    avatarUrl: profile?.avatarUrl ?? null,
+    phone: user.phone ?? "",
+    address: profile?.address ?? "",
+    avatarUrl:
+      profile?.avatarUrl && String(profile.avatarUrl).trim() ? String(profile.avatarUrl).trim() : null,
   };
 }
 
@@ -96,6 +107,45 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
 export const me = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  res.json({ user: await toPublicUser(req.user) });
+});
+
+const profileUpdateSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  phone: z.string().max(40).optional(),
+  companyName: z.string().max(200).optional(),
+  address: z.string().max(500).optional(),
+  avatarUrl: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
+});
+
+export const updateProfile = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.body && typeof req.body === "object") {
+    if ("email" in req.body || "role" in req.body) {
+      throw new AppError(400, "Cannot update email or role");
+    }
+  }
+  const body = profileUpdateSchema.parse(req.body ?? {});
+  if (body.name !== undefined) req.user.name = body.name.trim();
+  if (body.phone !== undefined) req.user.phone = body.phone.trim();
+  if (body.companyName !== undefined) req.user.companyName = body.companyName.trim();
+  await req.user.save();
+
+  if (body.address !== undefined || body.avatarUrl !== undefined) {
+    const $set: Record<string, string> = {};
+    const $unset: Record<string, 1> = {};
+    if (body.address !== undefined) $set.address = body.address.trim();
+    if (body.avatarUrl !== undefined) {
+      if (body.avatarUrl === null || body.avatarUrl === "") $unset.avatarUrl = 1;
+      else $set.avatarUrl = body.avatarUrl;
+    }
+    await Profile.findOneAndUpdate(
+      { userId: req.user._id },
+      { ...(Object.keys($set).length ? { $set } : {}), ...(Object.keys($unset).length ? { $unset } : {}) },
+      { upsert: true, new: true }
+    );
+  }
+
   res.json({ user: await toPublicUser(req.user) });
 });
 

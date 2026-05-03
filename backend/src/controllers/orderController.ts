@@ -8,6 +8,8 @@ import { Vendor } from "../models/Vendor.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { randomUUID } from "crypto";
+import mongoose from "mongoose";
+import { Pickup } from "../models/Pickup.js";
 
 function mapOrder(o: {
   orderId: string;
@@ -27,6 +29,7 @@ function mapOrder(o: {
   dimensions?: string;
   zone?: string;
   pickupAddress?: string;
+  pickupAddressId?: Types.ObjectId;
   createdAt?: Date;
   channel?: string;
   externalSource?: string;
@@ -37,6 +40,8 @@ function mapOrder(o: {
   isJunk?: boolean;
   junkedAt?: Date;
   junkReason?: string;
+  shipmentStatus?: string;
+  movedToReadyAt?: Date;
 }) {
   return {
     id: o.orderId,
@@ -56,6 +61,7 @@ function mapOrder(o: {
     dimensions: o.dimensions,
     zone: o.zone,
     pickupAddress: o.pickupAddress,
+    pickupAddressId: o.pickupAddressId ? String(o.pickupAddressId) : undefined,
     createdAt: o.createdAt,
     channel: o.channel ?? "Manual",
     externalSource: o.externalSource,
@@ -66,6 +72,8 @@ function mapOrder(o: {
     isJunk: Boolean(o.isJunk),
     junkedAt: o.junkedAt,
     junkReason: o.junkReason,
+    shipmentStatus: o.shipmentStatus,
+    movedToReadyAt: o.movedToReadyAt,
   };
 }
 
@@ -99,6 +107,20 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   const orderId = (body.orderId as string) || `SF${Date.now()}`;
   const vendor =
     req.user.role === "vendor" ? await vendorDocForUser(req.user._id) : null;
+
+  let pickupAddressId: Types.ObjectId | undefined;
+  const rawPid = body.pickupAddressId;
+  if (rawPid != null && String(rawPid).trim() !== "") {
+    if (!mongoose.isValidObjectId(String(rawPid))) throw new AppError(400, "Invalid pickupAddressId");
+    const p = await Pickup.findOne({
+      _id: String(rawPid),
+      userId: req.user._id,
+      $or: [{ isActive: true }, { isActive: { $exists: false } }],
+    });
+    if (!p) throw new AppError(400, "Pickup address not found or not allowed");
+    pickupAddressId = p._id;
+  }
+
   const doc = await Order.create({
     orderId,
     customer: String(body.customer ?? ""),
@@ -117,6 +139,7 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     dimensions: body.dimensions as string | undefined,
     zone: body.zone as string | undefined,
     pickupAddress: body.pickupAddress as string | undefined,
+    pickupAddressId,
     createdBy: req.user._id,
     vendorId: vendor?._id,
     channel: String(body.channel ?? "Manual"),
@@ -201,6 +224,80 @@ export const createShipment = asyncHandler(async (req: AuthRequest, res: Respons
     success: true,
     trackingId,
     shipmentId,
+  });
+});
+
+/** Statuses that must not be manually pushed to Ready to Ship (already shipped / in pipeline / terminal). */
+const BLOCKED_BULK_MOVE_TO_READY = new Set([
+  "shipped",
+  "in-transit",
+  "out-for-delivery",
+  "delivered",
+  "pending-pickup",
+  "failed",
+  "reship",
+  "junk",
+  "cancelled",
+  "rto",
+  "ndr",
+]);
+
+export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const body = req.body as { orderIds?: unknown; targetStatus?: unknown };
+  const orderIds = body.orderIds;
+  const targetStatus = body.targetStatus;
+
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    throw new AppError(400, "orderIds must be a non-empty array");
+  }
+  if (targetStatus !== "ready_to_ship") {
+    throw new AppError(400, "targetStatus must be ready_to_ship");
+  }
+
+  const ids = [...new Set(orderIds.map((id) => String(id).trim()).filter(Boolean))];
+  if (ids.length === 0) throw new AppError(400, "orderIds must not be empty");
+
+  const orders = await Order.find({ orderId: { $in: ids } }).exec();
+  if (orders.length !== ids.length) {
+    throw new AppError(404, "One or more orders were not found");
+  }
+
+  for (const order of orders) {
+    if (req.user.role === "dropshipper" && String(order.createdBy) !== String(req.user._id)) {
+      throw new AppError(403, "Forbidden");
+    }
+
+    if (order.isJunk) {
+      throw new AppError(400, "Cannot move junk orders to Ready to Ship");
+    }
+    if (order.shipmentCreated) {
+      throw new AppError(400, "Cannot manually move orders that already have a shipment");
+    }
+    const st = String(order.status || "").toLowerCase();
+    if (BLOCKED_BULK_MOVE_TO_READY.has(st)) {
+      throw new AppError(
+        400,
+        `Order ${order.orderId} cannot be moved to Ready to Ship from status "${order.status}"`
+      );
+    }
+  }
+
+  const now = new Date();
+  const result = await Order.updateMany(
+    { orderId: { $in: ids } },
+    {
+      $set: {
+        status: "ready-to-ship",
+        shipmentStatus: "ready_to_ship",
+        movedToReadyAt: now,
+      },
+    }
+  );
+
+  res.json({
+    success: true,
+    updatedCount: result.matchedCount ?? ids.length,
   });
 });
 

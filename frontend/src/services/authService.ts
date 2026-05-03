@@ -9,6 +9,8 @@ export interface AuthUser {
   role: UserRole;
   permissions: string[];
   companyName: string;
+  phone: string;
+  address: string;
   avatarUrl: string | null;
 }
 
@@ -42,6 +44,16 @@ export async function logout() {
 
 export async function getCurrentUser() {
   return apiClient.get<{ user: AuthUser }>("/auth/me");
+}
+
+export async function updateProfile(payload: {
+  name?: string;
+  phone?: string;
+  companyName?: string;
+  address?: string;
+  avatarUrl?: string | null;
+}) {
+  return apiClient.put<{ user: AuthUser }>("/users/profile", payload);
 }
 
 export async function changePassword(currentPassword: string, newPassword: string) {

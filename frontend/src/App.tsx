@@ -137,6 +137,7 @@ function AppRoutes() {
       <Route path="/dropshipper/ndr" element={<ProtectedRoute><DropshipperNDR /></ProtectedRoute>} />
       <Route path="/dropshipper/weight-disputes" element={<ProtectedRoute><DropshipperWeightDisputes /></ProtectedRoute>} />
       <Route path="/dropshipper/addresses" element={<ProtectedRoute><DropshipperPickupAddresses /></ProtectedRoute>} />
+      <Route path="/dropshipper/pickup-addresses" element={<ProtectedRoute><DropshipperPickupAddresses /></ProtectedRoute>} />
       <Route path="/dropshipper/tracking" element={<ProtectedRoute><PublicTracking /></ProtectedRoute>} />
       <Route path="/dropshipper/settings" element={<ProtectedRoute><DropshipperSettings /></ProtectedRoute>} />
 

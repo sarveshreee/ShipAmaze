@@ -25,6 +25,8 @@ export interface IOrder extends Document {
   dimensions?: string;
   zone?: string;
   pickupAddress?: string;
+  /** Saved pickup address document (Pickup collection). */
+  pickupAddressId?: Types.ObjectId;
   createdBy: Types.ObjectId;
   vendorId?: Types.ObjectId;
   externalSource?: string;
@@ -52,6 +54,7 @@ export interface IOrder extends Document {
   trackingActivities?: ITrackingActivity[];
   velocityWarehouseId?: string;
   assignedDateTime?: Date;
+  movedToReadyAt?: Date;
 }
 
 const trackingActivitySchema = new Schema<ITrackingActivity>(
@@ -83,6 +86,7 @@ const orderSchema = new Schema<IOrder>(
     dimensions: String,
     zone: String,
     pickupAddress: String,
+    pickupAddressId: { type: Schema.Types.ObjectId, ref: "Pickup" },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
     externalSource: { type: String },
@@ -110,6 +114,7 @@ const orderSchema = new Schema<IOrder>(
     trackingActivities: { type: [trackingActivitySchema], default: undefined },
     velocityWarehouseId: { type: String },
     assignedDateTime: { type: Date },
+    movedToReadyAt: { type: Date },
   },
   { timestamps: true }
 );
