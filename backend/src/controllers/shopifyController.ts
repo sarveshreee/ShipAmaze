@@ -238,8 +238,11 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
   let updated = 0;
 
   for (const so of shopOrders) {
-    const externalId = `shopify-${so.id}`;
+    const safeShopKey = conn.shopDomain.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+    const externalId = `shopify-${safeShopKey}-${so.id}`;
     const shipping = so.shipping_address;
+    const rawStatus = String(so.fulfillment_status || "").toLowerCase();
+    const normalizedStatus = rawStatus === "fulfilled" ? "shipped" : "pending";
 
     const mapped = {
       orderId: externalId,
@@ -251,7 +254,7 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       weight: "",
       courier: "Delhivery",
       payment: so.financial_status === "paid" ? "Prepaid" : "COD",
-      status: so.fulfillment_status || "pending",
+      status: normalizedStatus,
       date: so.created_at.slice(0, 10),
       awb: "",
       amount: parseFloat(so.total_price) || 0,
@@ -262,17 +265,30 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
         sku: li.sku,
       })),
       createdBy: req.user!._id,
+      ownerUserId: req.user!._id,
       channel: "Shopify",
       externalSource: "shopify",
       externalOrderName: so.name,
+      isJunk: false,
+      shipmentStatus: "pending",
     };
 
-    const existing = await Order.findOne({ orderId: externalId });
+    const existing = await Order.findOne({
+      orderId: externalId,
+      $or: [{ createdBy: req.user!._id }, { ownerUserId: req.user!._id }],
+    });
     if (existing) {
       // Only update mutable fields, preserve fulfillment data
+      existing.createdBy = req.user!._id;
+      existing.ownerUserId = req.user!._id;
       existing.amount = mapped.amount;
       existing.products = mapped.products;
       existing.payment = mapped.payment;
+      existing.status = normalizedStatus;
+      existing.isJunk = false;
+      if (!existing.shipmentStatus) {
+        existing.shipmentStatus = "pending";
+      }
       existing.channel = "Shopify";
       existing.externalSource = "shopify";
       existing.externalOrderName = so.name;

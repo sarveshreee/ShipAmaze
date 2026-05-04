@@ -28,6 +28,8 @@ export interface IOrder extends Document {
   /** Saved pickup address document (Pickup collection). */
   pickupAddressId?: Types.ObjectId;
   createdBy: Types.ObjectId;
+  /** Canonical owner id for dropshipper-owned orders (e.g. Shopify imports). */
+  ownerUserId?: Types.ObjectId;
   vendorId?: Types.ObjectId;
   externalSource?: string;
   externalOrderName?: string;
@@ -89,6 +91,7 @@ const orderSchema = new Schema<IOrder>(
     pickupAddress: String,
     pickupAddressId: { type: Schema.Types.ObjectId, ref: "Pickup" },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    ownerUserId: { type: Schema.Types.ObjectId, ref: "User" },
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
     externalSource: { type: String },
     externalOrderName: { type: String },
@@ -122,6 +125,7 @@ const orderSchema = new Schema<IOrder>(
 
 orderSchema.index({ awb: 1 });
 orderSchema.index({ createdBy: 1 });
+orderSchema.index({ ownerUserId: 1 });
 orderSchema.index({ shipmentStatus: 1 });
 orderSchema.index({ courierName: 1 });
 

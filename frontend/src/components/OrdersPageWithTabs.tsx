@@ -117,6 +117,10 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     return true;
   });
 
+  useEffect(() => {
+    console.log("[orders:page] received_count=", orders.length, "selected_tab=", activeTab, "filtered_count=", filtered.length);
+  }, [orders.length, activeTab, filtered.length]);
+
   const getCount = (filter: string) => orders.filter(o => filterByTab(o, filter)).length;
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };

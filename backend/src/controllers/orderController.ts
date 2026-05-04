@@ -118,14 +118,22 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
     if (v) query = { vendorId: v._id };
     else query = { createdBy: req.user._id };
   } else if (req.user.role === "dropshipper") {
-    query = { createdBy: req.user._id };
+    query = {
+      $or: [
+        { ownerUserId: req.user._id },
+        { createdBy: req.user._id },
+        { dropshipperId: req.user._id },
+      ],
+    };
   }
   if (view === "junk") {
     query = { ...query, isJunk: true };
   } else {
     query = { ...query, isJunk: { $ne: true } };
   }
+  console.log("[orders:list] userId=", String(req.user._id), "role=", req.user.role, "query=", JSON.stringify(query));
   const rows = await Order.find(query).sort({ createdAt: -1 }).lean();
+  console.log("[orders:list] returned_count=", rows.length);
   res.json(rows.map((o) => mapOrder(o)));
 });
 
@@ -189,6 +197,7 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     pickupAddress: body.pickupAddress as string | undefined,
     pickupAddressId,
     createdBy: req.user._id,
+    ownerUserId: req.user._id,
     vendorId: vendor?._id,
     channel: String(body.channel ?? "Manual"),
     velocityWarehouseId: snapshotVelocityWh,
@@ -226,6 +235,7 @@ export const createOrdersBulk = asyncHandler(async (req: AuthRequest, res: Respo
       zone: body.zone as string | undefined,
       pickupAddress: body.pickupAddress as string | undefined,
       createdBy: req.user._id,
+      ownerUserId: req.user._id,
       vendorId: vendor?._id,
       channel: String(body.channel ?? "Manual"),
     });

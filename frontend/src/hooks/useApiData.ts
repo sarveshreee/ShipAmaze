@@ -63,11 +63,21 @@ function useApiQuery<T>(key: string, queryFn: () => Promise<T[]>): SimpleQueryRe
   // (e.g. after syncing Shopify orders).
   useEffect(() => {
     const eventName = `shipamaze:refetch:${key}`;
+    const isOrdersQuery = key.startsWith("orders:");
+    const fallbackOrdersEvent = "shipamaze:refetch:orders";
     const handler = () => {
       void load();
     };
     window.addEventListener(eventName, handler);
-    return () => window.removeEventListener(eventName, handler);
+    if (isOrdersQuery) {
+      window.addEventListener(fallbackOrdersEvent, handler);
+    }
+    return () => {
+      window.removeEventListener(eventName, handler);
+      if (isOrdersQuery) {
+        window.removeEventListener(fallbackOrdersEvent, handler);
+      }
+    };
   }, [key, load]);
 
   useEffect(() => {
