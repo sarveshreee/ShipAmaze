@@ -9,21 +9,21 @@ import { apiClient } from "@/lib/apiClient";
 // ─── Types ───────────────────────────────────────────────
 
 export interface VelocityCarrier {
-  carrier_id: number;
+  carrier_id: string | number;
   carrier_name: string;
-  zone: string;
-  cod: boolean;
+  zone?: string;
+  cod?: boolean;
   tat?: string;
 }
 
 export interface VelocityRate {
-  carrier_id: number;
+  carrier_id: string | number;
   carrier_name: string;
   freight_charge: number;
   cod_charge?: number;
   rto_charge?: number;
   total_charge: number;
-  zone: string;
+  zone?: string;
   tat?: string;
 }
 
@@ -84,6 +84,8 @@ export interface RatesParams {
   payment_mode: "cod" | "prepaid";
   cod_value?: number;
   shipment_type?: "forward" | "return";
+  /** Returned journey only — forwarded as provider `qc_applicable`. */
+  qc_applicable?: boolean;
 }
 
 export interface CreateForwardShipmentParams {
@@ -107,7 +109,7 @@ export interface CreateForwardShipmentParams {
     pincode: string;
   };
   items?: { name: string; qty: number; price: number }[];
-  carrier_id?: number;
+  carrier_id?: string | number;
 }
 
 export interface CreateReverseShipmentParams {
@@ -167,7 +169,11 @@ export async function createForwardOrderOnly(params: CreateForwardShipmentParams
   );
 }
 
-export async function assignForwardAwb(params: { order_id: string; localOrderId?: string; carrier_id?: number }) {
+export async function assignForwardAwb(params: {
+  order_id: string;
+  localOrderId?: string;
+  carrier_id?: string | number;
+}) {
   return apiClient.post<{ success: boolean; data: VelocityShipmentResult }>(
     "/velocity/forward/create-shipment",
     params

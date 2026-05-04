@@ -128,6 +128,9 @@ function extractVelocityMessage(data: unknown): string {
   if (typeof data === "string") return data;
   if (typeof data === "object" && data !== null) {
     const d = data as Record<string, unknown>;
+    const meta = d.meta as Record<string, unknown> | undefined;
+    const metaMsg = meta?.message != null ? String(meta.message).trim() : "";
+    if (metaMsg) return metaMsg;
     return String(d.message || d.error || d.detail || "");
   }
   return "";

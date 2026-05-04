@@ -42,7 +42,8 @@ export interface IOrder extends Document {
   velocityOrderId?: string;
   velocityShipmentId?: string;
   velocityReturnId?: string;
-  courierCompanyId?: number;
+  /** Numeric legacy couriers or Velocity string carrier codes. */
+  courierCompanyId?: number | string;
   courierName?: string;
   labelUrl?: string;
   manifestUrl?: string;
@@ -102,7 +103,7 @@ const orderSchema = new Schema<IOrder>(
     velocityOrderId: { type: String, sparse: true },
     velocityShipmentId: { type: String, sparse: true },
     velocityReturnId: { type: String },
-    courierCompanyId: { type: Number },
+    courierCompanyId: { type: Schema.Types.Mixed },
     courierName: { type: String },
     labelUrl: { type: String },
     manifestUrl: { type: String },

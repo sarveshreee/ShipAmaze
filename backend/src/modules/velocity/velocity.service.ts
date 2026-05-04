@@ -5,12 +5,19 @@
  */
 
 import { velocityPost } from "./velocity.client.js";
+import {
+  buildVelocityRatesProviderPayload,
+  buildVelocityWarehouseProviderPayload,
+  normalizeRatesResponse,
+  parseWarehouseCreateResponse,
+  sanitizeForVelocityLog,
+  type VelocityPreparedWarehouseInput,
+} from "./velocity.payload.js";
 import type {
   VelocityServiceabilityRequest,
   VelocityServiceabilityResponse,
   VelocityRatesRequest,
   VelocityRatesResponse,
-  VelocityWarehouseRequest,
   VelocityWarehouseResponse,
   VelocityForwardOrderRequest,
   VelocityForwardOrderResponse,
@@ -32,22 +39,41 @@ import type {
 // ─── Serviceability ──────────────────────────────────────
 
 export async function checkServiceability(payload: VelocityServiceabilityRequest) {
-  return velocityPost<VelocityServiceabilityResponse>(
-    "/custom/api/v1/serviceability",
-    payload
-  );
+  const raw = await velocityPost<Record<string, unknown>>("/custom/api/v1/serviceability", payload);
+  if (Array.isArray(raw.data)) {
+    return raw as unknown as VelocityServiceabilityResponse;
+  }
+  const result = raw.result as Record<string, unknown> | undefined;
+  const list = result?.serviceability_results;
+  if (Array.isArray(list)) {
+    return {
+      data: list as VelocityServiceabilityResponse["data"],
+      message: typeof raw.message === "string" ? raw.message : undefined,
+    };
+  }
+  return { data: [], message: "No serviceability data in provider response" };
 }
 
 // ─── Rates ───────────────────────────────────────────────
 
 export async function getRates(payload: VelocityRatesRequest) {
-  return velocityPost<VelocityRatesResponse>("/custom/api/v1/rates", payload);
+  const providerBody = buildVelocityRatesProviderPayload(payload);
+  console.info(
+    `[velocity] POST /custom/api/v1/rates provider payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
+  );
+  const raw = await velocityPost<Record<string, unknown>>("/custom/api/v1/rates", providerBody);
+  return normalizeRatesResponse(raw);
 }
 
 // ─── Warehouse ───────────────────────────────────────────
 
-export async function createWarehouse(payload: VelocityWarehouseRequest) {
-  return velocityPost<VelocityWarehouseResponse>("/custom/api/v1/warehouse", payload);
+export async function createWarehouse(payload: VelocityPreparedWarehouseInput): Promise<VelocityWarehouseResponse> {
+  const providerBody = buildVelocityWarehouseProviderPayload(payload);
+  console.info(
+    `[velocity] POST /custom/api/v1/warehouse provider payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
+  );
+  const raw = await velocityPost<Record<string, unknown>>("/custom/api/v1/warehouse", providerBody);
+  return parseWarehouseCreateResponse(raw);
 }
 
 // ─── Forward shipment (all-in-one) ───────────────────────

@@ -12,10 +12,17 @@ import { Warehouse } from "../../models/Warehouse.js";
 import { Vendor } from "../../models/Vendor.js";
 import * as velocityService from "./velocity.service.js";
 import { mapVelocityStatus } from "./velocity.mapper.js";
+import {
+  assertValidEmail,
+  normalizePhoneNumber10Digit,
+  normalizePincode,
+  sanitizeForVelocityLog,
+  type VelocityPreparedWarehouseInput,
+} from "./velocity.payload.js";
 import type {
   VelocityForwardOrderRequest,
   VelocityReverseOrderRequest,
-  VelocityWarehouseRequest,
+  VelocityProviderError,
 } from "./velocity.types.js";
 
 // ─── Serviceability ──────────────────────────────────────
@@ -44,22 +51,44 @@ export const serviceability = asyncHandler(async (req: AuthRequest, res: Respons
 // ─── Rates ───────────────────────────────────────────────
 
 export const rates = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { from, to, weight, length, width, height, payment_mode, cod_value, shipment_type } =
-    req.body as {
-      from?: string;
-      to?: string;
-      weight?: number;
-      length?: number;
-      width?: number;
-      height?: number;
-      payment_mode?: "cod" | "prepaid";
-      cod_value?: number;
-      shipment_type?: "forward" | "return";
-    };
+  const {
+    from,
+    to,
+    weight,
+    length,
+    width,
+    height,
+    payment_mode,
+    cod_value,
+    shipment_type,
+    qc_applicable,
+  } = req.body as {
+    from?: string;
+    to?: string;
+    weight?: number;
+    length?: number;
+    width?: number;
+    height?: number;
+    payment_mode?: "cod" | "prepaid";
+    cod_value?: number;
+    shipment_type?: "forward" | "return";
+    qc_applicable?: boolean;
+  };
 
   if (!from || !to) throw new AppError(400, "from and to pincodes are required");
-  if (!weight) throw new AppError(400, "weight (kg) is required");
+  if (weight === undefined || weight === null || Number(weight) <= 0)
+    throw new AppError(400, "weight (dead_weight, kg) is required");
   if (!payment_mode) throw new AppError(400, "payment_mode (cod|prepaid) is required");
+  if (payment_mode === "cod") {
+    if (cod_value == null || Number(cod_value) <= 0) {
+      throw new AppError(400, "cod_value is required for COD (sent to Velocity as shipment_value)");
+    }
+  }
+
+  const st = shipment_type ?? "forward";
+  if (st === "return" && qc_applicable !== undefined && typeof qc_applicable !== "boolean") {
+    throw new AppError(400, "qc_applicable must be a boolean when provided");
+  }
 
   const result = await velocityService.getRates({
     from,
@@ -69,8 +98,9 @@ export const rates = asyncHandler(async (req: AuthRequest, res: Response) => {
     width: Number(width ?? 10),
     height: Number(height ?? 10),
     payment_mode,
-    cod_value: cod_value ? Number(cod_value) : undefined,
-    shipment_type: shipment_type ?? "forward",
+    cod_value: cod_value != null ? Number(cod_value) : undefined,
+    shipment_type: st,
+    qc_applicable,
   });
 
   res.json({ success: true, data: result.data ?? [] });
@@ -78,51 +108,147 @@ export const rates = asyncHandler(async (req: AuthRequest, res: Response) => {
 
 // ─── Warehouse ───────────────────────────────────────────
 
+type VelocityWarehouseRegisterBody = {
+  linkOnly?: boolean | string;
+  warehouseId?: string;
+  velocityWarehouseId?: string | number;
+  name?: string;
+  email?: string;
+  phone_number?: string;
+  contact_phone?: string;
+  contact_person?: string;
+  contact_name?: string;
+  street_address?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  country?: string;
+  gst_no?: string | null;
+};
+
 export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
-  const body = req.body as Partial<VelocityWarehouseRequest> & { warehouseId?: string };
+  const body = req.body as VelocityWarehouseRegisterBody;
 
-  if (body.warehouseId) {
+  if (body.linkOnly === true || body.linkOnly === "true") {
+    if (!body.warehouseId?.trim()) throw new AppError(400, "warehouseId is required for linkOnly");
+    const extId = body.velocityWarehouseId;
+    if (extId === undefined || extId === null || String(extId).trim() === "") {
+      throw new AppError(400, "velocityWarehouseId is required for linkOnly");
+    }
     const wh = await Warehouse.findById(body.warehouseId).lean();
     if (!wh) throw new AppError(404, "Warehouse not found");
-
-    const payload: VelocityWarehouseRequest = {
-      name: wh.name,
-      address: [wh.addressLine1, wh.addressLine2].filter(Boolean).join(", "),
-      city: wh.city,
-      state: wh.state,
-      pincode: wh.pincode,
-      contact_name: wh.contactName ?? wh.name,
-      contact_phone: wh.phone ?? "",
-    };
-
-    const result = await velocityService.createWarehouse(payload);
-
-    await Warehouse.findByIdAndUpdate(body.warehouseId, {
-      velocityWarehouseId: String(result.warehouse_id),
+    await assertWarehouseAccessForVelocity(req.user, wh);
+    const vid = String(extId).trim();
+    await Warehouse.findByIdAndUpdate(body.warehouseId, { velocityWarehouseId: vid });
+    res.json({
+      success: true,
+      data: { warehouse_id: vid, linked: true, manual: true },
     });
-
-    res.status(201).json({ success: true, data: result });
     return;
   }
 
-  const { name, address, city, state, pincode, contact_name, contact_phone } = body;
-  if (!name || !address || !city || !state || !pincode || !contact_name || !contact_phone) {
-    throw new AppError(400, "name, address, city, state, pincode, contact_name, contact_phone are required");
+  try {
+    if (body.warehouseId?.trim()) {
+      const wh = await Warehouse.findById(body.warehouseId).lean();
+      if (!wh) throw new AppError(404, "Warehouse not found");
+      await assertWarehouseAccessForVelocity(req.user, wh);
+      if (!body.email?.trim()) {
+        throw new AppError(
+          400,
+          "email is required in the body when registering a saved warehouse (Warehouse model has no email field)"
+        );
+      }
+
+      const street =
+        body.street_address?.trim() ||
+        body.address?.trim() ||
+        [wh.addressLine1, wh.addressLine2].filter(Boolean).join(", ").trim();
+      if (!street) throw new AppError(400, "street_address could not be resolved from the warehouse");
+
+      const phoneSrc = body.phone_number ?? body.contact_phone ?? wh.phone ?? "";
+      const prepared: VelocityPreparedWarehouseInput = {
+        name: wh.name.trim(),
+        phone_number: normalizePhoneNumber10Digit(phoneSrc),
+        email: assertValidEmail(body.email),
+        contact_person: (body.contact_person ?? body.contact_name ?? wh.contactName ?? wh.name).trim(),
+        street_address: street,
+        zip: normalizePincode(wh.pincode),
+        city: wh.city.trim(),
+        state: wh.state.trim(),
+        country: body.country?.trim() || "India",
+        ...(body.gst_no && String(body.gst_no).trim() ? { gst_no: String(body.gst_no).trim() } : {}),
+      };
+
+      const result = await velocityService.createWarehouse(prepared);
+      await Warehouse.findByIdAndUpdate(body.warehouseId, {
+        velocityWarehouseId: String(result.warehouse_id),
+      });
+      res.status(201).json({ success: true, data: result });
+      return;
+    }
+
+    const {
+      name,
+      email,
+      phone_number,
+      contact_phone,
+      contact_person,
+      contact_name,
+      street_address,
+      address,
+      city,
+      state,
+      pincode,
+      country,
+      gst_no,
+    } = body;
+
+    if (!name?.trim() || !city?.trim() || !state?.trim() || !pincode?.trim()) {
+      throw new AppError(
+        400,
+        "name, city, state, pincode are required (use street_address or address for street line)"
+      );
+    }
+    const street = street_address?.trim() || address?.trim();
+    if (!street) throw new AppError(400, "street_address or address is required");
+    const phoneSrc = phone_number ?? contact_phone ?? "";
+    if (!phoneSrc) throw new AppError(400, "phone_number or contact_phone is required");
+    if (!email?.trim()) throw new AppError(400, "email is required");
+
+    const prepared: VelocityPreparedWarehouseInput = {
+      name: name.trim(),
+      phone_number: normalizePhoneNumber10Digit(phoneSrc),
+      email: assertValidEmail(email),
+      contact_person: (contact_person ?? contact_name ?? name).trim(),
+      street_address: street,
+      zip: normalizePincode(pincode),
+      city: city.trim(),
+      state: state.trim(),
+      country: country?.trim() || "India",
+      ...(gst_no && String(gst_no).trim() ? { gst_no: String(gst_no).trim() } : {}),
+    };
+
+    const result = await velocityService.createWarehouse(prepared);
+    res.status(201).json({ success: true, data: result });
+  } catch (err) {
+    if (err instanceof AppError && isVelocityProviderError(err) && err.providerStatusCode === 422) {
+      res.status(422).json({
+        success: false,
+        code: "VELOCITY_WAREHOUSE_REJECTED",
+        error: err.message,
+        hint:
+          "Duplicate or invalid warehouse at Velocity. If it already exists, link manually: POST /api/velocity/warehouses with { \"linkOnly\": true, \"warehouseId\": \"<MongoDB _id>\", \"velocityWarehouseId\": \"<id from Velocity>\" }",
+        providerError: sanitizeForVelocityLog(
+          (err as unknown as VelocityProviderError).providerError ?? {}
+        ),
+      });
+      return;
+    }
+    throw err;
   }
-
-  const result = await velocityService.createWarehouse({
-    name,
-    address,
-    city,
-    state,
-    pincode,
-    contact_name,
-    contact_phone,
-  });
-
-  res.status(201).json({ success: true, data: result });
 });
 
 // ─── Forward shipment – full orchestration ───────────────
@@ -500,7 +626,7 @@ function buildForwardPayload(
         weight: p.weight ? Number(p.weight) : undefined,
         sku: p.sku ? String(p.sku) : undefined,
       })) ?? [{ name: "Product", qty: 1, price: localOrder?.amount ?? 0 }],
-    carrier_id: body.carrier_id as number | undefined,
+    carrier_id: body.carrier_id as string | number | undefined,
   };
 }
 
@@ -548,6 +674,26 @@ function buildReversePayload(
       })) ?? [{ name: "Product", qty: 1, price: localOrder?.amount ?? 0 }],
     qc: body.qc as boolean | undefined,
   };
+}
+
+async function assertWarehouseAccessForVelocity(
+  user: NonNullable<AuthRequest["user"]>,
+  wh: { vendorId: unknown }
+) {
+  if (user.role === "admin") return;
+  if (user.role === "vendor") {
+    const vendor = await Vendor.findOne({ userId: user._id }).select("_id").lean();
+    if (!vendor) throw new AppError(403, "Forbidden");
+    if (String(wh.vendorId) !== String(vendor._id)) throw new AppError(403, "Forbidden");
+    return;
+  }
+  throw new AppError(403, "Forbidden");
+}
+
+function isVelocityProviderError(err: unknown): err is AppError & VelocityProviderError {
+  if (!(err instanceof AppError)) return false;
+  const o = err as unknown as Record<string, unknown>;
+  return o.provider === "velocity" && typeof o.providerStatusCode === "number";
 }
 
 async function assertOrderAccess(user: NonNullable<AuthRequest["user"]>, order: IOrder) {

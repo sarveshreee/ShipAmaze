@@ -22,10 +22,11 @@ export interface VelocityServiceabilityRequest {
 }
 
 export interface VelocityCarrier {
-  carrier_id: number;
+  /** Velocity returns string carrier codes (e.g. Delhivery Standard). */
+  carrier_id: string | number;
   carrier_name: string;
-  zone: string;
-  cod: boolean;
+  zone?: string;
+  cod?: boolean;
   tat?: string;
   min_weight?: number;
 }
@@ -35,27 +36,32 @@ export interface VelocityServiceabilityResponse {
   message?: string;
 }
 
-// Rates
+// Rates — internal (/api/velocity/rates) request; mapped to Velocity provider keys in `velocity.payload.ts`.
 export interface VelocityRatesRequest {
+  /** Origin pincode → provider `origin_pincode`. */
   from: string;
+  /** Destination pincode → provider `destination_pincode`. */
   to: string;
   weight: number;
   length: number;
   width: number;
   height: number;
   payment_mode: "cod" | "prepaid";
+  /** COD value → provider `shipment_value` (only sent when payment is COD). */
   cod_value?: number;
   shipment_type?: "forward" | "return";
+  /** Return journeys → provider `qc_applicable` when `shipment_type` is `return`. */
+  qc_applicable?: boolean;
 }
 
 export interface VelocityRate {
-  carrier_id: number;
+  carrier_id: string | number;
   carrier_name: string;
   freight_charge: number;
   cod_charge?: number;
   rto_charge?: number;
   total_charge: number;
-  zone: string;
+  zone?: string;
   tat?: string;
 }
 
@@ -64,7 +70,7 @@ export interface VelocityRatesResponse {
   message?: string;
 }
 
-// Warehouse
+// Warehouse — legacy flat shape retained for typings only; provider uses nested `address_attributes` (see `velocity.payload.ts`).
 export interface VelocityWarehouseRequest {
   name: string;
   address: string;
@@ -114,7 +120,7 @@ export interface VelocityForwardOrderRequest {
   height: number;
   customer: VelocityCustomer;
   items: VelocityOrderItem[];
-  carrier_id?: number;
+  carrier_id?: string | number;
 }
 
 export interface VelocityForwardOrderResponse {
@@ -122,7 +128,7 @@ export interface VelocityForwardOrderResponse {
   shipment_id: string;
   awb_code: string;
   carrier_name: string;
-  carrier_id: number;
+  carrier_id: string | number;
   label_url?: string;
   manifest_url?: string;
   shipping_charges: number;
@@ -141,7 +147,7 @@ export interface VelocityCreateOrderOnlyResponse {
 // Forward Shipment – assign AWB to existing order
 export interface VelocityCreateShipmentRequest {
   order_id: string;
-  carrier_id?: number;
+  carrier_id?: string | number;
 }
 
 export interface VelocityCreateShipmentResponse {
@@ -149,7 +155,7 @@ export interface VelocityCreateShipmentResponse {
   shipment_id: string;
   awb_code: string;
   carrier_name: string;
-  carrier_id: number;
+  carrier_id: string | number;
   label_url?: string;
   shipping_charges?: number;
   cod_charges?: number;
@@ -206,7 +212,7 @@ export interface VelocityReverseOrderResponse {
   shipment_id: string;
   awb_code: string;
   carrier_name: string;
-  carrier_id: number;
+  carrier_id: string | number;
   label_url?: string;
   status: string;
   reverse_charges?: number;
