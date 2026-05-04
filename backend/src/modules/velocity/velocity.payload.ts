@@ -8,6 +8,7 @@ import type {
   VelocityRatesRequest,
   VelocityRatesResponse,
   VelocityWarehouseResponse,
+  VelocityForwardOrderRequest,
 } from "./velocity.types.js";
 
 const INDIA_MOBILE = /^[6-9]\d{9}$/;
@@ -72,6 +73,64 @@ export function buildVelocityRatesProviderPayload(payload: VelocityRatesRequest)
   if (journey_type === "return") {
     out.qc_applicable =
       typeof payload.qc_applicable === "boolean" ? payload.qc_applicable : false;
+  }
+
+  return out;
+}
+
+/**
+ * Maps internal forward request → Velocity `forward-order-orchestration` JSON
+ * (billing_* + nested customer + items + provider flags).
+ */
+export function buildVelocityForwardOrchestrationPayload(
+  payload: VelocityForwardOrderRequest
+): Record<string, unknown> {
+  const c = payload.customer;
+  const fullName = String(c.name ?? "").trim() || "Customer";
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  const billing_customer_name = parts[0] ?? fullName;
+  const billing_last_name = parts.length > 1 ? parts.slice(1).join(" ") : "";
+
+  const pinDigits = String(c.pincode ?? "").replace(/\D/g, "").slice(0, 6);
+
+  const out: Record<string, unknown> = {
+    warehouse_id: payload.warehouse_id,
+    order_id: payload.order_id,
+    payment_mode: payload.payment_mode,
+    order_amount: Number(payload.order_amount),
+    weight: Number(payload.weight),
+    length: Number(payload.length),
+    width: Number(payload.width),
+    height: Number(payload.height),
+    billing_customer_name,
+    billing_last_name: billing_last_name || undefined,
+    billing_address: String(c.address ?? "").trim(),
+    billing_city: String(c.city ?? "").trim(),
+    billing_state: String(c.state ?? "").trim(),
+    billing_pincode: pinDigits,
+    billing_country: (c.country && String(c.country).trim()) || "India",
+    billing_phone: String(c.phone ?? "").trim(),
+    billing_email: c.email?.trim() ? String(c.email).trim() : undefined,
+    shipping_is_billing: true,
+    print_label: true,
+    customer: {
+      name: fullName,
+      phone: String(c.phone ?? "").trim(),
+      email: c.email?.trim() || undefined,
+      address: String(c.address ?? "").trim(),
+      city: String(c.city ?? "").trim(),
+      state: String(c.state ?? "").trim(),
+      pincode: pinDigits,
+      country: (c.country && String(c.country).trim()) || "India",
+    },
+    items: payload.items,
+  };
+
+  if (payload.payment_mode === "cod" && payload.cod_amount != null && Number(payload.cod_amount) > 0) {
+    out.cod_amount = Number(payload.cod_amount);
+  }
+  if (payload.carrier_id !== undefined && payload.carrier_id !== null && String(payload.carrier_id) !== "") {
+    out.carrier_id = payload.carrier_id;
   }
 
   return out;

@@ -114,6 +114,7 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     phone: String(o.phone ?? ""),
     address: String(o.address ?? ""),
     city: String(o.city ?? ""),
+    state: o.state != null ? String(o.state) : undefined,
     pincode: String(o.pincode ?? ""),
     weight: String(o.weight ?? ""),
     courier: (o.courier as Order["courier"]) || "Delhivery",
@@ -143,6 +144,24 @@ function mapOrderRow(o: Record<string, unknown>): Order {
           ? (o.movedToReadyAt as string)
           : new Date(o.movedToReadyAt as Date).toISOString()
         : undefined,
+    velocityWarehouseId: o.velocityWarehouseId != null ? String(o.velocityWarehouseId) : undefined,
+    velocityOrderId: o.velocityOrderId != null ? String(o.velocityOrderId) : undefined,
+    velocityShipmentId: o.velocityShipmentId != null ? String(o.velocityShipmentId) : undefined,
+    courierCompanyId:
+      o.courierCompanyId !== undefined && o.courierCompanyId !== null
+        ? typeof o.courierCompanyId === "number"
+          ? o.courierCompanyId
+          : String(o.courierCompanyId)
+        : undefined,
+    courierName: o.courierName != null ? String(o.courierName) : undefined,
+    labelUrl: o.labelUrl != null ? String(o.labelUrl) : undefined,
+    manifestUrl: o.manifestUrl != null ? String(o.manifestUrl) : undefined,
+    shippingCharges:
+      o.shippingCharges !== undefined && o.shippingCharges !== null ? Number(o.shippingCharges) : undefined,
+    codCharges: o.codCharges !== undefined && o.codCharges !== null ? Number(o.codCharges) : undefined,
+    rtoCharges: o.rtoCharges !== undefined && o.rtoCharges !== null ? Number(o.rtoCharges) : undefined,
+    trackingUrl: o.trackingUrl != null ? String(o.trackingUrl) : undefined,
+    trackingActivities: (o.trackingActivities as Order["trackingActivities"]) || undefined,
   };
 }
 

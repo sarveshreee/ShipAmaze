@@ -17,6 +17,7 @@ function mapOrder(o: {
   phone: string;
   address: string;
   city: string;
+  state?: string;
   pincode: string;
   weight: string;
   courier: string;
@@ -42,6 +43,19 @@ function mapOrder(o: {
   junkReason?: string;
   shipmentStatus?: string;
   movedToReadyAt?: Date;
+  velocityWarehouseId?: string;
+  velocityOrderId?: string;
+  velocityShipmentId?: string;
+  velocityReturnId?: string;
+  courierCompanyId?: number | string;
+  courierName?: string;
+  labelUrl?: string;
+  manifestUrl?: string;
+  shippingCharges?: number;
+  codCharges?: number;
+  rtoCharges?: number;
+  trackingUrl?: string;
+  trackingActivities?: { date: string; activity: string; location: string }[];
 }) {
   return {
     id: o.orderId,
@@ -49,6 +63,7 @@ function mapOrder(o: {
     phone: o.phone,
     address: o.address,
     city: o.city,
+    state: o.state,
     pincode: o.pincode,
     weight: o.weight,
     courier: o.courier,
@@ -74,6 +89,19 @@ function mapOrder(o: {
     junkReason: o.junkReason,
     shipmentStatus: o.shipmentStatus,
     movedToReadyAt: o.movedToReadyAt,
+    velocityWarehouseId: o.velocityWarehouseId,
+    velocityOrderId: o.velocityOrderId,
+    velocityShipmentId: o.velocityShipmentId,
+    velocityReturnId: o.velocityReturnId,
+    courierCompanyId: o.courierCompanyId,
+    courierName: o.courierName,
+    labelUrl: o.labelUrl,
+    manifestUrl: o.manifestUrl,
+    shippingCharges: o.shippingCharges,
+    codCharges: o.codCharges,
+    rtoCharges: o.rtoCharges,
+    trackingUrl: o.trackingUrl,
+    trackingActivities: o.trackingActivities,
   };
 }
 
@@ -109,16 +137,35 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     req.user.role === "vendor" ? await vendorDocForUser(req.user._id) : null;
 
   let pickupAddressId: Types.ObjectId | undefined;
-  const rawPid = body.pickupAddressId;
+  const rawPid = body.pickupAddressId ?? body.pickupWarehouseId;
   if (rawPid != null && String(rawPid).trim() !== "") {
     if (!mongoose.isValidObjectId(String(rawPid))) throw new AppError(400, "Invalid pickupAddressId");
-    const p = await Pickup.findOne({
-      _id: String(rawPid),
-      userId: req.user._id,
-      $or: [{ isActive: true }, { isActive: { $exists: false } }],
-    });
+    const active = { $or: [{ isActive: true }, { isActive: { $exists: false } }] };
+    const p =
+      req.user.role === "dropshipper"
+        ? await Pickup.findOne({
+            _id: String(rawPid),
+            $and: [{ $or: [{ userId: req.user._id }, { dropshipperId: req.user._id }] }, active],
+          })
+        : await Pickup.findOne({
+            _id: String(rawPid),
+            userId: req.user._id,
+            ...active,
+          });
     if (!p) throw new AppError(400, "Pickup address not found or not allowed");
     pickupAddressId = p._id;
+  }
+
+  let snapshotVelocityWh: string | undefined;
+  if (pickupAddressId) {
+    const pu = await Pickup.findById(pickupAddressId).select("velocityWarehouseId").lean();
+    snapshotVelocityWh = pu?.velocityWarehouseId?.trim();
+  }
+  const rawCarrierPref = body.carrier_id;
+  let carrierPref: string | number | undefined;
+  if (rawCarrierPref !== undefined && rawCarrierPref !== null && String(rawCarrierPref).trim() !== "") {
+    const s = String(rawCarrierPref).trim();
+    carrierPref = /^\d+$/.test(s) ? Number(s) : s;
   }
 
   const doc = await Order.create({
@@ -127,6 +174,7 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     phone: String(body.phone ?? ""),
     address: String(body.address ?? ""),
     city: String(body.city ?? ""),
+    state: body.state != null ? String(body.state) : "",
     pincode: String(body.pincode ?? ""),
     weight: String(body.weight ?? ""),
     courier: String(body.courier ?? "Delhivery"),
@@ -143,6 +191,8 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     createdBy: req.user._id,
     vendorId: vendor?._id,
     channel: String(body.channel ?? "Manual"),
+    velocityWarehouseId: snapshotVelocityWh,
+    courierCompanyId: carrierPref,
   });
   res.status(201).json(mapOrder(doc));
 });

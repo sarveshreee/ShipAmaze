@@ -3,24 +3,48 @@ import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { TimelineTracker } from "@/components/TimelineTracker";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type { Order, OrderStatus } from "@/types/logistics";
 import {
   User, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
   Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw, Loader2,
-  Zap, Download, ExternalLink, RotateCcw
+  Zap, Download, ExternalLink, RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as orderService from "@/services/orderService";
 import * as velocityService from "@/services/velocityService";
 import { printShippingLabel } from "@/components/ShippingLabel";
+import { ApiError } from "@/lib/apiClient";
+import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
+import { useAuth } from "@/contexts/AuthContext";
+
+/** Local warehouses (Mongo) that may carry a linked Velocity pickup id after linkOnly. */
+export interface OrderDetailWarehouseOption {
+  id: string;
+  warehouseName: string;
+  city?: string;
+  velocityWarehouseId?: string;
+  isDefault?: boolean;
+}
+
+const LINK_WH_MESSAGE = "Please link a Velocity warehouse before generating AWB.";
+const BACKEND_WH_MESSAGE = "No Velocity warehouse linked. Please link warehouse first.";
+/** Match backend Velocity warehouse resolution failures (case-insensitive). */
+function isVelocityWarehouseLinkedError(message: string) {
+  return message.toLowerCase().includes("no velocity warehouse linked");
+}
 
 interface OrderDetailDrawerProps {
   order: Order | null;
   open: boolean;
   onClose: () => void;
   onOrderUpdated?: () => void;
+  /** Vendor/admin warehouses — used when order.velocityWarehouseId is not set yet. */
+  warehouses?: OrderDetailWarehouseOption[];
 }
 
 const statusToStep: Record<string, number> = {
@@ -39,11 +63,52 @@ const timelineSteps = [
 
 const allStatuses: OrderStatus[] = ['pending', 'ready-to-ship', 'not-picked', 'in-transit', 'out-for-delivery', 'delivered', 'ndr', 'rto', 'cancelled'];
 
-export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: OrderDetailDrawerProps) {
+const DEV_VELOCITY_WH_CODE = (import.meta.env.VITE_VELOCITY_DEV_WAREHOUSE_CODE as string | undefined)?.trim();
+/** Never expose dev warehouse fallback in production builds. */
+const CAN_USE_DEV_WH_OVERRIDE = Boolean(import.meta.env.DEV && DEV_VELOCITY_WH_CODE);
+
+function errMsg(err: unknown) {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof Error) return err.message;
+  return "Unknown error";
+}
+
+export function OrderDetailDrawer({
+  order,
+  open,
+  onClose,
+  onOrderUpdated,
+  warehouses = [],
+}: OrderDetailDrawerProps) {
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
+
   const [updating, setUpdating] = useState(false);
   const [shippingLoading, setShippingLoading] = useState(false);
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [liveActivities, setLiveActivities] = useState<Order["trackingActivities"]>(undefined);
+
+  const [selectedWarehouseMongoId, setSelectedWarehouseMongoId] = useState("");
+  const [useDevVelocityOverride, setUseDevVelocityOverride] = useState(false);
+
+  const linkedWarehouses = useMemo(() => {
+    const withLink = warehouses.filter((w) => w.velocityWarehouseId?.trim());
+    return withLink.sort((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault));
+  }, [warehouses]);
+
+  const warehousesKey = useMemo(
+    () => linkedWarehouses.map((w) => `${w.id}:${w.velocityWarehouseId}`).join("|"),
+    [linkedWarehouses],
+  );
+
+  useEffect(() => {
+    if (!open || !order) return;
+    setUseDevVelocityOverride(false);
+    setSelectedWarehouseMongoId((prev) => {
+      if (prev && linkedWarehouses.some((w) => w.id === prev)) return prev;
+      return linkedWarehouses[0]?.id ?? "";
+    });
+  }, [open, order?.id, warehousesKey, linkedWarehouses]);
 
   if (!order) return null;
 
@@ -65,7 +130,7 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
       toast.success(`Order ${order.id} status updated to ${newStatus}`);
       onOrderUpdated?.();
     } catch (err: unknown) {
-      toast.error(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(`Failed: ${errMsg(err)}`);
     } finally {
       setUpdating(false);
     }
@@ -74,7 +139,6 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
   const cancelOrder = async () => {
     if (!confirm(`Cancel order ${order.id}?`)) return;
 
-    // Cancel through provider only when a true AWB exists
     const awbToCancel = order.awb;
     if (awbToCancel) {
       setUpdating(true);
@@ -84,7 +148,7 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
         onOrderUpdated?.();
         return;
       } catch (err: unknown) {
-        toast.error(`Cancel failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+        toast.error(`Cancel failed: ${errMsg(err)}`);
       } finally {
         setUpdating(false);
       }
@@ -93,20 +157,58 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
     }
   };
 
+  /** Resolves warehouse for Velocity when order does not yet store velocityWarehouseId. */
+  function velocityWarehousePayload():
+    | { warehouseId: string }
+    | { warehouse_id: string }
+    | Record<string, never> {
+    if (order.velocityWarehouseId?.trim()) return {};
+    if (useDevVelocityOverride && isAdmin && CAN_USE_DEV_WH_OVERRIDE && DEV_VELOCITY_WH_CODE) {
+      return { warehouse_id: DEV_VELOCITY_WH_CODE };
+    }
+    if (selectedWarehouseMongoId) return { warehouseId: selectedWarehouseMongoId };
+    return {};
+  }
+
+  function validateWarehouseBeforeShip(): boolean {
+    if (order.velocityWarehouseId?.trim()) return true;
+    if (useDevVelocityOverride && isAdmin && CAN_USE_DEV_WH_OVERRIDE && DEV_VELOCITY_WH_CODE)
+      return true;
+    if (selectedWarehouseMongoId) return true;
+    toast.error(LINK_WH_MESSAGE);
+    return false;
+  }
+
   const generateAwb = async () => {
-    if (!order.velocityWarehouseId && !order.pickupAddress) {
-      toast.error("Set a Velocity warehouse on this order first");
+    if (!validateWarehouseBeforeShip()) return;
+    const issues = forwardShipmentBlockers(order);
+    if (issues.length) {
+      toast.error("Fix delivery details before creating a shipment.", {
+        description: issues.slice(0, 4).join(" "),
+      });
       return;
     }
     setShippingLoading(true);
     try {
-      const resp = await velocityService.createForwardShipment({ orderId: order.id });
-      toast.success(`AWB generated: ${resp.data.awb_code} via ${resp.data.carrier_name}`);
+      const wh = velocityWarehousePayload();
+      const resp = await velocityService.createForwardShipment({ orderId: order.id, ...wh });
+      const d = resp.data;
+      const lines = [
+        `AWB: ${d.awb_code}`,
+        d.carrier_name && `Courier: ${d.carrier_name}`,
+        d.shipment_id && `Velocity shipment: ${d.shipment_id}`,
+        d.status && `Status: ${d.status}`,
+        d.label_url && "Label URL saved on order",
+        d.shipping_charges != null && `Charges: ₹${d.shipping_charges}`,
+      ].filter(Boolean) as string[];
+      toast.success("Shipment created", { description: lines.join(" · ") });
       onOrderUpdated?.();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
+      const message = errMsg(err);
       const normalized = message.toLowerCase();
-      if (normalized.includes("already") && (normalized.includes("awb") || normalized.includes("shipment"))) {
+      if (isVelocityWarehouseLinkedError(message)) {
+        toast.error(BACKEND_WH_MESSAGE);
+      } else if (normalized.includes("already") && (normalized.includes("awb") || normalized.includes("shipment"))) {
         toast.info("AWB already exists for this order");
       } else {
         toast.error(`AWB generation failed: ${message}`);
@@ -118,7 +220,10 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
 
   const fetchLiveTracking = async () => {
     const awb = order.awb;
-    if (!awb) { toast.error("No AWB on this order yet"); return; }
+    if (!awb) {
+      toast.error("No AWB on this order yet");
+      return;
+    }
     setTrackingLoading(true);
     try {
       const resp = await velocityService.trackShipment({ awb, orderId: order.id });
@@ -126,7 +231,7 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
       toast.success("Tracking updated");
       onOrderUpdated?.();
     } catch (err: unknown) {
-      toast.error(`Tracking failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(`Tracking failed: ${errMsg(err)}`);
     } finally {
       setTrackingLoading(false);
     }
@@ -134,20 +239,37 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
 
   const createReturnPickup = async () => {
     if (!confirm(`Create return pickup for order ${order.id}?`)) return;
+    if (!validateWarehouseBeforeShip()) return;
     setShippingLoading(true);
     try {
-      const resp = await velocityService.createReverseShipment({ orderId: order.id });
+      const wh = velocityWarehousePayload();
+      const resp = await velocityService.createReverseShipment({ orderId: order.id, ...wh });
       toast.success(`Return pickup created: AWB ${resp.data.awb_code}`);
       onOrderUpdated?.();
     } catch (err: unknown) {
-      toast.error(`Return pickup failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      const message = errMsg(err);
+      if (isVelocityWarehouseLinkedError(message)) {
+        toast.error(BACKEND_WH_MESSAGE);
+      } else {
+        toast.error(`Return pickup failed: ${message}`);
+      }
     } finally {
       setShippingLoading(false);
     }
   };
 
+  const hasOrderWarehouse = Boolean(order.velocityWarehouseId?.trim());
+  const noLinkedPickupLocations = linkedWarehouses.length === 0;
+  const cannotShipWithoutExtra =
+    !hasOrderWarehouse && noLinkedPickupLocations && !(isAdmin && CAN_USE_DEV_WH_OVERRIDE);
+
+  const showWarehousePicker =
+    !order.awb && !hasOrderWarehouse && linkedWarehouses.length > 0 && !useDevVelocityOverride;
+
+  const showDevOverrideToggle = isAdmin && CAN_USE_DEV_WH_OVERRIDE && !order.awb && !hasOrderWarehouse;
+
   return (
-    <Sheet open={open} onOpenChange={v => !v && onClose()}>
+    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-[480px] overflow-y-auto p-0">
         <SheetHeader className="p-5 pb-3 border-b border-border">
           <div className="flex items-center gap-3">
@@ -163,7 +285,6 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
         </SheetHeader>
 
         <div className="p-5 space-y-5">
-          {/* Customer Info */}
           <section>
             <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
               <User className="h-3.5 w-3.5" /> Customer Information
@@ -180,29 +301,41 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
               </div>
               <div className="flex items-start gap-2 text-sm text-text-secondary">
                 <MapPin className="h-3.5 w-3.5 mt-0.5 text-text-muted shrink-0" />
-                <span>{order.address}, {order.city} — {order.pincode}</span>
+                <span>
+                  {order.address}, {order.city} — {order.pincode}
+                </span>
               </div>
             </div>
           </section>
 
-          {/* Shipment Info */}
           <section>
             <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
               <Truck className="h-3.5 w-3.5" /> Shipment Details
             </h4>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { icon: Hash, label: "AWB", value: order.awb || order.velocityShipmentId || "—", copyable: true },
+                {
+                  icon: Hash,
+                  label: "AWB",
+                  value: order.awb || order.velocityShipmentId || "—",
+                  copyable: true,
+                },
                 { icon: Truck, label: "Courier", value: order.courierName || order.courier || "—" },
                 { icon: Weight, label: "Weight", value: order.weight },
                 { icon: IndianRupee, label: "Amount", value: `₹${order.amount}` },
-              ].map(item => (
+              ].map((item) => (
                 <div key={item.label} className="rounded-lg border border-border bg-card p-3">
                   <div className="flex items-center gap-1.5 mb-1">
                     <item.icon className="h-3 w-3 text-text-muted" />
-                    <span className="text-[10px] font-medium uppercase tracking-wider text-text-muted">{item.label}</span>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
+                      {item.label}
+                    </span>
                     {item.copyable && item.value !== "—" && (
-                      <button onClick={() => copyToClipboard(item.value)} className="ml-auto text-text-muted hover:text-primary">
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(item.value)}
+                        className="ml-auto text-text-muted hover:text-primary"
+                      >
                         <Copy className="h-3 w-3" />
                       </button>
                     )}
@@ -215,7 +348,12 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
               <PaymentBadge type={order.payment} />
             </div>
 
-            {/* Velocity Charges */}
+            {hasOrderWarehouse && (
+              <p className="text-[11px] text-text-muted mt-2 font-mono">
+                Velocity warehouse: {order.velocityWarehouseId}
+              </p>
+            )}
+
             {(order.shippingCharges !== undefined || order.codCharges !== undefined) && (
               <div className="mt-3 rounded-lg border border-border bg-surface-2/40 p-3 grid grid-cols-3 gap-2 text-center">
                 {order.shippingCharges !== undefined && (
@@ -239,16 +377,23 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
               </div>
             )}
 
-            {/* Label download */}
             {order.labelUrl && (
               <div className="mt-3 flex gap-2">
                 <a href={order.labelUrl} download className="flex-1">
-                  <Button variant="outline" size="sm" className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30"
+                  >
                     <Download className="h-3.5 w-3.5" /> Download Label
                   </Button>
                 </a>
                 <a href={order.labelUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
-                  <Button variant="outline" size="sm" className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30"
+                  >
                     <ExternalLink className="h-3.5 w-3.5" /> Open Label
                   </Button>
                 </a>
@@ -256,7 +401,6 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
             )}
           </section>
 
-          {/* Products */}
           <section>
             <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
               <Box className="h-3.5 w-3.5" /> Products
@@ -269,7 +413,9 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-text-primary truncate">{p.name}</p>
-                    <p className="text-xs text-text-muted">Qty: {p.qty} · {p.weight}</p>
+                    <p className="text-xs text-text-muted">
+                      Qty: {p.qty} · {p.weight}
+                    </p>
                   </div>
                   <p className="text-sm font-semibold text-text-primary">₹{p.price}</p>
                 </div>
@@ -279,23 +425,28 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
 
           <Separator />
 
-          {/* Timeline */}
           <section>
             <h4 className="flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-              <span className="flex items-center gap-2"><Calendar className="h-3.5 w-3.5" /> Shipment Timeline</span>
+              <span className="flex items-center gap-2">
+                <Calendar className="h-3.5 w-3.5" /> Shipment Timeline
+              </span>
               {order.awb && (
                 <button
+                  type="button"
                   onClick={fetchLiveTracking}
                   disabled={trackingLoading}
                   className="flex items-center gap-1 text-[10px] text-primary hover:opacity-80 disabled:opacity-50"
                 >
-                  {trackingLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  {trackingLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3 w-3" />
+                  )}
                   Refresh
                 </button>
               )}
             </h4>
 
-            {/* Live Velocity tracking activities */}
             {(liveActivities ?? order.trackingActivities)?.length ? (
               <div className="rounded-xl border border-border bg-card divide-y divide-border">
                 {(liveActivities ?? order.trackingActivities)!.map((act, i) => (
@@ -304,7 +455,9 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
                       <p className="text-sm text-text-primary font-medium">{act.activity}</p>
                       <span className="text-[10px] text-text-muted whitespace-nowrap">{act.date}</span>
                     </div>
-                    {act.location && <p className="text-xs text-text-muted mt-0.5">{act.location}</p>}
+                    {act.location && (
+                      <p className="text-xs text-text-muted mt-0.5">{act.location}</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -317,7 +470,6 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
 
           <Separator />
 
-          {/* Update Status */}
           <section>
             <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
               <RefreshCw className="h-3.5 w-3.5" /> Update Status
@@ -327,50 +479,129 @@ export function OrderDetailDrawer({ order, open, onClose, onOrderUpdated }: Orde
                 <SelectValue placeholder="Change status..." />
               </SelectTrigger>
               <SelectContent>
-                {allStatuses.filter(s => s !== order.status).map(s => (
-                  <SelectItem key={s} value={s}>{s.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>
-                ))}
+                {allStatuses
+                  .filter((s) => s !== order.status)
+                  .map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s
+                        .replace(/-/g, " ")
+                        .replace(/\b\w/g, (l) => l.toUpperCase())}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
-            {updating && <p className="text-xs text-text-muted mt-1 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Updating...</p>}
+            {updating && (
+              <p className="text-xs text-text-muted mt-1 flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Updating...
+              </p>
+            )}
           </section>
 
           <Separator />
 
-          {/* Quick Actions */}
+          {!order.awb && cannotShipWithoutExtra && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Velocity warehouse required</AlertTitle>
+              <AlertDescription>{LINK_WH_MESSAGE}</AlertDescription>
+            </Alert>
+          )}
+
+          {showWarehousePicker && (
+            <div className="space-y-2">
+              <Label className="text-xs text-text-muted">Pickup warehouse (Velocity linked)</Label>
+              <Select
+                value={selectedWarehouseMongoId}
+                onValueChange={setSelectedWarehouseMongoId}
+                disabled={shippingLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose warehouse..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {linkedWarehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.warehouseName}
+                      {w.city ? ` (${w.city})` : ""}
+                      {w.velocityWarehouseId ? ` · ${w.velocityWarehouseId}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {showDevOverrideToggle && (
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+              <Checkbox
+                id="dev-velocity-wh"
+                checked={useDevVelocityOverride}
+                onCheckedChange={(v) => setUseDevVelocityOverride(v === true)}
+              />
+              <label htmlFor="dev-velocity-wh" className="text-xs cursor-pointer text-text-muted">
+                Admin/dev: use <code className="text-[10px]">VITE_VELOCITY_DEV_WAREHOUSE_CODE</code> from{" "}
+                <code>.env</code> (never in production bundles).
+              </label>
+            </div>
+          )}
+
           <section>
             <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
               Quick Actions
             </h4>
             <div className="grid grid-cols-2 gap-2 pb-4">
-              {/* Generate AWB – show only when no AWB yet */}
               {!order.awb && (
                 <Button
                   className="gap-2 h-10 bg-primary text-primary-foreground hover:bg-primary/90 col-span-2"
                   onClick={generateAwb}
-                  disabled={shippingLoading || updating}
+                  disabled={
+                    shippingLoading ||
+                    updating ||
+                    cannotShipWithoutExtra ||
+                    (showWarehousePicker && !selectedWarehouseMongoId && !useDevVelocityOverride)
+                  }
                 >
-                  {shippingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                  {shippingLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Zap className="h-4 w-4" />
+                  )}
                   Generate AWB / Ship Now
                 </Button>
               )}
 
-              <Button variant="outline" className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30" onClick={() => printShippingLabel(order)}>
+              <Button
+                variant="outline"
+                className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30"
+                onClick={() => printShippingLabel(order)}
+              >
                 <Printer className="h-4 w-4" /> Print Label
               </Button>
-              <Button variant="outline" className="gap-2 h-10 text-warning hover:bg-warning-light hover:border-warning/30" onClick={() => updateStatus('ndr')}>
+              <Button
+                variant="outline"
+                className="gap-2 h-10 text-warning hover:bg-warning-light hover:border-warning/30"
+                onClick={() => updateStatus("ndr")}
+              >
                 <AlertTriangle className="h-4 w-4" /> Raise NDR
               </Button>
 
-              {/* Return pickup – show when delivered or ndr */}
               {(order.status === "delivered" || order.status === "ndr") && (
                 <Button
                   variant="outline"
                   className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30 col-span-2"
                   onClick={createReturnPickup}
-                  disabled={shippingLoading}
+                  disabled={
+                    shippingLoading ||
+                    cannotShipWithoutExtra ||
+                    (showWarehousePicker && !selectedWarehouseMongoId && !useDevVelocityOverride)
+                  }
                 >
-                  {shippingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                  {shippingLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
                   Create Return Pickup
                 </Button>
               )}

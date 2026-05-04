@@ -27,10 +27,10 @@ router.post("/serviceability", vc.serviceability);
 // Rates – admin, vendor, dropshipper
 router.post("/rates", vc.rates);
 
-// Warehouses – admin, vendor
+// Warehouses – admin, vendor (Warehouse), dropshipper (Pickup link)
 router.post(
   "/warehouses",
-  requireRoles("admin", "vendor"),
+  requireRoles("admin", "vendor", "dropshipper"),
   vc.createWarehouse
 );
 

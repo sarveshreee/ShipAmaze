@@ -54,7 +54,7 @@ export interface Order {
   // Velocity Shipping fields
   velocityOrderId?: string;
   velocityShipmentId?: string;
-  courierCompanyId?: number;
+  courierCompanyId?: number | string;
   courierName?: string;
   labelUrl?: string;
   manifestUrl?: string;
@@ -171,6 +171,8 @@ export interface PickupAddress {
   country?: string;
   isDefault: boolean;
   isActive?: boolean;
+  /** Set after linking to Velocity dashboard warehouse */
+  velocityWarehouseId?: string;
 }
 
 export interface Manifest {

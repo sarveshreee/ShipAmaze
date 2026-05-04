@@ -7,18 +7,15 @@
 import { velocityPost } from "./velocity.client.js";
 import {
   buildVelocityRatesProviderPayload,
-  buildVelocityWarehouseProviderPayload,
   normalizeRatesResponse,
-  parseWarehouseCreateResponse,
   sanitizeForVelocityLog,
-  type VelocityPreparedWarehouseInput,
+  buildVelocityForwardOrchestrationPayload,
 } from "./velocity.payload.js";
 import type {
   VelocityServiceabilityRequest,
   VelocityServiceabilityResponse,
   VelocityRatesRequest,
   VelocityRatesResponse,
-  VelocityWarehouseResponse,
   VelocityForwardOrderRequest,
   VelocityForwardOrderResponse,
   VelocityCreateOrderOnlyResponse,
@@ -65,32 +62,29 @@ export async function getRates(payload: VelocityRatesRequest) {
   return normalizeRatesResponse(raw);
 }
 
-// ─── Warehouse ───────────────────────────────────────────
-
-export async function createWarehouse(payload: VelocityPreparedWarehouseInput): Promise<VelocityWarehouseResponse> {
-  const providerBody = buildVelocityWarehouseProviderPayload(payload);
-  console.info(
-    `[velocity] POST /custom/api/v1/warehouse provider payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
-  );
-  const raw = await velocityPost<Record<string, unknown>>("/custom/api/v1/warehouse", providerBody);
-  return parseWarehouseCreateResponse(raw);
-}
-
 // ─── Forward shipment (all-in-one) ───────────────────────
 
 export async function createForwardShipment(payload: VelocityForwardOrderRequest) {
+  const providerBody = buildVelocityForwardOrchestrationPayload(payload);
+  console.info(
+    `[velocity] POST /custom/api/v1/forward-order-orchestration payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
+  );
   return velocityPost<VelocityForwardOrderResponse>(
     "/custom/api/v1/forward-order-orchestration",
-    payload
+    providerBody
   );
 }
 
 // ─── Forward order only (no AWB yet) ─────────────────────
 
 export async function createForwardOrderOnly(payload: VelocityForwardOrderRequest) {
+  const providerBody = buildVelocityForwardOrchestrationPayload(payload);
+  console.info(
+    `[velocity] POST /custom/api/v1/forward-order payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
+  );
   return velocityPost<VelocityCreateOrderOnlyResponse>(
     "/custom/api/v1/forward-order",
-    payload
+    providerBody
   );
 }
 

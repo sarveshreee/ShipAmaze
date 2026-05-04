@@ -26,8 +26,34 @@ export async function getPublicOrder(orderId: string) {
   return apiClient.get<Order>(`/orders/public/${encodeURIComponent(orderId)}`);
 }
 
-export async function createShipment(body: { orderId: string; courierId: string; warehouseId: string }) {
-  return apiClient.post<{ success: true; trackingId: string; shipmentId: string }>("/orders/create-shipment", body);
+export async function createShipment(body: {
+  orderId: string;
+  warehouseId: string;
+  /** Empty string = Velocity auto-assign */
+  carrier_id?: string | number | "";
+}) {
+  return apiClient.post<{
+    success: boolean;
+    data: {
+      order_id: string;
+      shipment_id: string;
+      awb_code: string;
+      carrier_name: string;
+      label_url?: string;
+      manifest_url?: string;
+      shipping_charges?: number;
+      cod_charges?: number;
+      rto_charges?: number;
+      status: string;
+    };
+    orderId?: string;
+  }>("/velocity/forward/create", {
+    orderId: body.orderId,
+    warehouseId: body.warehouseId,
+    ...(body.carrier_id === "" || body.carrier_id === undefined
+      ? {}
+      : { carrier_id: body.carrier_id }),
+  });
 }
 
 export async function moveOrderToJunk(id: string, junkReason?: string) {

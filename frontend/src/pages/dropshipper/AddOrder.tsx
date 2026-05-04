@@ -10,10 +10,12 @@ import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Pho
 import { usePickupAddresses } from "@/hooks/useApiData";
 import * as orderService from "@/services/orderService";
 import * as pickupService from "@/services/pickupService";
+import { getRates, type VelocityRate } from "@/services/velocityService";
 import type { PickupAddress } from "@/types/logistics";
 import { AddAddressModal } from "@/components/AddAddressModal";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 
 const steps = [
   { num: 1, label: "Pickup Address", icon: MapPin },
@@ -35,15 +37,6 @@ const getNextOrderId = () => {
   return String(num);
 };
 
-const mockCouriers = [
-  { id: "ekart", name: "Ekart-Px", slab: "1 Kg", edd: "17-Apr-2026", amount: 90.01 },
-  { id: "xpressbees", name: "XPress Bees", slab: "0.50 Kg", edd: "17-Apr-2026", amount: 132.02 },
-  { id: "delhivery", name: "Delhivery", slab: "1 Kg", edd: "17-Apr-2026", amount: 105.01 },
-  { id: "amazon", name: "Amazon", slab: "1 Kg", edd: "17-Apr-2026", amount: 90.01 },
-  { id: "xbs", name: "XBS SO PX", slab: "1 Kg", edd: "17-Apr-2026", amount: 90.01 },
-  { id: "ekartb2b", name: "Ekart B2B", slab: "10 Kg", edd: "17-Apr-2026", amount: 401.2 },
-];
-
 interface SavedOrder {
   id: string;
   orderId: string;
@@ -52,8 +45,6 @@ interface SavedOrder {
   dateSaved: string;
   data: any;
 }
-
-const PRIORITY_STORAGE_KEY = "courierPriorities";
 
 const categoryHsnMap: Record<string, string> = {
   "Electronics": "8542",
@@ -115,24 +106,11 @@ export default function AddOrder() {
     });
   }, [products]);
 
-  // Step 5
-  const [courierMode, setCourierMode] = useState<"priority" | "courier">("priority");
-  const [expressType, setExpressType] = useState("");
-  const [prioritySelections, setPrioritySelections] = useState<string[]>([]);
-  const [selectedCourier, setSelectedCourier] = useState("");
-  const [usingSavedPriorities, setUsingSavedPriorities] = useState(false);
-  const [editingPriorities, setEditingPriorities] = useState(false);
-
-  // Load saved priorities on mount
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(PRIORITY_STORAGE_KEY) || "[]");
-      if (saved.length === 3) {
-        setPrioritySelections(saved);
-        setUsingSavedPriorities(true);
-      }
-    } catch {}
-  }, []);
+  // Step 5 — Velocity rates (optional); blank carrier_id = auto assign
+  const [velocityRates, setVelocityRates] = useState<VelocityRate[]>([]);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  /** Empty string = auto-assign by Velocity */
+  const [selectedCarrierId, setSelectedCarrierId] = useState("");
 
   const editAppliedRef = useRef(false);
 
@@ -210,12 +188,9 @@ export default function AddOrder() {
         if (pkgDetails.length > 0) setPackageDetails(pkgDetails);
       }
 
-      // Step 5: Courier
-      const mockCouriersList = ["ekart", "xpressbees", "delhivery", "amazon", "xbs", "ekartb2b"];
-      const courierMatch = mockCouriersList.find((c) => String(d.courier ?? "").toLowerCase().includes(c));
-      if (courierMatch) {
-        setCourierMode("courier");
-        setSelectedCourier(courierMatch);
+      // Step 5: optional carrier preference from order
+      if (d.carrierCompanyId !== undefined && d.carrierCompanyId !== null && String(d.carrierCompanyId).trim() !== "") {
+        setSelectedCarrierId(String(d.carrierCompanyId));
       }
 
       // Clean up
@@ -268,6 +243,50 @@ export default function AddOrder() {
     }
   }, [currentStep]);
 
+  useEffect(() => {
+    if (currentStep !== 5) return;
+    const from = selectedPickupAddr?.pincode?.trim();
+    const to = consignee.pincode?.trim();
+    const totalW = packageDetails.reduce((sum, pd) => sum + (Number(pd.weight) || 0), 0);
+    const first = packageDetails[0] || { length: "10", width: "10", height: "10" };
+    if (!from || !to || totalW <= 0) {
+      setVelocityRates([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setRatesLoading(true);
+      try {
+        const payMode = shipment.paymentType === "COD" ? "cod" : "prepaid";
+        const res = await getRates({
+          from,
+          to,
+          weight: totalW,
+          length: Number(first.length) || 10,
+          width: Number(first.width) || 10,
+          height: Number(first.height) || 10,
+          payment_mode: payMode,
+          cod_value: payMode === "cod" ? totalAmount : undefined,
+        });
+        if (!cancelled) setVelocityRates(res.data ?? []);
+      } catch {
+        if (!cancelled) setVelocityRates([]);
+      } finally {
+        if (!cancelled) setRatesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentStep,
+    selectedPickupAddr?.pincode,
+    consignee.pincode,
+    packageDetails,
+    shipment.paymentType,
+    totalAmount,
+  ]);
+
   const validateStep = useCallback((step: number): boolean => {
     const errors: StepErrors = {};
     if (step === 1) {
@@ -291,13 +310,10 @@ export default function AddOrder() {
         if (!pd || !pd.weight.trim()) { errors.weight = "Weight is required for all products"; break; }
         if (!pd.length.trim() || !pd.width.trim() || !pd.height.trim()) { errors.dimensions = "All dimensions are required"; break; }
       }
-    } else if (step === 5) {
-      if (courierMode === "priority" && prioritySelections.length < 3) errors.courier = "Select exactly 3 courier priorities";
-      if (courierMode === "courier" && !selectedCourier) errors.courier = "Select a courier";
     }
     setStepErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [selectedPickup, showReturn, selectedReturn, consignee, shipment, packageDetails, products, courierMode, prioritySelections, selectedCourier]);
+  }, [selectedPickup, showReturn, selectedReturn, consignee, shipment, packageDetails, products]);
 
   const handleNext = () => {
     if (validateStep(currentStep)) {
@@ -342,21 +358,6 @@ export default function AddOrder() {
     }
   };
 
-  const handlePriorityClick = (courierId: string) => {
-    setPrioritySelections(prev => {
-      if (prev.includes(courierId)) return prev.filter(c => c !== courierId);
-      if (prev.length >= 3) return prev;
-      const updated = [...prev, courierId];
-      if (updated.length === 3) {
-        localStorage.setItem(PRIORITY_STORAGE_KEY, JSON.stringify(updated));
-        setUsingSavedPriorities(true);
-        setEditingPriorities(false);
-        toast.success("Priority settings saved");
-      }
-      return updated;
-    });
-  };
-
   const handleSaveOrder = () => {
     const pickupAddr = allAddresses.find(a => a.id === selectedPickup);
     const saved: SavedOrder = {
@@ -365,7 +366,17 @@ export default function AddOrder() {
       consigneeName: consignee.fullName || "Unnamed",
       pickupLabel: pickupAddr?.label || "N/A",
       dateSaved: new Date().toLocaleString(),
-      data: { selectedPickup, showReturn, selectedReturn, consignee, shipment, products, packageDetails, courierMode, expressType, prioritySelections, selectedCourier, extraCharges },
+      data: {
+        selectedPickup,
+        showReturn,
+        selectedReturn,
+        consignee,
+        shipment,
+        products,
+        packageDetails,
+        selectedCarrierId,
+        extraCharges,
+      },
     };
     const updated = [...savedOrders, saved];
     setSavedOrders(updated);
@@ -383,10 +394,7 @@ export default function AddOrder() {
     setProducts(d.products);
     if (d.packageDetails) setPackageDetails(d.packageDetails);
     if (d.extraCharges !== undefined) setExtraCharges(d.extraCharges);
-    setCourierMode(d.courierMode);
-    setExpressType(d.expressType);
-    setPrioritySelections(d.prioritySelections);
-    setSelectedCourier(d.selectedCourier);
+    setSelectedCarrierId(typeof d.selectedCarrierId === "string" ? d.selectedCarrierId : "");
     setCurrentStep(1);
     setLoadedNotification(true);
   };
@@ -404,18 +412,18 @@ export default function AddOrder() {
     if (!validateStep(5)) return;
 
     const pickupAddr = allAddresses.find((a) => a.id === selectedPickup);
+    if (pickupAddr && !pickupAddr.velocityWarehouseId?.trim()) {
+      toast.warning("This pickup address is not linked to Velocity. Link it before generating AWB.");
+    }
+
     const courierName =
-      courierMode === "courier"
-        ? mockCouriers.find((c) => c.id === selectedCourier)?.name || "Delhivery"
-        : prioritySelections
-            .map((id) => mockCouriers.find((c) => c.id === id)?.name)
-            .filter(Boolean)
-            .join(", ") || "Delhivery";
+      selectedCarrierId === ""
+        ? "Auto assign (Velocity)"
+        : velocityRates.find((r) => String(r.carrier_id) === selectedCarrierId)?.carrier_name || "Velocity";
 
     const totalWeight = packageDetails.reduce((sum, pd) => sum + (Number(pd.weight) || 0), 0);
     const dims = packageDetails.map((pd) => `${pd.length}x${pd.width}x${pd.height}`).join("; ");
 
-    const awb = `AWB${Date.now().toString().slice(-9)}`;
     try {
       await orderService.createOrder({
         orderId: shipment.orderId,
@@ -423,13 +431,14 @@ export default function AddOrder() {
         phone: `+91 ${consignee.phone}`,
         address: [consignee.addressLine1, consignee.addressLine2].filter(Boolean).join(", ") || "N/A",
         city: consignee.city || "N/A",
+        state: consignee.state || undefined,
         pincode: consignee.pincode || "N/A",
         weight: `${totalWeight} kg`,
         courier: courierName,
         payment: shipment.paymentType,
         status: "ready-to-ship",
         date: new Date().toISOString().split("T")[0],
-        awb,
+        awb: "",
         amount: totalAmount,
         products: products
           .filter((p) => p.name)
@@ -446,6 +455,7 @@ export default function AddOrder() {
         zone: "B",
         pickupAddress: pickupAddr?.label || "",
         pickupAddressId: selectedPickup || undefined,
+        carrier_id: selectedCarrierId === "" ? undefined : selectedCarrierId,
       });
       toast.success("Order submitted successfully!");
       navigate("/dropshipper/orders");
@@ -582,12 +592,23 @@ export default function AddOrder() {
                           >
                             <div className="flex items-start justify-between gap-2">
                               <p className="text-sm font-semibold text-text-primary truncate">{a.label}</p>
-                              {a.isDefault && (
-                                <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground">Default</span>
-                              )}
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                {a.isDefault && (
+                                  <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground">Default</span>
+                                )}
+                                {a.velocityWarehouseId?.trim() ? (
+                                  <Badge variant="outline" className="text-[10px] border-success/40 text-success">
+                                    Velocity linked
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    Not linked
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
                             <p className="text-xs text-text-muted mt-1">
-                              {a.city} · {a.pincode}
+                              {a.city}, {a.state} · {a.pincode}
                             </p>
                             <p className="text-xs text-text-secondary mt-0.5 truncate">{a.contactName}</p>
                           </button>
@@ -956,85 +977,63 @@ export default function AddOrder() {
             </div>
           )}
 
-          {/* Step 5 - Courier */}
+          {/* Step 5 — Velocity couriers / auto assign */}
           {currentStep === 5 && (
             <div className="rounded-lg border border-border bg-card p-6 space-y-5">
               <div>
-                <Label>Express<span className="text-danger">*</span></Label>
-                <select value={expressType} onChange={e => setExpressType(e.target.value)}
-                  className="mt-1 w-48 rounded-md border border-border bg-background px-3 py-2.5 text-sm">
-                  <option value="">-- Select --</option>
-                  <option value="Air">Air</option>
-                  <option value="Surface">Surface</option>
-                </select>
+                <h3 className="font-semibold text-text-primary">Carrier & rates</h3>
+                <p className="text-sm text-text-muted mt-1">
+                  Rates come from Velocity for your pickup and destination. Leave as auto assign or pick a service.
+                </p>
               </div>
 
-              <div>
-                <div className="flex gap-4">
-                  {([["priority", "Priority Selection"], ["courier", "Courier Selection"]] as const).map(([val, label]) => (
-                    <label key={val} className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-                      <input type="radio" name="courier-mode" className="accent-primary"
-                        checked={courierMode === val} onChange={() => { setCourierMode(val); if (val === "courier") { setPrioritySelections([]); } setSelectedCourier(""); setEditingPriorities(false); }} />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCarrierId("")}
+                className={cn(
+                  "w-full rounded-lg border p-4 text-left transition-all",
+                  selectedCarrierId === "" ? "border-primary bg-primary-light/50 ring-1 ring-primary/30" : "border-border hover:border-primary/40"
+                )}
+              >
+                <p className="font-semibold text-text-primary">Auto assign by Velocity</p>
+                <p className="text-xs text-text-muted mt-1">Carrier will be chosen when you create shipment / AWB.</p>
+              </button>
 
-              {courierMode === "priority" && (
-                <>
-                  {prioritySelections.length === 3 && !editingPriorities ? (
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-text-primary">Priority saved: <strong>{prioritySelections.map(id => mockCouriers.find(c => c.id === id)?.name).filter(Boolean).join(", ")}</strong></span>
-                      <Button variant="link" size="sm" className="text-primary p-0 h-auto" onClick={() => setEditingPriorities(true)}>Edit</Button>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-xs text-text-muted">Click cards to set priority (1st, 2nd, 3rd). Click again to deselect.</p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                        {mockCouriers.map(c => {
-                          const idx = prioritySelections.indexOf(c.id);
-                          const isSelected = idx !== -1;
-                          return (
-                            <button key={c.id} onClick={() => handlePriorityClick(c.id)}
-                              className={cn("rounded-lg border p-3 text-center transition-all hover:shadow-sm relative",
-                                isSelected ? "border-primary bg-primary-light" : "border-border hover:border-primary/40"
-                              )}>
-                              {isSelected && (
-                                <span className="absolute -top-2 -right-2 inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
-                                  {idx + 1}
-                                </span>
-                              )}
-                              <p className="font-semibold text-text-primary text-sm">{c.name}</p>
-                              <p className="text-[11px] text-text-muted mt-0.5">Slab: {c.slab}</p>
-                              <p className="text-[11px] text-text-muted">EDD: {c.edd}</p>
-                              <p className="text-xs font-semibold text-primary mt-1">₹{c.amount}</p>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </>
+              {ratesLoading && <p className="text-sm text-text-muted">Loading rates from Velocity…</p>}
+
+              {!ratesLoading && velocityRates.length === 0 && (
+                <p className="text-sm text-text-muted">
+                  No rate cards returned. You can still submit the order with auto assign.
+                </p>
               )}
 
-              {courierMode === "courier" && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                  {mockCouriers.map(c => (
-                    <button key={c.id} onClick={() => setSelectedCourier(c.id)}
-                      className={cn("rounded-lg border p-3 text-center transition-all hover:shadow-sm",
-                        selectedCourier === c.id ? "border-primary bg-primary-light" : "border-border hover:border-primary/40"
-                      )}>
-                      <p className="font-semibold text-text-primary text-sm">{c.name}</p>
-                      <p className="text-[11px] text-text-muted mt-0.5">Slab: {c.slab}</p>
-                      <p className="text-[11px] text-text-muted">EDD: {c.edd}</p>
-                      <p className="text-xs font-semibold text-primary mt-1">₹{c.amount}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {velocityRates.map((r) => {
+                  const id = String(r.carrier_id);
+                  const sel = selectedCarrierId === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setSelectedCarrierId(id)}
+                      className={cn(
+                        "rounded-lg border p-4 text-left transition-all text-sm",
+                        sel ? "border-primary bg-primary-light/50 ring-1 ring-primary/30" : "border-border hover:border-primary/40"
+                      )}
+                    >
+                      <p className="font-semibold text-text-primary">{r.carrier_name}</p>
+                      <p className="text-xs text-text-muted mt-1">Total: ₹{Number(r.total_charge).toFixed(2)}</p>
+                      {(r.freight_charge !== undefined || r.cod_charge !== undefined) && (
+                        <p className="text-[11px] text-text-muted mt-0.5">
+                          {r.freight_charge !== undefined ? `Freight ₹${Number(r.freight_charge).toFixed(2)}` : ""}
+                          {r.cod_charge !== undefined ? ` · COD ₹${Number(r.cod_charge).toFixed(2)}` : ""}
+                        </p>
+                      )}
+                      {r.tat && <p className="text-[11px] text-text-muted mt-1">Est. delivery: {r.tat}</p>}
                     </button>
-                  ))}
-                </div>
-              )}
-
-              {stepErrors.courier && <p className="text-xs text-danger mt-1">{stepErrors.courier}</p>}
+                  );
+                })}
+              </div>
 
               {savedOrders.length > 0 && (
                 <div className="mt-6 border-t border-border pt-4">

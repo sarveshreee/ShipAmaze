@@ -22,6 +22,8 @@ export interface Warehouse {
   isDefault?: boolean;
   gstNumber?: string;
   notes?: string;
+  /** Velocity pickup id after linkOnly (e.g. WHZBRR). */
+  velocityWarehouseId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -47,6 +49,10 @@ function mapDoc(r: Record<string, unknown>, vendorName: string, vendorUserId: st
     isDefault: Boolean(r.isDefault),
     gstNumber: (r.gstNumber as string) || undefined,
     notes: (r.notes as string) || undefined,
+    velocityWarehouseId:
+      typeof r.velocityWarehouseId === "string" && r.velocityWarehouseId.trim()
+        ? r.velocityWarehouseId.trim()
+        : undefined,
     createdAt: String(r.createdAt ?? new Date().toISOString()),
     updatedAt: String(r.updatedAt ?? new Date().toISOString()),
   };
@@ -59,14 +65,17 @@ export function useVendorWarehouses() {
 
   const [items, setItems] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const rows = (await warehouseService.listWarehouses()) as unknown as Record<string, unknown>[];
       setItems(rows.map((r) => mapDoc(r, vendorName, vid)));
+      setError(null);
     } catch {
       setItems([]);
+      setError("Failed to load warehouses. Please try again or sign in again.");
     } finally {
       setLoading(false);
     }
@@ -113,5 +122,13 @@ export function useVendorWarehouses() {
     [load]
   );
 
-  return { warehouses: myItems, loading, addWarehouse, updateWarehouse, deleteWarehouse };
+  return {
+    warehouses: myItems,
+    loading,
+    error,
+    addWarehouse,
+    updateWarehouse,
+    deleteWarehouse,
+    refetch: load,
+  };
 }

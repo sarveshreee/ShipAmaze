@@ -4,7 +4,8 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { Vendor } from "../models/Vendor.js";
 import { Dropshipper } from "../models/Dropshipper.js";
-import { User } from "../models/User.js";
+import { User, type UserRole } from "../models/User.js";
+import { getPickupOwnerFilterForUser } from "../utils/pickupOwnerFilter.js";
 import { Warehouse } from "../models/Warehouse.js";
 import { Courier } from "../models/Courier.js";
 import { PincodeServiceability } from "../models/PincodeServiceability.js";
@@ -429,6 +430,7 @@ function mapPickupDoc(a: {
   country?: string;
   isDefault?: boolean;
   isActive?: boolean;
+  velocityWarehouseId?: string;
 }) {
   return {
     id: String(a._id),
@@ -444,17 +446,25 @@ function mapPickupDoc(a: {
     country: a.country ?? "India",
     isDefault: Boolean(a.isDefault),
     isActive: a.isActive !== false,
+    velocityWarehouseId:
+      typeof a.velocityWarehouseId === "string" && a.velocityWarehouseId.trim()
+        ? a.velocityWarehouseId.trim()
+        : undefined,
   };
 }
 
-async function clearDefaultPickupsForUser(userId: Types.ObjectId) {
-  await Pickup.updateMany({ userId }, { $set: { isDefault: false } });
+async function clearDefaultPickupsForUser(userId: Types.ObjectId, role: UserRole) {
+  const filter =
+    role === "dropshipper"
+      ? { $or: [{ userId }, { dropshipperId: userId }] }
+      : { userId };
+  await Pickup.updateMany(filter, { $set: { isDefault: false } });
 }
 
 export const listPickupAddresses = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   const rows = await Pickup.find({
-    userId: req.user._id,
+    ...getPickupOwnerFilterForUser(req.user),
     $or: [{ isActive: true }, { isActive: { $exists: false } }],
   })
     .sort({ createdAt: -1 })
@@ -478,12 +488,13 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   }
 
   const wantDefault = Boolean(b.isDefault);
-  const count = await Pickup.countDocuments({ userId: req.user._id });
+  const count = await Pickup.countDocuments(getPickupOwnerFilterForUser(req.user));
   const makeDefault = wantDefault || count === 0;
-  if (makeDefault) await clearDefaultPickupsForUser(req.user._id);
+  if (makeDefault) await clearDefaultPickupsForUser(req.user._id, req.user.role);
 
   const doc = await Pickup.create({
     userId: req.user._id,
+    ...(req.user.role === "dropshipper" ? { dropshipperId: req.user._id } : {}),
     label,
     contactName: String(b.contactName ?? "").trim(),
     phone: String(b.phone ?? "").trim(),
@@ -500,6 +511,27 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   res.status(201).json(mapPickupDoc(doc.toObject()));
 });
 
+/**
+ * Dropshipper-only: backfill `dropshipperId` on pickups where `userId` already matches but field was missing (legacy).
+ * Does not modify documents owned by other users.
+ */
+export const repairDropshipperPickupOwnership = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "dropshipper") throw new AppError(403, "Forbidden");
+  const result = await Pickup.updateMany(
+    {
+      userId: req.user._id,
+      $or: [{ dropshipperId: { $exists: false } }, { dropshipperId: null }],
+    },
+    { $set: { dropshipperId: req.user._id } }
+  );
+  res.json({
+    success: true,
+    matchedCount: result.matchedCount,
+    modifiedCount: result.modifiedCount,
+  });
+});
+
 /** @deprecated Use POST /pickup-addresses */
 export const createPickup = createPickupAddress;
 
@@ -507,7 +539,7 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   if (!req.user) throw new AppError(401, "Unauthorized");
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
-  const existing = await Pickup.findOne({ _id: id, userId: req.user._id });
+  const existing = await Pickup.findOne({ _id: id, ...getPickupOwnerFilterForUser(req.user) });
   if (!existing) throw new AppError(404, "Pickup address not found");
 
   const b = req.body as Record<string, unknown>;
@@ -525,7 +557,7 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   if (b.isActive !== undefined) patch.isActive = Boolean(b.isActive);
 
   if (b.isDefault === true) {
-    await clearDefaultPickupsForUser(req.user._id);
+    await clearDefaultPickupsForUser(req.user._id, req.user.role);
     patch.isDefault = true;
   }
 
@@ -546,14 +578,18 @@ export const deletePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   if (!req.user) throw new AppError(401, "Unauthorized");
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
-  const doc = await Pickup.findOne({ _id: id, userId: req.user._id });
+  const doc = await Pickup.findOne({ _id: id, ...getPickupOwnerFilterForUser(req.user) });
   if (!doc) throw new AppError(404, "Pickup address not found");
 
   const wasDefault = doc.isDefault;
-  await Pickup.deleteOne({ _id: id, userId: req.user._id });
+  await Pickup.deleteOne({ _id: id, ...getPickupOwnerFilterForUser(req.user) });
 
   if (wasDefault) {
-    const next = await Pickup.findOne({ userId: req.user._id }).sort({ createdAt: -1 });
+    const next = await Pickup.findOne({
+      userId: doc.userId,
+      _id: { $ne: doc._id },
+      $or: [{ isActive: true }, { isActive: { $exists: false } }],
+    }).sort({ createdAt: -1 });
     if (next) {
       next.isDefault = true;
       await next.save();
@@ -567,10 +603,14 @@ export const setDefaultPickupAddress = asyncHandler(async (req: AuthRequest, res
   if (!req.user) throw new AppError(401, "Unauthorized");
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
-  const doc = await Pickup.findOne({ _id: id, userId: req.user._id, isActive: { $ne: false } });
+  const doc = await Pickup.findOne({
+    _id: id,
+    ...getPickupOwnerFilterForUser(req.user),
+    isActive: { $ne: false },
+  });
   if (!doc) throw new AppError(404, "Pickup address not found");
 
-  await clearDefaultPickupsForUser(req.user._id);
+  await clearDefaultPickupsForUser(req.user._id, req.user.role);
   doc.isDefault = true;
   await doc.save();
   res.json(mapPickupDoc(doc.toObject()));

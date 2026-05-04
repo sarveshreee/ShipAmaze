@@ -9,6 +9,7 @@ import * as accountController from "./controllers/accountController.js";
 import * as productDetailController from "./controllers/productDetailController.js";
 import * as shopifyController from "./controllers/shopifyController.js";
 import velocityRouter from "./modules/velocity/velocity.routes.js";
+import * as debugController from "./controllers/debugController.js";
 
 export function createApp() {
   const app = express();
@@ -79,9 +80,14 @@ export function createApp() {
 
   api.get("/manifests", authMiddleware, resourceController.listManifests);
 
+  if (process.env.NODE_ENV === "development") {
+    api.get("/debug/my-pickups", authMiddleware, debugController.debugMyPickups);
+  }
+
   api.get("/pickups", authMiddleware, resourceController.listPickups);
   api.post("/pickups", authMiddleware, resourceController.createPickup);
 
+  api.post("/pickup-addresses/repair-dropshipper-ownership", authMiddleware, resourceController.repairDropshipperPickupOwnership);
   api.get("/pickup-addresses", authMiddleware, resourceController.listPickupAddresses);
   api.post("/pickup-addresses", authMiddleware, resourceController.createPickupAddress);
   api.put("/pickup-addresses/:id", authMiddleware, resourceController.updatePickupAddress);

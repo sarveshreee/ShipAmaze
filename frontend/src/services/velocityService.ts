@@ -38,7 +38,10 @@ export interface VelocityTrackingResult {
   status: string;
   carrierName?: string;
   activities: VelocityTrackingActivity[];
-  order?: { id: string; customer: string };
+  order?: { id: string };
+  /** True when order exists locally but no AWB has been generated yet */
+  pendingShipment?: boolean;
+  trackUrl?: string;
 }
 
 export interface VelocityShipmentResult {
@@ -46,7 +49,7 @@ export interface VelocityShipmentResult {
   shipment_id: string;
   awb_code: string;
   carrier_name: string;
-  carrier_id: number;
+  carrier_id: string | number;
   label_url?: string;
   manifest_url?: string;
   shipping_charges: number;
@@ -60,7 +63,7 @@ export interface VelocityReverseResult {
   shipment_id: string;
   awb_code: string;
   carrier_name: string;
-  carrier_id: number;
+  carrier_id: string | number;
   label_url?: string;
   status: string;
   reverse_charges?: number;
@@ -90,6 +93,9 @@ export interface RatesParams {
 
 export interface CreateForwardShipmentParams {
   orderId?: string;
+  /** Local MongoDB `Warehouse` id (after linkOnly) — resolves `velocityWarehouseId` for Velocity `warehouse_id`. */
+  warehouseId?: string;
+  /** Direct Velocity warehouse code (e.g. WHZBRR) if known. */
   warehouse_id?: string | number;
   order_id?: string;
   payment_mode?: "cod" | "prepaid";
@@ -114,6 +120,7 @@ export interface CreateForwardShipmentParams {
 
 export interface CreateReverseShipmentParams {
   orderId?: string;
+  warehouseId?: string;
   warehouse_id?: string | number;
   order_id?: string;
   pickup_customer?: {
@@ -148,11 +155,23 @@ export async function getRates(params: RatesParams) {
   );
 }
 
-export async function createWarehouse(params: Record<string, unknown>) {
-  return apiClient.post<{ success: boolean; data: { warehouse_id: string | number } }>(
-    "/velocity/warehouses",
-    params
-  );
+export type LinkVelocityWarehouseParams = {
+  linkOnly: true;
+  warehouseId: string;
+  velocityWarehouseId?: string | number;
+  unlink?: true;
+};
+
+export async function linkVelocityWarehouse(params: LinkVelocityWarehouseParams) {
+  return apiClient.post<{
+    success: boolean;
+    data: { warehouse_id?: string | number; linked: boolean; manual?: boolean; unlinked?: boolean; kind?: string };
+  }>("/velocity/warehouses", params);
+}
+
+/** Clear Velocity link from a local Warehouse or Pickup document. */
+export async function unlinkVelocityWarehouse(warehouseId: string) {
+  return linkVelocityWarehouse({ linkOnly: true, warehouseId, unlink: true });
 }
 
 export async function createForwardShipment(params: CreateForwardShipmentParams) {

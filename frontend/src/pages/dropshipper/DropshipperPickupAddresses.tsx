@@ -30,6 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
 
 const emptyForm = {
   label: "",
@@ -234,6 +235,16 @@ export default function DropshipperPickupAddresses() {
                   {a.country && a.country !== "India" ? `, ${a.country}` : ""}
                 </p>
               </div>
+
+              <VelocityWarehouseLinkCard
+                mongoId={a.id}
+                velocityWarehouseId={a.velocityWarehouseId}
+                onUpdated={async () => {
+                  window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses"));
+                  await refetch();
+                }}
+                forbiddenHint="pickup"
+              />
 
               <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-border">
                 <Button size="sm" variant="outline" className="text-xs h-8" type="button" onClick={() => openEdit(a)}>

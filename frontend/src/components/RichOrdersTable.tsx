@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import type { Order } from "@/types/logistics";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User, Trash2, Truck, Calendar, IndianRupee } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { toast } from "sonner";
 import { printShippingLabel } from "@/components/ShippingLabel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import {
@@ -288,12 +291,19 @@ interface Props {
   showBulkMoveToReady?: boolean;
   onBulkMoveToReady?: () => Promise<void>;
   couriers?: Array<{ id: string; name: string }>;
-  warehouses?: Array<{ id: string; warehouseName: string; city?: string }>;
-  onCreateShipment?: (payload: { orderId: string; courierId: string; warehouseId: string }) => Promise<void>;
+  warehouses?: Array<{ id: string; warehouseName: string; city?: string; velocityWarehouseId?: string }>;
+  /** Shown when no linked warehouse exists (Create Shipment empty state). */
+  velocityEmptyLink?: string;
+  onCreateShipment?: (payload: {
+    orderId: string;
+    warehouseId: string;
+    carrier_id?: string | number | "";
+  }) => Promise<{ success: boolean; data: { awb_code: string; carrier_name: string } }>;
 }
 
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showBulkMoveToReady = false, onBulkMoveToReady, couriers = [], warehouses = [], onCreateShipment }: Props) {
+export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showBulkMoveToReady = false, onBulkMoveToReady, couriers: _couriers = [], warehouses = [], velocityEmptyLink = "/dropshipper/pickup-addresses", onCreateShipment }: Props) {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
@@ -318,6 +328,15 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   const [selectedCourierId, setSelectedCourierId] = useState("");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [shipmentSubmitting, setShipmentSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!shipmentModalOrder) return;
+    const matchPickup = shipmentModalOrder.pickupAddressId
+      ? warehouses.find((w) => w.id === shipmentModalOrder.pickupAddressId)?.id
+      : undefined;
+    setSelectedWarehouseId(matchPickup ?? warehouses[0]?.id ?? "");
+    setSelectedCourierId("");
+  }, [shipmentModalOrder, warehouses]);
 
   // Edit modals
   const [editProductOrder, setEditProductOrder] = useState<Order | null>(null);
@@ -379,7 +398,6 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   const isValidPincode = (pin: string | undefined) => pin != null && /^\d{6}$/.test(pin);
   const channelLabel = (o: Order) =>
     o.channel === "Shopify" || o.externalSource === "shopify" ? "Shopify" : "Manual";
-  const shipmentStatus = (o: Order) => (o.shipmentCreated ? "Shipped" : "Pending");
 
   const handleEditProductSave = (orderId: string, products: any[], codAmount: number) => {
     const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
@@ -843,13 +861,21 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                     <div className="space-y-1">
                       <span className={cn(
                         "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                        shipmentStatus(o) === "Shipped" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                        o.awb ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
                       )}>
-                        {shipmentStatus(o)}
+                        {o.awb ? (o.shipmentStatus || o.status || "Shipped") : "Awaiting shipment"}
                       </span>
-                      {o.trackingId && (
+                      {o.awb ? (
+                        <>
+                          <p className="text-[11px] font-mono text-text-primary">AWB: {o.awb}</p>
+                          {(o.courierName || o.courier) ? (
+                            <p className="text-[11px] text-text-muted">{o.courierName || o.courier}</p>
+                          ) : null}
+                        </>
+                      ) : null}
+                      {o.trackingId && o.trackingId !== o.awb ? (
                         <p className="text-[11px] text-text-muted font-mono">TRK: {o.trackingId}</p>
-                      )}
+                      ) : null}
                     </div>
                   </td>
 
@@ -1002,7 +1028,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                         </div>
                       ) : (
                         <div className="flex flex-col gap-1.5">
-                          {!o.shipmentCreated && !o.isJunk && (
+                          {!o.awb && !o.isJunk && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1076,8 +1102,88 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle>Create Shipment</DialogTitle>
+            <p className="text-sm text-text-muted pt-1">
+              Order <span className="font-mono text-text-primary">{shipmentModalOrder?.id}</span>
+            </p>
           </DialogHeader>
+          {shipmentModalOrder &&
+            (() => {
+              const blockers = forwardShipmentBlockers(shipmentModalOrder);
+              if (blockers.length === 0) return null;
+              return (
+                <Alert variant="destructive" className="text-left border-destructive/40 bg-destructive/5">
+                  <AlertTitle>Delivery details incomplete</AlertTitle>
+                  <AlertDescription className="space-y-2 pt-1">
+                    <p className="text-xs text-text-primary">
+                      Velocity needs a full delivery address, pincode, weight, and dimensions. Fix these before creating a shipment.
+                    </p>
+                    <ul className="list-disc pl-4 text-xs text-text-primary space-y-0.5">
+                      {blockers.map((msg, i) => (
+                        <li key={i}>{msg}</li>
+                      ))}
+                    </ul>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="border-destructive/40"
+                        onClick={() => {
+                          setEditAddressOrder(shipmentModalOrder);
+                          setShipmentModalOrder(null);
+                        }}
+                      >
+                        Edit delivery address
+                      </Button>
+                      {role === "dropshipper" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="border-destructive/40"
+                          onClick={() => {
+                            handleEditOrder(shipmentModalOrder);
+                            setShipmentModalOrder(null);
+                          }}
+                        >
+                          Edit order (full form)
+                        </Button>
+                      )}
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              );
+            })()}
           <div className="space-y-4 py-2">
+            {warehouses.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border bg-surface-2/40 p-4 text-center space-y-3">
+                <p className="text-sm text-text-secondary">No Velocity-linked warehouse found.</p>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={velocityEmptyLink}>Go to Pickup Addresses</Link>
+                </Button>
+              </div>
+            ) : (
+              <div>
+                <Label className="text-xs font-medium">Pickup warehouse (Velocity linked)</Label>
+                <select
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  value={selectedWarehouseId}
+                  onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                >
+                  <option value="">Select warehouse</option>
+                  {warehouses.map((w) => {
+                    const vid = w.velocityWarehouseId?.trim() || "";
+                    return (
+                      <option key={w.id} value={w.id}>
+                        {w.warehouseName}
+                        {w.city ? ` — ${w.city}` : ""}
+                        {vid ? ` — ${vid}` : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
             <div>
               <Label className="text-xs font-medium">Courier</Label>
               <select
@@ -1085,45 +1191,48 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                 value={selectedCourierId}
                 onChange={(e) => setSelectedCourierId(e.target.value)}
               >
-                <option value="">Select courier</option>
-                {couriers.map((c) => (
-                  <option key={c.id || c.name} value={c.id}>{c.name}</option>
-                ))}
+                <option value="">Auto assign by Velocity</option>
               </select>
-            </div>
-            <div>
-              <Label className="text-xs font-medium">Warehouse</Label>
-              <select
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                value={selectedWarehouseId}
-                onChange={(e) => setSelectedWarehouseId(e.target.value)}
-              >
-                <option value="">Select warehouse</option>
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.warehouseName}{w.city ? ` (${w.city})` : ""}
-                  </option>
-                ))}
-              </select>
+              <p className="text-[11px] text-text-muted mt-1">
+                Velocity will assign a carrier unless you add carrier selection from rates elsewhere.
+              </p>
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="secondary" onClick={() => setShipmentModalOrder(null)}>Cancel</Button>
+            <Button variant="secondary" onClick={() => setShipmentModalOrder(null)}>
+              Cancel
+            </Button>
             <Button
               onClick={async () => {
                 if (!shipmentModalOrder || !onCreateShipment) return;
-                if (!selectedCourierId || !selectedWarehouseId) {
-                  toast.error("Please select courier and warehouse");
+                const blockers = forwardShipmentBlockers(shipmentModalOrder);
+                if (blockers.length) {
+                  toast.error("Fix delivery details before creating a shipment.", {
+                    description: blockers.slice(0, 3).join(" "),
+                  });
+                  return;
+                }
+                if (!selectedWarehouseId || warehouses.length === 0) {
+                  toast.error("Select a Velocity-linked warehouse");
                   return;
                 }
                 setShipmentSubmitting(true);
                 try {
-                  await onCreateShipment({
+                  const res = await onCreateShipment({
                     orderId: shipmentModalOrder.id,
-                    courierId: selectedCourierId,
                     warehouseId: selectedWarehouseId,
+                    carrier_id: selectedCourierId || "",
                   });
-                  toast.success("Shipment created successfully");
+                  const d = res.data;
+                  const lines = [
+                    `AWB: ${d.awb_code}`,
+                    d.carrier_name && `Courier: ${d.carrier_name}`,
+                    d.shipment_id && `Velocity shipment: ${d.shipment_id}`,
+                    d.status && `Status: ${d.status}`,
+                    d.label_url && "Label URL saved on order",
+                    d.shipping_charges != null && `Charges: ₹${d.shipping_charges}`,
+                  ].filter(Boolean) as string[];
+                  toast.success("Shipment created", { description: lines.join(" · ") });
                   setShipmentModalOrder(null);
                 } catch (err: unknown) {
                   toast.error(err instanceof Error ? err.message : "Failed to create shipment");
@@ -1131,7 +1240,11 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   setShipmentSubmitting(false);
                 }
               }}
-              disabled={shipmentSubmitting}
+              disabled={
+                shipmentSubmitting ||
+                warehouses.length === 0 ||
+                (shipmentModalOrder ? forwardShipmentBlockers(shipmentModalOrder).length > 0 : false)
+              }
             >
               {shipmentSubmitting ? "Creating..." : "Create Shipment"}
             </Button>

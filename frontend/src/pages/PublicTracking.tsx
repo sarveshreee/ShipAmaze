@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Package, Search, Loader2, AlertCircle } from "lucide-react";
+import { Package, Search, Loader2, AlertCircle, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useBranding } from "@/contexts/BrandingContext";
 import { trackShipmentPublic } from "@/services/velocityService";
 import type { VelocityTrackingResult } from "@/services/velocityService";
+import { getPublicOrder } from "@/services/orderService";
 
 export default function PublicTracking() {
   const [query, setQuery] = useState("");
@@ -13,7 +14,7 @@ export default function PublicTracking() {
   const [error, setError] = useState<string | null>(null);
   const { branding } = useBranding();
 
-  const btnRadius = branding.buttonStyle === 'pill' ? '9999px' : branding.buttonStyle === 'square' ? '0px' : '8px';
+  const btnRadius = branding.buttonStyle === "pill" ? "9999px" : branding.buttonStyle === "square" ? "0px" : "8px";
 
   const handleTrack = async () => {
     const trimmed = query.trim();
@@ -22,7 +23,26 @@ export default function PublicTracking() {
     setError(null);
     setResult(null);
     try {
-      const resp = await trackShipmentPublic(trimmed);
+      let orderLookup: Awaited<ReturnType<typeof getPublicOrder>> | null = null;
+      try {
+        orderLookup = await getPublicOrder(trimmed);
+      } catch {
+        orderLookup = null;
+      }
+
+      if (orderLookup && !orderLookup.awb) {
+        setResult({
+          awb: trimmed,
+          status: orderLookup.status,
+          carrierName: orderLookup.courierName ?? orderLookup.courier,
+          activities: orderLookup.trackingActivities ?? [],
+          pendingShipment: true,
+        });
+        return;
+      }
+
+      const awbToQuery = orderLookup?.awb?.trim() || trimmed;
+      const resp = await trackShipmentPublic(awbToQuery);
       setResult(resp.data);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Order not found");
@@ -51,14 +71,18 @@ export default function PublicTracking() {
       <main className="flex-1 flex items-start justify-center p-6 pt-16">
         <div className="w-full max-w-[600px]">
           <div className="rounded-xl bg-white shadow-xl p-8 animate-fade-in-up">
-            <h1 className="text-2xl font-bold text-center mb-1" style={{ color: '#1a1a2e' }}>{branding.headerText}</h1>
-            <p className="text-sm text-center mb-6" style={{ color: '#6b7280' }}>{branding.subText}</p>
+            <h1 className="text-2xl font-bold text-center mb-1" style={{ color: "#1a1a2e" }}>
+              {branding.headerText}
+            </h1>
+            <p className="text-sm text-center mb-6" style={{ color: "#6b7280" }}>
+              {branding.subText}
+            </p>
 
             <div className="flex gap-2">
               <Input
                 placeholder="Enter AWB or Order ID"
                 value={query}
-                onChange={e => setQuery(e.target.value)}
+                onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKey}
                 className="flex-1"
                 disabled={loading}
@@ -74,7 +98,6 @@ export default function PublicTracking() {
               </button>
             </div>
 
-            {/* Error state */}
             {error && (
               <div className="mt-6 rounded-lg bg-red-50 border border-red-200 p-4 flex items-center gap-3">
                 <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
@@ -82,43 +105,65 @@ export default function PublicTracking() {
               </div>
             )}
 
-            {/* Result */}
             {result && (
               <div className="mt-8 animate-fade-in-up">
-                <div className="text-center mb-5">
-                  <StatusBadge status={result.status} className="text-base px-4 py-1" />
-                </div>
-
-                <div className="flex items-center justify-between text-xs mb-4 pb-4 border-b" style={{ color: '#9ca3af', borderColor: '#e5e7eb' }}>
-                  {result.carrierName && <span>{result.carrierName}</span>}
-                  <span>AWB: {result.awb}</span>
-                  {result.order?.id && <span>Order: {result.order.id}</span>}
-                </div>
-
-                {/* Tracking activities */}
-                {result.activities.length > 0 ? (
-                  <div className="space-y-0 divide-y divide-gray-100 rounded-lg border border-gray-200 overflow-hidden">
-                    {result.activities.map((act, i) => (
-                      <div key={i} className="px-4 py-3 bg-white">
-                        <div className="flex items-start justify-between gap-3">
-                          <p className="text-sm font-medium text-gray-900">{act.activity}</p>
-                          <span className="text-[11px] text-gray-400 whitespace-nowrap">{act.date}</span>
-                        </div>
-                        {act.location && (
-                          <p className="text-xs text-gray-500 mt-0.5">{act.location}</p>
-                        )}
-                      </div>
-                    ))}
+                {result.pendingShipment ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 text-center">
+                    Shipment has not been created yet. Generate AWB first.
                   </div>
                 ) : (
-                  <p className="text-center text-sm text-gray-400 py-6">No tracking events yet</p>
+                  <>
+                    <div className="text-center mb-5">
+                      <StatusBadge status={result.status} className="text-base px-4 py-1" />
+                    </div>
+
+                    <div
+                      className="flex flex-wrap items-center justify-between gap-2 text-xs mb-4 pb-4 border-b"
+                      style={{ color: "#9ca3af", borderColor: "#e5e7eb" }}
+                    >
+                      {result.carrierName && <span>{result.carrierName}</span>}
+                      <span>AWB: {result.awb}</span>
+                      {result.order?.id && <span>Order: {result.order.id}</span>}
+                    </div>
+
+                    {result.trackUrl && (
+                      <a
+                        href={result.trackUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2 text-sm text-primary hover:underline mb-4"
+                      >
+                        Open carrier tracking <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+
+                    {result.activities.length > 0 ? (
+                      <div className="space-y-0 divide-y divide-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                        {result.activities.map((act, i) => (
+                          <div key={i} className="px-4 py-3 bg-white">
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="text-sm font-medium text-gray-900">{act.activity}</p>
+                              <span className="text-[11px] text-gray-400 whitespace-nowrap">{act.date}</span>
+                            </div>
+                            {act.location && <p className="text-xs text-gray-500 mt-0.5">{act.location}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      !result.pendingShipment && (
+                        <p className="text-center text-sm text-gray-400 py-6">No tracking events yet</p>
+                      )
+                    )}
+                  </>
                 )}
               </div>
             )}
           </div>
 
           {branding.showBranding && (
-            <p className="text-center text-xs mt-6" style={{ color: '#9ca3af' }}>{branding.footerText}</p>
+            <p className="text-center text-xs mt-6" style={{ color: "#9ca3af" }}>
+              {branding.footerText}
+            </p>
           )}
         </div>
       </main>

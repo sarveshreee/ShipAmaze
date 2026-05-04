@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { OrderDetailDrawer } from "@/components/OrderDetailDrawer";
 import { OrderCardList } from "@/components/OrderCardList";
@@ -6,7 +6,7 @@ import { OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
 import { RichOrdersTable } from "@/components/RichOrdersTable";
-import { useCouriers, useOrders } from "@/hooks/useApiData";
+import { useCouriers, useOrders, usePickupAddresses } from "@/hooks/useApiData";
 import type { Order } from "@/types/logistics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,8 +51,32 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const listView = activeTab === "junk" ? "junk" : undefined;
   const { data: orders = [], isLoading: loading, refetch } = useOrders(listView);
   const { data: couriers = [] } = useCouriers();
-  const { warehouses } = useVendorWarehouses();
+  const { data: pickupAddresses = [] } = usePickupAddresses();
+  const { warehouses: vendorWarehouses } = useVendorWarehouses();
   const { role } = useAuth();
+
+  const linkedWarehouseOptions = useMemo(() => {
+    if (role === "dropshipper") {
+      return pickupAddresses
+        .filter((p) => p.velocityWarehouseId?.trim())
+        .map((p) => ({
+          id: p.id,
+          warehouseName: p.label,
+          city: p.city,
+          velocityWarehouseId: p.velocityWarehouseId,
+          isDefault: p.isDefault,
+        }));
+    }
+    return vendorWarehouses
+      .filter((w) => w.velocityWarehouseId?.trim())
+      .map((w) => ({
+        id: w.id,
+        warehouseName: w.warehouseName,
+        city: w.city,
+        velocityWarehouseId: w.velocityWarehouseId,
+        isDefault: w.isDefault,
+      }));
+  }, [role, pickupAddresses, vendorWarehouses]);
 
   const isAdmin = role === "admin";
 
@@ -198,10 +222,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           showProcessSelected={showProcessSelected}
           showBulkMoveToReady={showBulkMoveToReady}
           couriers={couriers}
-          warehouses={warehouses}
+          warehouses={linkedWarehouseOptions}
+          velocityEmptyLink={role === "dropshipper" ? "/dropshipper/pickup-addresses" : "/vendor/warehouse"}
           onCreateShipment={async (payload) => {
-            await orderService.createShipment(payload);
+            const res = await orderService.createShipment(payload);
             await refetch();
+            return res;
           }}
         />
       )}
@@ -210,6 +236,13 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         order={selectedOrder}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        warehouses={linkedWarehouseOptions.map((w) => ({
+          id: w.id,
+          warehouseName: w.warehouseName,
+          city: w.city,
+          velocityWarehouseId: w.velocityWarehouseId,
+          isDefault: w.isDefault,
+        }))}
         onOrderUpdated={async () => {
           const refreshed = await refetch();
           const nextOrders = refreshed.data ?? [];

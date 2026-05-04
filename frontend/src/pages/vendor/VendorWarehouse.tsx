@@ -8,11 +8,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Filter, Plus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Warehouse as WarehouseIcon } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useVendorWarehouses, type Warehouse } from "@/hooks/useVendorWarehouses";
+import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
 import WarehouseFormModal from "@/components/vendor/WarehouseFormModal";
-import { toast } from "sonner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function VendorWarehouse() {
-  const { warehouses, loading, addWarehouse, updateWarehouse } = useVendorWarehouses();
+  const { warehouses, loading, addWarehouse, updateWarehouse, refetch: refetchWarehouses, error: listError } = useVendorWarehouses();
 
   const [showFilters, setShowFilters] = useState(false);
   const [search, setSearch] = useState("");
@@ -77,6 +78,13 @@ export default function VendorWarehouse() {
         }
       />
 
+      {listError && (
+        <Alert variant="destructive">
+          <AlertTitle>Could not load warehouses</AlertTitle>
+          <AlertDescription>{listError}</AlertDescription>
+        </Alert>
+      )}
+
       {showFilters && (
         <Card className="p-4 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -127,22 +135,23 @@ export default function VendorWarehouse() {
                 <TableHead>Email</TableHead>
                 <TableHead>Address</TableHead>
                 <TableHead>Warehouse Type</TableHead>
+                <TableHead className="min-w-[220px]">Velocity</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : pageRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-16">
+                  <TableCell colSpan={8} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center">
                         <WarehouseIcon className="h-7 w-7 text-muted-foreground" />
                       </div>
                       <div>
-                        <p className="font-medium">No warehouses found</p>
-                        <p className="text-sm text-muted-foreground">Add your first warehouse to start shipping</p>
+                        <p className="font-medium">No warehouses added yet</p>
+                        <p className="text-sm text-muted-foreground">Add a warehouse to link Velocity and ship from your location</p>
                       </div>
                       <Button onClick={openAdd}><Plus className="h-4 w-4" /> Add Warehouse</Button>
                     </div>
@@ -152,8 +161,17 @@ export default function VendorWarehouse() {
                 pageRows.map((w) => (
                   <TableRow key={w.id}>
                     <TableCell className="font-medium">
-                      {w.warehouseName}
-                      {w.isDefault && <Badge variant="secondary" className="ml-2 text-xs">Default</Badge>}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{w.warehouseName}</span>
+                        {w.isDefault && <Badge variant="secondary" className="text-xs">Default</Badge>}
+                        {w.velocityWarehouseId?.trim() ? (
+                          <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
+                            Velocity: {w.velocityWarehouseId}
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-[10px]">Velocity not linked</Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>{w.contactPerson}</TableCell>
                     <TableCell>+91 {w.phoneNumber}</TableCell>
@@ -163,6 +181,14 @@ export default function VendorWarehouse() {
                         .filter(Boolean).join("\n")}
                     </TableCell>
                     <TableCell>{w.warehouseType}</TableCell>
+                    <TableCell>
+                      <VelocityWarehouseLinkCard
+                        mongoId={w.id}
+                        velocityWarehouseId={w.velocityWarehouseId}
+                        onUpdated={() => void refetchWarehouses()}
+                        forbiddenHint="warehouse"
+                      />
+                    </TableCell>
                     <TableCell className="text-right">
                       <Button size="sm" onClick={() => openEdit(w)}>Edit</Button>
                     </TableCell>
