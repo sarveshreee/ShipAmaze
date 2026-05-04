@@ -22,8 +22,12 @@ function cfg() {
   return { apiKey, apiSecret, scopes, redirectUri };
 }
 
-const SHOPIFY_SUCCESS_REDIRECT = "http://localhost:8080/dropshipper/settings?shopify=connected";
-const SHOPIFY_ERROR_REDIRECT = "http://localhost:8080/dropshipper/settings?shopify=error";
+function buildFrontendRedirect(status: "connected" | "error"): string {
+  const frontendBaseUrl = (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || "http://localhost:8080").replace(/\/+$/, "");
+  const postConnectPath = process.env.SHOPIFY_POST_CONNECT_PATH || "/dropshipper/channels";
+  const normalisedPath = postConnectPath.startsWith("/") ? postConnectPath : `/${postConnectPath}`;
+  return `${frontendBaseUrl}${normalisedPath}?shopify=${status}`;
+}
 
 /* ------------------------------------------------------------------ */
 /*  HMAC verification (validates Shopify callback authenticity)         */
@@ -104,23 +108,23 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   const query = req.query as Record<string, string>;
 
   if (!verifyShopifyHmac(query, apiSecret)) {
-    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
   const { code, shop, state } = query;
   if (!code || !shop) {
-    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
   if (!isValidShopDomain(shop)) {
-    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
   if (!state) {
-    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
@@ -128,7 +132,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   try {
     userId = consumeOAuthState(state).userId;
   } catch {
-    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
@@ -140,7 +144,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   });
 
   if (!tokenRes.ok) {
-    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
@@ -154,7 +158,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   const { User } = await import("../models/User.js");
   const user = await User.findById(userId);
   if (!user) {
-    res.redirect(SHOPIFY_ERROR_REDIRECT);
+    res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
@@ -175,7 +179,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     { upsert: true, new: true }
   );
 
-  res.redirect(SHOPIFY_SUCCESS_REDIRECT);
+  res.redirect(buildFrontendRedirect("connected"));
 });
 
 /* ------------------------------------------------------------------ */
