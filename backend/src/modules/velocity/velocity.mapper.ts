@@ -26,13 +26,14 @@ const velocityToInternalStatus: Record<string, string> = {
   return_ndr_raised: "ndr",
 };
 
-export function mapVelocityStatus(velocityStatus: string): string {
-  const normalised = velocityStatus?.toLowerCase().replace(/\s+/g, "_").trim();
-  return velocityToInternalStatus[normalised] ?? velocityStatus;
+export function mapVelocityStatus(velocityStatus: unknown): string {
+  const raw = typeof velocityStatus === "string" ? velocityStatus : String(velocityStatus ?? "");
+  const normalised = raw.toLowerCase().replace(/\s+/g, "_").trim();
+  return velocityToInternalStatus[normalised] ?? raw;
 }
 
 /** Human-readable label for Velocity status codes */
-export function velocityStatusLabel(velocityStatus: string): string {
+export function velocityStatusLabel(velocityStatus: unknown): string {
   const labels: Record<string, string> = {
     pending: "Pending",
     ready_for_pickup: "Ready for Pickup",
@@ -56,6 +57,7 @@ export function velocityStatusLabel(velocityStatus: string): string {
     return_cancelled: "Return Cancelled",
     return_ndr_raised: "Return NDR",
   };
-  const normalised = velocityStatus?.toLowerCase().replace(/\s+/g, "_").trim();
-  return labels[normalised] ?? velocityStatus;
+  const raw = typeof velocityStatus === "string" ? velocityStatus : String(velocityStatus ?? "");
+  const normalised = raw.toLowerCase().replace(/\s+/g, "_").trim();
+  return labels[normalised] ?? raw;
 }

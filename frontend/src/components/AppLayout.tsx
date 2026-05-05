@@ -217,7 +217,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto scrollbar-hide py-3 px-2 space-y-0.5">
           {nav.map((group, gi) => (
             <div key={gi} className={cn(gi > 0 && "mt-2 pt-2 border-t border-sidebar-border/40")}>
 

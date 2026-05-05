@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { toast } from "sonner";
 import { printShippingLabel } from "@/components/ShippingLabel";
+import * as orderService from "@/services/orderService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";

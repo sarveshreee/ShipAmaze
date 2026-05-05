@@ -15,6 +15,7 @@ import { Vendor } from "../../models/Vendor.js";
 import { Pickup } from "../../models/Pickup.js";
 import * as velocityService from "./velocity.service.js";
 import { mapVelocityStatus } from "./velocity.mapper.js";
+import { sanitizeForVelocityLog } from "./velocity.payload.js";
 import type {
   VelocityCustomer,
   VelocityForwardOrderRequest,
@@ -277,6 +278,10 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
 
   const body = req.body as { orderId?: string } & Record<string, unknown>;
   let localOrder: IOrder | null = null;
+  const requestOrderId = body.orderId ? String(body.orderId) : "";
+  const requestWarehouseId =
+    body.warehouseId != null && String(body.warehouseId).trim() !== "" ? String(body.warehouseId).trim() : "";
+  const PROVIDER_ENDPOINT = "/custom/api/v1/forward-order-orchestration";
 
   if (body.orderId) {
     localOrder = await Order.findOne({ orderId: body.orderId });
@@ -285,28 +290,77 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
   }
 
   const merged = await mergeVelocityWarehouse(req, body, localOrder);
-  if (localOrder?.velocityOrderId && !localOrder.awb) {
-    const later = await velocityService.createForwardShipmentLater({
-      order_id: localOrder.velocityOrderId,
-      carrier_id: merged.carrier_id as string | number | undefined,
-    });
-    applyMergedPickupAndWarehouse(localOrder, merged, localOrder.velocityOrderId);
-    localOrder.awb = later.awb_code ?? localOrder.awb;
-    localOrder.courier = later.carrier_name ?? localOrder.courier;
-    localOrder.velocityShipmentId = later.shipment_id;
-    localOrder.courierCompanyId = later.carrier_id;
-    localOrder.courierName = later.carrier_name;
-    localOrder.labelUrl = later.label_url;
-    localOrder.shippingCharges = later.shipping_charges;
-    localOrder.codCharges = later.cod_charges;
-    localOrder.shipmentStatus = later.status;
-    localOrder.assignedDateTime = new Date();
-    localOrder.status = mapVelocityStatus(later.status) || "ready-to-ship";
-    localOrder.shipmentCreated = true;
-    if (later.awb_code) localOrder.trackingId = later.awb_code;
-    await localOrder.save();
-    res.status(201).json({ success: true, data: later, orderId: localOrder.orderId });
-    return;
+  const resolvedVelocityWarehouseId =
+    merged.warehouse_id != null && String(merged.warehouse_id).trim() !== ""
+      ? String(merged.warehouse_id).trim()
+      : "";
+  const velocityOrderIdLooksProvider = (id: string) => /^ORD/i.test(String(id || "").trim());
+
+  // Only use "assign AWB later" when we have a real Velocity order id (usually starts with ORD...).
+  if (
+    localOrder?.velocityOrderId &&
+    velocityOrderIdLooksProvider(localOrder.velocityOrderId) &&
+    !localOrder.awb
+  ) {
+    try {
+      const later = await velocityService.createForwardShipmentLater({
+        order_id: localOrder.velocityOrderId,
+        carrier_id: merged.carrier_id as string | number | undefined,
+      });
+      applyMergedPickupAndWarehouse(localOrder, merged);
+      localOrder.awb = later.awb_code ?? localOrder.awb;
+      localOrder.courier = later.carrier_name ?? localOrder.courier;
+      localOrder.velocityShipmentId = later.shipment_id;
+      localOrder.courierCompanyId = later.carrier_id;
+      localOrder.courierName = later.carrier_name;
+      localOrder.labelUrl = later.label_url;
+      localOrder.shippingCharges = later.shipping_charges;
+      localOrder.codCharges = later.cod_charges;
+      localOrder.shipmentStatus = later.status;
+      localOrder.assignedDateTime = new Date();
+      localOrder.status = mapVelocityStatus(later.status) || "ready-to-ship";
+      localOrder.shipmentCreated = true;
+      if (later.awb_code) localOrder.trackingId = later.awb_code;
+      await localOrder.save();
+      console.info(
+        "[velocity:forward] create_shipment_success",
+        JSON.stringify({
+          orderId: requestOrderId,
+          warehouseId: requestWarehouseId,
+          resolved_warehouse_id: resolvedVelocityWarehouseId,
+          final_order_id: localOrder.velocityOrderId,
+          order_items_len: Array.isArray((body as any).items) ? (body as any).items.length : undefined,
+          provider_endpoint: "/custom/api/v1/forward-order-shipment",
+          provider_status: undefined,
+          provider_response_body: sanitizeForVelocityLog(later),
+        })
+      );
+      res.status(201).json({ success: true, data: later, orderId: localOrder.orderId });
+      return;
+    } catch (err: unknown) {
+      const e = err as any;
+      const statusCode = typeof e?.statusCode === "number" ? e.statusCode : 500;
+      console.error(
+        "[velocity:forward] create_shipment_error",
+        JSON.stringify({
+          orderId: requestOrderId,
+          warehouseId: requestWarehouseId,
+          resolved_warehouse_id: resolvedVelocityWarehouseId,
+          final_order_id: localOrder.velocityOrderId,
+          order_items_len: undefined,
+          provider_endpoint: "/custom/api/v1/forward-order-shipment",
+          provider_status: e?.providerStatusCode,
+          provider_response_body: sanitizeForVelocityLog(e?.providerError),
+          message: typeof e?.message === "string" ? e.message : "Create shipment failed",
+        })
+      );
+      res.status(statusCode).json({
+        success: false,
+        message: typeof e?.message === "string" ? e.message : "Create shipment failed",
+        providerError: sanitizeForVelocityLog(e?.providerError),
+      });
+      return;
+    }
   }
 
   if (!merged.order_id && localOrder) {
@@ -370,7 +424,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           carrier_id: payload.carrier_id,
         });
         if (localOrder) {
-          applyMergedPickupAndWarehouse(localOrder, merged, localOrder.velocityOrderId || payload.order_id);
+          applyMergedPickupAndWarehouse(localOrder, merged);
           localOrder.awb = later.awb_code ?? localOrder.awb;
           localOrder.courier = later.carrier_name ?? localOrder.courier;
           localOrder.velocityOrderId = localOrder.velocityOrderId || payload.order_id;
@@ -420,12 +474,32 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       }
     }
     else {
-      throw err;
+      const e = err as any;
+      console.error(
+        "[velocity:forward] create_error",
+        JSON.stringify({
+          orderId: requestOrderId,
+          warehouseId: requestWarehouseId,
+          resolved_warehouse_id: resolvedVelocityWarehouseId,
+          final_order_id: usedPayloadOrderId,
+          order_items_len: payload.items?.length ?? 0,
+          provider_endpoint: PROVIDER_ENDPOINT,
+          provider_status: e?.providerStatusCode,
+          provider_response_body: sanitizeForVelocityLog(e?.providerError),
+          message: typeof e?.message === "string" ? e.message : "Velocity create failed",
+        })
+      );
+      res.status(typeof e?.statusCode === "number" ? e.statusCode : 500).json({
+        success: false,
+        message: typeof e?.message === "string" ? e.message : "Velocity create failed",
+        providerError: sanitizeForVelocityLog(e?.providerError),
+      });
+      return;
     }
   }
 
   if (localOrder) {
-    applyMergedPickupAndWarehouse(localOrder, merged, usedPayloadOrderId);
+    applyMergedPickupAndWarehouse(localOrder, merged);
     localOrder.awb = result.awb_code ?? localOrder.awb;
     localOrder.courier = result.carrier_name ?? localOrder.courier;
     localOrder.velocityOrderId = result.order_id || usedPayloadOrderId;
@@ -445,6 +519,20 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     await localOrder.save();
   }
 
+  console.info(
+    "[velocity:forward] create_success",
+    JSON.stringify({
+      orderId: requestOrderId,
+      warehouseId: requestWarehouseId,
+      resolved_warehouse_id: resolvedVelocityWarehouseId,
+      final_order_id: usedPayloadOrderId,
+      order_items_len: payload.items?.length ?? 0,
+      provider_endpoint: PROVIDER_ENDPOINT,
+      provider_status: undefined,
+      provider_response_body: sanitizeForVelocityLog(result),
+      duplicateRetryUsed,
+    })
+  );
   res.status(201).json({
     success: true,
     data: result,
@@ -1272,7 +1360,6 @@ function toPickupSnapshot(pickup: Record<string, unknown>): PickupSnapshot {
 function applyMergedPickupAndWarehouse(
   order: IOrder,
   merged: MergedForwardContext,
-  fallbackOrderId?: string
 ) {
   if (merged.warehouse_id && String(merged.warehouse_id).trim()) {
     order.velocityWarehouseId = String(merged.warehouse_id).trim();
@@ -1286,9 +1373,6 @@ function applyMergedPickupAndWarehouse(
   }
   if (merged.pickupAddress && typeof merged.pickupAddress === "object") {
     order.pickupAddress = merged.pickupAddress as IOrder["pickupAddress"];
-  }
-  if (!order.velocityOrderId && fallbackOrderId) {
-    order.velocityOrderId = fallbackOrderId;
   }
 }
 

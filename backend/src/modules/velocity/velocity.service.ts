@@ -33,6 +33,14 @@ import type {
   VelocityListResponse,
 } from "./velocity.types.js";
 
+function unwrapVelocityPayload<T>(raw: unknown): T {
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    if (r.payload && typeof r.payload === "object") return r.payload as T;
+  }
+  return raw as T;
+}
+
 // ─── Serviceability ──────────────────────────────────────
 
 export async function checkServiceability(payload: VelocityServiceabilityRequest) {
@@ -69,10 +77,11 @@ export async function createForwardShipment(payload: VelocityForwardOrderRequest
   console.info(
     `[velocity] POST /custom/api/v1/forward-order-orchestration payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
   );
-  return velocityPost<VelocityForwardOrderResponse>(
+  const raw = await velocityPost<unknown>(
     "/custom/api/v1/forward-order-orchestration",
     providerBody
   );
+  return unwrapVelocityPayload<VelocityForwardOrderResponse>(raw);
 }
 
 // ─── Forward order only (no AWB yet) ─────────────────────
@@ -82,10 +91,11 @@ export async function createForwardOrderOnly(payload: VelocityForwardOrderReques
   console.info(
     `[velocity] POST /custom/api/v1/forward-order payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
   );
-  return velocityPost<VelocityCreateOrderOnlyResponse>(
+  const raw = await velocityPost<unknown>(
     "/custom/api/v1/forward-order",
     providerBody
   );
+  return unwrapVelocityPayload<VelocityCreateOrderOnlyResponse>(raw);
 }
 
 // ─── Assign AWB to existing forward order ────────────────
@@ -100,10 +110,11 @@ export async function createForwardShipmentLater(payload: VelocityCreateShipment
 // ─── Reverse shipment (all-in-one) ───────────────────────
 
 export async function createReverseShipment(payload: VelocityReverseOrderRequest) {
-  return velocityPost<VelocityReverseOrderResponse>(
+  const raw = await velocityPost<unknown>(
     "/custom/api/v1/reverse-order-orchestration",
     payload
   );
+  return unwrapVelocityPayload<VelocityReverseOrderResponse>(raw);
 }
 
 // ─── Reverse order only ───────────────────────────────────
