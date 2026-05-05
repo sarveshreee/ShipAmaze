@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { createHmac, randomBytes } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { AuthRequest } from "../middleware/authMiddleware.js";
 import { ShopifyStoreConnection } from "../models/ShopifyStoreConnection.js";
 import { Order } from "../models/Order.js";
@@ -40,33 +40,53 @@ function verifyShopifyHmac(query: Record<string, string>, secret: string): boole
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
   const digest = createHmac("sha256", secret).update(message).digest("hex");
-  return digest === hmac;
+  try {
+    const a = Buffer.from(digest, "hex");
+    const b = Buffer.from(hmac, "hex");
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------ */
 /*  State store: temporary OAuth state (in-memory)                      */
 /* ------------------------------------------------------------------ */
-type OAuthStateRecord = { userId: string; createdAtMs: number };
+type OAuthStateRecord = { ownerUserId: string; createdAtMs: number };
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const oauthStateStore = new Map<string, OAuthStateRecord>();
 
-function createOAuthState(userId: string): string {
+function cleanupExpiredStates(nowMs = Date.now()) {
+  for (const [k, v] of oauthStateStore.entries()) {
+    if (nowMs - v.createdAtMs > OAUTH_STATE_TTL_MS) oauthStateStore.delete(k);
+  }
+}
+
+function createOAuthState(ownerUserId: string): string {
+  cleanupExpiredStates();
   const state = randomBytes(16).toString("hex");
-  oauthStateStore.set(state, { userId, createdAtMs: Date.now() });
+  oauthStateStore.set(state, { ownerUserId, createdAtMs: Date.now() });
   return state;
 }
 
-function consumeOAuthState(state: string): { userId: string } {
+function consumeOAuthState(state: string): { ownerUserId: string } {
   const rec = oauthStateStore.get(state);
   oauthStateStore.delete(state);
   if (!rec) throw new AppError(400, "Invalid OAuth state");
   if (Date.now() - rec.createdAtMs > OAUTH_STATE_TTL_MS) throw new AppError(400, "Expired OAuth state");
-  return { userId: rec.userId };
+  return { ownerUserId: rec.ownerUserId };
 }
 
 function isValidShopDomain(shop: string): boolean {
   const s = shop.trim().toLowerCase();
   return /^(?!-)[a-z0-9-]+(?<!-)\.myshopify\.com$/.test(s);
+}
+
+function firstQueryValue(v: unknown): string | undefined {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+  return undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -77,7 +97,7 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
   if (!req.user) throw new AppError(401, "Unauthorized");
   const { apiKey, scopes, redirectUri } = cfg();
 
-  const shop = (req.query.shop as string | undefined)?.trim();
+  const shop = firstQueryValue((req.query as Record<string, unknown>).shop)?.trim();
   if (!shop) throw new AppError(400, "shop query param is required (e.g. ?shop=mystore.myshopify.com)");
 
   if (!isValidShopDomain(shop)) {
@@ -95,7 +115,8 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
     `&state=${state}` +
     `&grant_options[]=per-user`;
 
-  console.log("Shopify connect URL:", oauthUrl);
+  console.log("[shopify:oauth] generated_oauth_url=", oauthUrl);
+  console.log("[shopify:oauth] redirect_uri_used=", redirectUri);
 
   res.json({ url: oauthUrl });
 });
@@ -105,33 +126,56 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
 /* ------------------------------------------------------------------ */
 export const handleCallback = asyncHandler(async (req: Request, res: Response) => {
   const { apiKey, apiSecret } = cfg();
-  const query = req.query as Record<string, string>;
+  const qraw = req.query as Record<string, unknown>;
+  const query: Record<string, string> = {};
+  for (const [k, v] of Object.entries(qraw)) {
+    const fv = firstQueryValue(v);
+    if (fv !== undefined) query[k] = fv;
+  }
+
+  console.log(
+    "[shopify:oauth] callback query presence shop=",
+    Boolean(query.shop),
+    "state=",
+    Boolean(query.state),
+    "hmac=",
+    Boolean(query.hmac),
+    "code=",
+    Boolean(query.code)
+  );
+  if (query.shop) console.log("[shopify:oauth] callback shop=", query.shop);
+  if (query.state) console.log("[shopify:oauth] callback state=", query.state);
 
   if (!verifyShopifyHmac(query, apiSecret)) {
+    console.warn("[shopify:oauth] callback hmac_verification=failed");
     res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
   const { code, shop, state } = query;
   if (!code || !shop) {
+    console.warn("[shopify:oauth] callback missing code/shop");
     res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
   if (!isValidShopDomain(shop)) {
+    console.warn("[shopify:oauth] callback invalid shop domain=", shop);
     res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
   if (!state) {
+    console.warn("[shopify:oauth] callback missing state");
     res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
-  let userId: string;
+  let ownerUserId: string;
   try {
-    userId = consumeOAuthState(state).userId;
+    ownerUserId = consumeOAuthState(state).ownerUserId;
   } catch {
+    console.warn("[shopify:oauth] callback invalid/expired state");
     res.redirect(buildFrontendRedirect("error"));
     return;
   }
@@ -144,20 +188,23 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   });
 
   if (!tokenRes.ok) {
+    console.warn("[shopify:oauth] token exchange failed status=", tokenRes.status);
     res.redirect(buildFrontendRedirect("error"));
     return;
   }
 
   const tokenData = (await tokenRes.json()) as { access_token: string; scope: string };
   const { access_token, scope } = tokenData;
+  console.log("[shopify:oauth] token exchange success scope=", scope);
 
   // Get shop details to verify
   const shopDetails = await shopifyService.getShopDetails(access_token, shop);
 
   // Fetch the user's role
   const { User } = await import("../models/User.js");
-  const user = await User.findById(userId);
+  const user = await User.findById(ownerUserId);
   if (!user) {
+    console.warn("[shopify:oauth] owner user not found ownerUserId=", ownerUserId);
     res.redirect(buildFrontendRedirect("error"));
     return;
   }
@@ -166,9 +213,9 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
 
   // Upsert — one record per user+shop
   await ShopifyStoreConnection.findOneAndUpdate(
-    { ownerUserId: userId, shopDomain: shopDetails.myshopify_domain },
+    { ownerUserId, shopDomain: shopDetails.myshopify_domain },
     {
-      ownerUserId: userId,
+      ownerUserId,
       shopDomain: shopDetails.myshopify_domain,
       accessTokenEncrypted,
       scope,
@@ -179,6 +226,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     { upsert: true, new: true }
   );
 
+  console.log("[shopify:oauth] connection saved ownerUserId=", ownerUserId, "shop=", shopDetails.myshopify_domain);
   res.redirect(buildFrontendRedirect("connected"));
 });
 
