@@ -26,6 +26,9 @@ export interface IOrder extends Document {
   awb: string;
   amount: number;
   products: unknown[];
+  items?: unknown[];
+  orderItems?: unknown[];
+  shopifyLineItems?: unknown[];
   dimensions?: string;
   zone?: string;
   pickupAddress?: string | {
@@ -113,6 +116,9 @@ const orderSchema = new Schema<IOrder>(
     awb: { type: String, default: "" },
     amount: { type: Number, default: 0 },
     products: { type: [Schema.Types.Mixed], default: [] },
+    items: { type: [Schema.Types.Mixed], default: [] },
+    orderItems: { type: [Schema.Types.Mixed], default: [] },
+    shopifyLineItems: { type: [Schema.Types.Mixed], default: [] },
     dimensions: String,
     zone: String,
     pickupAddress: { type: Schema.Types.Mixed },

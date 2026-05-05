@@ -470,6 +470,34 @@ export default function AddOrder() {
             discount: 0,
             tax: 0,
           })),
+        items: products
+          .filter((p) => p.name)
+          .map((p) => ({
+            name: p.name,
+            sku: p.sku || "",
+            quantity: Number(p.qty) || 1,
+            qty: Number(p.qty) || 1,
+            units: Number(p.qty) || 1,
+            price: Number(p.price) || 0,
+            sellingPrice: Number(p.price) || 0,
+            amount: Number(p.price) || 0,
+            discount: 0,
+            tax: 0,
+          })),
+        orderItems: products
+          .filter((p) => p.name)
+          .map((p) => ({
+            name: p.name,
+            sku: p.sku || "",
+            quantity: Number(p.qty) || 1,
+            qty: Number(p.qty) || 1,
+            units: Number(p.qty) || 1,
+            price: Number(p.price) || 0,
+            sellingPrice: Number(p.price) || 0,
+            amount: Number(p.price) || 0,
+            discount: 0,
+            tax: 0,
+          })),
         dimensions: `${dims} cm`,
         zone: "B",
         pickupAddress: pickupAddr?.label || "",

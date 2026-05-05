@@ -263,7 +263,53 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
         qty: li.quantity,
         price: parseFloat(li.price),
         sku: li.sku,
+        quantity: li.quantity,
+        discount: Number((li as unknown as { total_discount?: string | number }).total_discount ?? 0) || 0,
+        tax:
+          Array.isArray((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines)
+            ? ((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines || []).reduce(
+                (sum, t) => sum + (Number(t.price) || 0),
+                0
+              )
+            : 0,
       })),
+      items: so.line_items.map((li, idx) => ({
+        name: li.title || "Item",
+        sku: li.sku || `SKU-${idx + 1}`,
+        quantity: li.quantity || 1,
+        qty: li.quantity || 1,
+        units: li.quantity || 1,
+        price: parseFloat(li.price) || 0,
+        sellingPrice: parseFloat(li.price) || 0,
+        amount: parseFloat(li.price) || 0,
+        discount: Number((li as unknown as { total_discount?: string | number }).total_discount ?? 0) || 0,
+        tax:
+          Array.isArray((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines)
+            ? ((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines || []).reduce(
+                (sum, t) => sum + (Number(t.price) || 0),
+                0
+              )
+            : 0,
+      })),
+      orderItems: so.line_items.map((li, idx) => ({
+        name: li.title || "Item",
+        sku: li.sku || `SKU-${idx + 1}`,
+        quantity: li.quantity || 1,
+        qty: li.quantity || 1,
+        units: li.quantity || 1,
+        price: parseFloat(li.price) || 0,
+        sellingPrice: parseFloat(li.price) || 0,
+        amount: parseFloat(li.price) || 0,
+        discount: Number((li as unknown as { total_discount?: string | number }).total_discount ?? 0) || 0,
+        tax:
+          Array.isArray((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines)
+            ? ((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines || []).reduce(
+                (sum, t) => sum + (Number(t.price) || 0),
+                0
+              )
+            : 0,
+      })),
+      shopifyLineItems: so.line_items,
       createdBy: req.user!._id,
       ownerUserId: req.user!._id,
       channel: "Shopify",
@@ -283,6 +329,9 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       existing.ownerUserId = req.user!._id;
       existing.amount = mapped.amount;
       existing.products = mapped.products;
+      (existing as unknown as { items?: unknown[] }).items = mapped.items;
+      (existing as unknown as { orderItems?: unknown[] }).orderItems = mapped.orderItems;
+      (existing as unknown as { shopifyLineItems?: unknown[] }).shopifyLineItems = mapped.shopifyLineItems;
       existing.payment = mapped.payment;
       existing.status = normalizedStatus;
       existing.isJunk = false;

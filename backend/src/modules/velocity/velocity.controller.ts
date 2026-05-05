@@ -264,10 +264,115 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
   }
 
   const merged = await mergeVelocityWarehouse(req, body, localOrder);
-  const payload = buildForwardPayload(merged, localOrder);
-  validateForwardPayload(payload);
+  if (localOrder?.velocityOrderId && !localOrder.awb) {
+    const later = await velocityService.createForwardShipmentLater({
+      order_id: localOrder.velocityOrderId,
+      carrier_id: merged.carrier_id as string | number | undefined,
+    });
+    localOrder.awb = later.awb_code ?? localOrder.awb;
+    localOrder.courier = later.carrier_name ?? localOrder.courier;
+    localOrder.velocityShipmentId = later.shipment_id;
+    localOrder.courierCompanyId = later.carrier_id;
+    localOrder.courierName = later.carrier_name;
+    localOrder.labelUrl = later.label_url;
+    localOrder.shippingCharges = later.shipping_charges;
+    localOrder.codCharges = later.cod_charges;
+    localOrder.shipmentStatus = later.status;
+    localOrder.assignedDateTime = new Date();
+    localOrder.status = mapVelocityStatus(later.status) || "ready-to-ship";
+    localOrder.shipmentCreated = true;
+    if (later.awb_code) localOrder.trackingId = later.awb_code;
+    await localOrder.save();
+    res.status(201).json({ success: true, data: later, orderId: localOrder.orderId });
+    return;
+  }
 
-  const result = await velocityService.createForwardShipment(payload);
+  if (!merged.order_id && localOrder) {
+    merged.order_id = `${localOrder.orderId}-${Date.now()}`;
+  }
+  const payload = buildForwardPayload(merged, localOrder);
+  validateForwardPayload(payload, localOrder);
+  console.info(
+    "[velocity:forward] payload_summary",
+    JSON.stringify({
+      order_id: payload.order_id,
+      warehouse_id: payload.warehouse_id,
+      payment_method: payload.payment_mode,
+      customer: payload.customer,
+      order_items_count: payload.items.length,
+      order_items: payload.items.map((i, idx) => ({
+        idx,
+        name: i.name,
+        sku: i.sku,
+        units: i.qty,
+        selling_price: i.price,
+        discount: i.discount ?? 0,
+        tax: i.tax ?? 0,
+      })),
+    })
+  );
+
+  let result;
+  try {
+    result = await velocityService.createForwardShipment(payload);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes("order already exists")) {
+      if (localOrder?.awb) {
+        res.status(200).json({
+          success: true,
+          alreadyExists: true,
+          message: "Shipment already created",
+          data: {
+            order_id: localOrder.velocityOrderId || payload.order_id,
+            shipment_id: localOrder.velocityShipmentId || localOrder.shipmentId || "",
+            awb_code: localOrder.awb,
+            carrier_name: localOrder.courierName || localOrder.courier,
+            carrier_id: localOrder.courierCompanyId || "",
+            label_url: localOrder.labelUrl,
+            shipping_charges: localOrder.shippingCharges,
+            cod_charges: localOrder.codCharges,
+            rto_charges: localOrder.rtoCharges,
+            status: localOrder.shipmentStatus || localOrder.status,
+          },
+          orderId: localOrder.orderId,
+        });
+        return;
+      }
+
+      try {
+        const later = await velocityService.createForwardShipmentLater({
+          order_id: localOrder?.velocityOrderId || payload.order_id,
+          carrier_id: payload.carrier_id,
+        });
+        if (localOrder) {
+          localOrder.awb = later.awb_code ?? localOrder.awb;
+          localOrder.courier = later.carrier_name ?? localOrder.courier;
+          localOrder.velocityOrderId = localOrder.velocityOrderId || payload.order_id;
+          localOrder.velocityShipmentId = later.shipment_id;
+          localOrder.courierCompanyId = later.carrier_id;
+          localOrder.courierName = later.carrier_name;
+          localOrder.labelUrl = later.label_url;
+          localOrder.shippingCharges = later.shipping_charges;
+          localOrder.codCharges = later.cod_charges;
+          localOrder.shipmentStatus = later.status;
+          localOrder.assignedDateTime = new Date();
+          localOrder.status = mapVelocityStatus(later.status) || "ready-to-ship";
+          localOrder.shipmentCreated = true;
+          if (later.awb_code) localOrder.trackingId = later.awb_code;
+          await localOrder.save();
+        }
+        res.status(201).json({ success: true, alreadyExists: true, data: later, orderId: localOrder?.orderId });
+        return;
+      } catch {
+        throw new AppError(
+          409,
+          "This order already exists in Velocity. Try resync tracking or create shipment with a new shipment attempt."
+        );
+      }
+    }
+    throw err;
+  }
 
   if (localOrder) {
     localOrder.awb = result.awb_code ?? localOrder.awb;
@@ -309,7 +414,7 @@ export const createForwardOrderOnly = asyncHandler(async (req: AuthRequest, res:
 
   const merged = await mergeVelocityWarehouse(req, body, localOrder);
   const payload = buildForwardPayload(merged, localOrder);
-  validateForwardPayload(payload);
+  validateForwardPayload(payload, localOrder);
 
   const result = await velocityService.createForwardOrderOnly(payload);
 
@@ -918,7 +1023,7 @@ function buildForwardPayload(
   };
 }
 
-function validateForwardPayload(payload: VelocityForwardOrderRequest) {
+function validateForwardPayload(payload: VelocityForwardOrderRequest, localOrder: IOrder | null) {
   const missing: string[] = [];
   if (!payload.warehouse_id) missing.push("linked Velocity warehouse");
   if (!payload.order_id) missing.push("order_id");
@@ -931,6 +1036,10 @@ function validateForwardPayload(payload: VelocityForwardOrderRequest) {
   if (!String(c?.state ?? "").trim()) missing.push("customer state");
   if (!String(c?.name ?? "").trim()) missing.push("customer name");
   if (!payload.items?.length) {
+    const isShopify = String(localOrder?.externalSource ?? "").toLowerCase() === "shopify";
+    if (isShopify) {
+      throw new AppError(400, "This synced Shopify order has no product items saved. Please resync Shopify orders.");
+    }
     throw new AppError(400, "Order items are missing. Please edit the order and add at least one product.");
   }
   const unnamed = payload.items.find((i) => !String(i.name ?? "").trim());

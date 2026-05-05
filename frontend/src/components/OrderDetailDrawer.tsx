@@ -208,6 +208,8 @@ export function OrderDetailDrawer({
       const normalized = message.toLowerCase();
       if (isVelocityWarehouseLinkedError(message)) {
         toast.error(BACKEND_WH_MESSAGE);
+      } else if (normalized.includes("order already exists in velocity") || normalized.includes("order already exists")) {
+        toast.error("This order already exists in Velocity. Try resync tracking or create shipment with a new shipment attempt.");
       } else if (normalized.includes("already") && (normalized.includes("awb") || normalized.includes("shipment"))) {
         toast.info("AWB already exists for this order");
       } else {
