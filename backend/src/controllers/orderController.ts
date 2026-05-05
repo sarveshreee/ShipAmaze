@@ -35,6 +35,7 @@ function mapOrder(o: {
   zone?: string;
   pickupAddress?: unknown;
   pickupAddressId?: Types.ObjectId;
+  pickupWarehouseId?: string;
   createdAt?: Date;
   channel?: string;
   externalSource?: string;
@@ -92,6 +93,7 @@ function mapOrder(o: {
     zone: o.zone,
     pickupAddress: o.pickupAddress,
     pickupAddressId: o.pickupAddressId ? String(o.pickupAddressId) : undefined,
+    pickupWarehouseId: o.pickupWarehouseId,
     createdAt: o.createdAt,
     channel: o.channel ?? "Manual",
     externalSource: o.externalSource,
@@ -285,6 +287,7 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     zone: body.zone as string | undefined,
     pickupAddress: pickupSnapshot ?? (body.pickupAddress as string | undefined),
     pickupAddressId,
+    pickupWarehouseId: pickupAddressId ? String(pickupAddressId) : undefined,
     createdBy: req.user._id,
     ownerUserId: req.user._id,
     vendorId: vendor?._id,

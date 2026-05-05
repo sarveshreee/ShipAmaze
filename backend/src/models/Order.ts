@@ -46,6 +46,8 @@ export interface IOrder extends Document {
   };
   /** Saved pickup address document (Pickup collection). */
   pickupAddressId?: Types.ObjectId;
+  /** Alias field used by shipment flow payloads for pickup selection id. */
+  pickupWarehouseId?: string;
   createdBy: Types.ObjectId;
   /** Canonical owner id for dropshipper-owned orders (e.g. Shopify imports). */
   ownerUserId?: Types.ObjectId;
@@ -123,6 +125,7 @@ const orderSchema = new Schema<IOrder>(
     zone: String,
     pickupAddress: { type: Schema.Types.Mixed },
     pickupAddressId: { type: Schema.Types.ObjectId, ref: "Pickup" },
+    pickupWarehouseId: { type: String },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     ownerUserId: { type: Schema.Types.ObjectId, ref: "User" },
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },

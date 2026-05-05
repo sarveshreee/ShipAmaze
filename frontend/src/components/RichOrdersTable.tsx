@@ -1326,9 +1326,15 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                 setShipmentSubmitting(true);
                 try {
                   setShipmentItemsMissing(false);
+                  const fallbackPickupId =
+                    shipmentModalOrder.pickupAddressId ||
+                    ((shipmentModalOrder.pickupAddress && typeof shipmentModalOrder.pickupAddress === "object")
+                      ? ((shipmentModalOrder.pickupAddress as any).id as string | undefined)
+                      : undefined) ||
+                    "";
                   const res = await onCreateShipment({
                     orderId: shipmentModalOrder.id,
-                    warehouseId: selectedWarehouseId || "",
+                    warehouseId: selectedWarehouseId || fallbackPickupId,
                     carrier_id: selectedCourierId || "",
                   });
                   const d = res.data;

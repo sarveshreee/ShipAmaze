@@ -113,6 +113,27 @@ type VelocityWarehouseRegisterBody = {
   unlink?: boolean | string;
 };
 
+type PickupSnapshot = {
+  id: string;
+  label: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  country?: string;
+  velocityWarehouseId?: string;
+};
+
+type MergedForwardContext = Record<string, unknown> & {
+  warehouse_id?: string;
+  pickupAddressId?: string;
+  pickupWarehouseId?: string;
+  pickupAddress?: PickupSnapshot;
+};
+
 /**
  * Development-only: compare raw pickup row vs list filter ownership (see getPickupOwnerFilterForUser).
  */
@@ -269,6 +290,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       order_id: localOrder.velocityOrderId,
       carrier_id: merged.carrier_id as string | number | undefined,
     });
+    applyMergedPickupAndWarehouse(localOrder, merged, localOrder.velocityOrderId);
     localOrder.awb = later.awb_code ?? localOrder.awb;
     localOrder.courier = later.carrier_name ?? localOrder.courier;
     localOrder.velocityShipmentId = later.shipment_id;
@@ -313,6 +335,8 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
   );
 
   let result;
+  let usedPayloadOrderId = payload.order_id;
+  let duplicateRetryUsed = false;
   try {
     result = await velocityService.createForwardShipment(payload);
   } catch (err: unknown) {
@@ -346,6 +370,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           carrier_id: payload.carrier_id,
         });
         if (localOrder) {
+          applyMergedPickupAndWarehouse(localOrder, merged, localOrder.velocityOrderId || payload.order_id);
           localOrder.awb = later.awb_code ?? localOrder.awb;
           localOrder.courier = later.carrier_name ?? localOrder.courier;
           localOrder.velocityOrderId = localOrder.velocityOrderId || payload.order_id;
@@ -362,22 +387,48 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           if (later.awb_code) localOrder.trackingId = later.awb_code;
           await localOrder.save();
         }
-        res.status(201).json({ success: true, alreadyExists: true, data: later, orderId: localOrder?.orderId });
+        res.status(201).json({
+          success: true,
+          alreadyExists: true,
+          data: later,
+          orderId: localOrder?.orderId,
+          duplicateRetryUsed: false,
+        });
         return;
       } catch {
-        throw new AppError(
-          409,
-          "This order already exists in Velocity. Try resync tracking or create shipment with a new shipment attempt."
-        );
+        if (!localOrder?.awb) {
+          const retryOrderIdBase = localOrder?.orderId || payload.order_id;
+          const retryOrderId = `${retryOrderIdBase}-${Date.now()}`;
+          const retryPayload: VelocityForwardOrderRequest = { ...payload, order_id: retryOrderId };
+          console.info(
+            "[velocity:forward] duplicate_order_retry",
+            JSON.stringify({
+              original_order_id: payload.order_id,
+              retry_order_id: retryOrderId,
+              warehouse_id: retryPayload.warehouse_id,
+            })
+          );
+          result = await velocityService.createForwardShipment(retryPayload);
+          usedPayloadOrderId = retryOrderId;
+          duplicateRetryUsed = true;
+        } else {
+          throw new AppError(
+            409,
+            "This order already exists in Velocity. Try resync tracking or create shipment with a new shipment attempt."
+          );
+        }
       }
     }
-    throw err;
+    else {
+      throw err;
+    }
   }
 
   if (localOrder) {
+    applyMergedPickupAndWarehouse(localOrder, merged, usedPayloadOrderId);
     localOrder.awb = result.awb_code ?? localOrder.awb;
     localOrder.courier = result.carrier_name ?? localOrder.courier;
-    localOrder.velocityOrderId = result.order_id;
+    localOrder.velocityOrderId = result.order_id || usedPayloadOrderId;
     localOrder.velocityShipmentId = result.shipment_id;
     localOrder.courierCompanyId = result.carrier_id;
     localOrder.courierName = result.carrier_name;
@@ -391,11 +442,16 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     localOrder.status = mapVelocityStatus(result.status) || "ready-to-ship";
     localOrder.shipmentCreated = true;
     if (result.awb_code) localOrder.trackingId = result.awb_code;
-    if (payload.warehouse_id) localOrder.velocityWarehouseId = String(payload.warehouse_id);
     await localOrder.save();
   }
 
-  res.status(201).json({ success: true, data: result, orderId: localOrder?.orderId });
+  res.status(201).json({
+    success: true,
+    data: result,
+    orderId: localOrder?.orderId,
+    duplicateRetryUsed,
+    velocityOrderIdUsed: usedPayloadOrderId,
+  });
 });
 
 // ─── Forward order only (no AWB) ─────────────────────────
@@ -1097,10 +1153,10 @@ async function mergeVelocityWarehouse(
   req: AuthRequest,
   body: Record<string, unknown>,
   localOrder: IOrder | null
-): Promise<Record<string, unknown>> {
+): Promise<MergedForwardContext> {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
-  const out = { ...body };
+  const out: MergedForwardContext = { ...body };
 
   const explicit =
     out.warehouse_id != null && String(out.warehouse_id).trim() !== ""
@@ -1136,6 +1192,10 @@ async function mergeVelocityWarehouse(
           throw new AppError(400, "No Velocity warehouse linked. Please link warehouse first.");
         }
         out.warehouse_id = puOwned.velocityWarehouseId.trim();
+        const pid = String(puOwned._id);
+        out.pickupAddressId = pid;
+        out.pickupWarehouseId = pid;
+        out.pickupAddress = toPickupSnapshot(puOwned);
         return out;
       }
       const wh = await Warehouse.findById(oid).lean();
@@ -1162,6 +1222,10 @@ async function mergeVelocityWarehouse(
         throw new AppError(400, "No Velocity warehouse linked. Please link warehouse first.");
       }
       out.warehouse_id = puOwned.velocityWarehouseId.trim();
+      const pid = String(puOwned._id);
+      out.pickupAddressId = pid;
+      out.pickupWarehouseId = pid;
+      out.pickupAddress = toPickupSnapshot(puOwned);
       return out;
     }
     throw new AppError(404, "Local warehouse not found");
@@ -1174,11 +1238,58 @@ async function mergeVelocityWarehouse(
     }).lean();
     if (p?.velocityWarehouseId?.trim()) {
       out.warehouse_id = p.velocityWarehouseId.trim();
+      const pid = String(p._id);
+      out.pickupAddressId = pid;
+      out.pickupWarehouseId = pid;
+      out.pickupAddress = toPickupSnapshot(p);
       return out;
     }
   }
 
   return out;
+}
+
+function toPickupSnapshot(pickup: Record<string, unknown>): PickupSnapshot {
+  const address = [pickup.addressLine1, pickup.addressLine2]
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean)
+    .join(", ");
+  return {
+    id: String(pickup._id ?? ""),
+    label: String(pickup.label ?? "Pickup Address"),
+    contactName: String(pickup.contactName ?? ""),
+    phone: String(pickup.phone ?? ""),
+    email: String(pickup.email ?? ""),
+    address,
+    city: String(pickup.city ?? ""),
+    state: String(pickup.state ?? ""),
+    pincode: String(pickup.pincode ?? ""),
+    country: String(pickup.country ?? "India"),
+    velocityWarehouseId: String(pickup.velocityWarehouseId ?? ""),
+  };
+}
+
+function applyMergedPickupAndWarehouse(
+  order: IOrder,
+  merged: MergedForwardContext,
+  fallbackOrderId?: string
+) {
+  if (merged.warehouse_id && String(merged.warehouse_id).trim()) {
+    order.velocityWarehouseId = String(merged.warehouse_id).trim();
+  }
+  if (merged.pickupAddressId && mongoose.isValidObjectId(String(merged.pickupAddressId))) {
+    order.pickupAddressId = new mongoose.Types.ObjectId(String(merged.pickupAddressId));
+    order.set("pickupWarehouseId", String(merged.pickupAddressId));
+  }
+  if (merged.pickupWarehouseId && String(merged.pickupWarehouseId).trim()) {
+    order.set("pickupWarehouseId", String(merged.pickupWarehouseId).trim());
+  }
+  if (merged.pickupAddress && typeof merged.pickupAddress === "object") {
+    order.pickupAddress = merged.pickupAddress as IOrder["pickupAddress"];
+  }
+  if (!order.velocityOrderId && fallbackOrderId) {
+    order.velocityOrderId = fallbackOrderId;
+  }
 }
 
 async function assertWarehouseAccessForVelocity(
