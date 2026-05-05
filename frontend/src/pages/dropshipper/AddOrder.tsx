@@ -467,6 +467,8 @@ export default function AddOrder() {
             category: p.category,
             sku: p.sku,
             hsn: p.hsn,
+            discount: 0,
+            tax: 0,
           })),
         dimensions: `${dims} cm`,
         zone: "B",

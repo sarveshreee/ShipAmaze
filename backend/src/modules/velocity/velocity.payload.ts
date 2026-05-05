@@ -93,6 +93,15 @@ export function buildVelocityForwardOrchestrationPayload(
 
   const pinDigits = String(c.pincode ?? "").replace(/\D/g, "").slice(0, 6);
 
+  const order_items = payload.items.map((item, idx) => ({
+    name: String(item.name ?? "Item"),
+    sku: item.sku ? String(item.sku) : `SKU-${idx + 1}`,
+    units: Number(item.qty ?? 1) > 0 ? Number(item.qty) : 1,
+    selling_price: Number(item.price ?? 1) > 0 ? Number(item.price) : 1,
+    discount: Number((item as unknown as { discount?: number }).discount ?? 0) || 0,
+    tax: Number((item as unknown as { tax?: number }).tax ?? 0) || 0,
+  }));
+
   const out: Record<string, unknown> = {
     warehouse_id: payload.warehouse_id,
     order_id: payload.order_id,
@@ -124,6 +133,7 @@ export function buildVelocityForwardOrchestrationPayload(
       country: (c.country && String(c.country).trim()) || "India",
     },
     items: payload.items,
+    order_items,
   };
 
   if (payload.payment_mode === "cod" && payload.cod_amount != null && Number(payload.cod_amount) > 0) {

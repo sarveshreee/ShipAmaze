@@ -650,6 +650,27 @@ function parseBoxCmFromDimensions(dimensions?: string): { length: number; width:
   return { length: nums[0], width: nums[1], height: nums[2] };
 }
 
+function toObjectArray(input: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(input) ? (input.filter((x) => typeof x === "object" && x !== null) as Array<Record<string, unknown>>) : [];
+}
+
+function firstItemArrayFromOrder(o: Record<string, unknown>): Array<Record<string, unknown>> {
+  const candidates = [
+    o.items,
+    o.orderItems,
+    o.products,
+    o.productDetails,
+    o.lineItems,
+    o.shopifyLineItems,
+    o.cartItems,
+  ];
+  for (const c of candidates) {
+    const arr = toObjectArray(c);
+    if (arr.length > 0) return arr;
+  }
+  return [];
+}
+
 function resolveShippingRecord(
   bodyCustomer: Record<string, unknown> | undefined,
   o: Record<string, unknown>
@@ -815,19 +836,65 @@ function buildForwardPayload(
     box?.height,
   );
 
-  const itemsFromBody = body.items as VelocityForwardOrderRequest["items"] | undefined;
-  let items: VelocityForwardOrderRequest["items"];
-  if (itemsFromBody && Array.isArray(itemsFromBody) && itemsFromBody.length > 0) {
-    items = itemsFromBody;
-  } else {
-    items =
-      products?.map((p) => ({
-        name: String(p.name ?? "").trim() ? String(p.name) : "",
-        qty: Number(p.qty ?? 1),
-        price: Number(p.price ?? 0),
-        weight: p.weight != null ? Number(p.weight) : undefined,
-        sku: p.sku ? String(p.sku) : undefined,
-      })) ?? [];
+  const sourceItems = [
+    ...toObjectArray(body.items),
+    ...toObjectArray(body.orderItems),
+    ...toObjectArray(body.products),
+    ...toObjectArray(body.productDetails),
+    ...toObjectArray(body.lineItems),
+    ...toObjectArray(body.shopifyLineItems),
+    ...toObjectArray(body.cartItems),
+  ];
+  const orderItems = localOrder ? firstItemArrayFromOrder(op) : products ?? [];
+  const seed = sourceItems.length > 0 ? sourceItems : orderItems;
+
+  let items: VelocityForwardOrderRequest["items"] = seed.map((it, idx) => {
+    const name = firstNonEmpty(it.name, it.productName, it.title, "Item");
+    const sku = firstNonEmpty(it.sku, it.productSku, `SKU-${idx + 1}`);
+    const qty = Number(it.quantity ?? it.qty ?? it.units ?? 1);
+    const price = Number(
+      it.price ??
+      it.sellingPrice ??
+      it.amount ??
+      op.sub_total ??
+      op.totalAmount ??
+      op.amount ??
+      1
+    );
+    return {
+      name,
+      sku,
+      qty: Number.isFinite(qty) && qty > 0 ? qty : 1,
+      price: Number.isFinite(price) && price > 0 ? price : 1,
+      weight: it.weight != null ? Number(it.weight) : undefined,
+      discount: Number(it.discount ?? 0) || 0,
+      tax: Number(it.tax ?? 0) || 0,
+    };
+  });
+
+  const hasTopLevelItemHint =
+    op.productName != null ||
+    op.product != null ||
+    op.sku != null ||
+    op.quantity != null ||
+    op.qty != null ||
+    op.subTotal != null ||
+    op.totalAmount != null ||
+    op.amount != null;
+
+  if (!items.length && hasTopLevelItemHint) {
+    const fallbackName = firstNonEmpty(op.productName, op.product, "Shipment Item");
+    const fallbackSku = firstNonEmpty(op.sku, `SKU-${String(op.orderId ?? localOrder?.orderId ?? "order")}`);
+    const fallbackQty = Number(op.quantity ?? op.qty ?? 1);
+    const fallbackPrice = Number(op.subTotal ?? op.totalAmount ?? op.amount ?? 1);
+    items = [{
+      name: fallbackName,
+      sku: fallbackSku,
+      qty: Number.isFinite(fallbackQty) && fallbackQty > 0 ? fallbackQty : 1,
+      price: Number.isFinite(fallbackPrice) && fallbackPrice > 0 ? fallbackPrice : 1,
+      discount: 0,
+      tax: 0,
+    }];
   }
 
   return {
@@ -863,7 +930,9 @@ function validateForwardPayload(payload: VelocityForwardOrderRequest) {
   if (!String(c?.city ?? "").trim()) missing.push("customer city");
   if (!String(c?.state ?? "").trim()) missing.push("customer state");
   if (!String(c?.name ?? "").trim()) missing.push("customer name");
-  if (!payload.items?.length) missing.push("items");
+  if (!payload.items?.length) {
+    throw new AppError(400, "Order items are missing. Please edit the order and add at least one product.");
+  }
   const unnamed = payload.items.find((i) => !String(i.name ?? "").trim());
   if (unnamed) {
     throw new AppError(

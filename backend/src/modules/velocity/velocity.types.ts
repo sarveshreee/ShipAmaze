@@ -94,6 +94,8 @@ export interface VelocityOrderItem {
   price: number;
   weight?: number;
   sku?: string;
+  discount?: number;
+  tax?: number;
 }
 
 export interface VelocityCustomer {

@@ -366,12 +366,14 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
   const [editingRemark, setEditingRemark] = useState<string | null>(null);
   const [junkConfirmId, setJunkConfirmId] = useState<string | null>(null);
   const [shipmentModalOrder, setShipmentModalOrder] = useState<Order | null>(null);
+  const [shipmentItemsMissing, setShipmentItemsMissing] = useState(false);
   const [selectedCourierId, setSelectedCourierId] = useState("");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [shipmentSubmitting, setShipmentSubmitting] = useState(false);
 
   useEffect(() => {
     if (!shipmentModalOrder) return;
+    setShipmentItemsMissing(false);
     const orderPickup = (shipmentModalOrder.pickupAddress && typeof shipmentModalOrder.pickupAddress === "object")
       ? shipmentModalOrder.pickupAddress
       : undefined;
@@ -1219,6 +1221,28 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               );
             })()}
           <div className="space-y-4 py-2">
+            {shipmentItemsMissing && shipmentModalOrder && (
+              <Alert variant="destructive" className="text-left border-destructive/40 bg-destructive/5">
+                <AlertTitle>Order items missing</AlertTitle>
+                <AlertDescription className="space-y-2 pt-1">
+                  <p className="text-xs text-text-primary">
+                    Order items are missing. Please edit the order and add at least one product.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-destructive/40"
+                    onClick={() => {
+                      handleEditOrder(shipmentModalOrder);
+                      setShipmentModalOrder(null);
+                    }}
+                  >
+                    Edit products
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
             {(() => {
               const modalOrderWh =
                 shipmentModalOrder?.velocityWarehouseId ||
@@ -1301,6 +1325,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                 }
                 setShipmentSubmitting(true);
                 try {
+                  setShipmentItemsMissing(false);
                   const res = await onCreateShipment({
                     orderId: shipmentModalOrder.id,
                     warehouseId: selectedWarehouseId || "",
@@ -1318,7 +1343,13 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   toast.success("Shipment created", { description: lines.join(" · ") });
                   setShipmentModalOrder(null);
                 } catch (err: unknown) {
-                  toast.error(err instanceof Error ? err.message : "Failed to create shipment");
+                  const message = err instanceof Error ? err.message : "Failed to create shipment";
+                  if (message.toLowerCase().includes("order items are missing") || message.toLowerCase().includes("missing required fields: items")) {
+                    setShipmentItemsMissing(true);
+                    toast.error("Order items are missing. Please edit the order and add at least one product.");
+                  } else {
+                    toast.error(message);
+                  }
                 } finally {
                   setShipmentSubmitting(false);
                 }
