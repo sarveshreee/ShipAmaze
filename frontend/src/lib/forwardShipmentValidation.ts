@@ -22,17 +22,21 @@ function parseOrderBoxCm(dimensions: string | undefined): { l: number; w: number
 /** Reasons we should not call Velocity until the order is fixed (mirrors backend validation). */
 export function forwardShipmentBlockers(o: Order): string[] {
   const issues: string[] = [];
-  if (deliveryPinDigits(o.pincode).length !== 6) {
+  const pin = o.shippingPincode || o.pincode;
+  if (deliveryPinDigits(pin).length !== 6) {
     issues.push("Customer delivery pincode must be 6 digits.");
   }
-  if (!String(o.phone ?? "").trim()) issues.push("Customer phone is missing.");
-  if (!String(o.address ?? "").trim()) issues.push("Delivery address is missing.");
-  if (!String(o.city ?? "").trim()) issues.push("City is missing.");
-  if (!String(o.state ?? "").trim()) issues.push("State is missing.");
+  if (!String(o.customerPhone ?? o.phone ?? "").trim()) issues.push("Customer phone is missing.");
+  if (!String(o.shippingAddress1 ?? o.address ?? "").trim()) issues.push("Delivery address is missing.");
+  if (!String(o.shippingCity ?? o.city ?? "").trim()) issues.push("City is missing.");
+  if (!String(o.shippingState ?? o.state ?? "").trim()) issues.push("State is missing.");
   if (!String(o.customer ?? "").trim()) issues.push("Customer name is missing.");
   const namedProducts = (o.products || []).filter((p) => String(p.name ?? "").trim());
   if (!namedProducts.length) issues.push("Add at least one order line with a product name.");
-  if (parseOrderWeightKg(o.weight) <= 0) issues.push("Package weight must be greater than zero.");
+  const weight = Number(o.weight ?? 0);
+  if ((Number.isNaN(weight) ? parseOrderWeightKg(o.weight) : weight) <= 0) {
+    issues.push("Package weight must be greater than zero.");
+  }
   const box = parseOrderBoxCm(o.dimensions);
   if (!String(o.dimensions ?? "").trim()) {
     issues.push("Package dimensions are missing (e.g. length × width × height in cm).");

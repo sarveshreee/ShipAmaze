@@ -41,6 +41,10 @@ export interface Order {
   state?: string;
   pincode: string;
   weight: string;
+  length?: number;
+  width?: number;
+  breadth?: number;
+  height?: number;
   courier: CourierName | string;
   payment: PaymentType;
   status: OrderStatus;
@@ -50,7 +54,19 @@ export interface Order {
   products: { name: string; qty: number; price: number; weight: string }[];
   dimensions?: string;
   zone?: string;
-  pickupAddress?: string;
+  pickupAddress?: string | {
+    id: string;
+    label: string;
+    contactName?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    country?: string;
+    velocityWarehouseId?: string;
+  };
   // Velocity Shipping fields
   velocityOrderId?: string;
   velocityShipmentId?: string;
@@ -78,6 +94,13 @@ export interface Order {
   junkedAt?: string;
   junkReason?: string;
   movedToReadyAt?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  shippingAddress1?: string;
+  shippingAddress2?: string;
+  shippingPincode?: string;
+  shippingCity?: string;
+  shippingState?: string;
 }
 
 export interface Dropshipper {

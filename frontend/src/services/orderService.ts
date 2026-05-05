@@ -18,6 +18,10 @@ export async function updateOrderStatus(orderId: string, status: string) {
   return apiClient.patch<Order>(`/orders/${encodeURIComponent(orderId)}/status`, { status });
 }
 
+export async function updateOrder(orderId: string, body: Record<string, unknown>) {
+  return apiClient.put<Order>(`/orders/${encodeURIComponent(orderId)}`, body);
+}
+
 export async function trackByAwb(awb: string) {
   return apiClient.get<Order>(`/orders/track/${encodeURIComponent(awb)}`);
 }

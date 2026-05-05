@@ -215,30 +215,67 @@ function EditPriceModal({ open, onClose, order, onSave }: { open: boolean; onClo
 }
 
 // Edit Order Details (Address) Modal
-function EditAddressModal({ open, onClose, order, onSave }: { open: boolean; onClose: () => void; order: Order; onSave: (id: string, data: any) => void }) {
-  const [form, setForm] = useState({ customerName: "", customerEmail: "", customerNumber: "", customerNumber2: "", address1: "", address2: "", pincode: "", city: "", state: "" });
+function EditAddressModal({ open, onClose, order, onSave }: { open: boolean; onClose: () => void; order: Order; onSave: (id: string, data: any) => Promise<void> }) {
+  const [form, setForm] = useState({
+    customerName: "",
+    customerEmail: "",
+    customerNumber: "",
+    customerNumber2: "",
+    address1: "",
+    address2: "",
+    pincode: "",
+    city: "",
+    state: "",
+    weight: "",
+    length: "",
+    breadth: "",
+    height: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open && order) {
       const email = (order as any).email || `${order.customer.toLowerCase().replace(/\s/g, '')}@email.com`;
       setForm({
         customerName: order.customer || "",
-        customerEmail: email,
-        customerNumber: order.phone || "",
+        customerEmail: (order as any).customerEmail || email,
+        customerNumber: (order as any).customerPhone || order.phone || "",
         customerNumber2: (order as any).phone2 || "",
-        address1: order.address || "",
-        address2: (order as any).address2 || "",
-        pincode: order.pincode || "",
-        city: order.city || "",
-        state: (order as any).state || "",
+        address1: (order as any).shippingAddress1 || order.address || "",
+        address2: (order as any).shippingAddress2 || (order as any).address2 || "",
+        pincode: (order as any).shippingPincode || order.pincode || "",
+        city: (order as any).shippingCity || order.city || "",
+        state: (order as any).shippingState || (order as any).state || "",
+        weight: String(order.weight || "").replace(/[^\d.]/g, ""),
+        length: String((order as any).length ?? "").replace(/[^\d.]/g, ""),
+        breadth: String((order as any).breadth ?? (order as any).width ?? "").replace(/[^\d.]/g, ""),
+        height: String((order as any).height ?? "").replace(/[^\d.]/g, ""),
       });
     }
   }, [open, order]);
 
-  const handleSubmit = () => {
-    onSave(order.id, form);
-    onClose();
-    toast.success("Order details updated");
+  const handleSubmit = async () => {
+    if (!form.state.trim()) return void toast.error("State is required");
+    if (!/^\d{6}$/.test(form.pincode.trim())) return void toast.error("Pincode must be 6 digits");
+    if (form.customerNumber.replace(/\D/g, "").length < 10) return void toast.error("Phone number is invalid");
+    if (!(Number(form.weight) > 0)) return void toast.error("Package weight must be greater than 0");
+    if (!(Number(form.length) > 0) || !(Number(form.breadth) > 0) || !(Number(form.height) > 0)) {
+      return void toast.error("Length, breadth and height must be greater than 0");
+    }
+
+    setSubmitting(true);
+    try {
+      await onSave(order.id, {
+        ...form,
+        customerNumber: form.customerNumber.replace(/\D/g, ""),
+      });
+      onClose();
+      toast.success("Order details updated");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to update order");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const set = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }));
@@ -259,9 +296,13 @@ function EditAddressModal({ open, onClose, order, onSave }: { open: boolean; onC
           <div><Label className="text-sm font-medium">Shipping Pincode</Label><Input value={form.pincode} onChange={e => set("pincode", e.target.value)} className="mt-1" /></div>
           <div><Label className="text-sm font-medium">Shipping City</Label><Input value={form.city} onChange={e => set("city", e.target.value)} className="mt-1" /></div>
           <div><Label className="text-sm font-medium">Shipping State</Label><Input value={form.state} onChange={e => set("state", e.target.value)} className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Package Weight (kg)</Label><Input value={form.weight} onChange={e => set("weight", e.target.value)} type="number" min="0" step="0.01" className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Length (cm)</Label><Input value={form.length} onChange={e => set("length", e.target.value)} type="number" min="0" step="0.01" className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Width / Breadth (cm)</Label><Input value={form.breadth} onChange={e => set("breadth", e.target.value)} type="number" min="0" step="0.01" className="mt-1" /></div>
+          <div><Label className="text-sm font-medium">Height (cm)</Label><Input value={form.height} onChange={e => set("height", e.target.value)} type="number" min="0" step="0.01" className="mt-1" /></div>
         </div>
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button onClick={handleSubmit} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
+          <Button onClick={() => void handleSubmit()} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
             <Save className="h-4 w-4" /> Submit
           </Button>
           <Button variant="secondary" onClick={onClose} className="bg-sidebar text-sidebar-primary-foreground hover:bg-sidebar-accent">
@@ -331,10 +372,17 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
 
   useEffect(() => {
     if (!shipmentModalOrder) return;
+    const orderPickup = (shipmentModalOrder.pickupAddress && typeof shipmentModalOrder.pickupAddress === "object")
+      ? shipmentModalOrder.pickupAddress
+      : undefined;
+    const orderVelocityWh = (orderPickup as any)?.velocityWarehouseId || (shipmentModalOrder as any).velocityWarehouseId;
     const matchPickup = shipmentModalOrder.pickupAddressId
       ? warehouses.find((w) => w.id === shipmentModalOrder.pickupAddressId)?.id
       : undefined;
-    setSelectedWarehouseId(matchPickup ?? warehouses[0]?.id ?? "");
+    const linkedByWhCode = orderVelocityWh
+      ? warehouses.find((w) => String(w.velocityWarehouseId || "").trim() === String(orderVelocityWh).trim())?.id
+      : undefined;
+    setSelectedWarehouseId(matchPickup ?? linkedByWhCode ?? warehouses[0]?.id ?? "");
     setSelectedCourierId("");
   }, [shipmentModalOrder, warehouses]);
 
@@ -421,15 +469,27 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
     localStorage.setItem("shipflow_orders", JSON.stringify(updated));
   };
 
-  const handleEditAddressSave = (orderId: string, data: any) => {
-    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
-    const updated = stored.map((o: any) => {
-      if (o.id === orderId || o.orderId === orderId || o.order_id === orderId) {
-        return { ...o, customer: data.customerName, email: data.customerEmail, phone: data.customerNumber, phone2: data.customerNumber2, address: data.address1, address2: data.address2, pincode: data.pincode, city: data.city, state: data.state };
-      }
-      return o;
+  const handleEditAddressSave = async (orderId: string, data: any) => {
+    const updated = await orderService.updateOrder(orderId, {
+      customerName: data.customerName,
+      consigneeName: data.customerName,
+      customerEmail: data.customerEmail,
+      customerPhone: data.customerNumber,
+      shippingAddress1: data.address1,
+      shippingAddress2: data.address2,
+      shippingPincode: data.pincode,
+      shippingCity: data.city,
+      shippingState: data.state,
+      weight: Number(data.weight),
+      length: Number(data.length),
+      breadth: Number(data.breadth),
+      width: Number(data.breadth),
+      height: Number(data.height),
     });
-    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+
+    // Keep Create Shipment dialog in sync right after save.
+    setShipmentModalOrder((prev) => (prev && prev.id === orderId ? { ...prev, ...updated } : prev));
+    window.dispatchEvent(new Event("shipamaze:refetch:orders"));
   };
 
   const handleEditOrder = (order: Order) => {
@@ -903,16 +963,16 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   {/* Pickup Address */}
                   <td className="p-3">
                     {(() => {
-                      const pickup = (o as any).pickup_address_data || (o as any).pickupAddress;
-                      const pickupLabel = typeof pickup === 'object' && pickup ? (pickup.label || pickup.city || 'Warehouse') : ((o as any).pickup_address || 'Main Warehouse');
-                      const pickupAddr1 = typeof pickup === 'object' && pickup ? (pickup.address_line1 || pickup.address1 || '') : '';
-                      const pickupAddr2 = typeof pickup === 'object' && pickup ? (pickup.address_line2 || pickup.address2 || '') : '';
-                      const pickupPincode = typeof pickup === 'object' && pickup ? (pickup.pincode || '') : '';
-                      const pickupCity = typeof pickup === 'object' && pickup ? (pickup.city || '') : '';
-                      const pickupState = typeof pickup === 'object' && pickup ? (pickup.state || '') : '';
-                      const pickupPhone = typeof pickup === 'object' && pickup ? (pickup.phone || '') : '';
-                      const pickupEmail = typeof pickup === 'object' && pickup ? (pickup.email || '') : '';
-                      const fullAddr = pickupAddr1 || (typeof pickup === 'string' ? pickup : '');
+                      const pickup = o.pickupAddress;
+                      const pickupObj = typeof pickup === "object" && pickup ? pickup as any : null;
+                      const pickupLabel = pickupObj?.label || pickupObj?.name || (typeof pickup === "string" ? pickup : "");
+                      const pickupAddressText = pickupObj?.address || [pickupObj?.address1, pickupObj?.address2].filter(Boolean).join(", ");
+                      const pickupPincode = pickupObj?.pincode || "";
+                      const pickupCity = pickupObj?.city || "";
+                      const pickupState = pickupObj?.state || "";
+                      const pickupPhone = pickupObj?.phone || "";
+                      const pickupEmail = pickupObj?.email || "";
+                      const pickupVelocityWh = pickupObj?.velocityWarehouseId || (o as any).velocityWarehouseId || "";
                       return (
                         <div className="relative">
                           <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
@@ -922,9 +982,8 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                             <div className="flex items-start gap-1.5">
                               <MapPin className="h-3 w-3 text-success mt-0.5 shrink-0" />
                               <div className="text-[11px] text-text-secondary leading-snug">
-                                <p className="text-xs font-medium text-text-primary">{pickupLabel}</p>
-                                {fullAddr && <p>{fullAddr}</p>}
-                                {pickupAddr2 && <p>{pickupAddr2}</p>}
+                                <p className="text-xs font-medium text-text-primary">{pickupLabel || "No pickup address"}</p>
+                                {pickupAddressText && <p>{pickupAddressText}</p>}
                                 <p>
                                   {pickupPincode ? (
                                     <span className="font-medium text-success">{pickupPincode}</span>
@@ -932,6 +991,11 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                                   {pickupPincode && pickupCity ? ' – ' : ''}
                                   <span className="text-text-muted">{pickupCity}{pickupState ? `, ${pickupState}` : ''}</span>
                                 </p>
+                                {pickupVelocityWh && (
+                                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-success-light text-success-dark border border-success/30 mt-1">
+                                    Velocity Linked {pickupVelocityWh}
+                                  </span>
+                                )}
                               </div>
                             </div>
                             {pickupPhone && (
@@ -1155,14 +1219,27 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               );
             })()}
           <div className="space-y-4 py-2">
-            {warehouses.length === 0 ? (
+            {(() => {
+              const modalOrderWh =
+                shipmentModalOrder?.velocityWarehouseId ||
+                ((shipmentModalOrder?.pickupAddress && typeof shipmentModalOrder.pickupAddress === "object")
+                  ? (shipmentModalOrder.pickupAddress as any).velocityWarehouseId
+                  : "");
+              if (modalOrderWh) {
+                return (
+                  <div className="rounded-lg border border-success/30 bg-success-light/30 p-3 text-xs text-success-dark">
+                    Using linked pickup warehouse: <span className="font-mono font-semibold">{modalOrderWh}</span>
+                  </div>
+                );
+              }
+              return warehouses.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border bg-surface-2/40 p-4 text-center space-y-3">
                 <p className="text-sm text-text-secondary">No Velocity-linked warehouse found.</p>
                 <Button variant="outline" size="sm" asChild>
                   <Link to={velocityEmptyLink}>Go to Pickup Addresses</Link>
                 </Button>
               </div>
-            ) : (
+              ) : (
               <div>
                 <Label className="text-xs font-medium">Pickup warehouse (Velocity linked)</Label>
                 <select
@@ -1183,7 +1260,8 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   })}
                 </select>
               </div>
-            )}
+              );
+            })()}
             <div>
               <Label className="text-xs font-medium">Courier</Label>
               <select
@@ -1212,7 +1290,12 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                   });
                   return;
                 }
-                if (!selectedWarehouseId || warehouses.length === 0) {
+                const orderVelocityWh =
+                  shipmentModalOrder.velocityWarehouseId ||
+                  ((shipmentModalOrder.pickupAddress && typeof shipmentModalOrder.pickupAddress === "object")
+                    ? (shipmentModalOrder.pickupAddress as any).velocityWarehouseId
+                    : "");
+                if (!orderVelocityWh && (!selectedWarehouseId || warehouses.length === 0)) {
                   toast.error("Select a Velocity-linked warehouse");
                   return;
                 }
@@ -1220,7 +1303,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                 try {
                   const res = await onCreateShipment({
                     orderId: shipmentModalOrder.id,
-                    warehouseId: selectedWarehouseId,
+                    warehouseId: selectedWarehouseId || "",
                     carrier_id: selectedCourierId || "",
                   });
                   const d = res.data;
@@ -1242,7 +1325,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
               }}
               disabled={
                 shipmentSubmitting ||
-                warehouses.length === 0 ||
+                ((!shipmentModalOrder?.velocityWarehouseId && !((shipmentModalOrder?.pickupAddress as any)?.velocityWarehouseId)) && warehouses.length === 0) ||
                 (shipmentModalOrder ? forwardShipmentBlockers(shipmentModalOrder).length > 0 : false)
               }
             >

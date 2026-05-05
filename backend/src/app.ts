@@ -40,6 +40,7 @@ export function createApp() {
   api.post("/orders/create-shipment", authMiddleware, orderController.createShipment);
   api.post("/orders/:id/junk", authMiddleware, orderController.markOrderJunk);
   api.patch("/orders/:orderId/status", authMiddleware, orderController.updateOrderStatus);
+  api.put("/orders/:orderId", authMiddleware, orderController.updateOrder);
 
   api.get("/products/marketplace", authMiddleware, resourceController.listMarketplaceProducts);
   api.get("/products", authMiddleware, resourceController.listProducts);

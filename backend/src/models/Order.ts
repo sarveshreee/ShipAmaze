@@ -15,6 +15,10 @@ export interface IOrder extends Document {
   state?: string;
   pincode: string;
   weight: string;
+  length?: number;
+  width?: number;
+  breadth?: number;
+  height?: number;
   courier: string;
   payment: string;
   status: string;
@@ -24,7 +28,19 @@ export interface IOrder extends Document {
   products: unknown[];
   dimensions?: string;
   zone?: string;
-  pickupAddress?: string;
+  pickupAddress?: string | {
+    id: string;
+    label: string;
+    contactName?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    country?: string;
+    velocityWarehouseId?: string;
+  };
   /** Saved pickup address document (Pickup collection). */
   pickupAddressId?: Types.ObjectId;
   createdBy: Types.ObjectId;
@@ -58,6 +74,13 @@ export interface IOrder extends Document {
   velocityWarehouseId?: string;
   assignedDateTime?: Date;
   movedToReadyAt?: Date;
+  customerEmail?: string;
+  customerPhone?: string;
+  shippingAddress1?: string;
+  shippingAddress2?: string;
+  shippingPincode?: string;
+  shippingCity?: string;
+  shippingState?: string;
 }
 
 const trackingActivitySchema = new Schema<ITrackingActivity>(
@@ -79,6 +102,10 @@ const orderSchema = new Schema<IOrder>(
     state: { type: String, default: "" },
     pincode: { type: String, default: "" },
     weight: { type: String, default: "" },
+    length: { type: Number },
+    width: { type: Number },
+    breadth: { type: Number },
+    height: { type: Number },
     courier: { type: String, default: "Delhivery" },
     payment: { type: String, default: "Prepaid" },
     status: { type: String, default: "pending" },
@@ -88,7 +115,7 @@ const orderSchema = new Schema<IOrder>(
     products: { type: [Schema.Types.Mixed], default: [] },
     dimensions: String,
     zone: String,
-    pickupAddress: String,
+    pickupAddress: { type: Schema.Types.Mixed },
     pickupAddressId: { type: Schema.Types.ObjectId, ref: "Pickup" },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     ownerUserId: { type: Schema.Types.ObjectId, ref: "User" },
@@ -119,6 +146,13 @@ const orderSchema = new Schema<IOrder>(
     velocityWarehouseId: { type: String },
     assignedDateTime: { type: Date },
     movedToReadyAt: { type: Date },
+    customerEmail: { type: String },
+    customerPhone: { type: String },
+    shippingAddress1: { type: String },
+    shippingAddress2: { type: String },
+    shippingPincode: { type: String },
+    shippingCity: { type: String },
+    shippingState: { type: String },
   },
   { timestamps: true }
 );

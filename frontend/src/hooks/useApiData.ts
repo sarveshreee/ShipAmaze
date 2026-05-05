@@ -127,6 +127,10 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     state: o.state != null ? String(o.state) : undefined,
     pincode: String(o.pincode ?? ""),
     weight: String(o.weight ?? ""),
+    length: o.length !== undefined && o.length !== null ? Number(o.length) : undefined,
+    width: o.width !== undefined && o.width !== null ? Number(o.width) : undefined,
+    breadth: o.breadth !== undefined && o.breadth !== null ? Number(o.breadth) : undefined,
+    height: o.height !== undefined && o.height !== null ? Number(o.height) : undefined,
     courier: (o.courier as Order["courier"]) || "Delhivery",
     payment: (o.payment as Order["payment"]) || "Prepaid",
     status: (o.status as Order["status"]) || "pending",
@@ -136,7 +140,10 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     products: (o.products as Order["products"]) || [],
     dimensions: o.dimensions as string | undefined,
     zone: o.zone as string | undefined,
-    pickupAddress: o.pickupAddress as string | undefined,
+    pickupAddress:
+      typeof o.pickupAddress === "string" || (typeof o.pickupAddress === "object" && o.pickupAddress !== null)
+        ? (o.pickupAddress as Order["pickupAddress"])
+        : undefined,
     channel: o.channel as string | undefined,
     externalSource: o.externalSource as string | undefined,
     externalOrderName: o.externalOrderName as string | undefined,
@@ -154,6 +161,13 @@ function mapOrderRow(o: Record<string, unknown>): Order {
           ? (o.movedToReadyAt as string)
           : new Date(o.movedToReadyAt as Date).toISOString()
         : undefined,
+    customerEmail: o.customerEmail != null ? String(o.customerEmail) : undefined,
+    customerPhone: o.customerPhone != null ? String(o.customerPhone) : undefined,
+    shippingAddress1: o.shippingAddress1 != null ? String(o.shippingAddress1) : undefined,
+    shippingAddress2: o.shippingAddress2 != null ? String(o.shippingAddress2) : undefined,
+    shippingPincode: o.shippingPincode != null ? String(o.shippingPincode) : undefined,
+    shippingCity: o.shippingCity != null ? String(o.shippingCity) : undefined,
+    shippingState: o.shippingState != null ? String(o.shippingState) : undefined,
     velocityWarehouseId: o.velocityWarehouseId != null ? String(o.velocityWarehouseId) : undefined,
     velocityOrderId: o.velocityOrderId != null ? String(o.velocityOrderId) : undefined,
     velocityShipmentId: o.velocityShipmentId != null ? String(o.velocityShipmentId) : undefined,

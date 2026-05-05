@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
@@ -67,6 +67,7 @@ const categoryOptions = Object.keys(categoryHsnMap);
 
 export default function AddOrder() {
   const navigate = useNavigate();
+  const editOrderId = useMemo(() => new URLSearchParams(window.location.search).get("edit"), []);
   const { data: apiPickups = [], isLoading: pickupsLoading, refetch: refetchPickups } = usePickupAddresses();
   const [currentStep, setCurrentStep] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -422,18 +423,34 @@ export default function AddOrder() {
         : velocityRates.find((r) => String(r.carrier_id) === selectedCarrierId)?.carrier_name || "Velocity";
 
     const totalWeight = packageDetails.reduce((sum, pd) => sum + (Number(pd.weight) || 0), 0);
+    const firstPackage = packageDetails[0] || { length: "", width: "", height: "" };
+    const length = Number(firstPackage.length || 0);
+    const breadth = Number(firstPackage.width || 0);
+    const height = Number(firstPackage.height || 0);
     const dims = packageDetails.map((pd) => `${pd.length}x${pd.width}x${pd.height}`).join("; ");
 
     try {
-      await orderService.createOrder({
+      const payload = {
         orderId: shipment.orderId,
         customer: consignee.fullName,
-        phone: `+91 ${consignee.phone}`,
+        customerName: consignee.fullName,
+        customerEmail: consignee.email ? `${consignee.email}@gmail.com` : "",
+        customerPhone: consignee.phone,
+        phone: consignee.phone,
         address: [consignee.addressLine1, consignee.addressLine2].filter(Boolean).join(", ") || "N/A",
+        shippingAddress1: consignee.addressLine1,
+        shippingAddress2: consignee.addressLine2,
         city: consignee.city || "N/A",
+        shippingCity: consignee.city || "N/A",
         state: consignee.state || undefined,
+        shippingState: consignee.state || "",
         pincode: consignee.pincode || "N/A",
-        weight: `${totalWeight} kg`,
+        shippingPincode: consignee.pincode || "",
+        weight: String(totalWeight),
+        length,
+        width: breadth,
+        breadth,
+        height,
         courier: courierName,
         payment: shipment.paymentType,
         status: "ready-to-ship",
@@ -456,11 +473,19 @@ export default function AddOrder() {
         pickupAddress: pickupAddr?.label || "",
         pickupAddressId: selectedPickup || undefined,
         carrier_id: selectedCarrierId === "" ? undefined : selectedCarrierId,
-      });
-      toast.success("Order submitted successfully!");
+      };
+
+      if (editOrderId) {
+        await orderService.updateOrder(editOrderId, payload);
+        toast.success("Order updated successfully!");
+      } else {
+        await orderService.createOrder(payload);
+        toast.success("Order submitted successfully!");
+      }
       navigate("/dropshipper/orders");
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to create order");
+      console.error("[add-order:submit] failed", { editOrderId, error: e });
+      toast.error(e instanceof Error ? e.message : "Failed to submit order");
     }
   };
 

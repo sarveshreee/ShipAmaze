@@ -20,6 +20,10 @@ function mapOrder(o: {
   state?: string;
   pincode: string;
   weight: string;
+  length?: number;
+  width?: number;
+  breadth?: number;
+  height?: number;
   courier: string;
   payment: string;
   status: string;
@@ -29,7 +33,7 @@ function mapOrder(o: {
   products: unknown[];
   dimensions?: string;
   zone?: string;
-  pickupAddress?: string;
+  pickupAddress?: unknown;
   pickupAddressId?: Types.ObjectId;
   createdAt?: Date;
   channel?: string;
@@ -43,6 +47,13 @@ function mapOrder(o: {
   junkReason?: string;
   shipmentStatus?: string;
   movedToReadyAt?: Date;
+  customerEmail?: string;
+  customerPhone?: string;
+  shippingAddress1?: string;
+  shippingAddress2?: string;
+  shippingPincode?: string;
+  shippingCity?: string;
+  shippingState?: string;
   velocityWarehouseId?: string;
   velocityOrderId?: string;
   velocityShipmentId?: string;
@@ -66,6 +77,10 @@ function mapOrder(o: {
     state: o.state,
     pincode: o.pincode,
     weight: o.weight,
+    length: o.length,
+    width: o.width,
+    breadth: o.breadth,
+    height: o.height,
     courier: o.courier,
     payment: o.payment,
     status: o.status,
@@ -89,6 +104,13 @@ function mapOrder(o: {
     junkReason: o.junkReason,
     shipmentStatus: o.shipmentStatus,
     movedToReadyAt: o.movedToReadyAt,
+    customerEmail: o.customerEmail,
+    customerPhone: o.customerPhone,
+    shippingAddress1: o.shippingAddress1,
+    shippingAddress2: o.shippingAddress2,
+    shippingPincode: o.shippingPincode,
+    shippingCity: o.shippingCity,
+    shippingState: o.shippingState,
     velocityWarehouseId: o.velocityWarehouseId,
     velocityOrderId: o.velocityOrderId,
     velocityShipmentId: o.velocityShipmentId,
@@ -141,6 +163,8 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   if (!req.user) throw new AppError(401, "Unauthorized");
   const body = req.body as Record<string, unknown>;
   const orderId = (body.orderId as string) || `SF${Date.now()}`;
+  const existingOrder = await Order.findOne({ orderId });
+  if (existingOrder) throw new AppError(400, `Order ID "${orderId}" already exists. Please use a different order ID.`);
   const vendor =
     req.user.role === "vendor" ? await vendorDocForUser(req.user._id) : null;
 
@@ -165,9 +189,41 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   }
 
   let snapshotVelocityWh: string | undefined;
+  let pickupSnapshot:
+    | {
+        id: string;
+        label: string;
+        contactName?: string;
+        phone?: string;
+        email?: string;
+        address?: string;
+        city?: string;
+        state?: string;
+        pincode?: string;
+        country?: string;
+        velocityWarehouseId?: string;
+      }
+    | undefined;
   if (pickupAddressId) {
-    const pu = await Pickup.findById(pickupAddressId).select("velocityWarehouseId").lean();
+    const pu = await Pickup.findById(pickupAddressId)
+      .select("label contactName phone email addressLine1 addressLine2 city state pincode country velocityWarehouseId")
+      .lean();
     snapshotVelocityWh = pu?.velocityWarehouseId?.trim();
+    if (pu) {
+      pickupSnapshot = {
+        id: String(pickupAddressId),
+        label: pu.label || "Pickup Address",
+        contactName: pu.contactName || "",
+        phone: pu.phone || "",
+        email: pu.email || "",
+        address: [pu.addressLine1, pu.addressLine2].filter(Boolean).join(", "),
+        city: pu.city || "",
+        state: pu.state || "",
+        pincode: pu.pincode || "",
+        country: pu.country || "India",
+        velocityWarehouseId: snapshotVelocityWh,
+      };
+    }
   }
   const rawCarrierPref = body.carrier_id;
   let carrierPref: string | number | undefined;
@@ -176,17 +232,48 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     carrierPref = /^\d+$/.test(s) ? Number(s) : s;
   }
 
+  const shippingAddress1 = String(body.shippingAddress1 ?? body.addressLine1 ?? body.address ?? "");
+  const shippingAddress2 = String(body.shippingAddress2 ?? body.addressLine2 ?? "");
+  const shippingCity = String(body.shippingCity ?? body.city ?? "");
+  const shippingState = String(body.shippingState ?? body.state ?? "");
+  const shippingPincode = String(body.shippingPincode ?? body.pincode ?? "");
+  const shippingPincodeDigits = shippingPincode.replace(/\D/g, "").slice(0, 6);
+  const rawLength = Number(body.length ?? 0);
+  const rawWidth = Number(body.width ?? body.breadth ?? 0);
+  const rawHeight = Number(body.height ?? 0);
+
+  const payment = String(body.payment ?? "Prepaid");
+  if (!["COD", "Prepaid"].includes(payment)) {
+    throw new AppError(400, "payment must be COD or Prepaid");
+  }
+  if (!shippingState.trim()) throw new AppError(400, "shippingState/state is required");
+  if (!/^\d{6}$/.test(shippingPincodeDigits)) {
+    throw new AppError(400, "shippingPincode/pincode must be exactly 6 digits");
+  }
+  const normalizedWeight = Number(String(body.weight ?? "").replace(/[^\d.]/g, ""));
+  if (!(normalizedWeight > 0)) throw new AppError(400, "weight must be greater than 0");
+  if (!(rawLength > 0) || !(rawWidth > 0) || !(rawHeight > 0)) {
+    throw new AppError(400, "length, breadth/width and height must be greater than 0");
+  }
+  if (!pickupAddressId) {
+    throw new AppError(400, "pickupAddressId is required and must belong to your account");
+  }
+
   const doc = await Order.create({
     orderId,
     customer: String(body.customer ?? ""),
     phone: String(body.phone ?? ""),
-    address: String(body.address ?? ""),
-    city: String(body.city ?? ""),
-    state: body.state != null ? String(body.state) : "",
-    pincode: String(body.pincode ?? ""),
-    weight: String(body.weight ?? ""),
+    address: shippingAddress1 || String(body.address ?? ""),
+    city: shippingCity,
+    state: shippingState,
+    pincode: shippingPincodeDigits,
+    weight: String(normalizedWeight),
+    length: rawLength > 0 ? rawLength : undefined,
+    width: rawWidth > 0 ? rawWidth : undefined,
+    breadth: rawWidth > 0 ? rawWidth : undefined,
+    height: rawHeight > 0 ? rawHeight : undefined,
     courier: String(body.courier ?? "Delhivery"),
-    payment: String(body.payment ?? "Prepaid"),
+    payment,
     status: String(body.status ?? "pending"),
     date: String(body.date ?? new Date().toISOString().slice(0, 10)),
     awb: String(body.awb ?? ""),
@@ -194,12 +281,19 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     products: (body.products as unknown[]) ?? [],
     dimensions: body.dimensions as string | undefined,
     zone: body.zone as string | undefined,
-    pickupAddress: body.pickupAddress as string | undefined,
+    pickupAddress: pickupSnapshot ?? (body.pickupAddress as string | undefined),
     pickupAddressId,
     createdBy: req.user._id,
     ownerUserId: req.user._id,
     vendorId: vendor?._id,
     channel: String(body.channel ?? "Manual"),
+    customerEmail: String(body.customerEmail ?? body.email ?? ""),
+    customerPhone: String(body.customerPhone ?? body.phone ?? ""),
+    shippingAddress1,
+    shippingAddress2,
+    shippingPincode: shippingPincodeDigits,
+    shippingCity,
+    shippingState,
     velocityWarehouseId: snapshotVelocityWh,
     courierCompanyId: carrierPref,
   });
@@ -216,6 +310,8 @@ export const createOrdersBulk = asyncHandler(async (req: AuthRequest, res: Respo
   for (const raw of items) {
     const body = raw as Record<string, unknown>;
     const orderId = (body.orderId as string) || `SF${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const exists = await Order.findOne({ orderId });
+    if (exists) throw new AppError(400, `Order ID "${orderId}" already exists.`);
     const doc = await Order.create({
       orderId,
       customer: String(body.customer ?? ""),
@@ -242,6 +338,96 @@ export const createOrdersBulk = asyncHandler(async (req: AuthRequest, res: Respo
     created.push(mapOrder(doc));
   }
   res.status(201).json({ created: created.length, orders: created });
+});
+
+export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const { orderId } = req.params;
+  const body = req.body as Record<string, unknown>;
+  const order = await Order.findOne({ orderId });
+  if (!order) throw new AppError(404, "Order not found");
+
+  if (req.user.role === "dropshipper") {
+    const owned =
+      String(order.createdBy) === String(req.user._id) ||
+      String(order.ownerUserId ?? "") === String(req.user._id) ||
+      String((order as unknown as { dropshipperId?: unknown }).dropshipperId ?? "") === String(req.user._id);
+    if (!owned) throw new AppError(403, "Forbidden");
+  } else if (req.user.role === "vendor") {
+    const v = await vendorDocForUser(req.user._id);
+    if (v && String(order.vendorId ?? "") !== String(v._id)) throw new AppError(403, "Forbidden");
+  }
+
+  const customerName = String(body.customerName ?? body.consigneeName ?? body.customer ?? "").trim();
+  const customerEmail = String(body.customerEmail ?? body.email ?? "").trim();
+  const customerPhoneRaw = String(body.customerPhone ?? body.phone ?? "").trim();
+  const shippingAddress1 = String(body.shippingAddress1 ?? body.address1 ?? body.address ?? "").trim();
+  const shippingAddress2 = String(body.shippingAddress2 ?? body.address2 ?? "").trim();
+  const shippingCity = String(body.shippingCity ?? body.city ?? "").trim();
+  const shippingState = String(body.shippingState ?? body.state ?? "").trim();
+  const shippingPincode = String(body.shippingPincode ?? body.customerPincode ?? body.pincode ?? "").replace(/\D/g, "").slice(0, 6);
+  const rawWeight = Number(body.weight ?? body.packageWeight ?? body.deadWeight ?? NaN);
+  const rawLength = Number(body.length ?? body.packageLength ?? NaN);
+  const rawWidth = Number(body.breadth ?? body.width ?? body.packageBreadth ?? body.packageWidth ?? NaN);
+  const rawHeight = Number(body.height ?? body.packageHeight ?? NaN);
+
+  if (shippingPincode && !/^\d{6}$/.test(shippingPincode)) {
+    throw new AppError(400, "shippingPincode must be exactly 6 digits");
+  }
+  if (customerPhoneRaw) {
+    const digits = customerPhoneRaw.replace(/\D/g, "");
+    if (digits.length < 10) throw new AppError(400, "customerPhone must be a valid phone number");
+  }
+  if (!Number.isNaN(rawWeight) && rawWeight <= 0) throw new AppError(400, "weight must be greater than 0");
+  if (!Number.isNaN(rawLength) && rawLength <= 0) throw new AppError(400, "length must be greater than 0");
+  if (!Number.isNaN(rawWidth) && rawWidth <= 0) throw new AppError(400, "breadth/width must be greater than 0");
+  if (!Number.isNaN(rawHeight) && rawHeight <= 0) throw new AppError(400, "height must be greater than 0");
+
+  if (customerName) order.customer = customerName;
+  if (customerEmail || body.customerEmail === "" || body.email === "") order.customerEmail = customerEmail;
+  if (customerPhoneRaw) {
+    order.customerPhone = customerPhoneRaw;
+    order.phone = customerPhoneRaw;
+  }
+  if (shippingAddress1) {
+    order.shippingAddress1 = shippingAddress1;
+    order.address = [shippingAddress1, shippingAddress2 || order.shippingAddress2 || ""].filter(Boolean).join(", ");
+  }
+  if (shippingAddress2 || body.shippingAddress2 === "" || body.address2 === "") {
+    order.shippingAddress2 = shippingAddress2;
+    order.address = [order.shippingAddress1 || shippingAddress1 || "", shippingAddress2].filter(Boolean).join(", ");
+  }
+  if (shippingCity) {
+    order.shippingCity = shippingCity;
+    order.city = shippingCity;
+  }
+  if (shippingState) {
+    order.shippingState = shippingState;
+    order.state = shippingState;
+  }
+  if (shippingPincode) {
+    order.shippingPincode = shippingPincode;
+    order.pincode = shippingPincode;
+  }
+  if (!Number.isNaN(rawWeight) && rawWeight > 0) {
+    order.weight = String(rawWeight);
+  }
+  if (!Number.isNaN(rawLength) && rawLength > 0) order.length = rawLength;
+  if (!Number.isNaN(rawWidth) && rawWidth > 0) {
+    order.width = rawWidth;
+    order.breadth = rawWidth;
+  }
+  if (!Number.isNaN(rawHeight) && rawHeight > 0) order.height = rawHeight;
+
+  const l = order.length;
+  const w = order.width ?? order.breadth;
+  const h = order.height;
+  if (l && w && h) {
+    order.dimensions = `${l}x${w}x${h} cm`;
+  }
+
+  await order.save();
+  res.json(mapOrder(order));
 });
 
 export const createShipment = asyncHandler(async (req: AuthRequest, res: Response) => {

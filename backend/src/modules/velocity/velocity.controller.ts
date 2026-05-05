@@ -617,6 +617,15 @@ function firstNonEmpty(...vals: unknown[]): string {
   return "";
 }
 
+function firstPositiveNumber(...vals: unknown[]): number {
+  for (const v of vals) {
+    if (v === null || v === undefined || v === "") continue;
+    const n = Number(v);
+    if (!Number.isNaN(n) && n > 0) return n;
+  }
+  return NaN;
+}
+
 function orderPlain(lo: IOrder | null): Record<string, unknown> {
   if (!lo) return {};
   const doc = lo as unknown as { toObject?: () => Record<string, unknown> };
@@ -688,12 +697,23 @@ function buildCustomerForForwardPayload(
     localOrder?.address
   );
   const city = firstNonEmpty(b?.city, o.customerCity, ship?.city, o.city, localOrder?.city);
-  const state = firstNonEmpty(b?.state, o.customerState, ship?.state, o.state, localOrder?.state);
+  const state = firstNonEmpty(
+    b?.state,
+    b?.shippingState,
+    o.customerState,
+    o.shippingState,
+    ship?.state,
+    o.state,
+    localOrder?.state
+  );
   const pinRaw = firstNonEmpty(
     b?.pincode,
+    b?.shippingPincode,
+    b?.customerPincode,
     b?.zip,
     b?.postalCode,
     o.customerPincode,
+    o.shippingPincode,
     o.pincode,
     o.zip,
     o.postalCode,
@@ -749,19 +769,51 @@ function buildForwardPayload(
     carrierId = /^\d+$/.test(s) ? Number(s) : s;
   }
 
-  const box = parseBoxCmFromDimensions(localOrder?.dimensions);
-  const wKg = parseWeightKgFromOrder(localOrder?.weight);
+  const op = orderPlain(localOrder);
+  const ship = (op.shippingAddress as Record<string, unknown> | undefined) ?? undefined;
+  const box = parseBoxCmFromDimensions(
+    firstNonEmpty(
+      String(op.dimensions ?? ""),
+      localOrder?.dimensions,
+      (ship?.dimensions as string) ?? "",
+    )
+  );
+  const wKg = parseWeightKgFromOrder(firstNonEmpty(String(op.weight ?? ""), localOrder?.weight));
 
-  const bodyW = body.weight != null && body.weight !== "" ? Number(body.weight) : NaN;
-  const weight = !Number.isNaN(bodyW) && bodyW > 0 ? bodyW : wKg > 0 ? wKg : NaN;
-
-  const num = (k: string) => {
-    const v = body[k];
-    return v != null && v !== "" ? Number(v) : NaN;
-  };
-  const length = !Number.isNaN(num("length")) && num("length") > 0 ? num("length") : box && box.length > 0 ? box.length : NaN;
-  const width = !Number.isNaN(num("width")) && num("width") > 0 ? num("width") : box && box.width > 0 ? box.width : NaN;
-  const height = !Number.isNaN(num("height")) && num("height") > 0 ? num("height") : box && box.height > 0 ? box.height : NaN;
+  const weight = firstPositiveNumber(
+    body.weight,
+    body.packageWeight,
+    body.deadWeight,
+    op.weight,
+    op.packageWeight,
+    op.deadWeight,
+    wKg,
+  );
+  const length = firstPositiveNumber(
+    body.length,
+    body.packageLength,
+    op.length,
+    op.packageLength,
+    box?.length,
+  );
+  const width = firstPositiveNumber(
+    body.width,
+    body.breadth,
+    body.packageBreadth,
+    body.packageWidth,
+    op.width,
+    op.breadth,
+    op.packageBreadth,
+    op.packageWidth,
+    box?.width,
+  );
+  const height = firstPositiveNumber(
+    body.height,
+    body.packageHeight,
+    op.height,
+    op.packageHeight,
+    box?.height,
+  );
 
   const itemsFromBody = body.items as VelocityForwardOrderRequest["items"] | undefined;
   let items: VelocityForwardOrderRequest["items"];
@@ -800,43 +852,18 @@ function buildForwardPayload(
 }
 
 function validateForwardPayload(payload: VelocityForwardOrderRequest) {
-  if (!payload.warehouse_id) {
-    throw new AppError(
-      400,
-      "No Velocity warehouse linked. Please link warehouse first."
-    );
-  }
-  if (!payload.order_id) throw new AppError(400, "order_id is required");
-
+  const missing: string[] = [];
+  if (!payload.warehouse_id) missing.push("linked Velocity warehouse");
+  if (!payload.order_id) missing.push("order_id");
   const c = payload.customer;
   const pinDigits = String(c?.pincode ?? "").replace(/\D/g, "");
-  if (pinDigits.length !== 6) {
-    throw new AppError(
-      400,
-      "Customer delivery pincode is missing. Please edit the order and add customer pincode."
-    );
-  }
-  if (!String(c?.phone ?? "").trim()) {
-    throw new AppError(400, "Customer phone is missing. Please edit the order and add customer phone.");
-  }
-  if (!String(c?.address ?? "").trim()) {
-    throw new AppError(400, "Customer address is missing. Please edit the order and add delivery address.");
-  }
-  if (!String(c?.city ?? "").trim()) {
-    throw new AppError(400, "Customer city is missing. Please edit the order and add city.");
-  }
-  if (!String(c?.state ?? "").trim()) {
-    throw new AppError(400, "Customer state is missing. Please edit the order and add state.");
-  }
-  if (!String(c?.name ?? "").trim()) {
-    throw new AppError(400, "Customer name is missing. Please edit the order and add customer name.");
-  }
-  if (!payload.items?.length) {
-    throw new AppError(
-      400,
-      "Order has no items. Please edit the order and add at least one product line."
-    );
-  }
+  if (pinDigits.length !== 6) missing.push("customer pincode");
+  if (!String(c?.phone ?? "").trim()) missing.push("customer phone");
+  if (!String(c?.address ?? "").trim()) missing.push("delivery address");
+  if (!String(c?.city ?? "").trim()) missing.push("customer city");
+  if (!String(c?.state ?? "").trim()) missing.push("customer state");
+  if (!String(c?.name ?? "").trim()) missing.push("customer name");
+  if (!payload.items?.length) missing.push("items");
   const unnamed = payload.items.find((i) => !String(i.name ?? "").trim());
   if (unnamed) {
     throw new AppError(
@@ -844,24 +871,13 @@ function validateForwardPayload(payload: VelocityForwardOrderRequest) {
       "Each order item must have a name. Please edit the order and fix products."
     );
   }
-  if (!(Number(payload.weight) > 0) || Number.isNaN(Number(payload.weight))) {
-    throw new AppError(
-      400,
-      "Shipment weight must be greater than zero. Please edit the order and set package weight."
-    );
-  }
-  if (
-    !(Number(payload.length) > 0) ||
-    !(Number(payload.width) > 0) ||
-    !(Number(payload.height) > 0) ||
-    Number.isNaN(Number(payload.length)) ||
-    Number.isNaN(Number(payload.width)) ||
-    Number.isNaN(Number(payload.height))
-  ) {
-    throw new AppError(
-      400,
-      "Shipment dimensions must be greater than zero. Please edit the order and set length, width, and height."
-    );
+  if (!(Number(payload.weight) > 0) || Number.isNaN(Number(payload.weight))) missing.push("package weight");
+  if (!(Number(payload.length) > 0) || Number.isNaN(Number(payload.length))) missing.push("package length");
+  if (!(Number(payload.width) > 0) || Number.isNaN(Number(payload.width))) missing.push("package breadth/width");
+  if (!(Number(payload.height) > 0) || Number.isNaN(Number(payload.height))) missing.push("package height");
+
+  if (missing.length) {
+    throw new AppError(400, `Missing required shipment fields: ${missing.join(", ")}`);
   }
 }
 
@@ -1035,7 +1051,10 @@ async function assertOrderAccess(user: NonNullable<AuthRequest["user"]>, order: 
   if (user.role === "admin") return;
 
   if (user.role === "dropshipper") {
-    if (String(order.createdBy) !== String(user._id)) {
+    if (
+      String(order.createdBy) !== String(user._id) &&
+      String(order.ownerUserId ?? "") !== String(user._id)
+    ) {
       throw new AppError(403, "Forbidden");
     }
     return;
