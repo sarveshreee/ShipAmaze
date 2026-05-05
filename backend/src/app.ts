@@ -38,6 +38,7 @@ export function createApp() {
   api.post("/orders/bulk", authMiddleware, orderController.createOrdersBulk);
   api.post("/orders/bulk-move", authMiddleware, orderController.bulkMoveOrders);
   api.post("/orders/create-shipment", authMiddleware, orderController.createShipment);
+  api.post("/orders/process-selected", authMiddleware, orderController.processSelectedOrders);
   api.post("/orders/:id/junk", authMiddleware, orderController.markOrderJunk);
   api.patch("/orders/:orderId/status", authMiddleware, orderController.updateOrderStatus);
   api.put("/orders/:orderId", authMiddleware, orderController.updateOrder);

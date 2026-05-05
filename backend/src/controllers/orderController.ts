@@ -10,6 +10,7 @@ import { AppError } from "../middleware/errorMiddleware.js";
 import { randomUUID } from "crypto";
 import mongoose from "mongoose";
 import { Pickup } from "../models/Pickup.js";
+import { getPickupOwnerFilterForUser } from "../utils/pickupOwnerFilter.js";
 
 function mapOrder(o: {
   orderId: string;
@@ -439,6 +440,7 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
 
 export const createShipment = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
   const { orderId, courierId, warehouseId } = req.body as {
     orderId?: string;
     courierId?: string;
@@ -450,9 +452,6 @@ export const createShipment = asyncHandler(async (req: AuthRequest, res: Respons
 
   const order = await Order.findOne({ orderId });
   if (!order) throw new AppError(404, "Order not found");
-  if (req.user.role === "dropshipper" && String(order.createdBy) !== String(req.user._id)) {
-    throw new AppError(403, "Forbidden");
-  }
   if (order.shipmentCreated) throw new AppError(400, "Shipment already created for this order");
   if (order.isJunk) throw new AppError(400, "Cannot create shipment for junk order");
 
@@ -517,8 +516,12 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
   }
 
   for (const order of orders) {
-    if (req.user.role === "dropshipper" && String(order.createdBy) !== String(req.user._id)) {
-      throw new AppError(403, "Forbidden");
+    if (req.user.role === "dropshipper") {
+      const owned =
+        String(order.createdBy) === String(req.user._id) ||
+        String(order.ownerUserId ?? "") === String(req.user._id) ||
+        String((order as unknown as { dropshipperId?: unknown }).dropshipperId ?? "") === String(req.user._id);
+      if (!owned) throw new AppError(403, "Forbidden");
     }
 
     if (order.isJunk) {
@@ -583,12 +586,159 @@ export const updateOrderStatus = asyncHandler(async (req: AuthRequest, res: Resp
   if (!status) throw new AppError(400, "status required");
   const o = await Order.findOne({ orderId });
   if (!o) throw new AppError(404, "Order not found");
-  if (req.user.role === "dropshipper" && String(o.createdBy) !== String(req.user._id)) {
-    throw new AppError(403, "Forbidden");
+  if (req.user.role === "dropshipper") {
+    const owned =
+      String(o.createdBy) === String(req.user._id) ||
+      String(o.ownerUserId ?? "") === String(req.user._id) ||
+      String((o as unknown as { dropshipperId?: unknown }).dropshipperId ?? "") === String(req.user._id);
+    if (!owned) throw new AppError(403, "Forbidden");
+
+    // Dropshippers may only move orders to Ready-to-Ship via this endpoint.
+    const next = String(status).toLowerCase();
+    if (next !== "ready-to-ship" && next !== "ready_to_ship") {
+      throw new AppError(403, "Forbidden");
+    }
+    const st = String(o.status || "").toLowerCase();
+    if (BLOCKED_BULK_MOVE_TO_READY.has(st)) {
+      throw new AppError(400, `Order cannot be moved to Ready to Ship from status "${o.status}"`);
+    }
+    if (o.isJunk) throw new AppError(400, "Cannot move junk orders to Ready to Ship");
+    if (o.shipmentCreated) throw new AppError(400, "Cannot move orders that already have a shipment");
+
+    o.status = "ready-to-ship";
+    o.shipmentStatus = "ready_to_ship";
+    o.movedToReadyAt = new Date();
+  } else {
+    // Admin/vendor: keep legacy behavior, but normalize common values.
+    const next = String(status).trim();
+    o.status = next;
   }
-  o.status = status;
   await o.save();
   res.json(mapOrder(o));
+});
+
+function generateAwb() {
+  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `AWB-${Date.now()}-${suffix}`;
+}
+
+/**
+ * Admin-only: Assign shipment processing details to orders already in Ready-to-Ship.
+ * Moves them to Pending Pickup and generates an AWB.
+ */
+export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+
+  const body = req.body as {
+    orderIds?: unknown;
+    pickupAddressId?: unknown;
+    courierName?: unknown;
+    shipmentMode?: unknown;
+    weight?: unknown;
+    length?: unknown;
+    width?: unknown;
+    height?: unknown;
+  };
+
+  const orderIds = body.orderIds;
+  if (!Array.isArray(orderIds) || orderIds.length === 0) throw new AppError(400, "orderIds must be a non-empty array");
+  const ids = [...new Set(orderIds.map((x) => String(x).trim()).filter(Boolean))];
+  if (ids.length === 0) throw new AppError(400, "orderIds must not be empty");
+
+  const pickupAddressId = String(body.pickupAddressId ?? "").trim();
+  if (!pickupAddressId) throw new AppError(400, "pickupAddressId is required");
+  if (!mongoose.isValidObjectId(pickupAddressId)) throw new AppError(400, "Invalid pickupAddressId");
+
+  const courierName = String(body.courierName ?? "").trim();
+  if (!courierName) throw new AppError(400, "courierName is required");
+
+  const shipmentMode = String(body.shipmentMode ?? "forward").toLowerCase();
+  if (!["forward", "reverse"].includes(shipmentMode)) throw new AppError(400, "shipmentMode must be forward or reverse");
+
+  const weight = body.weight != null && String(body.weight).trim() !== "" ? Number(body.weight) : undefined;
+  if (weight !== undefined && (!(weight > 0) || !Number.isFinite(weight))) throw new AppError(400, "weight must be > 0");
+
+  const length = body.length != null && String(body.length).trim() !== "" ? Number(body.length) : undefined;
+  const width = body.width != null && String(body.width).trim() !== "" ? Number(body.width) : undefined;
+  const height = body.height != null && String(body.height).trim() !== "" ? Number(body.height) : undefined;
+  for (const [k, v] of [
+    ["length", length],
+    ["width", width],
+    ["height", height],
+  ] as const) {
+    if (v !== undefined && (!(v > 0) || !Number.isFinite(v))) throw new AppError(400, `${k} must be > 0`);
+  }
+
+  const pickup = await Pickup.findOne({
+    _id: pickupAddressId,
+    // Admin can see all pickups, but keep active-only by default
+    $or: [{ isActive: true }, { isActive: { $exists: false } }],
+    ...getPickupOwnerFilterForUser(req.user),
+  })
+    .select("label contactName phone email addressLine1 addressLine2 city state pincode country velocityWarehouseId")
+    .lean();
+  if (!pickup) throw new AppError(404, "Pickup address not found");
+
+  const pickupSnapshot = {
+    id: pickupAddressId,
+    label: pickup.label || "Pickup Address",
+    contactName: pickup.contactName || "",
+    phone: pickup.phone || "",
+    email: pickup.email || "",
+    address: [pickup.addressLine1, pickup.addressLine2].filter(Boolean).join(", "),
+    city: pickup.city || "",
+    state: pickup.state || "",
+    pincode: pickup.pincode || "",
+    country: pickup.country || "India",
+    velocityWarehouseId: pickup.velocityWarehouseId?.trim() || undefined,
+  };
+
+  const orders = await Order.find({ orderId: { $in: ids } }).exec();
+  if (orders.length !== ids.length) throw new AppError(404, "One or more orders were not found");
+
+  // Validate state transitions and assign per-order AWB
+  const now = new Date();
+  const updated = [];
+  for (const o of orders) {
+    const st = String(o.status || "").toLowerCase();
+    if (o.isJunk) throw new AppError(400, `Order ${o.orderId} is junk`);
+    if (o.shipmentCreated) throw new AppError(400, `Order ${o.orderId} already has a shipment`);
+    if (st !== "ready-to-ship" && st !== "ready_to_ship" && st !== "ready-to-ship".toLowerCase()) {
+      throw new AppError(400, `Order ${o.orderId} must be in Ready to Ship`);
+    }
+    if (String(o.awb || "").trim()) {
+      throw new AppError(400, `Order ${o.orderId} already has an AWB`);
+    }
+
+    const awb = generateAwb();
+    o.awb = awb;
+    o.courierName = courierName;
+    o.courier = courierName;
+    o.pickupAddressId = new mongoose.Types.ObjectId(pickupAddressId);
+    o.pickupWarehouseId = pickupAddressId;
+    o.pickupAddress = pickupSnapshot;
+    o.velocityWarehouseId = pickupSnapshot.velocityWarehouseId;
+    if (weight !== undefined) o.weight = String(weight);
+    if (length !== undefined) o.length = length;
+    if (width !== undefined) {
+      o.width = width;
+      o.breadth = width;
+    }
+    if (height !== undefined) o.height = height;
+    if (o.length && (o.width ?? o.breadth) && o.height) {
+      const w = o.width ?? o.breadth;
+      o.dimensions = `${o.length}x${w}x${o.height} cm`;
+    }
+    o.assignedDateTime = now;
+    o.status = "pending-pickup";
+    o.shipmentStatus = "pending_pickup";
+    (o as unknown as { shipmentMode?: string }).shipmentMode = shipmentMode;
+    await o.save();
+    updated.push({ orderId: o.orderId, awb });
+  }
+
+  res.json({ success: true, updatedCount: updated.length, updated });
 });
 
 export const trackOrderByAwb = asyncHandler(async (req: Request, res: Response) => {

@@ -1095,7 +1095,7 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
                         </div>
                       ) : (
                         <div className="flex flex-col gap-1.5">
-                          {!o.awb && !o.isJunk && (
+                          {role === "admin" && !o.awb && !o.isJunk && (
                             <Button
                               variant="outline"
                               size="sm"

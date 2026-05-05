@@ -104,7 +104,6 @@ const dropshipperNav: NavGroup[] = [
     { label: "Weight Disputes", icon: Scale, path: "/dropshipper/weight-disputes", tabKey: "weight-disputes" },
   ]},
   { title: "", items: [
-    { label: "Pickup Addresses", icon: MapPin, path: "/dropshipper/addresses", tabKey: "addresses" },
     { label: "Track Shipment", icon: Truck, path: "/dropshipper/tracking", tabKey: "tracking" },
     { label: "Settings", icon: Settings, path: "/dropshipper/settings", tabKey: "settings" },
   ]},

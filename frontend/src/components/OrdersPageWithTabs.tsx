@@ -92,13 +92,23 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const filterByTab = (o: Order, tab: string) => {
     const status = (o as any).status;
+    const st = String(status ?? "").toLowerCase();
     const isReship = status === "reship";
     const isJunk = Boolean((o as any).isJunk);
     const channel = ((o as any).channel as string | undefined) ?? "";
     const externalSource = ((o as any).externalSource as string | undefined) ?? "";
-    if (tab === "all") return !isJunk && !isReship;
-    if (tab === "channel") return (channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship;
-    if (tab === "manual") return !(channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship;
+    const isReadyOrPendingPickup =
+      st === "ready-to-ship" ||
+      st === "ready_to_ship" ||
+      st === "pending-pickup" ||
+      st === "pending_pickup";
+    if (tab === "all") return !isJunk && !isReship && !isReadyOrPendingPickup;
+    if (tab === "channel") {
+      return (channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship && !isReadyOrPendingPickup;
+    }
+    if (tab === "manual") {
+      return !(channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship && !isReadyOrPendingPickup;
+    }
     if (tab === "pending-pickup") {
       return !!(o as any).courier && !isJunk && !isReship && (status === "pending-pickup" || (status === "ready-to-ship" && !(o as any).picked_up));
     }

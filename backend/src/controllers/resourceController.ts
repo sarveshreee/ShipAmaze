@@ -463,6 +463,7 @@ async function clearDefaultPickupsForUser(userId: Types.ObjectId, role: UserRole
 
 export const listPickupAddresses = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
   const rows = await Pickup.find({
     ...getPickupOwnerFilterForUser(req.user),
     $or: [{ isActive: true }, { isActive: { $exists: false } }],
@@ -477,7 +478,13 @@ export const listPickups = listPickupAddresses;
 
 export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
   const b = req.body as Record<string, unknown>;
+  const ownerUserId = String(b.userId ?? "").trim();
+  if (!ownerUserId) throw new AppError(400, "userId (dropshipper user id) is required");
+  if (!mongoose.isValidObjectId(ownerUserId)) throw new AppError(400, "Invalid userId");
+  const owner = await User.findById(ownerUserId).lean();
+  if (!owner || owner.role !== "dropshipper") throw new AppError(400, "userId must be a dropshipper account");
   const label = String(b.label ?? "").trim();
   const addressLine1 = String(b.addressLine1 ?? "").trim();
   const city = String(b.city ?? "").trim();
@@ -488,13 +495,14 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   }
 
   const wantDefault = Boolean(b.isDefault);
-  const count = await Pickup.countDocuments(getPickupOwnerFilterForUser(req.user));
+  const ownerFilter = { $or: [{ userId: new mongoose.Types.ObjectId(ownerUserId) }, { dropshipperId: new mongoose.Types.ObjectId(ownerUserId) }] };
+  const count = await Pickup.countDocuments(ownerFilter);
   const makeDefault = wantDefault || count === 0;
-  if (makeDefault) await clearDefaultPickupsForUser(req.user._id, req.user.role);
+  if (makeDefault) await clearDefaultPickupsForUser(new mongoose.Types.ObjectId(ownerUserId), "dropshipper");
 
   const doc = await Pickup.create({
-    userId: req.user._id,
-    ...(req.user.role === "dropshipper" ? { dropshipperId: req.user._id } : {}),
+    userId: new mongoose.Types.ObjectId(ownerUserId),
+    dropshipperId: new mongoose.Types.ObjectId(ownerUserId),
     label,
     contactName: String(b.contactName ?? "").trim(),
     phone: String(b.phone ?? "").trim(),
@@ -537,6 +545,7 @@ export const createPickup = createPickupAddress;
 
 export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const existing = await Pickup.findOne({ _id: id, ...getPickupOwnerFilterForUser(req.user) });
@@ -576,6 +585,7 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
 
 export const deletePickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const doc = await Pickup.findOne({ _id: id, ...getPickupOwnerFilterForUser(req.user) });
@@ -601,6 +611,7 @@ export const deletePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
 
 export const setDefaultPickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const doc = await Pickup.findOne({
@@ -610,7 +621,7 @@ export const setDefaultPickupAddress = asyncHandler(async (req: AuthRequest, res
   });
   if (!doc) throw new AppError(404, "Pickup address not found");
 
-  await clearDefaultPickupsForUser(req.user._id, req.user.role);
+  await clearDefaultPickupsForUser(doc.userId, "dropshipper");
   doc.isDefault = true;
   await doc.save();
   res.json(mapPickupDoc(doc.toObject()));
