@@ -39,6 +39,29 @@ export interface VelocityTrackingResult {
   carrierName?: string;
   activities: VelocityTrackingActivity[];
   order?: { id: string };
+  orderDetails?: {
+    customerName?: string;
+    phone?: string;
+    paymentType?: string;
+    amount?: number;
+    destination?: {
+      city?: string;
+      state?: string;
+      pincode?: string;
+      address?: string;
+    };
+    dates?: {
+      orderDate?: string;
+      assignedAt?: string;
+      movedToReadyAt?: string;
+    };
+    shipment?: {
+      shipmentId?: string;
+      velocityOrderId?: string;
+      channel?: string;
+      weight?: string;
+    };
+  };
   /** True when order exists locally but no AWB has been generated yet */
   pendingShipment?: boolean;
   trackUrl?: string;

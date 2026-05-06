@@ -20,8 +20,32 @@ const statusConfig: Record<OrderStatus, { bg: string; text: string; label: strin
   rts: { bg: "bg-warning-light", text: "text-warning-dark", label: "Return to Seller", icon: Undo2 },
 };
 
-export function StatusBadge({ status, className }: { status: OrderStatus; className?: string }) {
-  const config = statusConfig[status];
+function normalizeStatusKey(rawStatus: string): OrderStatus | null {
+  const normalized = rawStatus.trim().toLowerCase().replace(/_/g, "-");
+  if (normalized in statusConfig) {
+    return normalized as OrderStatus;
+  }
+  return null;
+}
+
+function toTitleCaseStatus(status: string): string {
+  return status
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase()) || "Unknown";
+}
+
+export function StatusBadge({ status, className }: { status: OrderStatus | string; className?: string }) {
+  const statusKey = normalizeStatusKey(String(status ?? ""));
+  const config = statusKey
+    ? statusConfig[statusKey]
+    : {
+        bg: "bg-surface-2",
+        text: "text-text-secondary",
+        label: toTitleCaseStatus(String(status ?? "")),
+        icon: Clock,
+      };
   const Icon = config.icon;
   return (
     <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium", config.bg, config.text, className)}>

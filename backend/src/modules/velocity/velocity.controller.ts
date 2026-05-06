@@ -775,6 +775,33 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
   const localOrder = await Order.findOne({ $or: [{ awb }, { orderId: awb }] }).lean();
   if (!localOrder) throw new AppError(404, "Order not found");
 
+  const orderDetails = {
+    customerName: localOrder.customer ?? "",
+    phone: localOrder.customerPhone ?? localOrder.phone ?? "",
+    paymentType: localOrder.payment ?? "",
+    amount: Number(localOrder.amount ?? 0),
+    destination: {
+      city: localOrder.shippingCity ?? localOrder.city ?? "",
+      state: localOrder.shippingState ?? localOrder.state ?? "",
+      pincode: localOrder.shippingPincode ?? localOrder.pincode ?? "",
+      address:
+        [localOrder.shippingAddress1, localOrder.shippingAddress2, localOrder.address]
+          .filter((v): v is string => !!v && typeof v === "string")
+          .join(", ") || "",
+    },
+    dates: {
+      orderDate: localOrder.date ?? "",
+      assignedAt: localOrder.assignedDateTime ? new Date(localOrder.assignedDateTime).toISOString() : "",
+      movedToReadyAt: localOrder.movedToReadyAt ? new Date(localOrder.movedToReadyAt).toISOString() : "",
+    },
+    shipment: {
+      shipmentId: localOrder.shipmentId ?? localOrder.velocityShipmentId ?? "",
+      velocityOrderId: localOrder.velocityOrderId ?? "",
+      channel: localOrder.channel ?? "",
+      weight: localOrder.weight ?? "",
+    },
+  };
+
   const awbToTrack = localOrder.awb || awb;
 
   if (!awbToTrack) {
@@ -786,6 +813,7 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
         carrierName: localOrder.courierName ?? localOrder.courier,
         activities: localOrder.trackingActivities ?? [],
         order: { id: localOrder.orderId },
+        orderDetails,
         pendingShipment: true,
       },
     });
@@ -807,12 +835,13 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
     res.json({
       success: true,
       data: {
-        awb: result.awb,
+        awb: result.awb || awbToTrack,
         status: result.status,
-        carrierName: result.carrier_name ?? localOrder.courierName,
+        carrierName: result.carrier_name ?? localOrder.courierName ?? localOrder.courier,
         activities: result.shipment_track_activities ?? [],
         trackUrl: (result as { track_url?: string }).track_url,
         order: { id: localOrder.orderId },
+        orderDetails,
       },
     });
   } catch {
@@ -824,6 +853,7 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
         carrierName: localOrder.courierName ?? localOrder.courier,
         activities: localOrder.trackingActivities ?? [],
         order: { id: localOrder.orderId },
+        orderDetails,
       },
     });
   }
