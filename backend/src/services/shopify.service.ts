@@ -3,6 +3,8 @@
  * All functions take an explicit accessToken + shop domain so they stay stateless.
  */
 
+import { AppError } from "../middleware/errorMiddleware.js";
+
 export interface ShopifyShop {
   id: number;
   name: string;
@@ -31,14 +33,19 @@ export interface ShopifyOrder {
   financial_status: string;
   fulfillment_status: string | null;
   created_at: string;
+  cancelled_at?: string | null;
+  note?: string | null;
+  tags?: string | null;
   line_items: ShopifyLineItem[];
   shipping_address?: {
     name: string;
     address1: string;
+    address2?: string;
     city: string;
     zip: string;
     country: string;
     phone: string;
+    province?: string;
   };
 }
 
@@ -61,13 +68,31 @@ function shopifyBaseUrl(shop: string) {
   return `https://${domain}/admin/api/2024-01`;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function shopifyFetch<T>(url: string, accessToken: string): Promise<T> {
-  const res = await fetch(url, { headers: shopifyHeaders(accessToken) });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Shopify API error ${res.status}: ${text}`);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await fetch(url, { headers: shopifyHeaders(accessToken) });
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get("retry-after") || "2", 10);
+      await sleep(Math.min(30, Math.max(1, retryAfter)) * 1000 * (attempt + 1));
+      lastErr = new AppError(429, "Shopify rate limit — retrying shortly");
+      continue;
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      const snippet = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+      if (res.status === 401 || res.status === 403) {
+        throw new AppError(401, "Shopify rejected this access token. Reconnect your store in Channels.");
+      }
+      throw new AppError(502, `Shopify API error ${res.status}: ${snippet}`);
+    }
+    return res.json() as Promise<T>;
   }
-  return res.json() as Promise<T>;
+  throw lastErr instanceof Error ? lastErr : new AppError(429, "Shopify rate limit exceeded. Try again in a minute.");
 }
 
 export async function getShopDetails(accessToken: string, shop: string): Promise<ShopifyShop> {
@@ -83,11 +108,11 @@ export async function getOrders(
   shop: string,
   limit = 250
 ): Promise<ShopifyOrder[]> {
-  const data = await shopifyFetch<{ orders: ShopifyOrder[] }>(
+  const data = await shopifyFetch<{ orders?: ShopifyOrder[] }>(
     `${shopifyBaseUrl(shop)}/orders.json?limit=${limit}&status=any`,
     accessToken
   );
-  return data.orders;
+  return Array.isArray(data.orders) ? data.orders : [];
 }
 
 export async function getProducts(

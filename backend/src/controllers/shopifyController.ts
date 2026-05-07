@@ -1,12 +1,21 @@
 import type { Request, Response } from "express";
-import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { AuthRequest } from "../middleware/authMiddleware.js";
 import { ShopifyStoreConnection } from "../models/ShopifyStoreConnection.js";
+import { ShopifyWebhookReceipt, defaultWebhookReceiptExpiry } from "../models/ShopifyWebhookReceipt.js";
 import { Order } from "../models/Order.js";
+import { Vendor } from "../models/Vendor.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { encrypt, decrypt } from "../utils/crypto.js";
 import * as shopifyService from "../services/shopify.service.js";
+import {
+  buildShopifyOrderPayload,
+  mergeShopifyPayloadIntoOrder,
+  shopifyExternalOrderId,
+} from "../services/shopifyOrderSync.js";
+import type { ShopifyOrder } from "../services/shopify.service.js";
+import type { ShopifySyncUserContext } from "../services/shopifyOrderSync.js";
 
 /* ------------------------------------------------------------------ */
 /*  Env helpers                                                          */
@@ -22,20 +31,26 @@ function cfg() {
   return { apiKey, apiSecret, scopes, redirectUri };
 }
 
-function buildFrontendRedirect(status: "connected" | "error"): string {
+function buildFrontendRedirect(status: "connected" | "error", reason?: string): string {
   const frontendBaseUrl = (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || "http://localhost:8080").replace(/\/+$/, "");
   const postConnectPath = process.env.SHOPIFY_POST_CONNECT_PATH || "/dropshipper/channels";
   const normalisedPath = postConnectPath.startsWith("/") ? postConnectPath : `/${postConnectPath}`;
-  return `${frontendBaseUrl}${normalisedPath}?shopify=${status}`;
+  const u = new URL(`${frontendBaseUrl}${normalisedPath}`);
+  u.searchParams.set("shopify", status);
+  if (status === "error" && reason?.trim()) {
+    u.searchParams.set("shopify_reason", reason.trim().slice(0, 280));
+  }
+  return u.toString();
 }
 
 /* ------------------------------------------------------------------ */
 /*  HMAC verification (validates Shopify callback authenticity)         */
 /* ------------------------------------------------------------------ */
 function verifyShopifyHmac(query: Record<string, string>, secret: string): boolean {
-  const { hmac, ...rest } = query;
+  const hmac = query.hmac;
   if (!hmac) return false;
-  const message = Object.entries(rest)
+  const message = Object.entries(query)
+    .filter(([k]) => k !== "hmac" && k !== "signature")
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
@@ -56,6 +71,12 @@ function verifyShopifyHmac(query: Record<string, string>, secret: string): boole
 type OAuthStateRecord = { ownerUserId: string; createdAtMs: number };
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const oauthStateStore = new Map<string, OAuthStateRecord>();
+
+const syncInFlight = new Set<string>();
+
+function isMongoDuplicateKey(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === 11000;
+}
 
 function cleanupExpiredStates(nowMs = Date.now()) {
   for (const [k, v] of oauthStateStore.entries()) {
@@ -115,8 +136,9 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
     `&state=${state}` +
     `&grant_options[]=per-user`;
 
-  console.log("[shopify:oauth] generated_oauth_url=", oauthUrl);
-  console.log("[shopify:oauth] redirect_uri_used=", redirectUri);
+  if (process.env.NODE_ENV === "development") {
+    console.info("[shopify] oauth initiate", { shop: shopDomain });
+  }
 
   res.json({ url: oauthUrl });
 });
@@ -133,41 +155,30 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     if (fv !== undefined) query[k] = fv;
   }
 
-  console.log(
-    "[shopify:oauth] callback query presence shop=",
-    Boolean(query.shop),
-    "state=",
-    Boolean(query.state),
-    "hmac=",
-    Boolean(query.hmac),
-    "code=",
-    Boolean(query.code)
-  );
-  if (query.shop) console.log("[shopify:oauth] callback shop=", query.shop);
-  if (query.state) console.log("[shopify:oauth] callback state=", query.state);
-
   if (!verifyShopifyHmac(query, apiSecret)) {
-    console.warn("[shopify:oauth] callback hmac_verification=failed");
-    res.redirect(buildFrontendRedirect("error"));
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[shopify] oauth callback HMAC verification failed");
+    }
+    res.redirect(buildFrontendRedirect("error", "Could not verify OAuth callback (invalid signature)."));
     return;
   }
 
   const { code, shop, state } = query;
   if (!code || !shop) {
     console.warn("[shopify:oauth] callback missing code/shop");
-    res.redirect(buildFrontendRedirect("error"));
+    res.redirect(buildFrontendRedirect("error", "OAuth callback was missing code or shop."));
     return;
   }
 
   if (!isValidShopDomain(shop)) {
     console.warn("[shopify:oauth] callback invalid shop domain=", shop);
-    res.redirect(buildFrontendRedirect("error"));
+    res.redirect(buildFrontendRedirect("error", "Invalid shop domain in callback."));
     return;
   }
 
   if (!state) {
     console.warn("[shopify:oauth] callback missing state");
-    res.redirect(buildFrontendRedirect("error"));
+    res.redirect(buildFrontendRedirect("error", "Missing OAuth state. Start connect again from ShipAmaze."));
     return;
   }
 
@@ -176,7 +187,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     ownerUserId = consumeOAuthState(state).ownerUserId;
   } catch {
     console.warn("[shopify:oauth] callback invalid/expired state");
-    res.redirect(buildFrontendRedirect("error"));
+    res.redirect(buildFrontendRedirect("error", "Session expired or invalid. Start connect again from ShipAmaze."));
     return;
   }
 
@@ -189,13 +200,15 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
 
   if (!tokenRes.ok) {
     console.warn("[shopify:oauth] token exchange failed status=", tokenRes.status);
-    res.redirect(buildFrontendRedirect("error"));
+    res.redirect(buildFrontendRedirect("error", "Token exchange with Shopify failed. Try again or reinstall the app."));
     return;
   }
 
   const tokenData = (await tokenRes.json()) as { access_token: string; scope: string };
   const { access_token, scope } = tokenData;
-  console.log("[shopify:oauth] token exchange success scope=", scope);
+  if (process.env.NODE_ENV === "development") {
+    console.info("[shopify] oauth token exchanged", { scope });
+  }
 
   // Get shop details to verify
   const shopDetails = await shopifyService.getShopDetails(access_token, shop);
@@ -205,7 +218,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   const user = await User.findById(ownerUserId);
   if (!user) {
     console.warn("[shopify:oauth] owner user not found ownerUserId=", ownerUserId);
-    res.redirect(buildFrontendRedirect("error"));
+    res.redirect(buildFrontendRedirect("error", "User session no longer valid. Log in and connect again."));
     return;
   }
 
@@ -222,11 +235,12 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
       installedAt: new Date(),
       role: user.role as "admin" | "vendor" | "dropshipper",
       isActive: true,
+      disconnectedAt: null,
+      lastSyncError: null,
     },
     { upsert: true, new: true }
   );
 
-  console.log("[shopify:oauth] connection saved ownerUserId=", ownerUserId, "shop=", shopDetails.myshopify_domain);
   res.redirect(buildFrontendRedirect("connected"));
 });
 
@@ -246,14 +260,36 @@ export const getStatus = asyncHandler(async (req: AuthRequest, res: Response) =>
     return;
   }
 
+  const ownerOr = {
+    $or: [{ ownerUserId: req.user._id }, { createdBy: req.user._id }, { dropshipperId: req.user._id }],
+  };
+  const shopifyOr = { $or: [{ externalSource: "shopify" }, { channel: "Shopify" }] };
+  let syncedOrdersCount = 0;
+  if (req.user.role === "vendor") {
+    const v = await Vendor.findOne({ userId: req.user._id }).select("_id").lean();
+    if (v) {
+      syncedOrdersCount = await Order.countDocuments({
+        $and: [{ vendorId: v._id }, shopifyOr],
+      });
+    }
+  } else {
+    syncedOrdersCount = await Order.countDocuments({
+      $and: [ownerOr, shopifyOr],
+    });
+  }
+
   res.json({
     connected: true,
     shopDomain: conn.shopDomain,
     scope: conn.scope,
     installedAt: conn.installedAt,
     lastSyncedAt: conn.lastSyncedAt ?? null,
+    syncCount: conn.syncCount ?? 0,
+    lastSyncError: conn.lastSyncError ?? null,
+    syncedOrdersCount,
   });
 });
+
 
 /* ------------------------------------------------------------------ */
 /*  POST /api/shopify/disconnect                                        */
@@ -262,7 +298,7 @@ export const disconnect = asyncHandler(async (req: AuthRequest, res: Response) =
   if (!req.user) throw new AppError(401, "Unauthorized");
   await ShopifyStoreConnection.findOneAndUpdate(
     { ownerUserId: req.user._id, isActive: true },
-    { isActive: false }
+    { isActive: false, disconnectedAt: new Date() }
   );
   res.json({ ok: true });
 });
@@ -273,139 +309,300 @@ export const disconnect = asyncHandler(async (req: AuthRequest, res: Response) =
 export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
-  const conn = await ShopifyStoreConnection.findOne({
-    ownerUserId: req.user._id,
-    isActive: true,
-  });
-  if (!conn) throw new AppError(400, "No active Shopify store connected. Please connect first.");
+  const lockKey = String(req.user._id);
+  if (syncInFlight.has(lockKey)) {
+    throw new AppError(429, "Order sync is already running. Please wait for it to finish.");
+  }
+  syncInFlight.add(lockKey);
 
-  const accessToken = decrypt(conn.accessTokenEncrypted);
-  const shopOrders = await shopifyService.getOrders(accessToken, conn.shopDomain);
+  try {
+    const conn = await ShopifyStoreConnection.findOne({
+      ownerUserId: req.user._id,
+      isActive: true,
+    });
+    if (!conn) {
+      throw new AppError(400, "No active Shopify store connected. Please connect first.");
+    }
 
-  let inserted = 0;
-  let updated = 0;
+    let shopOrders: ShopifyOrder[] = [];
+    try {
+      const accessToken = decrypt(conn.accessTokenEncrypted);
+      shopOrders = await shopifyService.getOrders(accessToken, conn.shopDomain);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Shopify sync failed";
+      conn.lastSyncError = msg;
+      await conn.save();
+      throw e instanceof AppError ? e : new AppError(502, msg);
+    }
 
-  for (const so of shopOrders) {
-    const safeShopKey = conn.shopDomain.replace(/[^a-z0-9]/gi, "-").toLowerCase();
-    const externalId = `shopify-${safeShopKey}-${so.id}`;
-    const shipping = so.shipping_address;
-    const rawStatus = String(so.fulfillment_status || "").toLowerCase();
-    const normalizedStatus = rawStatus === "fulfilled" ? "shipped" : "pending";
-
-    const mapped = {
-      orderId: externalId,
-      customer: shipping?.name || so.email || "Shopify Customer",
-      phone: shipping?.phone || so.phone || "",
-      address: shipping?.address1 || "",
-      city: shipping?.city || "",
-      pincode: shipping?.zip || "",
-      weight: "",
-      courier: "Delhivery",
-      payment: so.financial_status === "paid" ? "Prepaid" : "COD",
-      status: normalizedStatus,
-      date: so.created_at.slice(0, 10),
-      awb: "",
-      amount: parseFloat(so.total_price) || 0,
-      products: so.line_items.map((li) => ({
-        name: li.title,
-        qty: li.quantity,
-        price: parseFloat(li.price),
-        sku: li.sku,
-        quantity: li.quantity,
-        discount: Number((li as unknown as { total_discount?: string | number }).total_discount ?? 0) || 0,
-        tax:
-          Array.isArray((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines)
-            ? ((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines || []).reduce(
-                (sum, t) => sum + (Number(t.price) || 0),
-                0
-              )
-            : 0,
-      })),
-      items: so.line_items.map((li, idx) => ({
-        name: li.title || "Item",
-        sku: li.sku || `SKU-${idx + 1}`,
-        quantity: li.quantity || 1,
-        qty: li.quantity || 1,
-        units: li.quantity || 1,
-        price: parseFloat(li.price) || 0,
-        sellingPrice: parseFloat(li.price) || 0,
-        amount: parseFloat(li.price) || 0,
-        discount: Number((li as unknown as { total_discount?: string | number }).total_discount ?? 0) || 0,
-        tax:
-          Array.isArray((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines)
-            ? ((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines || []).reduce(
-                (sum, t) => sum + (Number(t.price) || 0),
-                0
-              )
-            : 0,
-      })),
-      orderItems: so.line_items.map((li, idx) => ({
-        name: li.title || "Item",
-        sku: li.sku || `SKU-${idx + 1}`,
-        quantity: li.quantity || 1,
-        qty: li.quantity || 1,
-        units: li.quantity || 1,
-        price: parseFloat(li.price) || 0,
-        sellingPrice: parseFloat(li.price) || 0,
-        amount: parseFloat(li.price) || 0,
-        discount: Number((li as unknown as { total_discount?: string | number }).total_discount ?? 0) || 0,
-        tax:
-          Array.isArray((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines)
-            ? ((li as unknown as { tax_lines?: Array<{ price?: string | number }> }).tax_lines || []).reduce(
-                (sum, t) => sum + (Number(t.price) || 0),
-                0
-              )
-            : 0,
-      })),
-      shopifyLineItems: so.line_items,
-      createdBy: req.user!._id,
-      ownerUserId: req.user!._id,
-      channel: "Shopify",
-      externalSource: "shopify",
-      externalOrderName: so.name,
-      isJunk: false,
-      shipmentStatus: "pending",
+    const vendor =
+      req.user.role === "vendor" ? await Vendor.findOne({ userId: req.user._id }).select("_id").lean() : null;
+    const ctx: ShopifySyncUserContext = {
+      ownerUserId: req.user._id,
+      createdBy: req.user._id,
+      dropshipperId: req.user.role === "dropshipper" ? req.user._id : undefined,
+      vendorId: vendor?._id,
     };
 
-    const existing = await Order.findOne({
-      orderId: externalId,
-      $or: [{ createdBy: req.user!._id }, { ownerUserId: req.user!._id }],
-    });
-    if (existing) {
-      // Only update mutable fields, preserve fulfillment data
-      existing.createdBy = req.user!._id;
-      existing.ownerUserId = req.user!._id;
-      existing.amount = mapped.amount;
-      existing.products = mapped.products;
-      (existing as unknown as { items?: unknown[] }).items = mapped.items;
-      (existing as unknown as { orderItems?: unknown[] }).orderItems = mapped.orderItems;
-      (existing as unknown as { shopifyLineItems?: unknown[] }).shopifyLineItems = mapped.shopifyLineItems;
-      existing.payment = mapped.payment;
-      existing.status = normalizedStatus;
-      existing.isJunk = false;
-      if (!existing.shipmentStatus) {
-        existing.shipmentStatus = "pending";
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const so of shopOrders) {
+      try {
+        if (!so || typeof so.id !== "number") {
+          skipped++;
+          continue;
+        }
+        const externalId = shopifyExternalOrderId(conn.shopDomain, so.id);
+        const mapped = buildShopifyOrderPayload(conn.shopDomain, so, ctx);
+
+        const existing = await Order.findOne({
+          orderId: externalId,
+          $or: [{ createdBy: req.user!._id }, { ownerUserId: req.user!._id }, { dropshipperId: req.user!._id }],
+        });
+        if (existing) {
+          mergeShopifyPayloadIntoOrder(existing, mapped, Boolean(so.cancelled_at));
+          existing.createdBy = req.user!._id;
+          existing.ownerUserId = req.user!._id;
+          if (ctx.dropshipperId) existing.dropshipperId = ctx.dropshipperId;
+          if (ctx.vendorId) existing.vendorId = ctx.vendorId;
+          await existing.save();
+          updated++;
+        } else {
+          await Order.create(mapped);
+          inserted++;
+        }
+      } catch {
+        skipped++;
       }
-      existing.channel = "Shopify";
-      existing.externalSource = "shopify";
-      existing.externalOrderName = so.name;
-      await existing.save();
-      updated++;
-    } else {
-      await Order.create(mapped);
-      inserted++;
     }
+
+    conn.lastSyncedAt = new Date();
+    conn.lastSyncError =
+      skipped > 0 ? `${skipped} order(s) skipped due to mapping or save errors` : undefined;
+    conn.syncCount = (conn.syncCount ?? 0) + 1;
+    await conn.save();
+
+    res.json({
+      ok: true,
+      synced: shopOrders.length,
+      inserted,
+      updated,
+      skipped,
+      lastSyncedAt: conn.lastSyncedAt,
+      lastSyncError: conn.lastSyncError ?? null,
+    });
+  } finally {
+    syncInFlight.delete(lockKey);
   }
+});
 
-  // Update lastSyncedAt
-  conn.lastSyncedAt = new Date();
-  await conn.save();
+/** Admin: list all Shopify store connections (no tokens). */
+export const listConnectionsAdmin = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
 
+  const rows = await ShopifyStoreConnection.find().sort({ updatedAt: -1 }).lean();
   res.json({
-    ok: true,
-    synced: shopOrders.length,
-    inserted,
-    updated,
-    lastSyncedAt: conn.lastSyncedAt,
+    connections: rows.map((r) => ({
+      id: String(r._id),
+      ownerUserId: String(r.ownerUserId),
+      shopDomain: r.shopDomain,
+      role: r.role,
+      isActive: r.isActive,
+      scope: r.scope,
+      installedAt: r.installedAt,
+      lastSyncedAt: r.lastSyncedAt ?? null,
+      syncCount: r.syncCount ?? 0,
+      lastSyncError: r.lastSyncError ?? null,
+      disconnectedAt: r.disconnectedAt ?? null,
+    })),
   });
 });
+
+function verifyShopifyWebhookHmac(rawBody: Buffer, hmacHeader: string | undefined, secret: string): boolean {
+  if (!hmacHeader) return false;
+  const digest = createHmac("sha256", secret).update(rawBody).digest("base64");
+  try {
+    const a = Buffer.from(digest, "utf8");
+    const b = Buffer.from(hmacHeader, "utf8");
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+function webhookDeliveryId(raw: Buffer, topic: string, shopDomain: string, headerWebhookId: string): string {
+  const trimmed = headerWebhookId.trim();
+  if (trimmed) return `shopify-wh:${trimmed}`;
+  const h = createHash("sha256").update(raw).update(`|${topic}|${shopDomain}|`).digest("hex");
+  return `shopify-wh:noid-${h}`;
+}
+
+async function claimWebhookDelivery(
+  deliveryId: string,
+  topic: string,
+  shopDomain: string
+): Promise<"claimed" | "duplicate"> {
+  try {
+    await ShopifyWebhookReceipt.create({
+      deliveryId,
+      topic,
+      shopDomain,
+      expiresAt: defaultWebhookReceiptExpiry(),
+    });
+    return "claimed";
+  } catch (e: unknown) {
+    if (isMongoDuplicateKey(e)) return "duplicate";
+    throw e;
+  }
+}
+
+/** POST raw body — register before express.json in app.ts */
+export async function handleWebhook(req: Request, res: Response): Promise<void> {
+  const apiSecret = process.env.SHOPIFY_API_SECRET;
+  if (!apiSecret) {
+    res.status(503).send("Shopify not configured");
+    return;
+  }
+
+  const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
+  const topic = (req.get("X-Shopify-Topic") || "").toLowerCase();
+  const shopDomain = (req.get("X-Shopify-Shop-Domain") || "").toLowerCase().trim();
+  const headerWebhookId = req.get("X-Shopify-Webhook-Id") || "";
+
+  if (!Buffer.isBuffer(req.body)) {
+    res.status(400).send("Invalid body");
+    return;
+  }
+  const raw = req.body;
+
+  if (!verifyShopifyWebhookHmac(raw, hmacHeader, apiSecret)) {
+    res.status(401).send("Unauthorized");
+    return;
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(raw.toString("utf8")) as Record<string, unknown>;
+  } catch {
+    res.status(400).send("Invalid JSON");
+    return;
+  }
+
+  const deliveryId = webhookDeliveryId(raw, topic, shopDomain, headerWebhookId);
+
+  try {
+    if (topic === "app/uninstalled") {
+      const claimed = await claimWebhookDelivery(deliveryId, topic, shopDomain);
+      if (claimed === "duplicate") {
+        res.status(200).send("OK");
+        return;
+      }
+      try {
+        const domain =
+          shopDomain ||
+          String(payload.myshopify_domain || payload.domain || "")
+            .toLowerCase()
+            .trim();
+        if (domain) {
+          const revoked = encrypt("");
+          await ShopifyStoreConnection.updateMany(
+            { shopDomain: domain },
+            {
+              isActive: false,
+              disconnectedAt: new Date(),
+              lastSyncError: "app_uninstalled",
+              accessTokenEncrypted: revoked,
+            }
+          );
+        }
+        res.status(200).send("OK");
+      } catch (inner: unknown) {
+        await ShopifyWebhookReceipt.deleteOne({ deliveryId }).catch(() => undefined);
+        throw inner;
+      }
+      return;
+    }
+
+    const isOrderTopic =
+      topic === "orders/create" || topic === "orders/updated" || topic === "orders/cancelled";
+    if (!isOrderTopic) {
+      res.status(200).send("OK");
+      return;
+    }
+
+    const conn = await ShopifyStoreConnection.findOne({ shopDomain, isActive: true });
+    if (!conn) {
+      res.status(200).send("OK");
+      return;
+    }
+
+    const so = payload as unknown as ShopifyOrder;
+    if (!so?.id) {
+      res.status(200).send("OK");
+      return;
+    }
+
+    const ctx: ShopifySyncUserContext = {
+      ownerUserId: conn.ownerUserId,
+      createdBy: conn.ownerUserId,
+      dropshipperId: conn.role === "dropshipper" ? conn.ownerUserId : undefined,
+      vendorId:
+        conn.role === "vendor"
+          ? (await Vendor.findOne({ userId: conn.ownerUserId }).select("_id").lean())?._id
+          : undefined,
+    };
+    const mapped = buildShopifyOrderPayload(shopDomain || conn.shopDomain, so, ctx);
+    const externalId = String(mapped.orderId);
+    const cancelled = topic === "orders/cancelled" || Boolean(so.cancelled_at);
+
+    const existing = await Order.findOne({ orderId: externalId });
+    if (existing) {
+      const owned =
+        String(existing.ownerUserId ?? "") === String(conn.ownerUserId) ||
+        String(existing.createdBy ?? "") === String(conn.ownerUserId) ||
+        String(existing.dropshipperId ?? "") === String(conn.ownerUserId) ||
+        (conn.role === "vendor" &&
+          existing.vendorId &&
+          String(existing.vendorId) === String(ctx.vendorId ?? ""));
+      if (!owned) {
+        res.status(200).send("OK");
+        return;
+      }
+    } else if (cancelled) {
+      res.status(200).send("OK");
+      return;
+    }
+
+    const claimed = await claimWebhookDelivery(deliveryId, topic, shopDomain);
+    if (claimed === "duplicate") {
+      res.status(200).send("OK");
+      return;
+    }
+    const dedupeInserted = true;
+
+    try {
+      if (existing) {
+        mergeShopifyPayloadIntoOrder(existing, mapped, cancelled);
+        await existing.save();
+      } else {
+        await Order.create(mapped);
+      }
+      conn.lastSyncedAt = new Date();
+      await conn.save();
+      res.status(200).send("OK");
+    } catch (inner: unknown) {
+      if (dedupeInserted) {
+        await ShopifyWebhookReceipt.deleteOne({ deliveryId }).catch(() => undefined);
+      }
+      throw inner;
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "webhook_error";
+    console.error("[shopify] webhook failure", { topic, shopDomain, deliveryId, message: msg });
+    res.status(500).send("Error");
+  }
+}

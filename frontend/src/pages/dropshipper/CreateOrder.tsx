@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,11 @@ interface ProductLine {
 
 export default function CreateOrder() {
   const navigate = useNavigate();
-  const { data: pickupAddresses = [], isLoading: pickupsLoading } = usePickupAddresses();
+  const { data: pickupAddresses = [], isLoading: pickupsLoading, refetch: refetchPickups } = usePickupAddresses();
+  const selectablePickups = useMemo(
+    () => pickupAddresses.filter((a) => a.isActive !== false),
+    [pickupAddresses]
+  );
   const [paymentType, setPaymentType] = useState<"COD" | "Prepaid">("Prepaid");
   const [selectedCourier, setSelectedCourier] = useState("");
   const [selectedPickup, setSelectedPickup] = useState<string>("");
@@ -38,11 +42,25 @@ export default function CreateOrder() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (pickupAddresses.length && !selectedPickup) {
-      const def = pickupAddresses.find((a) => a.isDefault) || pickupAddresses[0];
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refetchPickups();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refetchPickups]);
+
+  useEffect(() => {
+    if (selectedPickup && !selectablePickups.some((a) => a.id === selectedPickup)) {
+      setSelectedPickup("");
+    }
+  }, [selectablePickups, selectedPickup]);
+
+  useEffect(() => {
+    if (selectablePickups.length && !selectedPickup) {
+      const def = selectablePickups.find((a) => a.isDefault) || selectablePickups[0];
       if (def) setSelectedPickup(def.id);
     }
-  }, [pickupAddresses, selectedPickup]);
+  }, [selectablePickups, selectedPickup]);
 
   // Form fields
   const [customerName, setCustomerName] = useState("");
@@ -81,14 +99,20 @@ export default function CreateOrder() {
   const addProduct = () => setProducts([...products, { name: "", qty: "1", weight: "0.2", price: "" }]);
   const removeProduct = (i: number) => setProducts(products.filter((_, idx) => idx !== i));
 
-  const generateAWB = () => `AWB${Date.now().toString().slice(-9)}`;
-
   const totalWeight = products.reduce((s, p) => s + (parseFloat(p.weight) || 0), 0);
   const totalAmount = parseFloat(invoiceValue) || products.reduce((s, p) => s + (parseFloat(p.price) || 0) * (parseInt(p.qty) || 1), 0);
 
   const handleSubmit = async () => {
-    if (!customerName || !phone || !address1 || !city || !pincode || !selectedCourier) {
-      toast.error("Please fill all required fields and select a courier");
+    if (!customerName || !phone || !address1 || !city || !state || !pincode || pincode.length !== 6) {
+      toast.error("Please complete customer, address, state, and a valid 6-digit pincode");
+      return;
+    }
+    if (!selectedPickup) {
+      toast.error("Please select a pickup address");
+      return;
+    }
+    if (!selectedCourier) {
+      toast.error("Please select a courier");
       return;
     }
     if (phoneError) {
@@ -99,50 +123,79 @@ export default function CreateOrder() {
       toast.error(altPhoneError);
       return;
     }
-    if (products.some(p => !p.name)) {
-      toast.error("Please fill product names");
+    if (products.some((p) => !p.name.trim())) {
+      toast.error("Each product needs a name");
       return;
     }
     if (altPhoneDuplicate) {
       toast.error("Alternate number cannot be same as primary number");
       return;
     }
+    const L = parseFloat(dimLength) || 0;
+    const W = parseFloat(dimWidth) || 0;
+    const H = parseFloat(dimHeight) || 0;
+    if (!(L > 0) || !(W > 0) || !(H > 0)) {
+      toast.error("Package length, width, and height (cm) are required and must be greater than 0");
+      return;
+    }
+    if (!(totalWeight > 0)) {
+      toast.error("Total weight must be greater than 0");
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const awb = generateAWB();
-      const dims = dimLength && dimWidth && dimHeight ? `${dimLength}x${dimWidth}x${dimHeight} cm` : "";
-      const pickupAddr = pickupAddresses.find((a) => a.id === selectedPickup);
+      const dims = `${L}x${W}x${H} cm`;
       const fullPhone = `${countryCode}${phone}`;
+      const cod = paymentType === "COD" ? parseFloat(codAmount) || totalAmount : undefined;
+      const amountFinal = paymentType === "COD" ? cod ?? totalAmount : totalAmount;
 
       const orderData: Record<string, unknown> = {
         ...(orderRef.trim() ? { orderId: orderRef.trim() } : {}),
         customer: customerName,
         phone: fullPhone,
+        pickupAddressId: selectedPickup,
+        shippingAddress1: address1,
+        shippingAddress2: address2,
+        shippingCity: city,
+        shippingState: state,
+        shippingPincode: pincode.replace(/\D/g, "").slice(0, 6),
         address: [address1, address2].filter(Boolean).join(", "),
         city,
-        pincode,
-        weight: `${totalWeight.toFixed(1)} kg`,
+        state,
+        pincode: pincode.replace(/\D/g, "").slice(0, 6),
+        weight: `${totalWeight.toFixed(2)}`,
+        length: L,
+        width: W,
+        height: H,
         courier: selectedCourier,
         payment: paymentType,
-        status: "ready-to-ship",
+        status: "ready_to_ship",
         date: new Date().toISOString().split("T")[0],
-        awb,
-        amount: totalAmount,
+        awb: "",
+        amount: amountFinal,
         products: products.map((p) => ({
-          name: p.name,
-          qty: parseInt(p.qty) || 1,
+          name: p.name.trim(),
+          qty: parseInt(p.qty, 10) || 1,
           price: parseFloat(p.price) || 0,
           weight: p.weight,
         })),
+        orderItems: products.map((p) => ({
+          name: p.name.trim(),
+          quantity: parseInt(p.qty, 10) || 1,
+          qty: parseInt(p.qty, 10) || 1,
+          price: parseFloat(p.price) || 0,
+        })),
         dimensions: dims,
         zone: "B",
-        pickupAddress: pickupAddr ? pickupAddr.label : "",
+        channel: "Manual",
+        sourceType: "manual",
+        customerPhone: fullPhone,
       };
 
-      const created = (await orderService.createOrder(orderData)) as { id?: string; orderId?: string };
-      const orderId = String(created.id ?? created.orderId ?? orderRef ?? "—");
-      toast.success(`Order ${orderId} created!`, { description: `AWB: ${awb} · Status: Ready to Ship` });
+      const created = await orderService.createOrder(orderData);
+      const oid = String(created.id ?? orderRef ?? "—");
+      toast.success(`Order ${oid} created`, { description: "Ready to ship — complete processing from Orders." });
       navigate("/dropshipper/orders");
     } catch (err: unknown) {
       toast.error("Failed to create order", { description: err instanceof Error ? err.message : "Unknown error" });
@@ -163,25 +216,34 @@ export default function CreateOrder() {
         ...(orderRef.trim() ? { orderId: orderRef.trim() } : {}),
         customer: customerName,
         phone: fullPhone,
+        ...(selectedPickup ? { pickupAddressId: selectedPickup } : {}),
+        shippingAddress1: address1,
+        shippingAddress2: address2,
+        shippingCity: city,
+        shippingState: state,
+        shippingPincode: pincode.replace(/\D/g, "").slice(0, 6),
         address: [address1, address2].filter(Boolean).join(", "),
         city,
-        pincode,
-        weight: `${totalWeight.toFixed(1)} kg`,
+        state,
+        pincode: pincode.replace(/\D/g, "").slice(0, 6),
+        weight: `${Math.max(totalWeight, 0.1).toFixed(2)}`,
         courier: selectedCourier || "Delhivery",
         payment: paymentType,
         status: "draft",
         date: new Date().toISOString().split("T")[0],
         awb: "",
         amount: totalAmount,
-        products: products.filter((p) => p.name).map((p) => ({
-          name: p.name,
-          qty: parseInt(p.qty) || 1,
+        products: products.filter((p) => p.name.trim()).map((p) => ({
+          name: p.name.trim(),
+          qty: parseInt(p.qty, 10) || 1,
           price: parseFloat(p.price) || 0,
           weight: p.weight,
         })),
+        channel: "Manual",
+        sourceType: "manual",
       };
-      const created = (await orderService.createOrder(orderData)) as { id?: string; orderId?: string };
-      const orderId = String(created.id ?? created.orderId ?? "draft");
+      const created = await orderService.createOrder(orderData);
+      const orderId = String(created.id ?? "draft");
       toast.success(`Draft ${orderId} saved`);
       navigate("/dropshipper/orders");
     } catch (err: unknown) {
@@ -203,17 +265,39 @@ export default function CreateOrder() {
             </h3>
             {pickupsLoading && <p className="text-sm text-text-muted">Loading addresses…</p>}
             {!pickupsLoading && pickupAddresses.length === 0 && (
-              <p className="text-sm text-text-muted">Add a pickup address in settings first.</p>
+              <div className="rounded-lg border border-dashed border-border p-4 text-center space-y-2">
+                <p className="text-sm text-text-muted">You need at least one pickup address to submit an order.</p>
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/dropshipper/pickup-addresses">Add Pickup Address</Link>
+                </Button>
+              </div>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {pickupAddresses.map((a: PickupAddress) => (
-                <button key={a.id} onClick={() => setSelectedPickup(a.id)}
-                  className={cn("rounded-lg border-2 p-3 text-left transition-all text-sm",
-                    selectedPickup === a.id ? "border-primary bg-primary-light" : "border-border hover:border-primary/30"
-                  )}>
+            {!pickupsLoading && pickupAddresses.length > 0 && selectablePickups.length === 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-center space-y-2">
+                <p className="text-sm text-text-secondary">All pickup addresses are inactive. Activate one or add a new address.</p>
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/dropshipper/pickup-addresses">Manage pickup addresses</Link>
+                </Button>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2" role="list">
+              {selectablePickups.map((a: PickupAddress) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  role="listitem"
+                  aria-pressed={selectedPickup === a.id}
+                  onClick={() => setSelectedPickup(a.id)}
+                  className={cn(
+                    "rounded-lg border-2 p-3 text-left transition-all text-sm",
+                    selectedPickup === a.id ? "border-primary bg-primary-light ring-2 ring-primary/20" : "border-border hover:border-primary/30"
+                  )}
+                >
                   <p className="font-medium text-text-primary">{a.label}</p>
-                  <p className="text-xs text-text-muted mt-0.5">{a.city}, {a.pincode}</p>
-                  {a.isDefault && <span className="text-[10px] text-primary font-medium">Default</span>}
+                  <p className="text-xs text-text-muted mt-0.5">
+                    {a.city}, {a.state} · {a.pincode}
+                  </p>
+                  {a.isDefault && <span className="mt-1 inline-block text-[10px] text-primary font-medium">Default</span>}
                 </button>
               ))}
             </div>
@@ -324,7 +408,7 @@ export default function CreateOrder() {
 
             {/* Dimensions */}
             <div className="border-t border-border pt-4 mt-4">
-              <Label className="text-sm font-semibold mb-2 block">Package Dimensions (optional)</Label>
+              <Label className="text-sm font-semibold mb-2 block">Package Dimensions (cm) — required to ship</Label>
               <div className="grid grid-cols-3 gap-2">
                 <div><Label className="text-xs">Length (cm)</Label><Input placeholder="10" type="number" value={dimLength} onChange={e => setDimLength(e.target.value)} /></div>
                 <div><Label className="text-xs">Width (cm)</Label><Input placeholder="8" type="number" value={dimWidth} onChange={e => setDimWidth(e.target.value)} /></div>
@@ -376,7 +460,11 @@ export default function CreateOrder() {
             )}
 
             <div className="border-t border-border mt-4 pt-4 space-y-2">
-              <Button className="w-full bg-primary text-primary-foreground hover:bg-primary-dark" disabled={!selectedCourier || submitting} onClick={handleSubmit}>
+              <Button
+                className="w-full bg-primary text-primary-foreground hover:bg-primary-dark"
+                disabled={!selectedCourier || !selectedPickup || submitting || selectablePickups.length === 0}
+                onClick={handleSubmit}
+              >
                 {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
                 Submit & Generate AWB
               </Button>

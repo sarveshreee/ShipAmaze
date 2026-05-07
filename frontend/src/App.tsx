@@ -19,7 +19,6 @@ import { useCartSync } from "@/hooks/useCartSync";
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminOrders from "@/pages/admin/AdminOrders";
 import AdminNDR from "@/pages/admin/AdminNDR";
-import AdminCatalogue from "@/pages/admin/AdminCatalogue";
 import AdminRates from "@/pages/admin/AdminRates";
 import AdminCouriers from "@/pages/admin/AdminCouriers";
 import AdminDropshippers from "@/pages/admin/AdminDropshippers";
@@ -59,7 +58,6 @@ import DropshipperReturns from "@/pages/dropshipper/DropshipperReturns";
 import DropshipperNDR from "@/pages/dropshipper/DropshipperNDR";
 import DropshipperWeightDisputes from "@/pages/dropshipper/DropshipperWeightDisputes";
 import DropshipperPickupAddresses from "@/pages/dropshipper/DropshipperPickupAddresses";
-
 // Supplier (shared across all roles)
 import SourceProduct from "@/pages/supplier/SourceProduct";
 import ProductsPage from "@/pages/supplier/ProductsPage";
@@ -67,106 +65,148 @@ import VendorProducts from "@/pages/vendor/VendorProducts";
 import NewProductRequest from "@/pages/supplier/NewProductRequest";
 import BulkUploadProducts from "@/pages/supplier/BulkUploadProducts";
 import ChangePassword from "@/pages/ChangePassword";
+import ProfilePage from "@/pages/ProfilePage";
+import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 
 // Marketplace (Home)
 import MarketplaceHome from "@/pages/marketplace/MarketplaceHome";
 import MarketplaceProductDetail from "@/pages/marketplace/MarketplaceProductDetail";
 
+import type { UserRole } from "@/services/authService";
+import { roleDashboardPath } from "@/services/authService";
 
+function AuthLoadingScreen() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-background">
+      <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+    </div>
+  );
+}
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return <div className="flex h-screen items-center justify-center bg-background"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>;
+function RoleProtectedRoute({ children, allow }: { children: React.ReactNode; allow: UserRole[] }) {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  if (isLoading) return <AuthLoadingScreen />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!user || !allow.includes(user.role)) {
+    return <Navigate to={roleDashboardPath(user?.role ?? "admin")} replace />;
+  }
   return <AppLayout>{children}</AppLayout>;
 }
 
+function LoginGate() {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  if (isLoading) return <AuthLoadingScreen />;
+  if (isAuthenticated && user) return <Navigate to={roleDashboardPath(user.role)} replace />;
+  return <LoginPage />;
+}
+
+function SignupGate() {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  if (isLoading) return <AuthLoadingScreen />;
+  if (isAuthenticated && user) return <Navigate to={roleDashboardPath(user.role)} replace />;
+  return <SignupPage />;
+}
+
 function AppRoutes() {
-  const { isAuthenticated, role } = useAuth();
   useCartSync();
 
   return (
     <Routes>
       <Route path="/store" element={<ShopifyStore />} />
-      <Route path="/login" element={isAuthenticated ? <Navigate to={role === "dropshipper" ? "/dropshipper/home" : `/${role}`} replace /> : <LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
+      <Route path="/login" element={<LoginGate />} />
+      <Route path="/signup" element={<SignupGate />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/track" element={<PublicTracking />} />
       <Route path="/order-detail" element={<PublicOrderDetail />} />
       <Route path="/product-preview" element={<ProductPreview />} />
 
       {/* Admin */}
-      <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
-      <Route path="/admin/orders" element={<ProtectedRoute><AdminOrders /></ProtectedRoute>} />
-      <Route path="/admin/ndr" element={<ProtectedRoute><AdminNDR /></ProtectedRoute>} />
-      <Route path="/admin/returns" element={<ProtectedRoute><AdminReturns /></ProtectedRoute>} />
-      <Route path="/admin/manifests" element={<ProtectedRoute><AdminManifests /></ProtectedRoute>} />
-      <Route path="/admin/catalogue" element={<ProtectedRoute><AdminCatalogue /></ProtectedRoute>} />
-      <Route path="/admin/rates" element={<ProtectedRoute><AdminRates /></ProtectedRoute>} />
-      <Route path="/admin/couriers" element={<ProtectedRoute><AdminCouriers /></ProtectedRoute>} />
-      <Route path="/admin/dropshippers" element={<ProtectedRoute><AdminDropshippers /></ProtectedRoute>} />
-      <Route path="/admin/vendors" element={<ProtectedRoute><AdminVendors /></ProtectedRoute>} />
-      <Route path="/admin/pincode" element={<ProtectedRoute><AdminPincode /></ProtectedRoute>} />
-      <Route path="/admin/finance" element={<ProtectedRoute><AdminFinance /></ProtectedRoute>} />
-      <Route path="/admin/billing" element={<ProtectedRoute><AdminBilling /></ProtectedRoute>} />
-      <Route path="/admin/weight-disputes" element={<ProtectedRoute><AdminWeightDisputes /></ProtectedRoute>} />
-      <Route path="/admin/analytics" element={<ProtectedRoute><AdminAnalytics /></ProtectedRoute>} />
-      <Route path="/admin/reports" element={<ProtectedRoute><AdminReports /></ProtectedRoute>} />
-      <Route path="/admin/support" element={<ProtectedRoute><AdminSupport /></ProtectedRoute>} />
-      <Route path="/admin/settings" element={<ProtectedRoute><AdminSettings /></ProtectedRoute>} />
-      <Route path="/admin/permissions" element={<ProtectedRoute><AdminPermissions /></ProtectedRoute>} />
+      <Route path="/admin/dashboard" element={<RoleProtectedRoute allow={["admin"]}><AdminDashboard /></RoleProtectedRoute>} />
+      <Route path="/admin/orders" element={<RoleProtectedRoute allow={["admin"]}><AdminOrders /></RoleProtectedRoute>} />
+      <Route path="/admin/ndr" element={<RoleProtectedRoute allow={["admin"]}><AdminNDR /></RoleProtectedRoute>} />
+      <Route path="/admin/returns" element={<RoleProtectedRoute allow={["admin"]}><AdminReturns /></RoleProtectedRoute>} />
+      <Route path="/admin/manifests" element={<RoleProtectedRoute allow={["admin"]}><AdminManifests /></RoleProtectedRoute>} />
+      <Route path="/admin/catalogue" element={<RoleProtectedRoute allow={["admin"]}><Navigate to="/admin/dashboard" replace /></RoleProtectedRoute>} />
+      <Route path="/admin/rates" element={<RoleProtectedRoute allow={["admin"]}><AdminRates /></RoleProtectedRoute>} />
+      <Route path="/admin/couriers" element={<RoleProtectedRoute allow={["admin"]}><AdminCouriers /></RoleProtectedRoute>} />
+      <Route path="/admin/dropshippers" element={<RoleProtectedRoute allow={["admin"]}><AdminDropshippers /></RoleProtectedRoute>} />
+      <Route path="/admin/vendors" element={<RoleProtectedRoute allow={["admin"]}><AdminVendors /></RoleProtectedRoute>} />
+      <Route path="/admin/pincode" element={<RoleProtectedRoute allow={["admin"]}><AdminPincode /></RoleProtectedRoute>} />
+      <Route path="/admin/finance" element={<RoleProtectedRoute allow={["admin"]}><AdminFinance /></RoleProtectedRoute>} />
+      <Route path="/admin/billing" element={<RoleProtectedRoute allow={["admin"]}><AdminBilling /></RoleProtectedRoute>} />
+      <Route path="/admin/weight-disputes" element={<RoleProtectedRoute allow={["admin"]}><AdminWeightDisputes /></RoleProtectedRoute>} />
+      <Route path="/admin/analytics" element={<RoleProtectedRoute allow={["admin"]}><AdminAnalytics /></RoleProtectedRoute>} />
+      <Route path="/admin/reports" element={<RoleProtectedRoute allow={["admin"]}><AdminReports /></RoleProtectedRoute>} />
+      <Route path="/admin/support" element={<RoleProtectedRoute allow={["admin"]}><AdminSupport /></RoleProtectedRoute>} />
+      <Route path="/admin/settings" element={<RoleProtectedRoute allow={["admin"]}><AdminSettings /></RoleProtectedRoute>} />
+      <Route path="/admin/permissions" element={<RoleProtectedRoute allow={["admin"]}><AdminPermissions /></RoleProtectedRoute>} />
+      <Route path="/admin/profile" element={<RoleProtectedRoute allow={["admin"]}><ProfilePage /></RoleProtectedRoute>} />
+      <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
 
       {/* Vendor */}
-      <Route path="/vendor" element={<ProtectedRoute><VendorDashboard /></ProtectedRoute>} />
-      <Route path="/vendor/orders" element={<ProtectedRoute><VendorOrders /></ProtectedRoute>} />
-      <Route path="/vendor/catalogue" element={<ProtectedRoute><VendorCatalogue /></ProtectedRoute>} />
-      <Route path="/vendor/team" element={<ProtectedRoute><VendorTeam /></ProtectedRoute>} />
-      <Route path="/vendor/settings" element={<ProtectedRoute><VendorSettings /></ProtectedRoute>} />
-      <Route path="/vendor/payouts" element={<ProtectedRoute><VendorPayouts /></ProtectedRoute>} />
-      <Route path="/vendor/warehouse" element={<ProtectedRoute><VendorWarehouse /></ProtectedRoute>} />
+      <Route path="/vendor/dashboard" element={<RoleProtectedRoute allow={["vendor"]}><VendorDashboard /></RoleProtectedRoute>} />
+      <Route path="/vendor/orders" element={<RoleProtectedRoute allow={["vendor"]}><VendorOrders /></RoleProtectedRoute>} />
+      <Route path="/vendor/catalogue" element={<RoleProtectedRoute allow={["vendor"]}><VendorCatalogue /></RoleProtectedRoute>} />
+      <Route path="/vendor/team" element={<RoleProtectedRoute allow={["vendor"]}><VendorTeam /></RoleProtectedRoute>} />
+      <Route path="/vendor/settings" element={<RoleProtectedRoute allow={["vendor"]}><VendorSettings /></RoleProtectedRoute>} />
+      <Route path="/vendor/payouts" element={<RoleProtectedRoute allow={["vendor"]}><VendorPayouts /></RoleProtectedRoute>} />
+      <Route path="/vendor/warehouse" element={<RoleProtectedRoute allow={["vendor"]}><VendorWarehouse /></RoleProtectedRoute>} />
+      <Route path="/vendor/profile" element={<RoleProtectedRoute allow={["vendor"]}><ProfilePage /></RoleProtectedRoute>} />
+      <Route path="/vendor" element={<Navigate to="/vendor/dashboard" replace />} />
 
       {/* Dropshipper */}
-      <Route path="/dropshipper" element={<ProtectedRoute><DropshipperDashboard /></ProtectedRoute>} />
-      <Route path="/dropshipper/orders" element={<ProtectedRoute><DropshipperOrders /></ProtectedRoute>} />
-      <Route path="/dropshipper/create-order" element={<ProtectedRoute><CreateOrder /></ProtectedRoute>} />
-      <Route path="/dropshipper/add-order" element={<ProtectedRoute><AddOrder /></ProtectedRoute>} />
-      <Route path="/dropshipper/bulk-upload" element={<ProtectedRoute><BulkUpload /></ProtectedRoute>} />
-      <Route path="/dropshipper/channels" element={<ProtectedRoute><ChannelConnect /></ProtectedRoute>} />
-      <Route path="/dropshipper/wallet" element={<ProtectedRoute><DropshipperWallet /></ProtectedRoute>} />
-      <Route path="/dropshipper/rates" element={<ProtectedRoute><DropshipperRates /></ProtectedRoute>} />
-      <Route path="/dropshipper/returns" element={<ProtectedRoute><DropshipperReturns /></ProtectedRoute>} />
-      <Route path="/dropshipper/ndr" element={<ProtectedRoute><DropshipperNDR /></ProtectedRoute>} />
-      <Route path="/dropshipper/weight-disputes" element={<ProtectedRoute><DropshipperWeightDisputes /></ProtectedRoute>} />
-      <Route path="/dropshipper/addresses" element={<Navigate to="/dropshipper/home" replace />} />
-      <Route path="/dropshipper/pickup-addresses" element={<Navigate to="/dropshipper/home" replace />} />
-      <Route path="/dropshipper/tracking" element={<ProtectedRoute><PublicTracking /></ProtectedRoute>} />
-      <Route path="/dropshipper/settings" element={<ProtectedRoute><DropshipperSettings /></ProtectedRoute>} />
+      <Route path="/dropshipper/dashboard" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperDashboard /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/orders" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperOrders /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/create-order" element={<RoleProtectedRoute allow={["dropshipper"]}><CreateOrder /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/add-order" element={<RoleProtectedRoute allow={["dropshipper"]}><AddOrder /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/bulk-upload" element={<RoleProtectedRoute allow={["dropshipper"]}><BulkUpload /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/channels" element={<RoleProtectedRoute allow={["dropshipper"]}><ChannelConnect /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/wallet" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWallet /></RoleProtectedRoute>} />
+      <Route path="/vendor/wallet" element={<RoleProtectedRoute allow={["vendor"]}><DropshipperWallet /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/rates" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperRates /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/returns" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperReturns /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/ndr" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperNDR /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/weight-disputes" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWeightDisputes /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/addresses" element={<Navigate to="/dropshipper/pickup-addresses" replace />} />
+      <Route
+        path="/dropshipper/pickup-addresses"
+        element={
+          <RoleProtectedRoute allow={["dropshipper"]}>
+            <DropshipperPickupAddresses />
+          </RoleProtectedRoute>
+        }
+      />
+      <Route path="/dropshipper/tracking" element={<RoleProtectedRoute allow={["dropshipper"]}><PublicTracking /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/settings" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperSettings /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/profile" element={<RoleProtectedRoute allow={["dropshipper"]}><ProfilePage /></RoleProtectedRoute>} />
+      <Route path="/dropshipper" element={<Navigate to="/dropshipper/dashboard" replace />} />
 
       {/* Supplier Product module — available in all role areas */}
       {(["admin","vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-supplier`} path={`/${r}/source-product`} element={<ProtectedRoute><SourceProduct /></ProtectedRoute>} />
+        <Route key={`${r}-supplier`} path={`/${r}/source-product`} element={<RoleProtectedRoute allow={[r]}><SourceProduct /></RoleProtectedRoute>} />
       ))}
       {/* Vendor uses dedicated table-based My Products view */}
-      <Route path="/vendor/products" element={<ProtectedRoute><VendorProducts /></ProtectedRoute>} />
+      <Route path="/vendor/products" element={<RoleProtectedRoute allow={["vendor"]}><VendorProducts /></RoleProtectedRoute>} />
       {(["admin","dropshipper"] as const).map(r => (
-        <Route key={`${r}-products`} path={`/${r}/products`} element={<ProtectedRoute><ProductsPage /></ProtectedRoute>} />
+        <Route key={`${r}-products`} path={`/${r}/products`} element={<RoleProtectedRoute allow={[r]}><ProductsPage /></RoleProtectedRoute>} />
       ))}
       {(["admin","vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-requests`} path={`/${r}/product-requests`} element={<ProtectedRoute><NewProductRequest /></ProtectedRoute>} />
+        <Route key={`${r}-requests`} path={`/${r}/product-requests`} element={<RoleProtectedRoute allow={[r]}><NewProductRequest /></RoleProtectedRoute>} />
       ))}
       {(["admin","vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-bulk-products`} path={`/${r}/bulk-upload-products`} element={<ProtectedRoute><BulkUploadProducts /></ProtectedRoute>} />
+        <Route key={`${r}-bulk-products`} path={`/${r}/bulk-upload-products`} element={<RoleProtectedRoute allow={[r]}><BulkUploadProducts /></RoleProtectedRoute>} />
       ))}
 
       {/* Marketplace Home — available across roles */}
       {(["admin","vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-home`} path={`/${r}/home`} element={<ProtectedRoute><MarketplaceHome /></ProtectedRoute>} />
+        <Route key={`${r}-home`} path={`/${r}/home`} element={<RoleProtectedRoute allow={[r]}><MarketplaceHome /></RoleProtectedRoute>} />
       ))}
       {(["admin","vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-home-pdp`} path={`/${r}/home/product/:id`} element={<ProtectedRoute><MarketplaceProductDetail /></ProtectedRoute>} />
+        <Route key={`${r}-home-pdp`} path={`/${r}/home/product/:id`} element={<RoleProtectedRoute allow={[r]}><MarketplaceProductDetail /></RoleProtectedRoute>} />
       ))}
 
       {(["admin","vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-change-password`} path={`/${r}/change-password`} element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
+        <Route key={`${r}-change-password`} path={`/${r}/change-password`} element={<RoleProtectedRoute allow={[r]}><ChangePassword /></RoleProtectedRoute>} />
       ))}
 
       <Route path="/" element={<Navigate to="/login" replace />} />

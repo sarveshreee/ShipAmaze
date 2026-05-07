@@ -1,18 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Truck, Package, MapPin, ArrowRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import type { UserRole } from "@/services/authService";
-
-const redirectMap: Record<UserRole, string> = {
-  admin: "/admin",
-  vendor: "/vendor",
-  dropshipper: "/dropshipper/home",
-};
+import { roleDashboardPath } from "@/services/authService";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -25,20 +19,25 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!email || !password) {
-      toast.error("Please enter email and password");
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      toast.error(!trimmedEmail ? "Please enter your email" : "Please enter your password");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast.error("Please enter a valid email address");
       return;
     }
 
     setLoading(true);
-    const { error, user } = await loginWithEmail(email, password);
+    const { error, user } = await loginWithEmail(trimmedEmail, password);
     setLoading(false);
 
     if (error) {
       toast.error(error);
     } else if (user) {
       toast.success("Logged in successfully!");
-      navigate(redirectMap[user.role]);
+      navigate(roleDashboardPath(user.role), { replace: true });
     }
   };
 
@@ -112,7 +111,12 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="password">Password</Label>
+                <Link to="/forgot-password" className="text-xs text-primary font-medium hover:underline shrink-0">
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Input
                   id="password"

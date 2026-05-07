@@ -23,14 +23,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AddFundsModal } from "@/components/AddFundsModal";
-import { ProfileEditModal } from "@/components/ProfileEditModal";
 import type { UserRole } from "@/services/authService";
 
 interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; }
 interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[]; }
 
 const adminNav: NavGroup[] = [
-  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/admin" }] },
+  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" }] },
   { title: "ORDERS", items: [
     { label: "Orders", icon: Package, path: "/admin/orders" },
     { label: "NDR Management", icon: AlertTriangle, path: "/admin/ndr" },
@@ -44,7 +43,6 @@ const adminNav: NavGroup[] = [
     { label: "New Product Request", icon: ClipboardList, path: "/admin/product-requests" },
   ]},
   { title: "MANAGEMENT", items: [
-    { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue" },
     { label: "Rates & Shipping", icon: Calculator, path: "/admin/rates" },
     { label: "Couriers", icon: Truck, path: "/admin/couriers" },
     { label: "Dropshippers", icon: Users, path: "/admin/dropshippers" },
@@ -63,13 +61,14 @@ const adminNav: NavGroup[] = [
     { label: "Support", icon: Headphones, path: "/admin/support" },
   ]},
   { title: "", items: [
+    { label: "Profile", icon: User, path: "/admin/profile" },
     { label: "Change Password", icon: Shield, path: "/admin/change-password" },
     { label: "Settings", icon: Settings, path: "/admin/settings" },
   ]},
 ];
 
 const vendorNav: NavGroup[] = [
-  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/vendor", tabKey: "dashboard" }] },
+  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/vendor/dashboard", tabKey: "dashboard" }] },
   { title: "SUPPLIER", items: [
     { label: "Add a Product", icon: Plus, path: "/vendor/source-product", tabKey: "source-product" },
     { label: "Products", icon: ShoppingBag, path: "/vendor/products", tabKey: "products" },
@@ -78,14 +77,20 @@ const vendorNav: NavGroup[] = [
   ]},
   { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders", tabKey: "orders" }] },
   { title: "LOGISTICS", items: [{ label: "Warehouse", icon: Warehouse, path: "/vendor/warehouse", tabKey: "warehouse" }] },
-  { title: "FINANCE", items: [{ label: "Payouts", icon: Wallet, path: "/vendor/payouts", tabKey: "payouts" }] },
+  { title: "FINANCE", items: [
+    { label: "Wallet", icon: Wallet, path: "/vendor/wallet", tabKey: "wallet" },
+    { label: "Payouts", icon: IndianRupee, path: "/vendor/payouts", tabKey: "payouts" },
+  ]},
   
-  { title: "", items: [{ label: "Change Password", icon: Shield, path: "/vendor/change-password", tabKey: "change-password" }] },
+  { title: "", items: [
+    { label: "Profile", icon: User, path: "/vendor/profile" },
+    { label: "Change Password", icon: Shield, path: "/vendor/change-password", tabKey: "change-password" },
+  ]},
 ];
 
 const dropshipperNav: NavGroup[] = [
   { title: "MARKETPLACE", items: [{ label: "Home", icon: Home, path: "/dropshipper/home", tabKey: "home" }] },
-  { title: "OVERVIEW", items: [{ label: "Analytics", icon: LayoutDashboard, path: "/dropshipper", tabKey: "dashboard" }] },
+  { title: "OVERVIEW", items: [{ label: "Analytics", icon: LayoutDashboard, path: "/dropshipper/dashboard", tabKey: "dashboard" }] },
   { title: "ORDERS", items: [
     { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", children: [
       { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", shortcut: "G+O" },
@@ -104,6 +109,7 @@ const dropshipperNav: NavGroup[] = [
     { label: "Weight Disputes", icon: Scale, path: "/dropshipper/weight-disputes", tabKey: "weight-disputes" },
   ]},
   { title: "", items: [
+    { label: "Profile", icon: User, path: "/dropshipper/profile" },
     { label: "Track Shipment", icon: Truck, path: "/dropshipper/tracking", tabKey: "tracking" },
     { label: "Settings", icon: Settings, path: "/dropshipper/settings", tabKey: "settings" },
   ]},
@@ -117,7 +123,12 @@ function settingsPathForRole(role: UserRole) {
   return "/dropshipper/settings";
 }
 
+function profilePathForRole(role: UserRole) {
+  return `/${role}/profile`;
+}
+
 function walletPagePath(role: UserRole) {
+  if (role === "vendor") return "/vendor/wallet";
   if (role === "dropshipper") return "/dropshipper/wallet";
   if (role === "vendor") return "/vendor/payouts";
   return "/admin/finance";
@@ -132,10 +143,9 @@ function formatInrTop(n: number) {
 }
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { role, userName, logout, user, applyUser } = useAuth();
+  const { role, userName, logout, user } = useAuth();
   const { data: walletSummary, isLoading: walletLoading } = useWalletSummary();
   const [addFundsOpen, setAddFundsOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
   const [walletPopoverOpen, setWalletPopoverOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { isTabEnabled } = useTabPermissions();
@@ -185,7 +195,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const onLogoutClick = () => {
     logout();
-    navigate("/login");
   };
 
   // Listen for sidebar toggle events from child components
@@ -205,7 +214,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         sidebarCollapsed && "lg:w-0 lg:overflow-hidden lg:opacity-0"
       )}>
         <div className="flex h-[60px] items-center gap-2 px-5 border-b border-sidebar-border">
-          <Link to={role === "dropshipper" ? "/dropshipper/home" : `/${role}`} className="flex items-center gap-2 min-w-0 flex-1">
+          <Link
+            to={role === "dropshipper" ? "/dropshipper/home" : role === "admin" ? "/admin/dashboard" : "/vendor/dashboard"}
+            className="flex items-center gap-2 min-w-0 flex-1"
+          >
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
               <Package className="h-4 w-4 text-sidebar-primary-foreground" />
             </div>
@@ -306,7 +318,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <p className="truncate text-xs text-muted-foreground">{user?.email ?? ""}</p>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setProfileOpen(true)}>
+              <DropdownMenuItem onSelect={() => navigate(profilePathForRole(role))}>
                 <User className="h-4 w-4 mr-2" />
                 Profile
               </DropdownMenuItem>
@@ -433,7 +445,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <p className="truncate text-xs text-muted-foreground">{user?.email ?? ""}</p>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setProfileOpen(true)}>
+              <DropdownMenuItem onSelect={() => navigate(profilePathForRole(role))}>
                 <User className="h-4 w-4 mr-2" />
                 Profile
               </DropdownMenuItem>
@@ -458,7 +470,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <MobileBottomNav />
       <CommandPalette />
       <AddFundsModal open={addFundsOpen} onOpenChange={setAddFundsOpen} />
-      <ProfileEditModal open={profileOpen} onOpenChange={setProfileOpen} user={user} onSaved={applyUser} />
     </div>
   );
 }

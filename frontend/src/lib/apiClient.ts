@@ -35,6 +35,19 @@ async function parseBody(res: Response): Promise<unknown> {
   }
 }
 
+function shouldAttachAuthToken(path: string): boolean {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  if (
+    p === "/auth/login" ||
+    p === "/auth/register" ||
+    p === "/auth/forgot-password" ||
+    p === "/auth/reset-password"
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export async function apiRequest<T>(
   path: string,
   init: RequestInit & { json?: unknown } = {}
@@ -46,8 +59,8 @@ export async function apiRequest<T>(
   };
 
   const token = getStoredToken();
-  const hadToken = !!token;
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const hadToken = !!(token && shouldAttachAuthToken(path));
+  if (token && shouldAttachAuthToken(path)) headers.Authorization = `Bearer ${token}`;
 
   if (init.json !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -61,15 +74,21 @@ export async function apiRequest<T>(
   if (res.status === 401 && hadToken) {
     setStoredToken(null);
     window.dispatchEvent(new CustomEvent("shipamaze:unauthorized"));
+    const pathOnly = window.location.pathname;
+    if (!/^\/(login|signup|forgot-password)(\/|$)/i.test(pathOnly)) {
+      window.location.replace(`${window.location.origin}/login`);
+    }
   }
 
   const data = await parseBody(res);
 
   if (!res.ok) {
-    const msg =
-      typeof data === "object" && data !== null && "error" in data
-        ? String((data as { error: string }).error)
-        : res.statusText || "Request failed";
+    let msg = res.statusText || "Request failed";
+    if (typeof data === "object" && data !== null) {
+      const o = data as { message?: string; error?: string };
+      if (typeof o.message === "string" && o.message.trim()) msg = o.message;
+      else if (typeof o.error === "string" && o.error.trim()) msg = o.error;
+    }
     throw new ApiError(res.status, msg, data);
   }
 

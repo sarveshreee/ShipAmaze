@@ -2,6 +2,11 @@ import { apiClient, setStoredToken } from "@/lib/apiClient";
 
 export type UserRole = "admin" | "vendor" | "dropshipper";
 
+/** Post-login home path for each role (used for redirects and guards). */
+export function roleDashboardPath(role: UserRole): string {
+  return `/${role}/dashboard`;
+}
+
 export interface AuthUser {
   id: string;
   name: string;
@@ -43,7 +48,7 @@ export async function logout() {
 }
 
 export async function getCurrentUser() {
-  return apiClient.get<{ user: AuthUser }>("/auth/me");
+  return apiClient.get<{ user: AuthUser }>("/auth/profile");
 }
 
 export async function updateProfile(payload: {
@@ -53,9 +58,26 @@ export async function updateProfile(payload: {
   address?: string;
   avatarUrl?: string | null;
 }) {
-  return apiClient.put<{ user: AuthUser }>("/users/profile", payload);
+  return apiClient.patch<{ user: AuthUser }>("/auth/profile", payload);
 }
 
-export async function changePassword(currentPassword: string, newPassword: string) {
-  return apiClient.post<{ ok: boolean }>("/auth/change-password", { currentPassword, newPassword });
+export async function changePassword(payload: {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  return apiClient.patch<{ ok: boolean }>("/auth/change-password", payload);
+}
+
+export async function requestPasswordReset(email: string) {
+  return apiClient.post<{ ok: boolean; message: string }>("/auth/forgot-password", { email });
+}
+
+export async function resetPasswordWithOtp(payload: {
+  email: string;
+  otp: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  return apiClient.post<{ ok: boolean }>("/auth/reset-password", payload);
 }

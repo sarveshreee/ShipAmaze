@@ -32,6 +32,13 @@ export interface TrackingActivity {
   location: string;
 }
 
+export interface OrderStatusEvent {
+  status: string;
+  at: string;
+  updatedBy?: string;
+  note?: string;
+}
+
 export interface Order {
   id: string;
   customer: string;
@@ -52,19 +59,24 @@ export interface Order {
   awb: string;
   amount: number;
   products: { name: string; qty: number; price: number; weight: string }[];
+  /** Line items (alias of products / orderItems from API) */
+  items?: { name: string; qty: number; price: number; weight?: string }[];
   dimensions?: string;
   zone?: string;
   pickupAddress?: string | {
     id: string;
     label: string;
+    warehouseName?: string;
     contactName?: string;
     phone?: string;
+    alternatePhone?: string;
     email?: string;
     address?: string;
     city?: string;
     state?: string;
     pincode?: string;
     country?: string;
+    gstin?: string;
     velocityWarehouseId?: string;
   };
   // Velocity Shipping fields
@@ -85,6 +97,9 @@ export interface Order {
   channel?: string;
   externalSource?: string;
   externalOrderName?: string;
+  sourceType?: string;
+  statusHistory?: OrderStatusEvent[];
+  updatedAt?: string;
   shipmentCreated?: boolean;
   shipmentId?: string;
   trackingId?: string;
@@ -101,6 +116,14 @@ export interface Order {
   shippingPincode?: string;
   shippingCity?: string;
   shippingState?: string;
+  /** Shopify Admin REST order id (stringified) */
+  shopifyOrderNumericId?: string;
+  shopifyShopDomain?: string;
+  shopifyFinancialStatus?: string;
+  shopifyFulfillmentStatus?: string;
+  shopifyNote?: string;
+  shopifyTags?: string;
+  lastShopifySyncAt?: string;
 }
 
 export interface Dropshipper {
@@ -131,7 +154,7 @@ export interface Vendor {
 
 export type WalletTxnStatus = "completed" | "pending" | "failed";
 
-export type WalletTxnDisplayType = "Credit" | "Debit" | "COD" | "Recharge" | "Deduction";
+export type WalletTxnDisplayType = "Credit" | "Debit" | "COD" | "Recharge" | "Deduction" | "Adjustment";
 
 export interface Transaction {
   id: string;
@@ -141,9 +164,13 @@ export interface Transaction {
   type: "Credit" | "Debit";
   amount: number;
   balance: number;
+  balanceBefore?: number;
   status: WalletTxnStatus;
   displayType: WalletTxnDisplayType;
   ledgerType?: string;
+  referenceType?: string;
+  referenceId?: string;
+  reason?: string;
   createdAt?: string;
 }
 
@@ -183,15 +210,22 @@ export interface ReturnOrder {
 export interface PickupAddress {
   id: string;
   label: string;
+  /** Same as label — API alias for warehouse-style naming */
+  warehouseName?: string;
+  pickupName?: string;
   contactName: string;
+  contactPerson?: string;
   phone: string;
+  alternatePhone?: string;
   email?: string;
   addressLine1: string;
   addressLine2: string;
+  landmark?: string;
   city: string;
   state: string;
   pincode: string;
   country?: string;
+  gstin?: string;
   isDefault: boolean;
   isActive?: boolean;
   /** Set after linking to Velocity dashboard warehouse */

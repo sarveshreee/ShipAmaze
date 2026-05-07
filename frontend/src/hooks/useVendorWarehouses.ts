@@ -45,7 +45,7 @@ function mapDoc(r: Record<string, unknown>, vendorName: string, vendorUserId: st
     pincode: String(r.pincode ?? ""),
     country: String(r.country ?? "India"),
     warehouseType: String(r.warehouseType ?? "Warehouse"),
-    status: (r.status as Warehouse["status"]) || "Active",
+    status: r.isActive === false ? "Inactive" : ((r.status as Warehouse["status"]) || "Active"),
     isDefault: Boolean(r.isDefault),
     gstNumber: (r.gstNumber as string) || undefined,
     notes: (r.notes as string) || undefined,

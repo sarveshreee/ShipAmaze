@@ -2,6 +2,15 @@ import mongoose, { Schema, type Document, type Model, type Types } from "mongoos
 
 export type TransactionStatus = "completed" | "pending" | "failed";
 
+export type WalletReferenceType =
+  | "recharge"
+  | "order"
+  | "shipment"
+  | "cod"
+  | "adjustment"
+  | "refund"
+  | "manual_test";
+
 export interface ITransaction extends Document {
   userId: Types.ObjectId;
   txnId: string;
@@ -9,10 +18,17 @@ export interface ITransaction extends Document {
   description: string;
   type: "Credit" | "Debit";
   amount: number;
+  /** Balance after this transaction (ledger running balance). */
   balance: number;
+  balanceBefore?: number;
   status?: TransactionStatus;
   /** Business category for reporting and UI (e.g. manual_credit_request, cod_settlement). */
   ledgerType?: string;
+  referenceType?: WalletReferenceType | string;
+  referenceId?: string;
+  reason?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 const transactionSchema = new Schema<ITransaction>(
@@ -24,14 +40,28 @@ const transactionSchema = new Schema<ITransaction>(
     type: { type: String, enum: ["Credit", "Debit"], required: true },
     amount: { type: Number, required: true },
     balance: { type: Number, default: 0 },
+    balanceBefore: { type: Number },
     status: {
       type: String,
       enum: ["completed", "pending", "failed"],
       default: "completed",
     },
     ledgerType: { type: String, default: "general" },
+    referenceType: { type: String, index: true },
+    referenceId: { type: String, index: true },
+    reason: { type: String, default: "" },
   },
   { timestamps: true }
+);
+
+transactionSchema.index(
+  { userId: 1, referenceType: 1, referenceId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      $and: [{ referenceId: { $exists: true } }, { referenceId: { $nin: [null, ""] } }],
+    },
+  }
 );
 
 export const Transaction: Model<ITransaction> =

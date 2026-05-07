@@ -12,7 +12,6 @@ import { useOrders } from "@/hooks/useApiData";
 import {
   Package,
   LayoutDashboard,
-  ShoppingBag,
   Calculator,
   Truck,
   Users,
@@ -23,13 +22,13 @@ import {
   Settings,
   AlertTriangle,
   Search,
+  User,
 } from "lucide-react";
 
 const pages = [
-  { label: "Admin Dashboard", path: "/admin", icon: LayoutDashboard },
+  { label: "Admin Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
   { label: "Orders", path: "/admin/orders", icon: Package },
   { label: "NDR Management", path: "/admin/ndr", icon: AlertTriangle },
-  { label: "Catalogue", path: "/admin/catalogue", icon: ShoppingBag },
   { label: "Rates & Shipping", path: "/admin/rates", icon: Calculator },
   { label: "Couriers", path: "/admin/couriers", icon: Truck },
   { label: "Dropshippers", path: "/admin/dropshippers", icon: Users },
@@ -38,6 +37,7 @@ const pages = [
   { label: "Analytics", path: "/admin/analytics", icon: BarChart3 },
   { label: "Support", path: "/admin/support", icon: Headphones },
   { label: "Settings", path: "/admin/settings", icon: Settings },
+  { label: "Profile", path: "/admin/profile", icon: User },
   { label: "Create Order", path: "/dropshipper/create-order", icon: Package },
   { label: "Bulk Upload", path: "/dropshipper/bulk-upload", icon: Package },
   { label: "Track Shipment", path: "/track", icon: Search },

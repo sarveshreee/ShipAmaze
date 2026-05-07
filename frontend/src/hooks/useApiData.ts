@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as orderService from "@/services/orderService";
+import type { OrdersListMeta, OrderListFilterValues } from "@/services/orderService";
 import * as manifestService from "@/services/manifestService";
 import * as invoiceService from "@/services/invoiceService";
 import * as weightDisputeService from "@/services/weightDisputeService";
@@ -186,15 +187,212 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     rtoCharges: o.rtoCharges !== undefined && o.rtoCharges !== null ? Number(o.rtoCharges) : undefined,
     trackingUrl: o.trackingUrl != null ? String(o.trackingUrl) : undefined,
     trackingActivities: (o.trackingActivities as Order["trackingActivities"]) || undefined,
+    statusHistory: (o.statusHistory as Order["statusHistory"]) || undefined,
+    sourceType: o.sourceType != null ? String(o.sourceType) : undefined,
+    shopifyOrderNumericId: o.shopifyOrderNumericId != null ? String(o.shopifyOrderNumericId) : undefined,
+    shopifyShopDomain: o.shopifyShopDomain != null ? String(o.shopifyShopDomain) : undefined,
+    shopifyFinancialStatus: o.shopifyFinancialStatus != null ? String(o.shopifyFinancialStatus) : undefined,
+    shopifyFulfillmentStatus: o.shopifyFulfillmentStatus != null ? String(o.shopifyFulfillmentStatus) : undefined,
+    shopifyNote: o.shopifyNote != null ? String(o.shopifyNote) : undefined,
+    shopifyTags: o.shopifyTags != null ? String(o.shopifyTags) : undefined,
+    lastShopifySyncAt: o.lastShopifySyncAt != null ? String(o.lastShopifySyncAt) : undefined,
+    items: (o.items as Order["products"]) || (o.orderItems as Order["products"]) || undefined,
+    updatedAt:
+      o.updatedAt != null
+        ? typeof o.updatedAt === "string"
+          ? o.updatedAt
+          : new Date(o.updatedAt as Date).toISOString()
+        : undefined,
   };
 }
 
 export function useOrders(view?: "junk") {
   const queryFn = useCallback(async () => {
-    const rows = await orderService.listOrders(view);
+    const rows = await orderService.listOrders({ view, legacy: true });
     return (rows as unknown as Record<string, unknown>[]).map(mapOrderRow);
   }, [view]);
   return useApiQuery<Order>(`orders:${view ?? "default"}`, queryFn);
+}
+
+export interface UseOrdersQueryOptions extends OrderListFilterValues {
+  view?: "junk";
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  tab?: string;
+  payment?: string;
+  fulfillment?: string;
+  counts?: boolean;
+}
+
+function stableAdvKey(f: OrderListFilterValues): string {
+  const entries = Object.entries(f).filter(([, v]) => v != null && String(v).trim() !== "");
+  entries.sort(([a], [b]) => a.localeCompare(b));
+  return entries.map(([k, v]) => `${k}=${String(v)}`).join("&");
+}
+
+export interface OrdersQueryState {
+  data: Order[];
+  total: number;
+  page: number;
+  pageSize: number;
+  tabCounts?: Record<string, number>;
+  error: Error | null;
+  isLoading: boolean;
+  refetch: () => Promise<Order[]>;
+}
+
+/** Paginated orders + server filters (preferred for order list pages). */
+export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
+  const {
+    view,
+    page = 1,
+    pageSize = 50,
+    q,
+    tab,
+    payment,
+    fulfillment,
+    counts = true,
+    status,
+    courier,
+    source,
+    dateFrom,
+    dateTo,
+    customerCity,
+    customerState,
+    pickupCity,
+    pickupState,
+    productSku,
+    productName,
+    amountMin,
+    amountMax,
+    hasAwb,
+    shipmentCreated,
+  } = opts;
+
+  const adv: OrderListFilterValues = {
+    status,
+    courier,
+    source,
+    dateFrom,
+    dateTo,
+    customerCity,
+    customerState,
+    pickupCity,
+    pickupState,
+    productSku,
+    productName,
+    amountMin,
+    amountMax,
+    hasAwb,
+    shipmentCreated,
+  };
+
+  const [data, setData] = useState<Order[]>([]);
+  const [total, setTotal] = useState(0);
+  const [tabCounts, setTabCounts] = useState<Record<string, number> | undefined>();
+  const [error, setError] = useState<Error | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const advKey = stableAdvKey(adv);
+  const key = `orders:v2:${view ?? "default"}:${page}:${pageSize}:${q ?? ""}:${tab ?? ""}:${payment ?? ""}:${fulfillment ?? ""}:${counts ? 1 : 0}:${advKey}`;
+
+  const load = useCallback(async (): Promise<Order[]> => {
+    setIsLoading(true);
+    try {
+      const res = await orderService.listOrders({
+        view,
+        page,
+        pageSize,
+        q,
+        tab: view === "junk" ? undefined : tab,
+        payment,
+        fulfillment,
+        counts: view === "junk" ? false : counts,
+        ...adv,
+      });
+      if (Array.isArray(res)) {
+        const mapped = (res as unknown as Record<string, unknown>[]).map(mapOrderRow);
+        setData(mapped);
+        setTotal(mapped.length);
+        setTabCounts(undefined);
+        setError(null);
+        return mapped;
+      }
+      const meta = res as OrdersListMeta;
+      const mapped = (meta.orders as unknown as Record<string, unknown>[]).map(mapOrderRow);
+      setData(mapped);
+      setTotal(meta.total);
+      setTabCounts(meta.tabCounts);
+      setError(null);
+      return mapped;
+    } catch (err) {
+      const e = toError(err);
+      setError(e);
+      setData([]);
+      setTotal(0);
+      setTabCounts(undefined);
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    view,
+    page,
+    pageSize,
+    q,
+    tab,
+    payment,
+    fulfillment,
+    counts,
+    status,
+    courier,
+    source,
+    dateFrom,
+    dateTo,
+    customerCity,
+    customerState,
+    pickupCity,
+    pickupState,
+    productSku,
+    productName,
+    amountMin,
+    amountMax,
+    hasAwb,
+    shipmentCreated,
+  ]);
+
+  useEffect(() => {
+    const eventName = `shipamaze:refetch:${key}`;
+    const fallbackOrdersEvent = "shipamaze:refetch:orders";
+    const handler = () => {
+      void load();
+    };
+    window.addEventListener(eventName, handler);
+    window.addEventListener(fallbackOrdersEvent, handler);
+    return () => {
+      window.removeEventListener(eventName, handler);
+      window.removeEventListener(fallbackOrdersEvent, handler);
+    };
+  }, [key, load]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return useMemo(
+    () => ({
+      data,
+      total,
+      page,
+      pageSize,
+      tabCounts,
+      error,
+      isLoading,
+      refetch: load,
+    }),
+    [data, total, page, pageSize, tabCounts, error, isLoading, load]
+  );
 }
 
 export function useManifests() {
@@ -225,7 +423,10 @@ export function useWeightDisputes() {
 }
 
 export function useTransactions() {
-  const queryFn = useCallback(async () => walletService.listTransactions(), []);
+  const queryFn = useCallback(async () => {
+    const r = await walletService.listTransactions({ page: 1, pageSize: 100 });
+    return r.items;
+  }, []);
   return useApiQuery<Transaction>("transactions", queryFn);
 }
 

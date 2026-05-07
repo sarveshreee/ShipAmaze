@@ -8,19 +8,170 @@ import mongoose from "mongoose";
 import type { AuthRequest } from "../../middleware/authMiddleware.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { AppError } from "../../middleware/errorMiddleware.js";
-import { getPickupOwnerFilterForUser } from "../../utils/pickupOwnerFilter.js";
+import { pickupByIdManageQuery, PICKUP_NOT_DELETED } from "../../utils/pickupQuery.js";
 import { Order, type IOrder } from "../../models/Order.js";
 import { Warehouse } from "../../models/Warehouse.js";
 import { Vendor } from "../../models/Vendor.js";
 import { Pickup } from "../../models/Pickup.js";
 import * as velocityService from "./velocity.service.js";
-import { mapVelocityStatus } from "./velocity.mapper.js";
-import { sanitizeForVelocityLog } from "./velocity.payload.js";
+import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.mapper.js";
+import { normalizePincode, sanitizeForVelocityLog } from "./velocity.payload.js";
 import type {
   VelocityCustomer,
   VelocityForwardOrderRequest,
   VelocityReverseOrderRequest,
 } from "./velocity.types.js";
+import {
+  assertWalletBalanceAtLeast,
+  debitShipmentChargeIfApplicable,
+  orderWalletUserId,
+} from "../../services/walletLedger.js";
+
+async function precheckForwardShipmentWallet(localOrder: IOrder | null): Promise<void> {
+  if (!localOrder) return;
+  const uid = orderWalletUserId(localOrder);
+  if (!uid) return;
+  const est = Number(localOrder.shippingCharges);
+  if (!Number.isFinite(est) || !(est > 0)) return;
+  await assertWalletBalanceAtLeast(uid, est);
+}
+
+async function forwardShipmentWalletPayload(
+  localOrder: IOrder | null,
+  shippingCharges: unknown
+): Promise<Record<string, unknown>> {
+  if (!localOrder) return {};
+  const fromResult = Number(shippingCharges);
+  const fromOrder = Number(localOrder.shippingCharges);
+  const charge =
+    Number.isFinite(fromResult) && fromResult > 0
+      ? fromResult
+      : Number.isFinite(fromOrder) && fromOrder > 0
+        ? fromOrder
+        : 0;
+  const r = await debitShipmentChargeIfApplicable({
+    order: localOrder,
+    shippingCharges: charge,
+  });
+  return { walletDeduction: r };
+}
+
+function appendStatusHistoryEntry(order: IOrder, status: string, note: string) {
+  const prev = order.statusHistory ?? [];
+  order.statusHistory = [...prev, { status, at: new Date(), note }].slice(-50);
+}
+
+function applyVelocityMappedOrderStatus(
+  order: IOrder,
+  velocityRawStatus: string | undefined,
+  fallback: string,
+  note: string
+) {
+  const mapped = mapVelocityStatus(velocityRawStatus) || fallback;
+  if (!shouldApplyInternalStatusUpdate(order.status, mapped)) return;
+  if (order.status !== mapped) appendStatusHistoryEntry(order, mapped, note);
+  order.status = mapped;
+}
+
+function maskPhoneForPublic(phone: string): string {
+  const d = String(phone).replace(/\D/g, "");
+  if (d.length <= 4) return "****";
+  return `******${d.slice(-4)}`;
+}
+
+function maskCustomerNameForPublic(name: string): string {
+  const s = String(name).trim();
+  if (!s) return "Recipient";
+  if (s.length <= 2) return `${s[0]}*`;
+  return `${s[0]}${"*".repeat(Math.min(4, s.length - 2))}${s.slice(-1)}`;
+}
+
+/** Minimal PII for anonymous tracking pages. */
+function buildPublicOrderDetails(order: Record<string, unknown>) {
+  const customer = String(order.customer ?? "");
+  const customerPhone = String(order.customerPhone ?? order.phone ?? "");
+  return {
+    customerName: maskCustomerNameForPublic(customer),
+    phone: maskPhoneForPublic(customerPhone),
+    paymentType: String(order.payment ?? ""),
+    amount: Number(order.amount ?? 0),
+    destination: {
+      city: String(order.shippingCity ?? order.city ?? ""),
+      state: String(order.shippingState ?? order.state ?? ""),
+      pincode: String(order.shippingPincode ?? order.pincode ?? ""),
+      address: "",
+    },
+    dates: {
+      orderDate: String(order.date ?? ""),
+      assignedAt: order.assignedDateTime ? new Date(String(order.assignedDateTime)).toISOString() : "",
+      movedToReadyAt: order.movedToReadyAt ? new Date(String(order.movedToReadyAt)).toISOString() : "",
+    },
+    shipment: {
+      shipmentId: String(order.shipmentId ?? order.velocityShipmentId ?? ""),
+      velocityOrderId: String(order.velocityOrderId ?? ""),
+      channel: String(order.channel ?? ""),
+      weight: String(order.weight ?? ""),
+    },
+  };
+}
+
+type PickupPinMerged = { pickupAddress?: { pincode?: string }; warehouse_id?: string };
+
+async function resolvePickupPincodeForServiceability(merged: PickupPinMerged): Promise<string | null> {
+  const fromMerged = String(merged.pickupAddress?.pincode ?? "")
+    .replace(/\D/g, "")
+    .slice(0, 6);
+  if (fromMerged.length === 6) return fromMerged;
+  const whCode = String(merged.warehouse_id ?? "").trim();
+  if (!whCode) return null;
+  const wh = await Warehouse.findOne({ velocityWarehouseId: whCode }).select("pincode").lean();
+  if (wh?.pincode) {
+    const p = String(wh.pincode).replace(/\D/g, "").slice(0, 6);
+    if (p.length === 6) return p;
+  }
+  const pu = await Pickup.findOne({
+    velocityWarehouseId: whCode,
+    ...PICKUP_NOT_DELETED,
+  })
+    .select("pincode")
+    .lean();
+  if (pu?.pincode) {
+    const p = String(pu.pincode).replace(/\D/g, "").slice(0, 6);
+    if (p.length === 6) return p;
+  }
+  return null;
+}
+
+async function enforceServiceabilityLaneIfRequested(
+  merged: PickupPinMerged,
+  payload: VelocityForwardOrderRequest,
+  body: Record<string, unknown>
+) {
+  const enforce = body.enforceServiceability === true || body.enforceServiceability === "true";
+  if (!enforce) return;
+  const toPin = String(payload.customer.pincode ?? "").replace(/\D/g, "").slice(0, 6);
+  const fromPin = await resolvePickupPincodeForServiceability(merged);
+  if (!fromPin || toPin.length !== 6) {
+    throw new AppError(
+      400,
+      "Cannot verify serviceability: pickup origin or delivery pincode is not available. Link a pickup with pincode or omit enforceServiceability."
+    );
+  }
+  const pm = payload.payment_mode === "cod" ? "cod" : "prepaid";
+  const svc = await velocityService.checkServiceability({
+    from: fromPin,
+    to: toPin,
+    payment_mode: pm,
+    shipment_type: "forward",
+  });
+  if (!(svc.data?.length)) {
+    throw new AppError(
+      422,
+      svc.message ||
+        "This lane is not serviceable from the selected pickup to the delivery pincode. Check serviceability or choose another courier."
+    );
+  }
+}
 
 // ─── Serviceability ──────────────────────────────────────
 
@@ -35,14 +186,23 @@ export const serviceability = asyncHandler(async (req: AuthRequest, res: Respons
   if (!from || !to) throw new AppError(400, "from and to pincodes are required");
   if (!payment_mode) throw new AppError(400, "payment_mode (cod|prepaid) is required");
 
+  const fromNorm = normalizePincode(String(from).trim());
+  const toNorm = normalizePincode(String(to).trim());
+
   const result = await velocityService.checkServiceability({
-    from,
-    to,
+    from: fromNorm,
+    to: toNorm,
     payment_mode,
     shipment_type: shipment_type ?? "forward",
   });
 
-  res.json({ success: true, data: result.data ?? [] });
+  const data = result.data ?? [];
+  res.json({
+    success: true,
+    data,
+    message: result.message,
+    serviceable: data.length > 0,
+  });
 });
 
 // ─── Rates ───────────────────────────────────────────────
@@ -82,14 +242,17 @@ export const rates = asyncHandler(async (req: AuthRequest, res: Response) => {
     }
   }
 
+  const fromNorm = normalizePincode(String(from).trim());
+  const toNorm = normalizePincode(String(to).trim());
+
   const st = shipment_type ?? "forward";
   if (st === "return" && qc_applicable !== undefined && typeof qc_applicable !== "boolean") {
     throw new AppError(400, "qc_applicable must be a boolean when provided");
   }
 
   const result = await velocityService.getRates({
-    from,
-    to,
+    from: fromNorm,
+    to: toNorm,
     weight: Number(weight),
     length: Number(length ?? 10),
     width: Number(width ?? 10),
@@ -117,14 +280,17 @@ type VelocityWarehouseRegisterBody = {
 type PickupSnapshot = {
   id: string;
   label: string;
+  warehouseName?: string;
   contactName?: string;
   phone?: string;
+  alternatePhone?: string;
   email?: string;
   address?: string;
   city?: string;
   state?: string;
   pincode?: string;
   country?: string;
+  gstin?: string;
   velocityWarehouseId?: string;
 };
 
@@ -136,7 +302,7 @@ type MergedForwardContext = Record<string, unknown> & {
 };
 
 /**
- * Development-only: compare raw pickup row vs list filter ownership (see getPickupOwnerFilterForUser).
+ * Development-only: compare raw pickup row vs list filter ownership.
  */
 async function devLogVelocityLinkPickup(
   req: AuthRequest,
@@ -177,10 +343,9 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     throw new AppError(400, "warehouseId must be a valid id");
   }
   const oid = new mongoose.Types.ObjectId(mongoId);
-  const ownerFilter = getPickupOwnerFilterForUser(req.user);
 
   if (unlink) {
-    const pickupOwned = await Pickup.findOne({ _id: oid, ...ownerFilter }).lean();
+    const pickupOwned = await Pickup.findOne(pickupByIdManageQuery(oid, req.user)).lean();
     await devLogVelocityLinkPickup(req, oid, pickupOwned);
 
     if (pickupOwned) {
@@ -227,7 +392,7 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     );
   }
 
-  const pickupOwned = await Pickup.findOne({ _id: oid, ...ownerFilter }).lean();
+  const pickupOwned = await Pickup.findOne(pickupByIdManageQuery(oid, req.user)).lean();
   await devLogVelocityLinkPickup(req, oid, pickupOwned);
 
   if (pickupOwned) {
@@ -283,10 +448,20 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     body.warehouseId != null && String(body.warehouseId).trim() !== "" ? String(body.warehouseId).trim() : "";
   const PROVIDER_ENDPOINT = "/custom/api/v1/forward-order-orchestration";
 
+  if ((!body.orderId || String(body.orderId).trim() === "") && req.user.role !== "admin") {
+    throw new AppError(400, "orderId is required to create a shipment.");
+  }
+
   if (body.orderId) {
     localOrder = await Order.findOne({ orderId: body.orderId });
     if (!localOrder) throw new AppError(404, `Order ${body.orderId} not found`);
     await assertOrderAccess(req.user, localOrder);
+    if (localOrder.awb?.trim() && localOrder.shipmentCreated) {
+      throw new AppError(
+        409,
+        "Shipment already exists for this order. Use “Refresh tracking” to sync status, or cancel with the courier before creating again."
+      );
+    }
   }
 
   const merged = await mergeVelocityWarehouse(req, body, localOrder);
@@ -302,7 +477,11 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     velocityOrderIdLooksProvider(localOrder.velocityOrderId) &&
     !localOrder.awb
   ) {
+    const assignPayloadEarly = buildForwardPayload(merged, localOrder);
+    validateForwardPayload(assignPayloadEarly, localOrder);
+    await enforceServiceabilityLaneIfRequested(merged as PickupPinMerged, assignPayloadEarly, body);
     try {
+      await precheckForwardShipmentWallet(localOrder);
       const later = await velocityService.createForwardShipmentLater({
         order_id: localOrder.velocityOrderId,
         carrier_id: merged.carrier_id as string | number | undefined,
@@ -318,7 +497,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       localOrder.codCharges = later.cod_charges;
       localOrder.shipmentStatus = later.status;
       localOrder.assignedDateTime = new Date();
-      localOrder.status = mapVelocityStatus(later.status) || "ready-to-ship";
+      applyVelocityMappedOrderStatus(localOrder, later.status, "ready-to-ship", "velocity_assign_awb");
       localOrder.shipmentCreated = true;
       if (later.awb_code) localOrder.trackingId = later.awb_code;
       await localOrder.save();
@@ -335,11 +514,13 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           provider_response_body: sanitizeForVelocityLog(later),
         })
       );
-      res.status(201).json({ success: true, data: later, orderId: localOrder.orderId });
+      const walletExtra = await forwardShipmentWalletPayload(localOrder, later.shipping_charges);
+      res.status(201).json({ success: true, data: later, orderId: localOrder.orderId, ...walletExtra });
       return;
     } catch (err: unknown) {
       const e = err as any;
-      const statusCode = typeof e?.statusCode === "number" ? e.statusCode : 500;
+      const statusCode =
+        e instanceof AppError && e.statusCode === 402 ? 402 : typeof e?.statusCode === "number" ? e.statusCode : 500;
       console.error(
         "[velocity:forward] create_shipment_error",
         JSON.stringify({
@@ -356,7 +537,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       );
       res.status(statusCode).json({
         success: false,
-        message: typeof e?.message === "string" ? e.message : "Create shipment failed",
+        message: err instanceof AppError ? err.message : typeof e?.message === "string" ? e.message : "Create shipment failed",
         providerError: sanitizeForVelocityLog(e?.providerError),
       });
       return;
@@ -368,6 +549,8 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
   }
   const payload = buildForwardPayload(merged, localOrder);
   validateForwardPayload(payload, localOrder);
+  await enforceServiceabilityLaneIfRequested(merged as PickupPinMerged, payload, body);
+  await precheckForwardShipmentWallet(localOrder);
   console.info(
     "[velocity:forward] payload_summary",
     JSON.stringify({
@@ -436,17 +619,19 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           localOrder.codCharges = later.cod_charges;
           localOrder.shipmentStatus = later.status;
           localOrder.assignedDateTime = new Date();
-          localOrder.status = mapVelocityStatus(later.status) || "ready-to-ship";
+          applyVelocityMappedOrderStatus(localOrder, later.status, "ready-to-ship", "velocity_forward_dup_retry");
           localOrder.shipmentCreated = true;
           if (later.awb_code) localOrder.trackingId = later.awb_code;
           await localOrder.save();
         }
+        const wExtra = localOrder ? await forwardShipmentWalletPayload(localOrder, later.shipping_charges) : {};
         res.status(201).json({
           success: true,
           alreadyExists: true,
           data: later,
           orderId: localOrder?.orderId,
           duplicateRetryUsed: false,
+          ...wExtra,
         });
         return;
       } catch {
@@ -513,11 +698,13 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     localOrder.rtoCharges = result.rto_charges;
     localOrder.shipmentStatus = result.status;
     localOrder.assignedDateTime = new Date();
-    localOrder.status = mapVelocityStatus(result.status) || "ready-to-ship";
+    applyVelocityMappedOrderStatus(localOrder, result.status, "ready-to-ship", "velocity_forward_create");
     localOrder.shipmentCreated = true;
     if (result.awb_code) localOrder.trackingId = result.awb_code;
     await localOrder.save();
   }
+
+  const walletExtraMain = await forwardShipmentWalletPayload(localOrder, result?.shipping_charges);
 
   console.info(
     "[velocity:forward] create_success",
@@ -539,6 +726,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     orderId: localOrder?.orderId,
     duplicateRetryUsed,
     velocityOrderIdUsed: usedPayloadOrderId,
+    ...walletExtraMain,
   });
 });
 
@@ -549,6 +737,10 @@ export const createForwardOrderOnly = asyncHandler(async (req: AuthRequest, res:
 
   const body = req.body as { orderId?: string } & Record<string, unknown>;
   let localOrder: IOrder | null = null;
+
+  if ((!body.orderId || String(body.orderId).trim() === "") && req.user.role !== "admin") {
+    throw new AppError(400, "orderId is required to create a forward order.");
+  }
 
   if (body.orderId) {
     localOrder = await Order.findOne({ orderId: body.orderId });
@@ -585,28 +777,47 @@ export const createForwardShipmentLater = asyncHandler(async (req: AuthRequest, 
 
   if (!order_id) throw new AppError(400, "order_id (Velocity order id) is required");
 
-  const result = await velocityService.createForwardShipmentLater({ order_id, carrier_id });
-
-  if (localOrderId) {
-    const localOrder = await Order.findOne({ orderId: localOrderId });
-    if (localOrder) {
-      await assertOrderAccess(req.user, localOrder);
-      localOrder.awb = result.awb_code ?? localOrder.awb;
-      localOrder.courier = result.carrier_name ?? localOrder.courier;
-      localOrder.velocityShipmentId = result.shipment_id;
-      localOrder.courierName = result.carrier_name;
-      localOrder.courierCompanyId = result.carrier_id;
-      localOrder.labelUrl = result.label_url;
-      localOrder.shippingCharges = result.shipping_charges;
-      localOrder.codCharges = result.cod_charges;
-      localOrder.shipmentStatus = result.status;
-      localOrder.assignedDateTime = new Date();
-      localOrder.status = mapVelocityStatus(result.status) || "ready-to-ship";
-      await localOrder.save();
+  let localOrder: IOrder | null = null;
+  if (req.user.role !== "admin") {
+    if (!localOrderId?.trim()) {
+      throw new AppError(400, "localOrderId (your ShipAmaze order id) is required to assign AWB.");
     }
+    localOrder = await Order.findOne({ orderId: localOrderId.trim() });
+    if (!localOrder) throw new AppError(404, "Order not found");
+    await assertOrderAccess(req.user, localOrder);
+    const norm = (s: string) => String(s ?? "").trim().toUpperCase();
+    if (norm(localOrder.velocityOrderId || "") !== norm(String(order_id))) {
+      throw new AppError(400, "Velocity order id does not match this order. Refresh the order or create forward order first.");
+    }
+    if (localOrder.awb?.trim() && localOrder.shipmentCreated) {
+      throw new AppError(409, "Shipment already exists for this order.");
+    }
+  } else if (localOrderId?.trim()) {
+    localOrder = await Order.findOne({ orderId: localOrderId.trim() });
+    if (localOrder) await assertOrderAccess(req.user, localOrder);
   }
 
-  res.json({ success: true, data: result });
+  await precheckForwardShipmentWallet(localOrder);
+
+  const result = await velocityService.createForwardShipmentLater({ order_id, carrier_id });
+
+  if (localOrder) {
+    localOrder.awb = result.awb_code ?? localOrder.awb;
+    localOrder.courier = result.carrier_name ?? localOrder.courier;
+    localOrder.velocityShipmentId = result.shipment_id;
+    localOrder.courierName = result.carrier_name;
+    localOrder.courierCompanyId = result.carrier_id;
+    localOrder.labelUrl = result.label_url;
+    localOrder.shippingCharges = result.shipping_charges;
+    localOrder.codCharges = result.cod_charges;
+    localOrder.shipmentStatus = result.status;
+    localOrder.assignedDateTime = new Date();
+    applyVelocityMappedOrderStatus(localOrder, result.status, "ready-to-ship", "velocity_forward_awb_later");
+    await localOrder.save();
+  }
+
+  const wExtra = await forwardShipmentWalletPayload(localOrder, result.shipping_charges);
+  res.json({ success: true, data: result, ...wExtra });
 });
 
 // ─── Reverse / Return – full orchestration ───────────────
@@ -643,7 +854,7 @@ export const createReverseShipment = asyncHandler(async (req: AuthRequest, res: 
     localOrder.courierCompanyId = result.carrier_id;
     localOrder.labelUrl = result.label_url;
     localOrder.shipmentStatus = result.status;
-    localOrder.status = mapVelocityStatus(result.status) || "rto";
+    applyVelocityMappedOrderStatus(localOrder, result.status, "rto", "velocity_reverse_create");
     if (partial.warehouse_id) localOrder.velocityWarehouseId = String(partial.warehouse_id);
     await localOrder.save();
   }
@@ -684,22 +895,31 @@ export const createReverseShipmentLater = asyncHandler(async (req: AuthRequest, 
 
   if (!order_id) throw new AppError(400, "order_id is required");
 
+  let localOrder: IOrder | null = null;
+  if (localOrderId?.trim()) {
+    localOrder = await Order.findOne({ orderId: localOrderId.trim() });
+    if (!localOrder) throw new AppError(404, "Order not found");
+    await assertOrderAccess(req.user, localOrder);
+  } else if (req.user.role !== "admin") {
+    throw new AppError(400, "localOrderId is required to assign reverse AWB.");
+  }
+
   const result = await velocityService.createReverseShipmentLater({ order_id, carrier_id });
 
-  if (localOrderId) {
-    const localOrder = await Order.findOne({ orderId: localOrderId });
-    if (localOrder) {
-      await assertOrderAccess(req.user, localOrder);
-      localOrder.velocityShipmentId = result.shipment_id;
-      localOrder.awb = result.awb_code ?? localOrder.awb;
-      localOrder.courier = result.carrier_name ?? localOrder.courier;
-      localOrder.courierName = result.carrier_name;
-      localOrder.courierCompanyId = result.carrier_id;
-      localOrder.labelUrl = result.label_url;
-      localOrder.shipmentStatus = result.status;
-      localOrder.status = mapVelocityStatus(result.status) || localOrder.status;
-      await localOrder.save();
+  if (localOrder) {
+    localOrder.velocityShipmentId = result.shipment_id;
+    localOrder.awb = result.awb_code ?? localOrder.awb;
+    localOrder.courier = result.carrier_name ?? localOrder.courier;
+    localOrder.courierName = result.carrier_name;
+    localOrder.courierCompanyId = result.carrier_id;
+    localOrder.labelUrl = result.label_url;
+    localOrder.shipmentStatus = result.status;
+    const mapped = mapVelocityStatus(result.status);
+    if (mapped && shouldApplyInternalStatusUpdate(localOrder.status, mapped)) {
+      if (localOrder.status !== mapped) appendStatusHistoryEntry(localOrder, mapped, "velocity_reverse_awb");
+      localOrder.status = mapped;
     }
+    await localOrder.save();
   }
 
   res.json({ success: true, data: result });
@@ -713,7 +933,18 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
   const { awbs, orderId } = req.body as { awbs?: string[]; orderId?: string };
   if (!awbs?.length) throw new AppError(400, "awbs array is required");
 
-  const result = await velocityService.cancelShipment({ awbs });
+  const uniqueAwbs = [...new Set(awbs.map((a) => String(a).trim()).filter(Boolean))];
+  if (req.user.role !== "admin") {
+    const orders = await Order.find({ awb: { $in: uniqueAwbs } }).exec();
+    if (orders.length !== uniqueAwbs.length) {
+      throw new AppError(403, "One or more AWBs are not linked to your account.");
+    }
+    for (const o of orders) {
+      await assertOrderAccess(req.user, o);
+    }
+  }
+
+  const result = await velocityService.cancelShipment({ awbs: uniqueAwbs });
 
   if (orderId && result.success) {
     const localOrder = await Order.findOne({ orderId });
@@ -721,6 +952,7 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
       await assertOrderAccess(req.user, localOrder);
       localOrder.status = "cancelled";
       localOrder.shipmentStatus = "cancelled";
+      appendStatusHistoryEntry(localOrder, "cancelled", "velocity_cancel");
       await localOrder.save();
     }
   }
@@ -747,11 +979,18 @@ export const trackShipment = asyncHandler(async (req: AuthRequest, res: Response
   const result = await velocityService.trackShipment({ awb });
 
   const localOrder = await Order.findOne(orderId ? { orderId } : { awb });
-  if (localOrder && result.shipment_track_activities?.length) {
-    const internalStatus = mapVelocityStatus(result.status);
+  if (localOrder) {
     localOrder.shipmentStatus = result.status;
-    if (internalStatus) localOrder.status = internalStatus;
-    localOrder.trackingActivities = result.shipment_track_activities;
+    localOrder.trackingActivities = result.shipment_track_activities ?? localOrder.trackingActivities;
+    const internalStatus = mapVelocityStatus(result.status);
+    if (
+      internalStatus &&
+      shouldApplyInternalStatusUpdate(localOrder.status, internalStatus) &&
+      localOrder.status !== internalStatus
+    ) {
+      appendStatusHistoryEntry(localOrder, internalStatus, "velocity_track");
+      localOrder.status = internalStatus;
+    }
     await localOrder.save();
   }
 
@@ -769,50 +1008,28 @@ export const trackShipment = asyncHandler(async (req: AuthRequest, res: Response
 // ─── Tracking – public (no auth) ─────────────────────────
 
 export const trackShipmentPublic = asyncHandler(async (req: Request, res: Response) => {
-  const { awb } = req.params as { awb?: string };
-  if (!awb) throw new AppError(400, "awb is required");
+  const raw = String((req.params as { awb?: string }).awb ?? "").trim();
+  if (!raw) throw new AppError(400, "Tracking reference is required");
 
-  const localOrder = await Order.findOne({ $or: [{ awb }, { orderId: awb }] }).lean();
-  if (!localOrder) throw new AppError(404, "Order not found");
+  const localOrderLean = await Order.findOne({
+    $or: [{ awb: raw }, { orderId: raw }, { trackingId: raw }],
+  }).lean();
+  if (!localOrderLean) throw new AppError(404, "Tracking reference not found");
 
-  const orderDetails = {
-    customerName: localOrder.customer ?? "",
-    phone: localOrder.customerPhone ?? localOrder.phone ?? "",
-    paymentType: localOrder.payment ?? "",
-    amount: Number(localOrder.amount ?? 0),
-    destination: {
-      city: localOrder.shippingCity ?? localOrder.city ?? "",
-      state: localOrder.shippingState ?? localOrder.state ?? "",
-      pincode: localOrder.shippingPincode ?? localOrder.pincode ?? "",
-      address:
-        [localOrder.shippingAddress1, localOrder.shippingAddress2, localOrder.address]
-          .filter((v): v is string => !!v && typeof v === "string")
-          .join(", ") || "",
-    },
-    dates: {
-      orderDate: localOrder.date ?? "",
-      assignedAt: localOrder.assignedDateTime ? new Date(localOrder.assignedDateTime).toISOString() : "",
-      movedToReadyAt: localOrder.movedToReadyAt ? new Date(localOrder.movedToReadyAt).toISOString() : "",
-    },
-    shipment: {
-      shipmentId: localOrder.shipmentId ?? localOrder.velocityShipmentId ?? "",
-      velocityOrderId: localOrder.velocityOrderId ?? "",
-      channel: localOrder.channel ?? "",
-      weight: localOrder.weight ?? "",
-    },
-  };
+  const orderPlain = localOrderLean as unknown as Record<string, unknown>;
+  const orderDetails = buildPublicOrderDetails(orderPlain);
 
-  const awbToTrack = localOrder.awb || awb;
+  const awbToTrack = String(localOrderLean.awb || "").trim() || raw;
 
-  if (!awbToTrack) {
+  if (!String(localOrderLean.awb || "").trim()) {
     res.json({
       success: true,
       data: {
-        awb,
-        status: localOrder.status,
-        carrierName: localOrder.courierName ?? localOrder.courier,
-        activities: localOrder.trackingActivities ?? [],
-        order: { id: localOrder.orderId },
+        awb: raw,
+        status: localOrderLean.status,
+        carrierName: localOrderLean.courierName ?? localOrderLean.courier,
+        activities: localOrderLean.trackingActivities ?? [],
+        order: { id: localOrderLean.orderId },
         orderDetails,
         pendingShipment: true,
       },
@@ -823,25 +1040,33 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
   try {
     const result = await velocityService.trackShipment({ awb: awbToTrack });
 
-    await Order.updateOne(
-      { _id: localOrder._id },
-      {
-        shipmentStatus: result.status,
-        status: mapVelocityStatus(result.status) || localOrder.status,
-        trackingActivities: result.shipment_track_activities,
+    const doc = await Order.findById(localOrderLean._id);
+    if (doc) {
+      doc.shipmentStatus = result.status;
+      doc.trackingActivities = result.shipment_track_activities ?? doc.trackingActivities;
+      const internalStatus = mapVelocityStatus(result.status);
+      if (
+        internalStatus &&
+        shouldApplyInternalStatusUpdate(doc.status, internalStatus) &&
+        doc.status !== internalStatus
+      ) {
+        appendStatusHistoryEntry(doc, internalStatus, "velocity_public_track");
+        doc.status = internalStatus;
       }
-    );
+      await doc.save();
+    }
 
     res.json({
       success: true,
       data: {
         awb: result.awb || awbToTrack,
         status: result.status,
-        carrierName: result.carrier_name ?? localOrder.courierName ?? localOrder.courier,
+        carrierName: result.carrier_name ?? localOrderLean.courierName ?? localOrderLean.courier,
         activities: result.shipment_track_activities ?? [],
         trackUrl: (result as { track_url?: string }).track_url,
-        order: { id: localOrder.orderId },
+        order: { id: localOrderLean.orderId },
         orderDetails,
+        trackingUnavailable: false,
       },
     });
   } catch {
@@ -849,11 +1074,13 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
       success: true,
       data: {
         awb: awbToTrack,
-        status: localOrder.shipmentStatus ?? localOrder.status,
-        carrierName: localOrder.courierName ?? localOrder.courier,
-        activities: localOrder.trackingActivities ?? [],
-        order: { id: localOrder.orderId },
+        status: localOrderLean.shipmentStatus ?? localOrderLean.status,
+        carrierName: localOrderLean.courierName ?? localOrderLean.courier,
+        activities: localOrderLean.trackingActivities ?? [],
+        order: { id: localOrderLean.orderId },
         orderDetails,
+        trackingUnavailable: true,
+        trackingMessage: "Live tracking is temporarily unavailable. Showing the last saved status.",
       },
     });
   }
@@ -1300,9 +1527,8 @@ async function mergeVelocityWarehouse(
       throw new AppError(400, "Invalid warehouseId");
     }
     const oid = new mongoose.Types.ObjectId(id);
-    const ownerFilter = getPickupOwnerFilterForUser(req.user!);
 
-    const puOwned = await Pickup.findOne({ _id: oid, ...ownerFilter }).lean();
+    const puOwned = await Pickup.findOne(pickupByIdManageQuery(oid, req.user!)).lean();
 
     if (req.user!.role === "dropshipper") {
       if (puOwned) {
@@ -1350,10 +1576,7 @@ async function mergeVelocityWarehouse(
   }
 
   if (localOrder?.pickupAddressId) {
-    const p = await Pickup.findOne({
-      _id: localOrder.pickupAddressId,
-      ...getPickupOwnerFilterForUser(req.user!),
-    }).lean();
+    const p = await Pickup.findOne(pickupByIdManageQuery(localOrder.pickupAddressId, req.user!)).lean();
     if (p?.velocityWarehouseId?.trim()) {
       out.warehouse_id = p.velocityWarehouseId.trim();
       const pid = String(p._id);
@@ -1368,21 +1591,25 @@ async function mergeVelocityWarehouse(
 }
 
 function toPickupSnapshot(pickup: Record<string, unknown>): PickupSnapshot {
-  const address = [pickup.addressLine1, pickup.addressLine2]
+  const label = String(pickup.label ?? "Pickup Address");
+  const address = [pickup.addressLine1, pickup.addressLine2, pickup.landmark]
     .map((x) => String(x ?? "").trim())
     .filter(Boolean)
     .join(", ");
   return {
     id: String(pickup._id ?? ""),
-    label: String(pickup.label ?? "Pickup Address"),
+    label,
+    warehouseName: label,
     contactName: String(pickup.contactName ?? ""),
     phone: String(pickup.phone ?? ""),
+    alternatePhone: String(pickup.alternatePhone ?? ""),
     email: String(pickup.email ?? ""),
     address,
     city: String(pickup.city ?? ""),
     state: String(pickup.state ?? ""),
     pincode: String(pickup.pincode ?? ""),
     country: String(pickup.country ?? "India"),
+    gstin: String(pickup.gstin ?? ""),
     velocityWarehouseId: String(pickup.velocityWarehouseId ?? ""),
   };
 }
@@ -1440,8 +1667,11 @@ async function assertVelocityWarehouseCodeOwned(
 
   if (user.role === "dropshipper") {
     const p = await Pickup.findOne({
-      velocityWarehouseId: c,
-      $or: [{ userId: user._id }, { dropshipperId: user._id }],
+      $and: [
+        { velocityWarehouseId: c },
+        { $or: [{ userId: user._id }, { dropshipperId: user._id }] },
+        { ...PICKUP_NOT_DELETED },
+      ],
     }).lean();
     if (!p) throw new AppError(403, "Forbidden");
     return;

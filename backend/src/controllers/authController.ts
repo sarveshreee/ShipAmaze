@@ -1,8 +1,11 @@
 import type { Request, Response } from "express";
+import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/authMiddleware.js";
 import { User } from "../models/User.js";
+import { PasswordResetOtp } from "../models/PasswordResetOtp.js";
+import { sendPasswordResetOtp } from "../services/mail.js";
 import { Profile } from "../models/Profile.js";
 import { Vendor } from "../models/Vendor.js";
 import { Dropshipper } from "../models/Dropshipper.js";
@@ -10,18 +13,19 @@ import { Wallet } from "../models/Wallet.js";
 import { signToken } from "../utils/jwt.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+
 const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-  name: z.string().min(1),
+  email: z.string().min(1, "Email is required").email("Invalid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  name: z.string().min(1, "Name is required"),
   role: z.enum(["admin", "vendor", "dropshipper"]),
   companyName: z.string().optional(),
   phone: z.string().optional(),
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+  email: z.string().min(1, "Email is required").email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
 });
 
 async function toPublicUser(user: {
@@ -51,7 +55,7 @@ async function toPublicUser(user: {
 export const register = asyncHandler(async (req: Request, res: Response) => {
   const body = registerSchema.parse(req.body);
   const exists = await User.findOne({ email: body.email });
-  if (exists) throw new AppError(409, "Email already registered");
+  if (exists) throw new AppError(409, "This email is already registered");
 
   const passwordHash = await bcrypt.hash(body.password, 10);
   const user = await User.create({
@@ -95,10 +99,13 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
 export const login = asyncHandler(async (req: Request, res: Response) => {
   const body = loginSchema.parse(req.body);
   const user = await User.findOne({ email: body.email });
-  if (!user) throw new AppError(401, "Invalid email or password");
+  if (!user) throw new AppError(401, "No account found for this email");
+
+  if (user.status === "blocked") throw new AppError(403, "Your account has been blocked");
+  if (user.status === "inactive") throw new AppError(403, "Your account is inactive");
 
   const ok = await bcrypt.compare(body.password, user.passwordHash);
-  if (!ok) throw new AppError(401, "Invalid email or password");
+  if (!ok) throw new AppError(401, "Incorrect password");
 
   const token = signToken({ sub: String(user._id), role: user.role });
   const publicUser = await toPublicUser(user);
@@ -149,14 +156,26 @@ export const updateProfile = asyncHandler(async (req: AuthRequest, res: Response
   res.json({ user: await toPublicUser(req.user) });
 });
 
-export const logout = asyncHandler(async (_req: AuthRequest, res: Response) => {
+export const logout = asyncHandler(async (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1),
-  newPassword: z.string().min(8),
-});
+const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z.string().min(8, "New password must be at least 8 characters"),
+    confirmPassword: z.string().min(1, "Please confirm your new password"),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.newPassword !== data.confirmPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "New password and confirmation do not match",
+        path: ["confirmPassword"],
+      });
+    }
+  });
 
 export const changePassword = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
@@ -165,5 +184,72 @@ export const changePassword = asyncHandler(async (req: AuthRequest, res: Respons
   if (!ok) throw new AppError(400, "Current password is incorrect");
   req.user.passwordHash = await bcrypt.hash(body.newPassword, 10);
   await req.user.save();
+  res.json({ ok: true });
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().min(1, "Email is required").email("Invalid email address"),
+});
+
+/** Request a one-time code by email (always same response to avoid email enumeration). */
+export const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
+  const body = forgotPasswordSchema.parse(req.body);
+  const email = body.email.trim().toLowerCase();
+  const user = await User.findOne({ email });
+  if (user && user.status !== "blocked") {
+    const code = String(crypto.randomInt(100000, 1000000));
+    const otpHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    await PasswordResetOtp.findOneAndUpdate(
+      { email },
+      { $set: { otpHash, expiresAt } },
+      { upsert: true }
+    );
+    try {
+      await sendPasswordResetOtp(email, code);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[mail] Failed to send password reset email:", msg);
+      if (err instanceof Error && err.stack) console.error(err.stack);
+    }
+  }
+  res.json({ ok: true, message: "If an account exists for this email, a reset code has been sent." });
+});
+
+const resetPasswordSchema = z
+  .object({
+    email: z.string().min(1, "Email is required").email("Invalid email address"),
+    otp: z.string().min(6, "Enter the 6-digit code").max(6, "Enter the 6-digit code"),
+    newPassword: z.string().min(8, "New password must be at least 8 characters"),
+    confirmPassword: z.string().min(1, "Please confirm your new password"),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.newPassword !== data.confirmPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "New password and confirmation do not match",
+        path: ["confirmPassword"],
+      });
+    }
+  });
+
+export const resetPasswordWithOtp = asyncHandler(async (req: Request, res: Response) => {
+  const body = resetPasswordSchema.parse(req.body);
+  const email = body.email.trim().toLowerCase();
+  const user = await User.findOne({ email });
+  if (!user) throw new AppError(400, "Invalid or expired code");
+  if (user.status === "blocked") throw new AppError(403, "Your account has been blocked");
+
+  const record = await PasswordResetOtp.findOne({ email });
+  if (!record || record.expiresAt.getTime() <= Date.now()) {
+    throw new AppError(400, "Invalid or expired code");
+  }
+  const otpOk = await bcrypt.compare(body.otp.trim(), record.otpHash);
+  if (!otpOk) throw new AppError(400, "Invalid or expired code");
+
+  user.passwordHash = await bcrypt.hash(body.newPassword, 10);
+  await user.save();
+  await PasswordResetOtp.deleteMany({ email });
   res.json({ ok: true });
 });

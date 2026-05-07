@@ -2,6 +2,7 @@ import express, { type Request, type Response } from "express";
 import cors from "cors";
 import { errorMiddleware } from "./middleware/errorMiddleware.js";
 import { authMiddleware, type AuthRequest } from "./middleware/authMiddleware.js";
+import { requireRoles } from "./middleware/roleMiddleware.js";
 import * as authController from "./controllers/authController.js";
 import * as orderController from "./controllers/orderController.js";
 import * as resourceController from "./controllers/resourceController.js";
@@ -10,6 +11,7 @@ import * as productDetailController from "./controllers/productDetailController.
 import * as shopifyController from "./controllers/shopifyController.js";
 import velocityRouter from "./modules/velocity/velocity.routes.js";
 import * as debugController from "./controllers/debugController.js";
+import * as walletController from "./controllers/walletController.js";
 
 export function createApp() {
   const app = express();
@@ -19,21 +21,35 @@ export function createApp() {
       credentials: true,
     })
   );
+  /** Shopify webhooks require raw body for HMAC verification (must be before express.json). */
+  app.post(
+    "/api/shopify/webhooks",
+    express.raw({ type: "application/json" }),
+    (req, res, next) => {
+      void shopifyController.handleWebhook(req, res).catch(next);
+    }
+  );
   app.use(express.json({ limit: "10mb" }));
 
   const api = express.Router();
 
   api.post("/auth/register", authController.register);
   api.post("/auth/login", authController.login);
+  api.post("/auth/forgot-password", authController.forgotPassword);
+  api.post("/auth/reset-password", authController.resetPasswordWithOtp);
   api.get("/auth/me", authMiddleware, authController.me);
+  api.get("/auth/profile", authMiddleware, authController.me);
   api.put("/users/profile", authMiddleware, authController.updateProfile);
-  api.post("/auth/logout", authMiddleware, authController.logout);
+  api.patch("/auth/profile", authMiddleware, authController.updateProfile);
+  api.post("/auth/logout", authController.logout);
   api.post("/auth/change-password", authMiddleware, authController.changePassword);
+  api.patch("/auth/change-password", authMiddleware, authController.changePassword);
 
   api.get("/orders/track/:awb", orderController.trackOrderByAwb);
   api.get("/orders/public/:orderId", orderController.publicOrderByOrderId);
 
   api.get("/orders", authMiddleware, orderController.listOrders);
+  api.get("/orders/:orderId", authMiddleware, orderController.getOrderById);
   api.post("/orders", authMiddleware, orderController.createOrder);
   api.post("/orders/bulk", authMiddleware, orderController.createOrdersBulk);
   api.post("/orders/bulk-move", authMiddleware, orderController.bulkMoveOrders);
@@ -68,9 +84,15 @@ export function createApp() {
   api.post("/pincodes", authMiddleware, resourceController.upsertPincode);
 
   api.get("/wallet", authMiddleware, resourceController.getWallet);
+  api.post("/wallet/add-balance", authMiddleware, resourceController.addWalletBalance);
   api.post("/wallet/add-funds", authMiddleware, resourceController.addFunds);
+  api.post("/wallet/deduct", authMiddleware, walletController.adminDeductWallet);
   api.get("/wallet/transactions", authMiddleware, resourceController.listTransactions);
   api.get("/wallet/cod-remittances", authMiddleware, resourceController.listCodRemittances);
+
+  api.get("/admin/wallets", authMiddleware, walletController.adminListWallets);
+  api.patch("/admin/wallets/:userId/adjust", authMiddleware, walletController.adminAdjustWalletHandler);
+  api.get("/admin/wallet-transactions", authMiddleware, walletController.adminListWalletTransactions);
 
   api.get("/invoices", authMiddleware, resourceController.listInvoices);
 
@@ -80,7 +102,7 @@ export function createApp() {
   api.get("/returns", authMiddleware, resourceController.listReturns);
   api.patch("/returns/:returnId", authMiddleware, resourceController.updateReturn);
 
-  api.get("/manifests", authMiddleware, resourceController.listManifests);
+  api.get("/manifests", authMiddleware, requireRoles("admin"), resourceController.listManifests);
 
   if (process.env.NODE_ENV === "development") {
     api.get("/debug/my-pickups", authMiddleware, debugController.debugMyPickups);
@@ -93,6 +115,7 @@ export function createApp() {
   api.get("/pickup-addresses", authMiddleware, resourceController.listPickupAddresses);
   api.post("/pickup-addresses", authMiddleware, resourceController.createPickupAddress);
   api.put("/pickup-addresses/:id", authMiddleware, resourceController.updatePickupAddress);
+  api.patch("/pickup-addresses/:id", authMiddleware, resourceController.updatePickupAddress);
   api.delete("/pickup-addresses/:id", authMiddleware, resourceController.deletePickupAddress);
   api.patch("/pickup-addresses/:id/default", authMiddleware, resourceController.setDefaultPickupAddress);
 
@@ -129,6 +152,12 @@ export function createApp() {
   api.get("/shopify/status", authMiddleware, shopifyController.getStatus);
   api.post("/shopify/disconnect", authMiddleware, shopifyController.disconnect);
   api.post("/shopify/sync-orders", authMiddleware, shopifyController.syncOrders);
+  api.get(
+    "/shopify/admin/connections",
+    authMiddleware,
+    requireRoles("admin"),
+    shopifyController.listConnectionsAdmin
+  );
 
   // Velocity Shipping courier integration
   api.use("/velocity", velocityRouter);

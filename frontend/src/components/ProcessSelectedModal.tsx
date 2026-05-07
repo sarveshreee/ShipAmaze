@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ interface Props {
 
 export function ProcessSelectedModal({ open, onClose, selectedCount, onSubmit }: Props) {
   const { data: pickupAddresses = [] } = usePickupAddresses();
+  const activePickups = useMemo(() => pickupAddresses.filter((a) => a.isActive !== false), [pickupAddresses]);
   const [shipmentMode, setShipmentMode] = useState("");
   const [pickupAddr, setPickupAddr] = useState("");
   const [returnAddr, setReturnAddr] = useState("");
@@ -63,7 +64,7 @@ export function ProcessSelectedModal({ open, onClose, selectedCount, onSubmit }:
               <select value={pickupAddr} onChange={e => setPickupAddr(e.target.value)}
                 className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">Search by pickup address...</option>
-                {pickupAddresses.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+                {activePickups.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
               </select>
             </div>
             <div>
@@ -71,7 +72,7 @@ export function ProcessSelectedModal({ open, onClose, selectedCount, onSubmit }:
               <select value={returnAddr} onChange={e => setReturnAddr(e.target.value)}
                 className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">Search by return address...</option>
-                {pickupAddresses.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+                {activePickups.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
               </select>
             </div>
           </div>

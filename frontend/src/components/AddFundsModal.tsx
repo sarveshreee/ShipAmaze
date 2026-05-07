@@ -14,7 +14,7 @@ import * as walletService from "@/services/walletService";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/apiClient";
 
-const MIN_AMOUNT = 100;
+const MIN_AMOUNT = 1;
 
 interface Props {
   open: boolean;
@@ -33,13 +33,14 @@ export function AddFundsModal({ open, onOpenChange, onSuccess }: Props) {
   const submit = async () => {
     const n = Number(String(amount).replace(/,/g, ""));
     if (!Number.isFinite(n) || n < MIN_AMOUNT) {
-      toast.error(`Minimum amount is ₹${MIN_AMOUNT}`);
+      toast.error(`Enter an amount of at least ₹${MIN_AMOUNT}`);
       return;
     }
     setSubmitting(true);
     try {
-      const res = await walletService.addFunds(n);
-      toast.success(res.message || "Funds request submitted");
+      const res = await walletService.addWalletBalance(n, "manual_test");
+      const msg = typeof res === "object" && res && "message" in res ? String((res as { message?: string }).message) : "";
+      toast.success(msg || "Balance added successfully");
       window.dispatchEvent(new Event("shipamaze:refetch:wallet"));
       window.dispatchEvent(new Event("shipamaze:refetch:transactions"));
       onOpenChange(false);
@@ -55,10 +56,10 @@ export function AddFundsModal({ open, onOpenChange, onSuccess }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add funds</DialogTitle>
+          <DialogTitle>Add balance (manual / test)</DialogTitle>
           <DialogDescription>
-            Enter an amount to add to your wallet. Payment gateway is not connected yet — this creates a{" "}
-            <span className="font-medium">pending</span> manual credit request (minimum ₹{MIN_AMOUNT}).
+            No payment gateway is connected. This applies a <span className="font-medium">manual / test recharge</span>{" "}
+            immediately to your wallet and records it in your transaction history (minimum ₹{MIN_AMOUNT}).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2 py-2">
@@ -67,7 +68,7 @@ export function AddFundsModal({ open, onOpenChange, onSuccess }: Props) {
             id="add-funds-amount"
             type="number"
             min={MIN_AMOUNT}
-            step="1"
+            step="0.01"
             inputMode="decimal"
             placeholder={`e.g. ${MIN_AMOUNT}`}
             value={amount}
@@ -79,7 +80,7 @@ export function AddFundsModal({ open, onOpenChange, onSuccess }: Props) {
             Cancel
           </Button>
           <Button type="button" className="bg-primary text-primary-foreground hover:bg-primary-dark" disabled={submitting} onClick={() => void submit()}>
-            {submitting ? "Submitting…" : "Submit request"}
+            {submitting ? "Adding…" : "Add balance"}
           </Button>
         </DialogFooter>
       </DialogContent>

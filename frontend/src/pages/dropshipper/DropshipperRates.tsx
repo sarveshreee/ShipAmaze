@@ -27,10 +27,15 @@ export default function DropshipperRates() {
   const [pinLoading, setPinLoading] = useState(false);
   const [pinCarriers, setPinCarriers] = useState<VelocityCarrier[] | null>(null);
   const [pinNotServiceable, setPinNotServiceable] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   const calculateRates = async () => {
     if (!fromPin || !toPin || !weight) {
       toast.error("Please fill in origin pincode, destination pincode, and weight");
+      return;
+    }
+    if (fromPin.replace(/\D/g, "").length !== 6 || toPin.replace(/\D/g, "").length !== 6) {
+      toast.error("Origin and destination pincodes must be 6 digits");
       return;
     }
     setCalcLoading(true);
@@ -52,24 +57,37 @@ export default function DropshipperRates() {
   };
 
   const checkPin = async () => {
-    if (pincode.length !== 6) { toast.error("Enter a valid 6-digit pincode"); return; }
+    const dest = pincode.replace(/\D/g, "").slice(0, 6);
+    const origin = (originPin || "").replace(/\D/g, "").slice(0, 6);
+    if (dest.length !== 6) {
+      toast.error("Enter a valid 6-digit destination pincode");
+      return;
+    }
+    if (origin.length !== 6) {
+      toast.error("Enter a valid 6-digit origin pincode");
+      return;
+    }
     setPinLoading(true);
     setPinCarriers(null);
     setPinNotServiceable(false);
+    setPinError(null);
     try {
       const resp = await velocityService.checkServiceability({
-        from: originPin || "400001",
-        to: pincode,
+        from: origin,
+        to: dest,
         payment_mode: "prepaid",
         shipment_type: "forward",
       });
-      if (resp.data?.length) {
-        setPinCarriers(resp.data);
+      const ok = resp.serviceable !== false && (resp.data?.length ?? 0) > 0;
+      if (ok) {
+        setPinCarriers(resp.data ?? []);
       } else {
         setPinNotServiceable(true);
+        if (resp.message) setPinError(resp.message);
       }
-    } catch {
+    } catch (e: unknown) {
       setPinNotServiceable(true);
+      setPinError(e instanceof Error ? e.message : "Could not reach shipping service");
     } finally {
       setPinLoading(false);
     }
@@ -272,8 +290,14 @@ export default function DropshipperRates() {
             {pinNotServiceable && (
               <div className="mt-4 rounded-lg bg-danger-light p-4 text-center">
                 <XCircle className="h-6 w-6 text-danger mx-auto mb-1" />
-                <p className="font-medium text-danger-dark">Not Serviceable</p>
-                <p className="text-sm text-text-muted mt-1">No couriers available for pincode {pincode}</p>
+                <p className="font-medium text-danger-dark">Not serviceable or request failed</p>
+                <p className="text-sm text-text-muted mt-1">
+                  No couriers returned for {originPin} → {pincode}
+                </p>
+                {pinError && <p className="text-xs text-danger-dark/90 mt-2">{pinError}</p>}
+                <Button variant="outline" size="sm" className="mt-3" type="button" onClick={() => void checkPin()} disabled={pinLoading}>
+                  Retry
+                </Button>
               </div>
             )}
           </div>

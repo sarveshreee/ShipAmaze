@@ -1,9 +1,93 @@
 import { apiClient } from "@/lib/apiClient";
 import type { Order } from "@/types/logistics";
 
-export async function listOrders(view?: "junk") {
-  const qs = view ? `?view=${encodeURIComponent(view)}` : "";
-  return apiClient.get<Order[]>(`/orders${qs}`);
+export type OrdersListMeta = {
+  orders: Order[];
+  total: number;
+  page: number;
+  pageSize: number;
+  tabCounts?: Record<string, number>;
+};
+
+/** Advanced list filters (query string fields for GET /orders). */
+export type OrderListFilterValues = {
+  status?: string;
+  payment?: string;
+  courier?: string;
+  source?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  customerCity?: string;
+  customerState?: string;
+  pickupCity?: string;
+  pickupState?: string;
+  productSku?: string;
+  productName?: string;
+  amountMin?: string;
+  amountMax?: string;
+  hasAwb?: string;
+  shipmentCreated?: string;
+};
+
+export type ListOrdersParams = OrderListFilterValues & {
+  view?: "junk";
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  /** Shopify fulfillment_status (e.g. fulfilled, partial) when filtering channel orders */
+  fulfillment?: string;
+  tab?: string;
+  counts?: boolean;
+  /** Use legacy array-only response from API */
+  legacy?: boolean;
+};
+
+function setIfTrim(sp: URLSearchParams, key: string, v: string | undefined) {
+  const t = v?.trim();
+  if (t) sp.set(key, t);
+}
+
+function buildQueryString(params: ListOrdersParams): string {
+  const sp = new URLSearchParams();
+  if (params.view) sp.set("view", params.view);
+  if (params.legacy) sp.set("legacy", "1");
+  if (params.page != null) sp.set("page", String(params.page));
+  if (params.pageSize != null) sp.set("pageSize", String(params.pageSize));
+  if (params.q) sp.set("q", params.q);
+  setIfTrim(sp, "status", params.status);
+  setIfTrim(sp, "payment", params.payment);
+  setIfTrim(sp, "courier", params.courier);
+  setIfTrim(sp, "source", params.source);
+  if (params.fulfillment) sp.set("fulfillment", params.fulfillment);
+  setIfTrim(sp, "dateFrom", params.dateFrom);
+  setIfTrim(sp, "dateTo", params.dateTo);
+  if (params.tab) sp.set("tab", params.tab);
+  if (params.counts) sp.set("counts", "1");
+  setIfTrim(sp, "customerCity", params.customerCity);
+  setIfTrim(sp, "customerState", params.customerState);
+  setIfTrim(sp, "pickupCity", params.pickupCity);
+  setIfTrim(sp, "pickupState", params.pickupState);
+  setIfTrim(sp, "productSku", params.productSku);
+  setIfTrim(sp, "productName", params.productName);
+  setIfTrim(sp, "amountMin", params.amountMin);
+  setIfTrim(sp, "amountMax", params.amountMax);
+  setIfTrim(sp, "hasAwb", params.hasAwb);
+  setIfTrim(sp, "shipmentCreated", params.shipmentCreated);
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
+/** Paginated list (default). Use legacy: true for raw Order[] during migration. */
+export async function listOrders(params: ListOrdersParams = {}): Promise<OrdersListMeta | Order[]> {
+  const qs = buildQueryString(params);
+  if (params.legacy) {
+    return apiClient.get<Order[]>(`/orders${qs}`);
+  }
+  return apiClient.get<OrdersListMeta>(`/orders${qs}`);
+}
+
+export async function getOrder(orderId: string) {
+  return apiClient.get<Order>(`/orders/${encodeURIComponent(orderId)}`);
 }
 
 export async function createOrder(body: Record<string, unknown>) {

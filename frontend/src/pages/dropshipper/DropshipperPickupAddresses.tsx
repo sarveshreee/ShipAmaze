@@ -36,14 +36,18 @@ const emptyForm = {
   label: "",
   contactName: "",
   phone: "",
+  alternatePhone: "",
   email: "",
   addressLine1: "",
   addressLine2: "",
+  landmark: "",
   city: "",
   state: "",
   pincode: "",
   country: "India",
+  gstin: "",
   isDefault: false,
+  isActive: true,
 };
 
 export default function DropshipperPickupAddresses() {
@@ -61,6 +65,14 @@ export default function DropshipperPickupAddresses() {
     }
   }, [dialogOpen]);
 
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refetch();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refetch]);
+
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyForm);
@@ -73,21 +85,37 @@ export default function DropshipperPickupAddresses() {
       label: a.label,
       contactName: a.contactName,
       phone: a.phone,
+      alternatePhone: a.alternatePhone ?? "",
       email: a.email ?? "",
       addressLine1: a.addressLine1,
       addressLine2: a.addressLine2 ?? "",
+      landmark: a.landmark ?? "",
       city: a.city,
       state: a.state,
       pincode: a.pincode,
       country: a.country || "India",
+      gstin: a.gstin ?? "",
       isDefault: a.isDefault,
+      isActive: a.isActive !== false,
     });
     setDialogOpen(true);
   };
 
   const save = async () => {
-    if (!form.label.trim() || !form.addressLine1.trim() || !form.city.trim() || !form.state.trim() || !form.pincode.trim()) {
-      toast.error("Fill address name, line 1, city, state, and pincode");
+    if (!form.label.trim() || !form.contactName.trim() || !form.addressLine1.trim() || !form.city.trim() || !form.state.trim() || !form.pincode.trim()) {
+      toast.error("Fill address name, contact person, line 1, city, state, and pincode");
+      return;
+    }
+    const pinDigits = form.pincode.replace(/\D/g, "").slice(0, 6);
+    if (!/^\d{6}$/.test(pinDigits)) {
+      toast.error("Pincode must be exactly 6 digits");
+      return;
+    }
+    const phoneDigits = form.phone.replace(/\D/g, "");
+    let primary = phoneDigits;
+    if (primary.length === 12 && primary.startsWith("91")) primary = primary.slice(2);
+    if (primary.length !== 10) {
+      toast.error("Enter a valid 10-digit mobile number");
       return;
     }
     setSaving(true);
@@ -97,14 +125,18 @@ export default function DropshipperPickupAddresses() {
           label: form.label.trim(),
           contactName: form.contactName.trim(),
           phone: form.phone.trim(),
+          alternatePhone: form.alternatePhone.trim() || undefined,
           email: form.email.trim() || undefined,
           addressLine1: form.addressLine1.trim(),
           addressLine2: form.addressLine2.trim(),
+          landmark: form.landmark.trim() || undefined,
           city: form.city.trim(),
           state: form.state.trim(),
-          pincode: form.pincode.trim(),
+          pincode: pinDigits,
           country: form.country.trim() || "India",
+          gstin: form.gstin.trim() || undefined,
           isDefault: form.isDefault,
+          isActive: form.isActive,
         });
         toast.success("Address updated");
       } else {
@@ -112,14 +144,18 @@ export default function DropshipperPickupAddresses() {
           label: form.label.trim(),
           contactName: form.contactName.trim(),
           phone: form.phone.trim(),
+          alternatePhone: form.alternatePhone.trim() || undefined,
           email: form.email.trim() || undefined,
           addressLine1: form.addressLine1.trim(),
           addressLine2: form.addressLine2.trim(),
+          landmark: form.landmark.trim() || undefined,
           city: form.city.trim(),
           state: form.state.trim(),
-          pincode: form.pincode.trim(),
+          pincode: pinDigits,
           country: form.country.trim() || "India",
+          gstin: form.gstin.trim() || undefined,
           isDefault: form.isDefault,
+          isActive: form.isActive,
         });
         toast.success("Address saved");
       }
@@ -127,7 +163,7 @@ export default function DropshipperPickupAddresses() {
       await refetch();
       setDialogOpen(false);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Could not save address");
+      toast.error(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not save address");
     } finally {
       setSaving(false);
     }
@@ -203,12 +239,23 @@ export default function DropshipperPickupAddresses() {
                   </div>
                   <div className="min-w-0">
                     <p className="font-semibold text-text-primary truncate">{a.label}</p>
-                    {a.isDefault && (
-                      <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-2 py-0.5 text-[10px] font-medium">
-                        <Star className="h-2.5 w-2.5" />
-                        Default
-                      </span>
-                    )}
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {a.isDefault && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-2 py-0.5 text-[10px] font-medium">
+                          <Star className="h-2.5 w-2.5" />
+                          Default
+                        </span>
+                      )}
+                      {a.isActive === false ? (
+                        <span className="inline-flex rounded-full bg-text-muted/20 text-text-muted px-2 py-0.5 text-[10px] font-medium">
+                          Inactive
+                        </span>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-success-light text-success-dark px-2 py-0.5 text-[10px] font-medium">
+                          Active
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -229,11 +276,12 @@ export default function DropshipperPickupAddresses() {
                   </p>
                 ) : null}
                 <p className="text-text-muted pt-2 leading-relaxed">
-                  {[a.addressLine1, a.addressLine2].filter(Boolean).join(", ")}
+                  {[a.addressLine1, a.addressLine2, a.landmark].filter(Boolean).join(", ")}
                   <br />
                   {a.city}, {a.state} {a.pincode}
                   {a.country && a.country !== "India" ? `, ${a.country}` : ""}
                 </p>
+                {a.gstin ? <p className="text-xs text-text-muted pt-1">GSTIN: {a.gstin}</p> : null}
               </div>
 
               <VelocityWarehouseLinkCard
@@ -290,7 +338,11 @@ export default function DropshipperPickupAddresses() {
             </div>
             <div>
               <Label>Phone</Label>
-              <Input className="mt-1" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Input className="mt-1" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="10-digit mobile" />
+            </div>
+            <div>
+              <Label>Alternate phone (optional)</Label>
+              <Input className="mt-1" value={form.alternatePhone} onChange={(e) => setForm((f) => ({ ...f, alternatePhone: e.target.value }))} />
             </div>
             <div className="sm:col-span-2">
               <Label>Email (optional)</Label>
@@ -303,6 +355,10 @@ export default function DropshipperPickupAddresses() {
             <div className="sm:col-span-2">
               <Label>Address line 2</Label>
               <Input className="mt-1" value={form.addressLine2} onChange={(e) => setForm((f) => ({ ...f, addressLine2: e.target.value }))} />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Landmark (optional)</Label>
+              <Input className="mt-1" value={form.landmark} onChange={(e) => setForm((f) => ({ ...f, landmark: e.target.value }))} placeholder="Nearby landmark" />
             </div>
             <div>
               <Label>City</Label>
@@ -331,12 +387,24 @@ export default function DropshipperPickupAddresses() {
               <Label>Country</Label>
               <Input className="mt-1" value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))} />
             </div>
+            <div className="sm:col-span-2">
+              <Label>GSTIN (optional)</Label>
+              <Input className="mt-1" value={form.gstin} onChange={(e) => setForm((f) => ({ ...f, gstin: e.target.value.toUpperCase() }))} maxLength={15} />
+            </div>
             <div className="sm:col-span-2 flex items-center gap-2 pt-1">
               <Checkbox id="def" checked={form.isDefault} onCheckedChange={(v) => setForm((f) => ({ ...f, isDefault: Boolean(v) }))} />
               <Label htmlFor="def" className="text-sm font-normal cursor-pointer">
                 Set as default pickup address
               </Label>
             </div>
+            {editingId ? (
+              <div className="sm:col-span-2 flex items-center gap-2 pt-1">
+                <Checkbox id="act" checked={form.isActive} onCheckedChange={(v) => setForm((f) => ({ ...f, isActive: Boolean(v) }))} />
+                <Label htmlFor="act" className="text-sm font-normal cursor-pointer">
+                  Address is active (inactive addresses cannot be used for new orders)
+                </Label>
+              </div>
+            ) : null}
           </div>
           <DialogFooter className="gap-2 sm:gap-2">
             <Button type="button" variant="secondary" onClick={() => setDialogOpen(false)} disabled={saving}>
@@ -352,8 +420,10 @@ export default function DropshipperPickupAddresses() {
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this address?</AlertDialogTitle>
-            <AlertDialogDescription>This cannot be undone. Orders already using this label are unchanged.</AlertDialogDescription>
+            <AlertDialogTitle>Remove this pickup address?</AlertDialogTitle>
+            <AlertDialogDescription>
+              It will be deactivated and hidden from your list. Existing orders keep their saved pickup details.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

@@ -65,6 +65,9 @@ export interface VelocityTrackingResult {
   /** True when order exists locally but no AWB has been generated yet */
   pendingShipment?: boolean;
   trackUrl?: string;
+  /** Courier API failed; showing last saved snapshot */
+  trackingUnavailable?: boolean;
+  trackingMessage?: string;
 }
 
 export interface VelocityShipmentResult {
@@ -139,6 +142,8 @@ export interface CreateForwardShipmentParams {
   };
   items?: { name: string; qty: number; price: number }[];
   carrier_id?: string | number;
+  /** When true, backend verifies Velocity serviceability before creating shipment (422 if none). */
+  enforceServiceability?: boolean;
 }
 
 export interface CreateReverseShipmentParams {
@@ -165,10 +170,12 @@ export interface CreateReverseShipmentParams {
 // ─── API calls ───────────────────────────────────────────
 
 export async function checkServiceability(params: ServiceabilityParams) {
-  return apiClient.post<{ success: boolean; data: VelocityCarrier[] }>(
-    "/velocity/serviceability",
-    params
-  );
+  return apiClient.post<{
+    success: boolean;
+    data: VelocityCarrier[];
+    message?: string;
+    serviceable?: boolean;
+  }>("/velocity/serviceability", params);
 }
 
 export async function getRates(params: RatesParams) {
@@ -198,10 +205,12 @@ export async function unlinkVelocityWarehouse(warehouseId: string) {
 }
 
 export async function createForwardShipment(params: CreateForwardShipmentParams) {
-  return apiClient.post<{ success: boolean; data: VelocityShipmentResult; orderId?: string }>(
-    "/velocity/forward/create",
-    params
-  );
+  return apiClient.post<{
+    success: boolean;
+    data: VelocityShipmentResult;
+    orderId?: string;
+    walletDeduction?: { debited?: boolean; amount?: number; skipped?: boolean; reason?: string };
+  }>("/velocity/forward/create", params);
 }
 
 export async function createForwardOrderOnly(params: CreateForwardShipmentParams) {

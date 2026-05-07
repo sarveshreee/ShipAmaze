@@ -4,6 +4,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { Pickup } from "../models/Pickup.js";
 import { getPickupOwnerFilterForUser } from "../utils/pickupOwnerFilter.js";
+import { PICKUP_NOT_DELETED, PICKUP_ACTIVE } from "../utils/pickupQuery.js";
 
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
@@ -34,21 +35,23 @@ function mapPickup(p: Record<string, unknown>) {
 export const debugMyPickups = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
-  const active = { $or: [{ isActive: true }, { isActive: { $exists: false } }] };
   const uid = req.user._id;
 
   const pickupsReturnedByNormalApi = await Pickup.find({
-    ...getPickupOwnerFilterForUser(req.user),
-    ...active,
+    $and: [getPickupOwnerFilterForUser(req.user), { ...PICKUP_NOT_DELETED }, { ...PICKUP_ACTIVE }],
   })
     .sort({ createdAt: -1 })
     .lean();
 
-  const rawPickupsMatchingByUserId = await Pickup.find({ userId: uid, ...active })
+  const rawPickupsMatchingByUserId = await Pickup.find({
+    $and: [{ userId: uid }, { ...PICKUP_NOT_DELETED }, { ...PICKUP_ACTIVE }],
+  })
     .sort({ createdAt: -1 })
     .lean();
 
-  const rawPickupsMatchingByDropshipperId = await Pickup.find({ dropshipperId: uid, ...active })
+  const rawPickupsMatchingByDropshipperId = await Pickup.find({
+    $and: [{ dropshipperId: uid }, { ...PICKUP_NOT_DELETED }, { ...PICKUP_ACTIVE }],
+  })
     .sort({ createdAt: -1 })
     .lean();
 

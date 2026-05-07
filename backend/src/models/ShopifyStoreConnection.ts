@@ -9,6 +9,10 @@ export interface IShopifyStoreConnection extends Document {
   role: "admin" | "vendor" | "dropshipper";
   isActive: boolean;
   lastSyncedAt?: Date;
+  /** Successful manual/auto sync completions */
+  syncCount?: number;
+  lastSyncError?: string;
+  disconnectedAt?: Date;
 }
 
 const shopifyStoreSchema = new Schema<IShopifyStoreConnection>(
@@ -21,6 +25,9 @@ const shopifyStoreSchema = new Schema<IShopifyStoreConnection>(
     role: { type: String, enum: ["admin", "vendor", "dropshipper"], required: true },
     isActive: { type: Boolean, default: true },
     lastSyncedAt: { type: Date },
+    syncCount: { type: Number, default: 0 },
+    lastSyncError: { type: String },
+    disconnectedAt: { type: Date },
   },
   { timestamps: true }
 );

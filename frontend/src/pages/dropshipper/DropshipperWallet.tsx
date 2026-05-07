@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { useTransactions, useWalletSummary } from "@/hooks/useApiData";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ function typeBadgeClass(dt: WalletTxnDisplayType) {
   if (dt === "Credit" || dt === "Recharge") return "bg-success-light text-success-dark";
   if (dt === "COD") return "bg-primary-light text-primary-dark";
   if (dt === "Deduction" || dt === "Debit") return "bg-danger-light text-danger-dark";
+  if (dt === "Adjustment") return "bg-surface-2 text-text-primary border border-border";
   return "bg-surface-2 text-text-secondary";
 }
 
@@ -48,6 +50,7 @@ function statusBadgeClass(s: string) {
 }
 
 export default function DropshipperWallet() {
+  const { role } = useAuth();
   const { data: transactions = [], isLoading: txLoading, refetch: refetchTx } = useTransactions();
   const { data: summary, isLoading: sumLoading, error: sumError, refetch: refetchSum } = useWalletSummary();
   const [addOpen, setAddOpen] = useState(false);
@@ -61,10 +64,28 @@ export default function DropshipperWallet() {
 
   return (
     <div className="animate-fade-in-up space-y-6">
-      <PageHeader title="Wallet" breadcrumb={["Dropshipper", "Wallet"]} />
+      <PageHeader
+        title="Wallet"
+        breadcrumb={[
+          role === "vendor" ? "Vendor" : "Dropshipper",
+          "Wallet",
+        ]}
+      />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl border border-border bg-card p-5 shadow-card md:col-span-2 xl:col-span-2">
+        <div
+          className="rounded-xl border border-border bg-card p-5 shadow-card md:col-span-2 xl:col-span-2 text-left transition-shadow hover:shadow-card-md cursor-pointer focus-within:ring-2 focus-within:ring-primary/40"
+          onClick={() => setAddOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setAddOpen(true);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="Open add balance"
+        >
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Available balance</p>
@@ -85,9 +106,9 @@ export default function DropshipperWallet() {
             </div>
           </div>
           <div className="mt-5 flex flex-wrap gap-2">
-            <Button className="bg-primary text-primary-foreground hover:bg-primary-dark" type="button" onClick={() => setAddOpen(true)}>
+            <Button className="bg-primary text-primary-foreground hover:bg-primary-dark" type="button" onClick={(e) => { e.stopPropagation(); setAddOpen(true); }} onKeyDown={(e) => e.stopPropagation()}>
               <Plus className="h-4 w-4 mr-2" />
-              Add funds
+              Add balance
             </Button>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -117,16 +138,16 @@ export default function DropshipperWallet() {
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-1.5 text-text-secondary">
                 <TrendingUp className="h-3.5 w-3.5 text-success" />
-                Total recharge
+                Total credits
               </span>
-              {loading ? <Skeleton className="h-4 w-20" /> : <span className="font-medium tabular-nums">{formatInr(summary?.totalRecharge ?? 0)}</span>}
+              {loading ? <Skeleton className="h-4 w-20" /> : <span className="font-medium tabular-nums">{formatInr(summary?.totalCredits ?? summary?.totalRecharge ?? 0)}</span>}
             </div>
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-1.5 text-text-secondary">
                 <TrendingDown className="h-3.5 w-3.5 text-danger" />
-                Total deductions
+                Total debits
               </span>
-              {loading ? <Skeleton className="h-4 w-20" /> : <span className="font-medium tabular-nums">{formatInr(summary?.totalDeductions ?? 0)}</span>}
+              {loading ? <Skeleton className="h-4 w-20" /> : <span className="font-medium tabular-nums">{formatInr(summary?.totalDebits ?? summary?.totalDeductions ?? 0)}</span>}
             </div>
           </div>
         </div>
@@ -140,6 +161,9 @@ export default function DropshipperWallet() {
           </div>
         </div>
 
+        {sumError ? (
+          <div className="px-5 py-8 text-center text-sm text-danger">Could not load wallet summary. Please try again.</div>
+        ) : null}
         {txLoading ? (
           <div className="p-8 space-y-3">
             <Skeleton className="h-10 w-full" />
@@ -157,6 +181,7 @@ export default function DropshipperWallet() {
                   <th className="p-3 text-left font-medium text-text-secondary">Description</th>
                   <th className="p-3 text-left font-medium text-text-secondary">Type</th>
                   <th className="p-3 text-right font-medium text-text-secondary">Amount</th>
+                  <th className="p-3 text-right font-medium text-text-secondary">Balance before</th>
                   <th className="p-3 text-right font-medium text-text-secondary">Balance after</th>
                   <th className="p-3 text-left font-medium text-text-secondary">Status</th>
                 </tr>
@@ -181,6 +206,9 @@ export default function DropshipperWallet() {
                     >
                       {t.type === "Credit" ? "+" : "−"}
                       {formatInr(Math.abs(t.amount))}
+                    </td>
+                    <td className="p-3 text-right tabular-nums text-text-muted whitespace-nowrap">
+                      {t.balanceBefore != null ? formatInr(t.balanceBefore) : "—"}
                     </td>
                     <td className="p-3 text-right tabular-nums text-text-primary whitespace-nowrap">{formatInr(t.balance)}</td>
                     <td className="p-3">

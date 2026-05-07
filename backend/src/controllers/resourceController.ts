@@ -5,7 +5,24 @@ import { AppError } from "../middleware/errorMiddleware.js";
 import { Vendor } from "../models/Vendor.js";
 import { Dropshipper } from "../models/Dropshipper.js";
 import { User, type UserRole } from "../models/User.js";
-import { getPickupOwnerFilterForUser } from "../utils/pickupOwnerFilter.js";
+import {
+  clearDefaultPickupsForOwnerDoc,
+  pickupListQuery,
+  pickupOwnerScope,
+  PICKUP_ACTIVE,
+  PICKUP_NOT_DELETED,
+} from "../utils/pickupQuery.js";
+import {
+  trimStr,
+  normalizePincodeIndia,
+  validateIndianPincode,
+  normalizePhoneInput,
+  validateIndianPhone,
+  validateGstinOptional,
+  validateEmailOptional,
+  pickupAddressFingerprint,
+  assertIndianPhonesDistinct,
+} from "../utils/pickupValidation.js";
 import { Warehouse } from "../models/Warehouse.js";
 import { Courier } from "../models/Courier.js";
 import { PincodeServiceability } from "../models/PincodeServiceability.js";
@@ -23,12 +40,14 @@ import { ProductRequest } from "../models/ProductRequest.js";
 import { TabPermission } from "../models/TabPermission.js";
 import mongoose, { type Types } from "mongoose";
 import { randomBytes } from "crypto";
+import { creditWallet } from "../services/walletLedger.js";
 
 function transactionDisplayType(ledgerType: string | undefined, type: "Credit" | "Debit"): string {
   const lt = (ledgerType || "general").toLowerCase();
-  if (lt === "manual_credit_request" || lt === "recharge") return "Recharge";
+  if (lt === "manual_credit_request" || lt === "recharge" || lt === "manual_test_recharge") return "Recharge";
+  if (lt === "admin_adjustment_credit" || lt === "admin_adjustment_debit") return "Adjustment";
   if (lt === "cod" || lt === "cod_settlement") return "COD";
-  if (lt === "deduction" || lt === "shipping" || lt === "fee") return "Deduction";
+  if (lt === "deduction" || lt === "shipping" || lt === "fee" || lt === "admin_manual_debit") return "Deduction";
   if (type === "Debit") return "Debit";
   return "Credit";
 }
@@ -96,7 +115,10 @@ export const listWarehouses = asyncHandler(async (req: AuthRequest, res: Respons
   if (!req.user) throw new AppError(401, "Unauthorized");
   const vendor = await Vendor.findOne({ userId: req.user._id });
   if (req.user.role === "vendor" && vendor) {
-    const rows = await Warehouse.find({ vendorId: vendor._id });
+    const rows = await Warehouse.find({
+      vendorId: vendor._id,
+      $or: [{ isActive: true }, { isActive: { $exists: false } }],
+    }).lean();
     res.json(rows);
     return;
   }
@@ -132,8 +154,13 @@ export const deleteWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
   if (!req.user) throw new AppError(401, "Unauthorized");
   const vendor = await Vendor.findOne({ userId: req.user._id });
   if (!vendor) throw new AppError(403, "Forbidden");
-  await Warehouse.deleteOne({ _id: req.params.id, vendorId: vendor._id });
-  res.json({ ok: true });
+  const w = await Warehouse.findOneAndUpdate(
+    { _id: req.params.id, vendorId: vendor._id },
+    { $set: { isActive: false } },
+    { new: true }
+  );
+  if (!w) throw new AppError(404, "Not found");
+  res.json({ ok: true, message: "Warehouse deactivated" });
 });
 
 export const listCouriers = asyncHandler(async (_req: AuthRequest, res: Response) => {
@@ -182,13 +209,26 @@ export const upsertPincode = asyncHandler(async (req: AuthRequest, res: Response
 
 export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const uid = req.user._id;
+
+  let uid = req.user._id;
+  if (req.user.role === "admin") {
+    const q = String((req.query as { userId?: string }).userId ?? "").trim();
+    if (q) {
+      if (!mongoose.isValidObjectId(q)) throw new AppError(400, "Invalid userId");
+      uid = new mongoose.Types.ObjectId(q);
+    }
+  }
+
   let w = await Wallet.findOne({ userId: uid });
   if (!w) {
     w = await Wallet.create({ userId: uid, balance: 0, currency: "INR" });
   }
 
-  const [pendingCodAgg, rechargeAgg, deductionAgg] = await Promise.all([
+  const completedMatch = {
+    $or: [{ status: "completed" }, { status: { $exists: false } }, { status: null }],
+  };
+
+  const [pendingCodAgg, creditsAgg, debitsAgg] = await Promise.all([
     CodRemittance.aggregate<{ total?: number }>([
       {
         $match: {
@@ -201,21 +241,7 @@ export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) =>
     Transaction.aggregate<{ total?: number }>([
       {
         $match: {
-          $and: [
-            { userId: uid },
-            { $or: [{ status: "completed" }, { status: { $exists: false } }, { status: null }] },
-            { type: "Credit" },
-            {
-              $or: [
-                { ledgerType: { $exists: false } },
-                { ledgerType: null },
-                { ledgerType: "" },
-                { ledgerType: "general" },
-                { ledgerType: "recharge" },
-                { ledgerType: "manual_credit_request" },
-              ],
-            },
-          ],
+          $and: [{ userId: uid }, completedMatch, { type: "Credit" }],
         },
       },
       { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -223,11 +249,7 @@ export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) =>
     Transaction.aggregate<{ total?: number }>([
       {
         $match: {
-          $and: [
-            { userId: uid },
-            { $or: [{ status: "completed" }, { status: { $exists: false } }, { status: null }] },
-            { type: "Debit" },
-          ],
+          $and: [{ userId: uid }, completedMatch, { type: "Debit" }],
         },
       },
       { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -235,66 +257,102 @@ export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) =>
   ]);
 
   const pendingCod = pendingCodAgg[0]?.total ?? 0;
-  const totalRecharge = rechargeAgg[0]?.total ?? 0;
-  const totalDeductions = deductionAgg[0]?.total ?? 0;
+  const totalCredits = creditsAgg[0]?.total ?? 0;
+  const totalDebits = debitsAgg[0]?.total ?? 0;
   const lastSyncedAt = (w.updatedAt ?? w.createdAt ?? new Date()).toISOString();
 
   res.json({
-    balance: w.balance ?? 0,
-    pendingCod,
-    totalRecharge,
-    totalDeductions,
-    lastSyncedAt,
-    currency: w.currency ?? "INR",
+    success: true,
+    data: {
+      balance: Math.max(0, w.balance ?? 0),
+      pendingCod,
+      totalCredits,
+      totalDebits,
+      /** @deprecated use totalCredits — kept for older clients */
+      totalRecharge: totalCredits,
+      /** @deprecated use totalDebits */
+      totalDeductions: totalDebits,
+      lastSyncedAt,
+      currency: w.currency ?? "INR",
+    },
   });
 });
 
-export const addFunds = asyncHandler(async (req: AuthRequest, res: Response) => {
+/** Manual / test recharge — credits wallet immediately (no payment gateway). */
+export const addWalletBalance = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const raw = (req.body as { amount?: unknown }).amount;
+  if (req.user.role !== "vendor" && req.user.role !== "dropshipper") {
+    throw new AppError(403, "Wallet recharge is only available for vendor and dropshipper accounts");
+  }
+
+  const body = req.body as { amount?: unknown; mode?: unknown };
+  const mode = String(body.mode ?? "manual_test").toLowerCase();
+  if (mode !== "manual_test" && mode !== "manual") {
+    throw new AppError(
+      400,
+      "Only manual_test mode is supported until a payment gateway is integrated. Pass mode: \"manual_test\"."
+    );
+  }
+
+  const raw = body.amount;
   const amount = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isFinite(amount) || amount < 100) {
-    throw new AppError(400, "Minimum add-funds amount is ₹100");
+  if (!Number.isFinite(amount) || amount < 1) {
+    throw new AppError(400, "Amount must be at least ₹1");
+  }
+  if (amount > 1_000_000) {
+    throw new AppError(400, "Amount exceeds maximum allowed per request");
   }
 
-  let w = await Wallet.findOne({ userId: req.user._id });
-  if (!w) {
-    w = await Wallet.create({ userId: req.user._id, balance: 0, currency: "INR" });
-  }
-  const balanceAfter = w.balance ?? 0;
-  const txnId = `WREQ-${Date.now()}-${randomBytes(4).toString("hex")}`;
-  const dateStr = new Date().toISOString().slice(0, 10);
-
-  await Transaction.create({
+  const refId = `manual:${Date.now()}-${randomBytes(4).toString("hex")}`;
+  const r = await creditWallet({
     userId: req.user._id,
-    txnId,
-    date: dateStr,
-    description: `Add funds — ₹${amount} (pending payment / manual credit request)`,
-    type: "Credit",
     amount,
-    balance: balanceAfter,
-    status: "pending",
-    ledgerType: "manual_credit_request",
+    description: `Manual / test wallet recharge — ₹${amount}`,
+    ledgerType: "manual_test_recharge",
+    referenceType: "manual_test",
+    referenceId: refId,
+    reason: "Manual or test recharge (no payment gateway)",
   });
 
   res.status(201).json({
     success: true,
-    message: "Funds request recorded. Balance will update after payment is confirmed.",
-    transaction: { txnId, amount, status: "pending" as const },
+    message: "Balance added successfully (manual / test recharge).",
+    data: {
+      balanceAfter: r.balanceAfter,
+      txnId: r.txnId,
+      mode: "manual_test",
+    },
   });
 });
 
+/** @deprecated Prefer POST /wallet/add-balance — same behavior (immediate manual test credit). */
+export const addFunds = addWalletBalance;
+
 export const listTransactions = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const rows = await Transaction.find({ userId: req.user._id }).sort({ createdAt: -1 }).lean();
-  res.json(
-    rows.map((t) => {
+  const q = req.query as Record<string, unknown>;
+  const page = Math.max(1, parseInt(String(q.page ?? "1"), 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(String(q.pageSize ?? "50"), 10) || 50));
+  const skip = (page - 1) * pageSize;
+
+  const filter: Record<string, unknown> = { userId: req.user._id };
+  const type = String(q.type ?? "").trim();
+  if (type === "Credit" || type === "Debit") filter.type = type;
+  const status = String(q.status ?? "").trim();
+  if (status === "completed" || status === "pending" || status === "failed") filter.status = status;
+
+  const [rows, total] = await Promise.all([
+    Transaction.find(filter).sort({ createdAt: -1 }).skip(skip).limit(pageSize).lean(),
+    Transaction.countDocuments(filter),
+  ]);
+
+  res.json({
+    success: true,
+    data: rows.map((t) => {
       const ledgerType = (t as { ledgerType?: string }).ledgerType ?? "general";
-      const status = (t as { status?: string }).status ?? "completed";
+      const st = (t as { status?: string }).status ?? "completed";
       const createdAt = (t as { createdAt?: Date }).createdAt;
-      const date =
-        t.date ||
-        (createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "");
+      const date = t.date || (createdAt ? new Date(createdAt).toISOString().slice(0, 10) : "");
       return {
         id: t.txnId,
         date,
@@ -303,13 +361,20 @@ export const listTransactions = asyncHandler(async (req: AuthRequest, res: Respo
         type: t.type,
         amount: t.amount,
         balance: t.balance,
-        status,
+        balanceBefore: (t as { balanceBefore?: number }).balanceBefore,
+        status: st,
         ledgerType,
+        referenceType: (t as { referenceType?: string }).referenceType,
+        referenceId: (t as { referenceId?: string }).referenceId,
+        reason: (t as { reason?: string }).reason,
         displayType: transactionDisplayType(ledgerType, t.type as "Credit" | "Debit"),
         createdAt: createdAt ? new Date(createdAt).toISOString() : undefined,
       };
-    })
-  );
+    }),
+    page,
+    pageSize,
+    total,
+  });
 });
 
 export const listCodRemittances = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -416,34 +481,59 @@ export const listManifests = asyncHandler(async (_req: AuthRequest, res: Respons
   );
 });
 
+function assertPickupApiRole(role: UserRole) {
+  if (role !== "admin" && role !== "vendor" && role !== "dropshipper") {
+    throw new AppError(403, "Pickup addresses are not available for this account");
+  }
+}
+
+function pickupLabelFromBody(b: Record<string, unknown>): string {
+  return trimStr(b.label) || trimStr(b.pickupName) || trimStr(b.warehouseName);
+}
+
+function pickupContactFromBody(b: Record<string, unknown>): string {
+  return trimStr(b.contactName) || trimStr(b.contactPerson);
+}
+
 function mapPickupDoc(a: {
   _id: unknown;
   label: string;
   contactName?: string;
   phone?: string;
+  alternatePhone?: string;
   email?: string;
   addressLine1: string;
   addressLine2?: string;
+  landmark?: string;
   city: string;
   state: string;
   pincode: string;
   country?: string;
+  gstin?: string;
   isDefault?: boolean;
   isActive?: boolean;
+  deletedAt?: Date;
   velocityWarehouseId?: string;
 }) {
+  const label = a.label ?? "";
   return {
     id: String(a._id),
-    label: a.label,
+    label,
+    warehouseName: label,
+    pickupName: label,
     contactName: a.contactName ?? "",
+    contactPerson: a.contactName ?? "",
     phone: a.phone ?? "",
-    email: a.email ?? "",
+    alternatePhone: typeof a.alternatePhone === "string" && a.alternatePhone.trim() ? a.alternatePhone.trim() : undefined,
+    email: typeof a.email === "string" && a.email.trim() ? a.email.trim() : undefined,
     addressLine1: a.addressLine1,
     addressLine2: a.addressLine2 ?? "",
+    landmark: typeof a.landmark === "string" && a.landmark.trim() ? a.landmark.trim() : undefined,
     city: a.city,
     state: a.state,
     pincode: a.pincode,
     country: a.country ?? "India",
+    gstin: typeof a.gstin === "string" && a.gstin.trim() ? a.gstin.trim().toUpperCase() : undefined,
     isDefault: Boolean(a.isDefault),
     isActive: a.isActive !== false,
     velocityWarehouseId:
@@ -453,24 +543,16 @@ function mapPickupDoc(a: {
   };
 }
 
-async function clearDefaultPickupsForUser(userId: Types.ObjectId, role: UserRole) {
-  const filter =
-    role === "dropshipper"
-      ? { $or: [{ userId }, { dropshipperId: userId }] }
-      : { userId };
-  await Pickup.updateMany(filter, { $set: { isDefault: false } });
-}
-
 export const listPickupAddresses = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
-  const rows = await Pickup.find({
-    ...getPickupOwnerFilterForUser(req.user),
-    $or: [{ isActive: true }, { isActive: { $exists: false } }],
-  })
+  assertPickupApiRole(req.user.role);
+  const rows = await Pickup.find(pickupListQuery(req.user, { includeInactive: true }))
     .sort({ createdAt: -1 })
     .lean();
-  res.json(rows.map(mapPickupDoc));
+  res.json({
+    success: true,
+    data: rows.map((r) => mapPickupDoc(r as Parameters<typeof mapPickupDoc>[0])),
+  });
 });
 
 /** @deprecated Use GET /pickup-addresses — kept for older clients */
@@ -478,45 +560,110 @@ export const listPickups = listPickupAddresses;
 
 export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+  assertPickupApiRole(req.user.role);
+
   const b = req.body as Record<string, unknown>;
-  const ownerUserId = String(b.userId ?? "").trim();
-  if (!ownerUserId) throw new AppError(400, "userId (dropshipper user id) is required");
-  if (!mongoose.isValidObjectId(ownerUserId)) throw new AppError(400, "Invalid userId");
-  const owner = await User.findById(ownerUserId).lean();
-  if (!owner || owner.role !== "dropshipper") throw new AppError(400, "userId must be a dropshipper account");
-  const label = String(b.label ?? "").trim();
-  const addressLine1 = String(b.addressLine1 ?? "").trim();
-  const city = String(b.city ?? "").trim();
-  const state = String(b.state ?? "").trim();
-  const pincode = String(b.pincode ?? "").trim();
-  if (!label || !addressLine1 || !city || !state || !pincode) {
-    throw new AppError(400, "label, addressLine1, city, state, and pincode are required");
+
+  let ownerUserId: Types.ObjectId;
+  let ownerRole: UserRole;
+
+  if (req.user.role === "admin") {
+    const rawOwner = trimStr(b.userId);
+    if (!rawOwner || !mongoose.isValidObjectId(rawOwner)) {
+      throw new AppError(400, "userId is required when creating a pickup as admin");
+    }
+    const owner = await User.findById(rawOwner).lean();
+    if (!owner) throw new AppError(400, "userId user not found");
+    if (owner.role !== "dropshipper" && owner.role !== "vendor") {
+      throw new AppError(400, "userId must be a vendor or dropshipper account");
+    }
+    ownerUserId = new mongoose.Types.ObjectId(rawOwner);
+    ownerRole = owner.role;
+  } else {
+    ownerUserId = req.user._id;
+    ownerRole = req.user.role;
   }
 
-  const wantDefault = Boolean(b.isDefault);
-  const ownerFilter = { $or: [{ userId: new mongoose.Types.ObjectId(ownerUserId) }, { dropshipperId: new mongoose.Types.ObjectId(ownerUserId) }] };
-  const count = await Pickup.countDocuments(ownerFilter);
-  const makeDefault = wantDefault || count === 0;
-  if (makeDefault) await clearDefaultPickupsForUser(new mongoose.Types.ObjectId(ownerUserId), "dropshipper");
+  const label = pickupLabelFromBody(b);
+  const contactName = pickupContactFromBody(b);
+  const addressLine1 = trimStr(b.addressLine1);
+  const addressLine2 = trimStr(b.addressLine2);
+  const landmark = trimStr(b.landmark);
+  const city = trimStr(b.city);
+  const state = trimStr(b.state);
+  const pincode = normalizePincodeIndia(trimStr(b.pincode));
+  const country = trimStr(b.country) || "India";
+  const phone = normalizePhoneInput(trimStr(b.phone));
+  const alternatePhone = normalizePhoneInput(trimStr(b.alternatePhone));
+  const email = trimStr(b.email).toLowerCase();
+  const gstinRaw = trimStr(b.gstin).toUpperCase();
 
-  const doc = await Pickup.create({
-    userId: new mongoose.Types.ObjectId(ownerUserId),
-    dropshipperId: new mongoose.Types.ObjectId(ownerUserId),
-    label,
-    contactName: String(b.contactName ?? "").trim(),
-    phone: String(b.phone ?? "").trim(),
-    email: String(b.email ?? "").trim(),
+  if (!label) throw new AppError(400, "label, pickupName, or warehouseName is required");
+  if (!contactName) throw new AppError(400, "contactName or contactPerson is required");
+  if (!addressLine1) throw new AppError(400, "addressLine1 is required");
+  if (!city) throw new AppError(400, "city is required");
+  if (!state) throw new AppError(400, "state is required");
+  validateIndianPincode(pincode);
+  validateIndianPhone(phone, "phone", true);
+  validateIndianPhone(alternatePhone, "alternatePhone", false);
+  assertIndianPhonesDistinct(phone, alternatePhone);
+  validateEmailOptional(email);
+  validateGstinOptional(gstinRaw);
+
+  const fp = pickupAddressFingerprint({
     addressLine1,
-    addressLine2: String(b.addressLine2 ?? "").trim(),
+    addressLine2,
     city,
     state,
     pincode,
-    country: String(b.country ?? "India").trim() || "India",
-    isDefault: makeDefault,
-    isActive: b.isActive === false ? false : true,
+    country,
   });
-  res.status(201).json(mapPickupDoc(doc.toObject()));
+
+  const scope = pickupOwnerScope(ownerUserId, ownerRole);
+  const dupe = await Pickup.findOne({
+    $and: [scope, { ...PICKUP_NOT_DELETED }, { addressFingerprint: fp }],
+  })
+    .select("_id")
+    .lean();
+  if (dupe) {
+    throw new AppError(409, "A pickup address with the same details already exists for this account");
+  }
+
+  const wantDefault = Boolean(b.isDefault);
+  const count = await Pickup.countDocuments({
+    $and: [scope, { ...PICKUP_NOT_DELETED }],
+  });
+  const makeDefault = wantDefault || count === 0;
+  if (makeDefault) {
+    await clearDefaultPickupsForOwnerDoc({
+      userId: ownerUserId,
+      dropshipperId: ownerRole === "dropshipper" ? ownerUserId : null,
+    });
+  }
+
+  const isActive = b.isActive === false ? false : true;
+
+  const doc = await Pickup.create({
+    userId: ownerUserId,
+    dropshipperId: ownerRole === "dropshipper" ? ownerUserId : undefined,
+    label,
+    contactName,
+    phone,
+    alternatePhone: alternatePhone || undefined,
+    email: email || undefined,
+    addressLine1,
+    addressLine2: addressLine2 || undefined,
+    landmark: landmark || undefined,
+    city,
+    state,
+    pincode,
+    country,
+    gstin: gstinRaw || undefined,
+    addressFingerprint: fp,
+    isDefault: makeDefault,
+    isActive,
+  });
+  res.status(201).json({ success: true, data: mapPickupDoc(doc.toObject()) });
 });
 
 /**
@@ -528,8 +675,11 @@ export const repairDropshipperPickupOwnership = asyncHandler(async (req: AuthReq
   if (req.user.role !== "dropshipper") throw new AppError(403, "Forbidden");
   const result = await Pickup.updateMany(
     {
-      userId: req.user._id,
-      $or: [{ dropshipperId: { $exists: false } }, { dropshipperId: null }],
+      $and: [
+        { userId: req.user._id },
+        { $or: [{ dropshipperId: { $exists: false } }, { dropshipperId: null }] },
+        { ...PICKUP_NOT_DELETED },
+      ],
     },
     { $set: { dropshipperId: req.user._id } }
   );
@@ -545,60 +695,135 @@ export const createPickup = createPickupAddress;
 
 export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+  assertPickupApiRole(req.user.role);
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
-  const existing = await Pickup.findOne({ _id: id, ...getPickupOwnerFilterForUser(req.user) });
+  const existing = await Pickup.findOne({
+    $and: [{ _id: id }, pickupListQuery(req.user, { includeInactive: true })],
+  });
   if (!existing) throw new AppError(404, "Pickup address not found");
 
   const b = req.body as Record<string, unknown>;
   const patch: Record<string, unknown> = {};
-  if (b.label !== undefined) patch.label = String(b.label).trim();
-  if (b.contactName !== undefined) patch.contactName = String(b.contactName).trim();
-  if (b.phone !== undefined) patch.phone = String(b.phone).trim();
-  if (b.email !== undefined) patch.email = String(b.email).trim();
-  if (b.addressLine1 !== undefined) patch.addressLine1 = String(b.addressLine1).trim();
-  if (b.addressLine2 !== undefined) patch.addressLine2 = String(b.addressLine2).trim();
-  if (b.city !== undefined) patch.city = String(b.city).trim();
-  if (b.state !== undefined) patch.state = String(b.state).trim();
-  if (b.pincode !== undefined) patch.pincode = String(b.pincode).trim();
-  if (b.country !== undefined) patch.country = String(b.country).trim() || "India";
+  if (b.label !== undefined || b.pickupName !== undefined || b.warehouseName !== undefined) {
+    patch.label = pickupLabelFromBody({
+      label: b.label,
+      pickupName: b.pickupName,
+      warehouseName: b.warehouseName,
+    } as Record<string, unknown>);
+  }
+  if (b.contactName !== undefined || b.contactPerson !== undefined) {
+    patch.contactName = pickupContactFromBody({
+      contactName: b.contactName,
+      contactPerson: b.contactPerson,
+    } as Record<string, unknown>);
+  }
+  if (b.phone !== undefined) patch.phone = normalizePhoneInput(trimStr(b.phone));
+  if (b.alternatePhone !== undefined) patch.alternatePhone = normalizePhoneInput(trimStr(b.alternatePhone));
+  if (b.email !== undefined) patch.email = trimStr(b.email).toLowerCase();
+  if (b.addressLine1 !== undefined) patch.addressLine1 = trimStr(b.addressLine1);
+  if (b.addressLine2 !== undefined) patch.addressLine2 = trimStr(b.addressLine2);
+  if (b.landmark !== undefined) patch.landmark = trimStr(b.landmark);
+  if (b.city !== undefined) patch.city = trimStr(b.city);
+  if (b.state !== undefined) patch.state = trimStr(b.state);
+  if (b.pincode !== undefined) patch.pincode = normalizePincodeIndia(trimStr(b.pincode));
+  if (b.country !== undefined) patch.country = trimStr(b.country) || "India";
+  if (b.gstin !== undefined) patch.gstin = trimStr(b.gstin).toUpperCase();
   if (b.isActive !== undefined) patch.isActive = Boolean(b.isActive);
 
   if (b.isDefault === true) {
-    await clearDefaultPickupsForUser(req.user._id, req.user.role);
+    await clearDefaultPickupsForOwnerDoc({
+      userId: existing.userId,
+      dropshipperId: existing.dropshipperId,
+    });
     patch.isDefault = true;
   }
 
   Object.assign(existing, patch);
-  const label = String(existing.label ?? "").trim();
-  const addressLine1 = String(existing.addressLine1 ?? "").trim();
-  const city = String(existing.city ?? "").trim();
-  const state = String(existing.state ?? "").trim();
-  const pincode = String(existing.pincode ?? "").trim();
-  if (!label || !addressLine1 || !city || !state || !pincode) {
-    throw new AppError(400, "label, addressLine1, city, state, and pincode are required");
+
+  const label = trimStr(existing.label);
+  const contactName = trimStr(existing.contactName);
+  const addressLine1 = trimStr(existing.addressLine1);
+  const addressLine2 = trimStr(existing.addressLine2 ?? "");
+  const landmark = trimStr(existing.landmark ?? "");
+  const city = trimStr(existing.city);
+  const state = trimStr(existing.state);
+  const pincode = normalizePincodeIndia(trimStr(existing.pincode));
+  const country = trimStr(existing.country) || "India";
+  const phone = normalizePhoneInput(trimStr(existing.phone));
+  const alternatePhone = normalizePhoneInput(trimStr(existing.alternatePhone ?? ""));
+  const email = trimStr(existing.email ?? "").toLowerCase();
+  const gstinVal = trimStr(existing.gstin ?? "").toUpperCase();
+
+  if (!label) throw new AppError(400, "label, pickupName, or warehouseName is required");
+  if (!contactName) throw new AppError(400, "contactName or contactPerson is required");
+  if (!addressLine1) throw new AppError(400, "addressLine1 is required");
+  if (!city) throw new AppError(400, "city is required");
+  if (!state) throw new AppError(400, "state is required");
+  validateIndianPincode(pincode);
+  validateIndianPhone(phone, "phone", true);
+  validateIndianPhone(alternatePhone, "alternatePhone", false);
+  assertIndianPhonesDistinct(phone, alternatePhone);
+  validateEmailOptional(email);
+  validateGstinOptional(gstinVal);
+
+  const fp = pickupAddressFingerprint({ addressLine1, addressLine2, city, state, pincode, country });
+
+  const scope =
+    existing.dropshipperId != null
+      ? { $or: [{ userId: existing.userId }, { dropshipperId: existing.dropshipperId }] }
+      : { userId: existing.userId };
+  const dupe = await Pickup.findOne({
+    $and: [scope, { ...PICKUP_NOT_DELETED }, { addressFingerprint: fp }, { _id: { $ne: existing._id } }],
+  })
+    .select("_id")
+    .lean();
+  if (dupe) {
+    throw new AppError(409, "A pickup address with the same details already exists for this account");
   }
+
+  existing.label = label;
+  existing.contactName = contactName;
+  existing.addressLine1 = addressLine1;
+  existing.addressLine2 = addressLine2 || undefined;
+  existing.landmark = landmark || undefined;
+  existing.city = city;
+  existing.state = state;
+  existing.pincode = pincode;
+  existing.country = country;
+  existing.phone = phone;
+  existing.alternatePhone = alternatePhone || undefined;
+  existing.email = email || "";
+  existing.gstin = gstinVal || undefined;
+  existing.addressFingerprint = fp;
+
   await existing.save();
-  res.json(mapPickupDoc(existing.toObject()));
+  res.json({ success: true, data: mapPickupDoc(existing.toObject()) });
 });
 
 export const deletePickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+  assertPickupApiRole(req.user.role);
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
-  const doc = await Pickup.findOne({ _id: id, ...getPickupOwnerFilterForUser(req.user) });
+  const doc = await Pickup.findOne({
+    $and: [{ _id: id }, pickupListQuery(req.user, { includeInactive: true })],
+  });
   if (!doc) throw new AppError(404, "Pickup address not found");
 
   const wasDefault = doc.isDefault;
-  await Pickup.deleteOne({ _id: id, ...getPickupOwnerFilterForUser(req.user) });
+  doc.deletedAt = new Date();
+  doc.isActive = false;
+  doc.isDefault = false;
+  await doc.save();
 
   if (wasDefault) {
+    const ownerScope =
+      doc.dropshipperId != null
+        ? { $or: [{ userId: doc.userId }, { dropshipperId: doc.dropshipperId }] }
+        : { userId: doc.userId };
     const next = await Pickup.findOne({
-      userId: doc.userId,
-      _id: { $ne: doc._id },
-      $or: [{ isActive: true }, { isActive: { $exists: false } }],
+      $and: [ownerScope, { ...PICKUP_NOT_DELETED }, { ...PICKUP_ACTIVE }],
     }).sort({ createdAt: -1 });
     if (next) {
       next.isDefault = true;
@@ -606,25 +831,26 @@ export const deletePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     }
   }
 
-  res.json({ success: true });
+  res.json({ success: true, message: "Pickup address removed", data: null });
 });
 
 export const setDefaultPickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+  assertPickupApiRole(req.user.role);
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const doc = await Pickup.findOne({
-    _id: id,
-    ...getPickupOwnerFilterForUser(req.user),
-    isActive: { $ne: false },
+    $and: [{ _id: id }, pickupListQuery(req.user, { includeInactive: false })],
   });
-  if (!doc) throw new AppError(404, "Pickup address not found");
+  if (!doc) throw new AppError(404, "Pickup address not found or inactive");
 
-  await clearDefaultPickupsForUser(doc.userId, "dropshipper");
+  await clearDefaultPickupsForOwnerDoc({
+    userId: doc.userId,
+    dropshipperId: doc.dropshipperId,
+  });
   doc.isDefault = true;
   await doc.save();
-  res.json(mapPickupDoc(doc.toObject()));
+  res.json({ success: true, data: mapPickupDoc(doc.toObject()) });
 });
 
 export const listWeightDisputes = asyncHandler(async (_req: AuthRequest, res: Response) => {

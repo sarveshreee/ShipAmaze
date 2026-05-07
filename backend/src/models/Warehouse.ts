@@ -11,6 +11,8 @@ export interface IWarehouse extends Document {
   contactName?: string;
   phone?: string;
   isDefault?: boolean;
+  /** When false, hidden from vendor lists and should not be used for new admin shipments */
+  isActive?: boolean;
   velocityWarehouseId?: string;
 }
 
@@ -26,6 +28,7 @@ const warehouseSchema = new Schema<IWarehouse>(
     contactName: String,
     phone: String,
     isDefault: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
     velocityWarehouseId: { type: String },
   },
   { timestamps: true }

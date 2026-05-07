@@ -10,7 +10,103 @@ import { AppError } from "../middleware/errorMiddleware.js";
 import { randomUUID } from "crypto";
 import mongoose from "mongoose";
 import { Pickup } from "../models/Pickup.js";
-import { getPickupOwnerFilterForUser } from "../utils/pickupOwnerFilter.js";
+import { pickupByIdSelectableQuery } from "../utils/pickupQuery.js";
+import { normalizeOrderStatus, isValidStatusTransition } from "../utils/orderStatus.js";
+import {
+  buildOrderVisibilityQuery,
+  buildTabQuery,
+  mergeQueries,
+  parseOrderListQuery,
+  buildOrderListFiltersQuery,
+} from "../utils/orderFilters.js";
+import type { IOrder } from "../models/Order.js";
+
+function normalizePickupAddressForClient(pickup: unknown): unknown {
+  if (pickup == null) return pickup;
+  if (typeof pickup === "string") {
+    const t = pickup.trim();
+    return t || undefined;
+  }
+  if (typeof pickup !== "object" || Array.isArray(pickup)) return pickup;
+  const o = pickup as Record<string, unknown>;
+  const label = String(o.label ?? "").trim();
+  const warehouseName = String(o.warehouseName ?? "").trim();
+  const title = label || warehouseName || "Pickup";
+  const contactName = String(o.contactName ?? o.contactPerson ?? "").trim();
+  return {
+    ...o,
+    label: title,
+    warehouseName: warehouseName || title,
+    pickupName: warehouseName || title,
+    contactName,
+    contactPerson: contactName,
+  };
+}
+
+function buildPickupSnapshotFromLean(
+  pu: {
+    label?: string;
+    contactName?: string;
+    phone?: string;
+    alternatePhone?: string;
+    email?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    landmark?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    country?: string;
+    gstin?: string;
+    velocityWarehouseId?: string;
+  },
+  pickupAddressId: Types.ObjectId
+): {
+  snapshot: {
+    id: string;
+    label: string;
+    warehouseName: string;
+    pickupName: string;
+    contactName: string;
+    contactPerson: string;
+    phone: string;
+    alternatePhone: string;
+    email: string;
+    address: string;
+    city: string;
+    state: string;
+    pincode: string;
+    country: string;
+    gstin: string;
+    velocityWarehouseId?: string;
+  };
+  velocityWarehouseId?: string;
+} {
+  const label = pu.label || "Pickup Address";
+  const snapshotVelocityWh = pu.velocityWarehouseId?.trim();
+  const contact = pu.contactName || "";
+  return {
+    snapshot: {
+      id: String(pickupAddressId),
+      label,
+      warehouseName: label,
+      pickupName: label,
+      contactName: contact,
+      contactPerson: contact,
+      phone: pu.phone || "",
+      alternatePhone: pu.alternatePhone || "",
+      email: pu.email || "",
+      address: [pu.addressLine1, pu.addressLine2, pu.landmark].filter(Boolean).join(", "),
+      city: pu.city || "",
+      state: pu.state || "",
+      pincode: pu.pincode || "",
+      country: pu.country || "India",
+      gstin: pu.gstin || "",
+      velocityWarehouseId: snapshotVelocityWh,
+    },
+    velocityWarehouseId: snapshotVelocityWh,
+  };
+}
 
 function mapOrder(o: {
   orderId: string;
@@ -69,7 +165,22 @@ function mapOrder(o: {
   rtoCharges?: number;
   trackingUrl?: string;
   trackingActivities?: { date: string; activity: string; location: string }[];
+  items?: unknown[];
+  orderItems?: unknown[];
+  shopifyLineItems?: unknown[];
+  statusHistory?: { status: string; at: Date; updatedBy?: unknown; note?: string }[];
+  sourceType?: string;
+  updatedAt?: Date;
+  shopifyShopDomain?: string;
+  shopifyOrderNumericId?: string;
+  shopifyFinancialStatus?: string;
+  shopifyFulfillmentStatus?: string;
+  shopifyNote?: string;
+  shopifyTags?: string;
+  lastShopifySyncAt?: Date;
 }) {
+  const items = (o.orderItems ?? o.items ?? o.products ?? []) as unknown[];
+  const productsOut = Array.isArray(o.products) && o.products.length > 0 ? o.products : items;
   return {
     id: o.orderId,
     customer: o.customer,
@@ -89,10 +200,10 @@ function mapOrder(o: {
     date: o.date,
     awb: o.awb,
     amount: o.amount,
-    products: o.products,
+    products: productsOut,
     dimensions: o.dimensions,
     zone: o.zone,
-    pickupAddress: o.pickupAddress,
+    pickupAddress: normalizePickupAddressForClient(o.pickupAddress),
     pickupAddressId: o.pickupAddressId ? String(o.pickupAddressId) : undefined,
     pickupWarehouseId: o.pickupWarehouseId,
     createdAt: o.createdAt,
@@ -127,6 +238,27 @@ function mapOrder(o: {
     rtoCharges: o.rtoCharges,
     trackingUrl: o.trackingUrl,
     trackingActivities: o.trackingActivities,
+    items,
+    orderItems: (o.orderItems ?? items) as unknown[],
+    shopifyLineItems: o.shopifyLineItems,
+    statusHistory: (o.statusHistory ?? []).map((e) => ({
+      status: e.status,
+      at: e.at instanceof Date ? e.at.toISOString() : String(e.at),
+      updatedBy: e.updatedBy ? String(e.updatedBy) : undefined,
+      note: e.note,
+    })),
+    sourceType: o.sourceType ?? o.channel ?? "Manual",
+    updatedAt: o.updatedAt,
+    shopifyShopDomain: o.shopifyShopDomain,
+    shopifyOrderNumericId: o.shopifyOrderNumericId,
+    shopifyFinancialStatus: o.shopifyFinancialStatus,
+    shopifyFulfillmentStatus: o.shopifyFulfillmentStatus,
+    shopifyNote: o.shopifyNote,
+    shopifyTags: o.shopifyTags,
+    lastShopifySyncAt:
+      o.lastShopifySyncAt instanceof Date ? o.lastShopifySyncAt.toISOString() : o.lastShopifySyncAt
+        ? String(o.lastShopifySyncAt)
+        : undefined,
   };
 }
 
@@ -134,106 +266,250 @@ async function vendorDocForUser(userId: Types.ObjectId) {
   return Vendor.findOne({ userId });
 }
 
+async function assertOrderAccess(
+  user: NonNullable<AuthRequest["user"]>,
+  order: {
+    createdBy?: unknown;
+    ownerUserId?: unknown;
+    vendorId?: unknown;
+    dropshipperId?: unknown;
+  }
+) {
+  if (user.role === "admin") return;
+  if (user.role === "vendor") {
+    const v = await vendorDocForUser(user._id);
+    if (v && String(order.vendorId ?? "") === String(v._id)) return;
+    if (String(order.createdBy) === String(user._id)) return;
+    throw new AppError(403, "Forbidden");
+  }
+  const owned =
+    String(order.createdBy) === String(user._id) ||
+    String(order.ownerUserId ?? "") === String(user._id) ||
+    String(order.dropshipperId ?? "") === String(user._id);
+  if (!owned) throw new AppError(403, "Forbidden");
+}
+
+function appendStatusHistory(order: IOrder, status: string, userId: Types.ObjectId | undefined, note?: string) {
+  const ev = { status, at: new Date(), updatedBy: userId, note };
+  const h = order.statusHistory ?? [];
+  h.push(ev);
+  order.statusHistory = h;
+  order.markModified("statusHistory");
+}
+
+function extractItemsFromBody(body: Record<string, unknown>): unknown[] {
+  const raw = (body.orderItems ?? body.items ?? body.products) as unknown;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((row) => row !== null && row !== undefined);
+}
+
+function validateOrderItems(items: unknown[]): void {
+  if (items.length === 0) throw new AppError(400, "At least one order line item is required");
+  for (const row of items) {
+    const o = row as Record<string, unknown>;
+    const name = String(o.name ?? o.title ?? "").trim();
+    const qty = Number(o.qty ?? o.quantity ?? o.units ?? 0);
+    const price = Number(o.price ?? o.sellingPrice ?? o.amount ?? 0);
+    if (!name) throw new AppError(400, "Each item must have a name");
+    if (!Number.isFinite(qty) || qty < 1 || !Number.isInteger(qty)) {
+      throw new AppError(400, "Each item must have a valid quantity (whole number ≥ 1)");
+    }
+    if (!Number.isFinite(price) || price < 0) throw new AppError(400, "Each item must have a valid price (≥ 0)");
+  }
+}
+
+function sumItemsAmount(items: unknown[]): number {
+  let t = 0;
+  for (const row of items) {
+    const o = row as Record<string, unknown>;
+    const qty = Number(o.qty ?? o.quantity ?? o.units ?? 1);
+    const price = Number(o.price ?? o.sellingPrice ?? o.amount ?? 0);
+    t += qty * price;
+  }
+  return Math.round(t * 100) / 100;
+}
+
 export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  let query: Record<string, unknown> = {};
+
+  if (String(req.query.legacy ?? "") === "1") {
+    const visibility = await buildOrderVisibilityQuery(req.user);
+    const view = String(req.query.view ?? "").toLowerCase();
+    let query: Record<string, unknown> = { ...visibility };
+    if (view === "junk") query = mergeQueries(query, { isJunk: true });
+    else query = mergeQueries(query, { isJunk: { $ne: true } });
+    const rows = await Order.find(query).sort({ createdAt: -1 }).lean();
+    res.json(rows.map((o) => mapOrder(o)));
+    return;
+  }
+
   const view = String(req.query.view ?? "").toLowerCase();
-  if (req.user.role === "vendor") {
-    const v = await vendorDocForUser(req.user._id);
-    if (v) query = { vendorId: v._id };
-    else query = { createdBy: req.user._id };
-  } else if (req.user.role === "dropshipper") {
-    query = {
-      $or: [
-        { ownerUserId: req.user._id },
-        { createdBy: req.user._id },
-        { dropshipperId: req.user._id },
-      ],
-    };
+  const pq = parseOrderListQuery(req.query as Record<string, unknown>);
+  const visibility = await buildOrderVisibilityQuery(req.user);
+
+  let query: Record<string, unknown> = { ...visibility };
+  if (view === "junk") query = mergeQueries(query, { isJunk: true });
+  else query = mergeQueries(query, { isJunk: { $ne: true } });
+
+  if (view !== "junk" && pq.tab) {
+    const tq = buildTabQuery(pq.tab);
+    if (tq) query = mergeQueries(query, tq);
   }
-  if (view === "junk") {
-    query = { ...query, isJunk: true };
-  } else {
-    query = { ...query, isJunk: { $ne: true } };
+
+  const listFilters = buildOrderListFiltersQuery(pq);
+  if (listFilters) query = mergeQueries(query, listFilters);
+
+  let tabCounts: Record<string, number> | undefined;
+  if (pq.counts && view !== "junk") {
+    const tabs = [
+      "all",
+      "channel",
+      "manual",
+      "ready-to-ship",
+      "pending-pickup",
+      "in-transit",
+      "out-for-delivery",
+      "delivered",
+      "reship",
+      "failed",
+    ];
+    tabCounts = {};
+    for (const tab of tabs) {
+      let q2: Record<string, unknown> = { ...visibility, isJunk: { $ne: true } };
+      const tq = buildTabQuery(tab);
+      if (tq) q2 = mergeQueries(q2, tq);
+      if (listFilters) q2 = mergeQueries(q2, listFilters);
+      tabCounts[tab] = await Order.countDocuments(q2);
+    }
+    tabCounts.junk = await Order.countDocuments(mergeQueries({ ...visibility }, { isJunk: true }));
   }
-  console.log("[orders:list] userId=", String(req.user._id), "role=", req.user.role, "query=", JSON.stringify(query));
-  const rows = await Order.find(query).sort({ createdAt: -1 }).lean();
-  console.log("[orders:list] returned_count=", rows.length);
-  res.json(rows.map((o) => mapOrder(o)));
+
+  const skip = (pq.page - 1) * pq.pageSize;
+  const [rows, total] = await Promise.all([
+    Order.find(query).sort({ createdAt: -1 }).skip(skip).limit(pq.pageSize).lean(),
+    Order.countDocuments(query),
+  ]);
+
+  res.json({
+    orders: rows.map((o) => mapOrder(o)),
+    total,
+    page: pq.page,
+    pageSize: pq.pageSize,
+    ...(tabCounts ? { tabCounts } : {}),
+  });
 });
 
 export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   const body = req.body as Record<string, unknown>;
-  const orderId = (body.orderId as string) || `SF${Date.now()}`;
+  const vendor = req.user.role === "vendor" ? await vendorDocForUser(req.user._id) : null;
+
+  const requestedId = String(body.orderId ?? "").trim();
+  const orderId =
+    requestedId || `SA-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`;
   const existingOrder = await Order.findOne({ orderId });
-  if (existingOrder) throw new AppError(400, `Order ID "${orderId}" already exists. Please use a different order ID.`);
-  const vendor =
-    req.user.role === "vendor" ? await vendorDocForUser(req.user._id) : null;
+  if (existingOrder) {
+    throw new AppError(400, `Order ID "${orderId}" already exists. Please use a different order ID.`);
+  }
+
+  const isDraft = String(body.status ?? "").toLowerCase() === "draft" || body.isDraft === true;
 
   let pickupAddressId: Types.ObjectId | undefined;
   const rawPid = body.pickupAddressId ?? body.pickupWarehouseId;
   if (rawPid != null && String(rawPid).trim() !== "") {
     if (!mongoose.isValidObjectId(String(rawPid))) throw new AppError(400, "Invalid pickupAddressId");
-    const active = { $or: [{ isActive: true }, { isActive: { $exists: false } }] };
-    const p =
-      req.user.role === "dropshipper"
-        ? await Pickup.findOne({
-            _id: String(rawPid),
-            $and: [{ $or: [{ userId: req.user._id }, { dropshipperId: req.user._id }] }, active],
-          })
-        : await Pickup.findOne({
-            _id: String(rawPid),
-            userId: req.user._id,
-            ...active,
-          });
+    const p = await Pickup.findOne(pickupByIdSelectableQuery(String(rawPid), req.user));
     if (!p) throw new AppError(400, "Pickup address not found or not allowed");
     pickupAddressId = p._id;
   }
 
   let snapshotVelocityWh: string | undefined;
-  let pickupSnapshot:
-    | {
-        id: string;
-        label: string;
-        contactName?: string;
-        phone?: string;
-        email?: string;
-        address?: string;
-        city?: string;
-        state?: string;
-        pincode?: string;
-        country?: string;
-        velocityWarehouseId?: string;
-      }
-    | undefined;
+  let pickupSnapshot: ReturnType<typeof buildPickupSnapshotFromLean>["snapshot"] | undefined;
   if (pickupAddressId) {
     const pu = await Pickup.findById(pickupAddressId)
-      .select("label contactName phone email addressLine1 addressLine2 city state pincode country velocityWarehouseId")
+      .select(
+        "label contactName phone alternatePhone email addressLine1 addressLine2 landmark city state pincode country gstin velocityWarehouseId"
+      )
       .lean();
-    snapshotVelocityWh = pu?.velocityWarehouseId?.trim();
     if (pu) {
-      pickupSnapshot = {
-        id: String(pickupAddressId),
-        label: pu.label || "Pickup Address",
-        contactName: pu.contactName || "",
-        phone: pu.phone || "",
-        email: pu.email || "",
-        address: [pu.addressLine1, pu.addressLine2].filter(Boolean).join(", "),
-        city: pu.city || "",
-        state: pu.state || "",
-        pincode: pu.pincode || "",
-        country: pu.country || "India",
-        velocityWarehouseId: snapshotVelocityWh,
-      };
+      const built = buildPickupSnapshotFromLean(pu, pickupAddressId);
+      pickupSnapshot = built.snapshot;
+      snapshotVelocityWh = built.velocityWarehouseId;
     }
   }
+
   const rawCarrierPref = body.carrier_id;
   let carrierPref: string | number | undefined;
   if (rawCarrierPref !== undefined && rawCarrierPref !== null && String(rawCarrierPref).trim() !== "") {
     const s = String(rawCarrierPref).trim();
     carrierPref = /^\d+$/.test(s) ? Number(s) : s;
   }
+
+  const lineItems = extractItemsFromBody(body);
+  const payment = String(body.payment ?? "Prepaid");
+  if (!["COD", "Prepaid"].includes(payment)) {
+    throw new AppError(400, "payment must be COD or Prepaid");
+  }
+
+  if (isDraft) {
+    const customer = String(body.customer ?? "").trim();
+    if (!customer) throw new AppError(400, "Customer name is required to save a draft");
+    let amount = Number(body.amount ?? body.invoiceValue ?? body.codAmount ?? 0);
+    if (!Number.isFinite(amount) || amount < 0) amount = 0;
+    const goodItems = lineItems.filter((row) => String((row as Record<string, unknown>).name ?? "").trim());
+    if (goodItems.length > 0) {
+      validateOrderItems(goodItems);
+      const sum = sumItemsAmount(goodItems);
+      if (amount === 0) amount = sum;
+    }
+    const shippingAddress1 = String(body.shippingAddress1 ?? body.addressLine1 ?? body.address ?? "");
+    const shippingCity = String(body.shippingCity ?? body.city ?? "");
+    const shippingState = String(body.shippingState ?? body.state ?? "");
+    const pin = String(body.shippingPincode ?? body.pincode ?? "").replace(/\D/g, "").slice(0, 6);
+    const doc = await Order.create({
+      orderId,
+      customer,
+      phone: String(body.phone ?? ""),
+      address: shippingAddress1,
+      city: shippingCity,
+      state: shippingState,
+      pincode: pin,
+      weight: String(body.weight ?? "0.5").replace(/[^\d.]/g, "") || "0.5",
+      courier: String(body.courier ?? "Delhivery"),
+      payment,
+      status: "draft",
+      date: String(body.date ?? new Date().toISOString().slice(0, 10)),
+      awb: "",
+      amount,
+      products: goodItems.length ? goodItems : lineItems,
+      items: goodItems.length ? goodItems : lineItems,
+      orderItems: goodItems.length ? goodItems : lineItems,
+      pickupAddress: pickupSnapshot ?? (body.pickupAddress as string | undefined),
+      pickupAddressId,
+      pickupWarehouseId: pickupAddressId ? String(pickupAddressId) : undefined,
+      createdBy: req.user._id,
+      ownerUserId: req.user._id,
+      dropshipperId: req.user.role === "dropshipper" ? req.user._id : undefined,
+      vendorId: vendor?._id,
+      channel: String(body.channel ?? "Manual"),
+      sourceType: String(body.sourceType ?? "Manual"),
+      customerEmail: String(body.customerEmail ?? body.email ?? ""),
+      customerPhone: String(body.customerPhone ?? body.phone ?? ""),
+      shippingAddress1,
+      shippingAddress2: String(body.shippingAddress2 ?? body.addressLine2 ?? ""),
+      shippingPincode: pin,
+      shippingCity,
+      shippingState,
+      velocityWarehouseId: snapshotVelocityWh,
+      courierCompanyId: carrierPref,
+    });
+    appendStatusHistory(doc, "draft", req.user._id);
+    await doc.save();
+    res.status(201).json(mapOrder(doc));
+    return;
+  }
+
+  validateOrderItems(lineItems);
 
   const shippingAddress1 = String(body.shippingAddress1 ?? body.addressLine1 ?? body.address ?? "");
   const shippingAddress2 = String(body.shippingAddress2 ?? body.addressLine2 ?? "");
@@ -245,10 +521,6 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   const rawWidth = Number(body.width ?? body.breadth ?? 0);
   const rawHeight = Number(body.height ?? 0);
 
-  const payment = String(body.payment ?? "Prepaid");
-  if (!["COD", "Prepaid"].includes(payment)) {
-    throw new AppError(400, "payment must be COD or Prepaid");
-  }
   if (!shippingState.trim()) throw new AppError(400, "shippingState/state is required");
   if (!/^\d{6}$/.test(shippingPincodeDigits)) {
     throw new AppError(400, "shippingPincode/pincode must be exactly 6 digits");
@@ -261,6 +533,15 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   if (!pickupAddressId) {
     throw new AppError(400, "pickupAddressId is required and must belong to your account");
   }
+
+  let amount = Number(body.amount ?? body.codAmount ?? body.invoiceValue ?? 0);
+  const computed = sumItemsAmount(lineItems);
+  if (!Number.isFinite(amount) || amount < 0) amount = computed;
+  if (payment === "COD" && amount === 0 && computed > 0) amount = computed;
+  if (amount < 0) throw new AppError(400, "Order amount cannot be negative");
+
+  let statusStored = normalizeOrderStatus(String(body.status ?? "ready_to_ship"));
+  if (statusStored === "draft") statusStored = "ready_to_ship";
 
   const doc = await Order.create({
     orderId,
@@ -277,13 +558,13 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     height: rawHeight > 0 ? rawHeight : undefined,
     courier: String(body.courier ?? "Delhivery"),
     payment,
-    status: String(body.status ?? "pending"),
+    status: statusStored,
     date: String(body.date ?? new Date().toISOString().slice(0, 10)),
-    awb: String(body.awb ?? ""),
-    amount: Number(body.amount ?? 0),
-    products: (body.products as unknown[]) ?? [],
-    items: (body.items as unknown[]) ?? (body.products as unknown[]) ?? [],
-    orderItems: (body.orderItems as unknown[]) ?? (body.items as unknown[]) ?? (body.products as unknown[]) ?? [],
+    awb: String(body.awb ?? "").trim(),
+    amount,
+    products: lineItems,
+    items: lineItems,
+    orderItems: lineItems,
     dimensions: body.dimensions as string | undefined,
     zone: body.zone as string | undefined,
     pickupAddress: pickupSnapshot ?? (body.pickupAddress as string | undefined),
@@ -291,8 +572,10 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     pickupWarehouseId: pickupAddressId ? String(pickupAddressId) : undefined,
     createdBy: req.user._id,
     ownerUserId: req.user._id,
+    dropshipperId: req.user.role === "dropshipper" ? req.user._id : undefined,
     vendorId: vendor?._id,
     channel: String(body.channel ?? "Manual"),
+    sourceType: String(body.sourceType ?? "Manual"),
     customerEmail: String(body.customerEmail ?? body.email ?? ""),
     customerPhone: String(body.customerPhone ?? body.phone ?? ""),
     shippingAddress1,
@@ -303,6 +586,8 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     velocityWarehouseId: snapshotVelocityWh,
     courierCompanyId: carrierPref,
   });
+  appendStatusHistory(doc, String(doc.status), req.user._id, "created");
+  await doc.save();
   res.status(201).json(mapOrder(doc));
 });
 
@@ -354,17 +639,7 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   const body = req.body as Record<string, unknown>;
   const order = await Order.findOne({ orderId });
   if (!order) throw new AppError(404, "Order not found");
-
-  if (req.user.role === "dropshipper") {
-    const owned =
-      String(order.createdBy) === String(req.user._id) ||
-      String(order.ownerUserId ?? "") === String(req.user._id) ||
-      String((order as unknown as { dropshipperId?: unknown }).dropshipperId ?? "") === String(req.user._id);
-    if (!owned) throw new AppError(403, "Forbidden");
-  } else if (req.user.role === "vendor") {
-    const v = await vendorDocForUser(req.user._id);
-    if (v && String(order.vendorId ?? "") !== String(v._id)) throw new AppError(403, "Forbidden");
-  }
+  await assertOrderAccess(req.user, order);
 
   const customerName = String(body.customerName ?? body.consigneeName ?? body.customer ?? "").trim();
   const customerEmail = String(body.customerEmail ?? body.email ?? "").trim();
@@ -434,6 +709,36 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     order.dimensions = `${l}x${w}x${h} cm`;
   }
 
+  const rawPickupUpdate = body.pickupAddressId ?? body.pickupWarehouseId;
+  if (rawPickupUpdate !== undefined) {
+    const s = String(rawPickupUpdate ?? "").trim();
+    if (s === "") {
+      const st = String(order.status ?? "").toLowerCase();
+      if (st !== "draft") {
+        throw new AppError(400, "pickupAddressId cannot be cleared except on draft orders");
+      }
+      order.pickupAddressId = undefined;
+      order.pickupWarehouseId = undefined;
+      order.pickupAddress = undefined;
+      order.velocityWarehouseId = undefined;
+    } else {
+      if (!mongoose.isValidObjectId(s)) throw new AppError(400, "Invalid pickupAddressId");
+      const p = await Pickup.findOne(pickupByIdSelectableQuery(s, req.user));
+      if (!p) throw new AppError(400, "Pickup address not found or not allowed");
+      const pu = await Pickup.findById(p._id)
+        .select(
+          "label contactName phone alternatePhone email addressLine1 addressLine2 landmark city state pincode country gstin velocityWarehouseId"
+        )
+        .lean();
+      if (!pu) throw new AppError(400, "Pickup address not found");
+      const built = buildPickupSnapshotFromLean(pu, p._id);
+      order.pickupAddressId = p._id;
+      order.pickupWarehouseId = String(p._id);
+      order.pickupAddress = built.snapshot;
+      order.velocityWarehouseId = built.velocityWarehouseId;
+    }
+  }
+
   await order.save();
   res.json(mapOrder(order));
 });
@@ -459,6 +764,7 @@ export const createShipment = asyncHandler(async (req: AuthRequest, res: Respons
   if (!courier) throw new AppError(404, "Courier not found");
   const warehouse = await Warehouse.findById(warehouseId).lean();
   if (!warehouse) throw new AppError(404, "Warehouse not found");
+  if (warehouse.isActive === false) throw new AppError(400, "Warehouse is inactive");
 
   const shipmentId = `SHP-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`;
   const trackingId = `TRK-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
@@ -483,9 +789,16 @@ export const createShipment = asyncHandler(async (req: AuthRequest, res: Respons
 const BLOCKED_BULK_MOVE_TO_READY = new Set([
   "shipped",
   "in-transit",
+  "in_transit",
   "out-for-delivery",
+  "out_for_delivery",
   "delivered",
   "pending-pickup",
+  "pending_pickup",
+  "pickup_scheduled",
+  "picked_up",
+  "ready-to-ship",
+  "ready_to_ship",
   "failed",
   "reship",
   "junk",
@@ -516,13 +829,7 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
   }
 
   for (const order of orders) {
-    if (req.user.role === "dropshipper") {
-      const owned =
-        String(order.createdBy) === String(req.user._id) ||
-        String(order.ownerUserId ?? "") === String(req.user._id) ||
-        String((order as unknown as { dropshipperId?: unknown }).dropshipperId ?? "") === String(req.user._id);
-      if (!owned) throw new AppError(403, "Forbidden");
-    }
+    await assertOrderAccess(req.user, order);
 
     if (order.isJunk) {
       throw new AppError(400, "Cannot move junk orders to Ready to Ship");
@@ -544,7 +851,7 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
     { orderId: { $in: ids } },
     {
       $set: {
-        status: "ready-to-ship",
+        status: "ready_to_ship",
         shipmentStatus: "ready_to_ship",
         movedToReadyAt: now,
       },
@@ -563,14 +870,13 @@ export const markOrderJunk = asyncHandler(async (req: AuthRequest, res: Response
   const { junkReason } = req.body as { junkReason?: string };
   const order = await Order.findOne({ orderId: id });
   if (!order) throw new AppError(404, "Order not found");
-  if (req.user.role === "dropshipper" && String(order.createdBy) !== String(req.user._id)) {
-    throw new AppError(403, "Forbidden");
-  }
+  await assertOrderAccess(req.user, order);
 
   order.isJunk = true;
   order.junkedAt = new Date();
   order.junkReason = junkReason?.trim() || order.junkReason;
   order.status = "junk";
+  appendStatusHistory(order, "junk", req.user._id, junkReason?.trim());
   await order.save();
 
   res.json({
@@ -586,32 +892,37 @@ export const updateOrderStatus = asyncHandler(async (req: AuthRequest, res: Resp
   if (!status) throw new AppError(400, "status required");
   const o = await Order.findOne({ orderId });
   if (!o) throw new AppError(404, "Order not found");
-  if (req.user.role === "dropshipper") {
-    const owned =
-      String(o.createdBy) === String(req.user._id) ||
-      String(o.ownerUserId ?? "") === String(req.user._id) ||
-      String((o as unknown as { dropshipperId?: unknown }).dropshipperId ?? "") === String(req.user._id);
-    if (!owned) throw new AppError(403, "Forbidden");
+  await assertOrderAccess(req.user, o);
 
-    // Dropshippers may only move orders to Ready-to-Ship via this endpoint.
-    const next = String(status).toLowerCase();
-    if (next !== "ready-to-ship" && next !== "ready_to_ship") {
+  if (req.user.role === "dropshipper") {
+    const next = String(status).toLowerCase().replace(/-/g, "_");
+    if (next !== "ready_to_ship") {
       throw new AppError(403, "Forbidden");
     }
-    const st = String(o.status || "").toLowerCase();
+    const st = String(o.status || "").toLowerCase().replace(/-/g, "_");
     if (BLOCKED_BULK_MOVE_TO_READY.has(st)) {
       throw new AppError(400, `Order cannot be moved to Ready to Ship from status "${o.status}"`);
     }
     if (o.isJunk) throw new AppError(400, "Cannot move junk orders to Ready to Ship");
     if (o.shipmentCreated) throw new AppError(400, "Cannot move orders that already have a shipment");
 
-    o.status = "ready-to-ship";
+    o.status = "ready_to_ship";
     o.shipmentStatus = "ready_to_ship";
     o.movedToReadyAt = new Date();
+    appendStatusHistory(o, "ready_to_ship", req.user._id);
   } else {
-    // Admin/vendor: keep legacy behavior, but normalize common values.
-    const next = String(status).trim();
-    o.status = next;
+    const nextNorm = normalizeOrderStatus(status);
+    const check = isValidStatusTransition(o.status, nextNorm, {
+      role: req.user.role,
+      isAdmin: req.user.role === "admin",
+    });
+    if (!check.ok) throw new AppError(400, check.message ?? "Invalid status transition");
+    appendStatusHistory(o, nextNorm, req.user._id);
+    o.status = nextNorm;
+    if (nextNorm === "ready_to_ship") {
+      o.shipmentStatus = "ready_to_ship";
+      o.movedToReadyAt = new Date();
+    }
   }
   await o.save();
   res.json(mapOrder(o));
@@ -670,29 +981,17 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     if (v !== undefined && (!(v > 0) || !Number.isFinite(v))) throw new AppError(400, `${k} must be > 0`);
   }
 
-  const pickup = await Pickup.findOne({
-    _id: pickupAddressId,
-    // Admin can see all pickups, but keep active-only by default
-    $or: [{ isActive: true }, { isActive: { $exists: false } }],
-    ...getPickupOwnerFilterForUser(req.user),
-  })
-    .select("label contactName phone email addressLine1 addressLine2 city state pincode country velocityWarehouseId")
+  const pickup = await Pickup.findOne(pickupByIdSelectableQuery(pickupAddressId, req.user))
+    .select(
+      "label contactName phone alternatePhone email addressLine1 addressLine2 landmark city state pincode country gstin velocityWarehouseId"
+    )
     .lean();
   if (!pickup) throw new AppError(404, "Pickup address not found");
 
-  const pickupSnapshot = {
-    id: pickupAddressId,
-    label: pickup.label || "Pickup Address",
-    contactName: pickup.contactName || "",
-    phone: pickup.phone || "",
-    email: pickup.email || "",
-    address: [pickup.addressLine1, pickup.addressLine2].filter(Boolean).join(", "),
-    city: pickup.city || "",
-    state: pickup.state || "",
-    pincode: pickup.pincode || "",
-    country: pickup.country || "India",
-    velocityWarehouseId: pickup.velocityWarehouseId?.trim() || undefined,
-  };
+  const pickupSnapshot = buildPickupSnapshotFromLean(
+    pickup,
+    new mongoose.Types.ObjectId(pickupAddressId)
+  ).snapshot;
 
   const orders = await Order.find({ orderId: { $in: ids } }).exec();
   if (orders.length !== ids.length) throw new AppError(404, "One or more orders were not found");
@@ -757,8 +1056,10 @@ export const publicOrderByOrderId = asyncHandler(async (req: Request, res: Respo
 });
 
 export const getOrderById = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
   const { orderId } = req.params;
   const o = await Order.findOne({ orderId });
   if (!o) throw new AppError(404, "Order not found");
+  await assertOrderAccess(req.user, o);
   res.json(mapOrder(o));
 });

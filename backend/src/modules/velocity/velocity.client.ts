@@ -1,13 +1,13 @@
 /**
- * Velocity Shipping – low-level HTTP client with in-memory token caching.
- *
- * Token is fetched once and re-used until it expires (default 22 h / 1320 min).
+ * Velocity Shipping – HTTP client with deduplicated auth, timeouts, and bounded retries.
  * Credentials are read from env only; they are never logged or sent to the frontend.
  */
 
 import { velocityConfig } from "./velocity.config.js";
 import type { VelocityAuthResponse, VelocityProviderError } from "./velocity.types.js";
 import { AppError } from "../../middleware/errorMiddleware.js";
+import { sanitizeForVelocityLog } from "./velocity.payload.js";
+import { isRetryableVelocityHttpStatus, isTransientNetworkMessage } from "./velocity.errors.js";
 
 interface TokenCache {
   token: string;
@@ -15,14 +15,29 @@ interface TokenCache {
 }
 
 let tokenCache: TokenCache | null = null;
+/** In-flight auth so concurrent requests share one token fetch. */
+let authPromise: Promise<string> | null = null;
+
+function logInfo(msg: string) {
+  if (velocityConfig.debugLogs) console.info(msg);
+}
+
+function truncateForLog(s: string, max = 180): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length <= max ? t : `${t.slice(0, max)}…`;
+}
 
 // ─── Internal: auth token ────────────────────────────────
 
 async function fetchNewToken(): Promise<string> {
-  const url = `${velocityConfig.baseUrl}/custom/api/v1/auth-token`;
-  console.info("[velocity] fetching new auth token");
+  if (!velocityConfig.username || !velocityConfig.password) {
+    throw new AppError(503, "Velocity integration is not configured (missing credentials).");
+  }
 
-  const res = await fetch(url, {
+  const url = `${velocityConfig.baseUrl}/custom/api/v1/auth-token`;
+  logInfo("[velocity] fetching new auth token");
+
+  const res = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -33,7 +48,8 @@ async function fetchNewToken(): Promise<string> {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new AppError(502, `Velocity auth failed (${res.status}): ${text}`);
+    logInfo(`[velocity] auth failed status=${res.status} body=${truncateForLog(text)}`);
+    throw new AppError(502, `Velocity auth failed (${res.status}). Check credentials and provider status.`);
   }
 
   const body = (await res.json()) as VelocityAuthResponse;
@@ -50,9 +66,18 @@ async function getToken(): Promise<string> {
     return tokenCache.token;
   }
 
-  const token = await fetchNewToken();
-  tokenCache = { token, expiresAt: now + ttlMs };
-  return token;
+  if (!authPromise) {
+    authPromise = fetchNewToken()
+      .then((token) => {
+        tokenCache = { token, expiresAt: Date.now() + ttlMs };
+        return token;
+      })
+      .finally(() => {
+        authPromise = null;
+      });
+  }
+
+  return authPromise;
 }
 
 /** Invalidate cached token (call on 401 from any endpoint). */
@@ -60,17 +85,66 @@ export function invalidateToken() {
   tokenCache = null;
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), velocityConfig.requestTimeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } catch (err) {
+    const name = err instanceof Error ? err.name : "";
+    if (name === "AbortError") {
+      throw new AppError(504, `Velocity request timed out after ${velocityConfig.requestTimeoutMs}ms`);
+    }
+    throw new AppError(502, `Velocity network error: ${String(err)}`);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 // ─── Generic POST helper ─────────────────────────────────
 
 export async function velocityPost<T>(endpoint: string, body: unknown): Promise<T> {
-  const token = await getToken();
+  const maxAttempts = velocityConfig.maxTransientRetries + 1;
+  let lastErr: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await velocityPostOnce<T>(endpoint, body);
+    } catch (err) {
+      lastErr = err;
+      const retryable = isRetryableError(err);
+      if (!retryable || attempt >= maxAttempts - 1) throw err;
+      const backoff = 400 * (attempt + 1) + Math.floor(Math.random() * 200);
+      logInfo(`[velocity] retry ${endpoint} after ${backoff}ms (attempt ${attempt + 1})`);
+      await sleep(backoff);
+    }
+  }
+
+  throw lastErr;
+}
+
+function isRetryableError(err: unknown): boolean {
+  if (err instanceof AppError) {
+    if (isRetryableVelocityHttpStatus(err.statusCode)) return true;
+    if (err.statusCode === 504) return true;
+    return isTransientNetworkMessage(err.message);
+  }
+  return false;
+}
+
+async function velocityPostOnce<T>(endpoint: string, body: unknown): Promise<T> {
   const url = `${velocityConfig.baseUrl}${endpoint}`;
+  logInfo(`[velocity] POST ${endpoint}`);
 
-  console.info(`[velocity] POST ${endpoint}`);
-
-  let res: Response;
-  try {
-    res = await fetch(url, {
+  const doRequest = async (token: string) =>
+    fetchWithTimeout(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -78,22 +152,14 @@ export async function velocityPost<T>(endpoint: string, body: unknown): Promise<
       },
       body: JSON.stringify(body),
     });
-  } catch (err) {
-    throw new AppError(502, `Velocity network error on ${endpoint}: ${String(err)}`);
-  }
 
-  // If token expired mid-session, refresh once and retry
+  let token = await getToken();
+  let res = await doRequest(token);
+
   if (res.status === 401) {
     invalidateToken();
-    const freshToken = await getToken();
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${freshToken}`,
-      },
-      body: JSON.stringify(body),
-    });
+    token = await getToken();
+    res = await doRequest(token);
   }
 
   const raw = await res.text();
@@ -105,7 +171,12 @@ export async function velocityPost<T>(endpoint: string, body: unknown): Promise<
   }
 
   if (!res.ok) {
-    console.error(`[velocity] ${endpoint} error ${res.status}`, typeof data === "object" ? data : raw);
+    const safeBody = sanitizeForVelocityLog(data);
+    if (velocityConfig.debugLogs) {
+      console.error(`[velocity] ${endpoint} error ${res.status}`, safeBody);
+    } else {
+      console.error(`[velocity] ${endpoint} error ${res.status}`);
+    }
     const providerError: VelocityProviderError = {
       success: false,
       message: extractVelocityMessage(data) || `Velocity error ${res.status}`,
@@ -113,12 +184,11 @@ export async function velocityPost<T>(endpoint: string, body: unknown): Promise<
       providerStatusCode: res.status,
       providerError: data,
     };
-    // Map HTTP status codes to meaningful messages
     const status = mapHttpStatus(res.status);
     throw Object.assign(new AppError(status, providerError.message), providerError);
   }
 
-  console.info(`[velocity] POST ${endpoint} → ${res.status}`);
+  logInfo(`[velocity] POST ${endpoint} ok`);
   return data as T;
 }
 
@@ -138,8 +208,9 @@ function extractVelocityMessage(data: unknown): string {
 
 function mapHttpStatus(velocityStatus: number): number {
   if (velocityStatus === 400) return 400;
-  if (velocityStatus === 401) return 502; // auth failures are a gateway issue
+  if (velocityStatus === 401) return 502;
   if (velocityStatus === 422) return 422;
+  if (velocityStatus === 429) return 429;
   if (velocityStatus >= 500) return 502;
   return 502;
 }

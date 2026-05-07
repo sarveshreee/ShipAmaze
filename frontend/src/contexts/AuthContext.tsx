@@ -22,7 +22,7 @@ interface AuthContextType {
   logout: () => void;
   /** Replace session user from API (e.g. after profile save). */
   applyUser: (u: AuthUser) => void;
-  /** Reload user from GET /auth/me */
+  /** Reload user from GET /auth/profile */
   refreshUser: () => Promise<void>;
 }
 
@@ -114,8 +114,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    void authService.logout();
-    setUser(null);
+    void authService.logout().finally(() => {
+      setUser(null);
+      const pathOnly = window.location.pathname;
+      if (!/^\/(login|signup)(\/|$)/i.test(pathOnly)) {
+        window.location.replace(`${window.location.origin}/login`);
+      }
+    });
   };
 
   const applyUser = (u: AuthUser) => {

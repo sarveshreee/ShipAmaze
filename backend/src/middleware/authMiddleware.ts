@@ -11,11 +11,14 @@ export async function authMiddleware(req: AuthRequest, _res: Response, next: Nex
   try {
     const header = req.headers.authorization;
     const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
-    if (!token) throw new AppError(401, "Unauthorized");
+    if (!token || !token.trim()) throw new AppError(401, "Missing or invalid authorization token");
 
     const payload = verifyToken(token);
     const user = await User.findById(payload.sub);
-    if (!user || user.status !== "active") throw new AppError(401, "Unauthorized");
+    if (!user) throw new AppError(401, "Unauthorized");
+
+    if (user.status === "blocked") throw new AppError(403, "Your account has been blocked");
+    if (user.status === "inactive") throw new AppError(403, "Your account is inactive");
 
     req.user = user;
     next();

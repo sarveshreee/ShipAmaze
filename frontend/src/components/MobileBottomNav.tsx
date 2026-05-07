@@ -10,7 +10,7 @@ import {
 interface TabItem { label: string; icon: any; path: string; }
 
 const adminTabs: TabItem[] = [
-  { label: "Home", icon: LayoutDashboard, path: "/admin" },
+  { label: "Home", icon: LayoutDashboard, path: "/admin/dashboard" },
   { label: "Orders", icon: Package, path: "/admin/orders" },
   { label: "NDR", icon: AlertTriangle, path: "/admin/ndr" },
   { label: "Analytics", icon: BarChart3, path: "/admin/analytics" },
@@ -18,14 +18,14 @@ const adminTabs: TabItem[] = [
 ];
 
 const vendorTabs: TabItem[] = [
-  { label: "Home", icon: LayoutDashboard, path: "/vendor" },
+  { label: "Home", icon: LayoutDashboard, path: "/vendor/dashboard" },
   { label: "Orders", icon: Package, path: "/vendor/orders" },
   { label: "Team", icon: Users, path: "/vendor/team" },
   { label: "Settings", icon: Settings, path: "/vendor/settings" },
 ];
 
 const dropshipperTabs: TabItem[] = [
-  { label: "Home", icon: LayoutDashboard, path: "/dropshipper" },
+  { label: "Home", icon: LayoutDashboard, path: "/dropshipper/dashboard" },
   { label: "Orders", icon: Package, path: "/dropshipper/orders" },
   { label: "Create", icon: Plus, path: "/dropshipper/create-order" },
   { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet" },

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { Eye, EyeOff, Lock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import * as authService from "@/services/authService";
+import { ApiError } from "@/lib/apiClient";
 
 export default function ChangePassword() {
   const { role } = useAuth();
@@ -31,13 +33,17 @@ export default function ChangePassword() {
     if (err) { toast.error(err); return; }
     setSaving(true);
     try {
-      await authService.changePassword(current, next);
+      await authService.changePassword({
+        currentPassword: current,
+        newPassword: next,
+        confirmPassword: confirm,
+      });
       toast.success("Password updated successfully");
       setCurrent("");
       setNext("");
       setConfirm("");
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to update password");
+      toast.error(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to update password");
     } finally {
       setSaving(false);
     }
@@ -74,6 +80,12 @@ export default function ChangePassword() {
         <div>
           <h3 className="font-semibold text-text-primary">Update your password</h3>
           <p className="text-sm text-text-muted mt-0.5">Use a strong password with at least 8 characters.</p>
+          <p className="text-sm text-text-muted mt-2">
+            Forgot your current password?{" "}
+            <Link to="/forgot-password" className="text-primary font-medium hover:underline">
+              Reset with email code
+            </Link>
+          </p>
         </div>
 
         <Field

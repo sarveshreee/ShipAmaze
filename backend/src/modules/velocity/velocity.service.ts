@@ -5,6 +5,7 @@
  */
 
 import { velocityPost } from "./velocity.client.js";
+import { velocityConfig } from "./velocity.config.js";
 import {
   buildVelocityRatesProviderPayload,
   normalizeRatesResponse,
@@ -63,9 +64,11 @@ export async function checkServiceability(payload: VelocityServiceabilityRequest
 
 export async function getRates(payload: VelocityRatesRequest) {
   const providerBody = buildVelocityRatesProviderPayload(payload);
-  console.info(
-    `[velocity] POST /custom/api/v1/rates provider payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
-  );
+  if (velocityConfig.debugLogs) {
+    console.info(
+      `[velocity] POST /custom/api/v1/rates provider payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
+    );
+  }
   const raw = await velocityPost<Record<string, unknown>>("/custom/api/v1/rates", providerBody);
   return normalizeRatesResponse(raw);
 }
@@ -74,9 +77,11 @@ export async function getRates(payload: VelocityRatesRequest) {
 
 export async function createForwardShipment(payload: VelocityForwardOrderRequest) {
   const providerBody = buildVelocityForwardOrchestrationPayload(payload);
-  console.info(
-    `[velocity] POST /custom/api/v1/forward-order-orchestration payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
-  );
+  if (velocityConfig.debugLogs) {
+    console.info(
+      `[velocity] POST /custom/api/v1/forward-order-orchestration payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
+    );
+  }
   const raw = await velocityPost<unknown>(
     "/custom/api/v1/forward-order-orchestration",
     providerBody
@@ -88,9 +93,11 @@ export async function createForwardShipment(payload: VelocityForwardOrderRequest
 
 export async function createForwardOrderOnly(payload: VelocityForwardOrderRequest) {
   const providerBody = buildVelocityForwardOrchestrationPayload(payload);
-  console.info(
-    `[velocity] POST /custom/api/v1/forward-order payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
-  );
+  if (velocityConfig.debugLogs) {
+    console.info(
+      `[velocity] POST /custom/api/v1/forward-order payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
+    );
+  }
   const raw = await velocityPost<unknown>(
     "/custom/api/v1/forward-order",
     providerBody

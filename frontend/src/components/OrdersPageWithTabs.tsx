@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { OrderDetailDrawer } from "@/components/OrderDetailDrawer";
 import { OrderCardList } from "@/components/OrderCardList";
@@ -6,19 +6,29 @@ import { OrderCardSkeleton } from "@/components/SkeletonLoaders";
 import { EmptyState } from "@/components/EmptyState";
 import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
 import { RichOrdersTable } from "@/components/RichOrdersTable";
-import { useCouriers, useOrders, usePickupAddresses } from "@/hooks/useApiData";
+import { useCouriers, useOrdersQuery, usePickupAddresses } from "@/hooks/useApiData";
 import type { Order } from "@/types/logistics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Download, Package } from "lucide-react";
+import { Search, Download, Package, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import { downloadCSV } from "@/lib/exportUtils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import * as orderService from "@/services/orderService";
+import type { OrderListFilterValues } from "@/services/orderService";
 import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
+import { OrderListAdvancedFilters } from "@/components/OrderListAdvancedFilters";
+import { Badge } from "@/components/ui/badge";
 
 const tabs: { label: string; filter: string }[] = [
   { label: "All", filter: "all" },
@@ -43,13 +53,61 @@ interface Props {
 export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = true }: Props) {
   const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [processModalOpen, setProcessModalOpen] = useState(false);
+  const [channelPayment, setChannelPayment] = useState<string | undefined>(undefined);
+  const [channelFulfillment, setChannelFulfillment] = useState<string | undefined>(undefined);
+  const [advancedFilters, setAdvancedFilters] = useState<OrderListFilterValues>({});
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const isMobile = useIsMobile();
   const listView = activeTab === "junk" ? "junk" : undefined;
-  const { data: orders = [], isLoading: loading, refetch } = useOrders(listView);
+
+  const advancedFiltersKey = useMemo(() => JSON.stringify(advancedFilters), [advancedFilters]);
+
+  const effectivePayment = useMemo(() => {
+    if (activeTab === "channel") return channelPayment ?? advancedFilters.payment;
+    return advancedFilters.payment;
+  }, [activeTab, channelPayment, advancedFilters.payment]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, debouncedSearch, channelPayment, channelFulfillment, advancedFiltersKey]);
+
+  useEffect(() => {
+    if (activeTab !== "channel") {
+      setChannelPayment(undefined);
+      setChannelFulfillment(undefined);
+    }
+  }, [activeTab]);
+
+  const {
+    data: orders = [],
+    isLoading: loading,
+    refetch,
+    total,
+    pageSize,
+    tabCounts,
+    error: ordersError,
+  } = useOrdersQuery({
+    view: listView,
+    page,
+    pageSize: 50,
+    q: debouncedSearch || undefined,
+    tab: listView === "junk" ? undefined : activeTab,
+    ...advancedFilters,
+    payment: effectivePayment,
+    fulfillment: activeTab === "channel" ? channelFulfillment : undefined,
+    counts: true,
+  });
   const { data: couriers = [] } = useCouriers();
   const { data: pickupAddresses = [] } = usePickupAddresses();
   const { warehouses: vendorWarehouses } = useVendorWarehouses();
@@ -90,6 +148,83 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const BULK_MOVE_TO_READY_TABS = new Set(["all", "channel", "manual"]);
   const showBulkMoveToReady = BULK_MOVE_TO_READY_TABS.has(activeTab);
 
+  useEffect(() => {
+    if (ordersError) toast.error(ordersError.message);
+  }, [ordersError]);
+
+  const clearAllFilters = useCallback(() => {
+    setSearch("");
+    setAdvancedFilters({});
+    setChannelPayment(undefined);
+    setChannelFulfillment(undefined);
+    setPage(1);
+  }, []);
+
+  const filterTags = useMemo(() => {
+    const tags: Array<{ id: string; label: string; onRemove: () => void }> = [];
+    const af = advancedFilters;
+    const add = (id: keyof OrderListFilterValues, label: string) => {
+      const v = af[id];
+      if (v == null || String(v).trim() === "") return;
+      tags.push({
+        id: String(id),
+        label,
+        onRemove: () => setAdvancedFilters((p) => ({ ...p, [id]: undefined })),
+      });
+    };
+    add("status", `Status: ${af.status}`);
+    if (activeTab !== "channel") add("payment", `Payment: ${af.payment}`);
+    add("courier", `Courier: ${af.courier}`);
+    if (af.source?.trim()) {
+      tags.push({
+        id: "source",
+        label: `Source: ${af.source}`,
+        onRemove: () => setAdvancedFilters((p) => ({ ...p, source: undefined })),
+      });
+    }
+    add("dateFrom", `From: ${af.dateFrom}`);
+    add("dateTo", `To: ${af.dateTo}`);
+    add("customerCity", `Customer city: ${af.customerCity}`);
+    add("customerState", `Customer state: ${af.customerState}`);
+    add("pickupCity", `Pickup city: ${af.pickupCity}`);
+    add("pickupState", `Pickup state: ${af.pickupState}`);
+    add("productName", `Product: ${af.productName}`);
+    add("productSku", `SKU: ${af.productSku}`);
+    add("amountMin", `Min ₹: ${af.amountMin}`);
+    add("amountMax", `Max ₹: ${af.amountMax}`);
+    if (af.hasAwb === "yes" || af.hasAwb === "no") {
+      tags.push({
+        id: "hasAwb",
+        label: `AWB: ${af.hasAwb === "yes" ? "Yes" : "No"}`,
+        onRemove: () => setAdvancedFilters((p) => ({ ...p, hasAwb: undefined })),
+      });
+    }
+    if (af.shipmentCreated === "yes" || af.shipmentCreated === "no") {
+      tags.push({
+        id: "shipmentCreated",
+        label: `Shipment: ${af.shipmentCreated === "yes" ? "Created" : "Not created"}`,
+        onRemove: () => setAdvancedFilters((p) => ({ ...p, shipmentCreated: undefined })),
+      });
+    }
+    if (activeTab === "channel" && channelPayment?.trim()) {
+      tags.push({
+        id: "__chPay",
+        label: `Payment: ${channelPayment}`,
+        onRemove: () => setChannelPayment(undefined),
+      });
+    }
+    if (activeTab === "channel" && channelFulfillment?.trim()) {
+      tags.push({
+        id: "__chFul",
+        label: `Fulfillment: ${channelFulfillment}`,
+        onRemove: () => setChannelFulfillment(undefined),
+      });
+    }
+    return tags;
+  }, [advancedFilters, activeTab, channelPayment, channelFulfillment]);
+
+  const hasListFilters = Boolean(debouncedSearch) || filterTags.length > 0;
+
   const filterByTab = (o: Order, tab: string) => {
     const status = (o as any).status;
     const st = String(status ?? "").toLowerCase();
@@ -117,21 +252,15 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     return status === tab;
   };
 
-  const filtered = orders.filter(o => {
-    if (!filterByTab(o, activeTab)) return false;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      return [o.id, o.customer, o.city, o.payment, o.status, String(o.amount), o.date]
-        .some(val => val != null && String(val).toLowerCase().includes(q));
-    }
-    return true;
-  });
+  const filtered = orders;
 
-  useEffect(() => {
-    console.log("[orders:page] received_count=", orders.length, "selected_tab=", activeTab, "filtered_count=", filtered.length);
-  }, [orders.length, activeTab, filtered.length]);
-
-  const getCount = (filter: string) => orders.filter(o => filterByTab(o, filter)).length;
+  const getCount = useCallback(
+    (filter: string) => {
+      if (tabCounts && tabCounts[filter] != null) return tabCounts[filter];
+      return orders.filter((o) => filterByTab(o, filter)).length;
+    },
+    [tabCounts, orders]
+  );
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
   const handleMarkJunk = async (id: string) => {
@@ -204,18 +333,130 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       </div>
 
       {/* Search */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        <div className="relative flex-1 min-w-0">
+      {activeTab === "channel" && (
+        <div className="flex flex-wrap gap-2 mb-3 items-center">
+          <Select
+            value={channelPayment ?? "__any__"}
+            onValueChange={(v) => setChannelPayment(v === "__any__" ? undefined : v)}
+          >
+            <SelectTrigger className="w-[160px] h-9 text-sm">
+              <SelectValue placeholder="Payment" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__any__">Any payment</SelectItem>
+              <SelectItem value="COD">COD</SelectItem>
+              <SelectItem value="Prepaid">Prepaid</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={channelFulfillment ?? "__any__"}
+            onValueChange={(v) => setChannelFulfillment(v === "__any__" ? undefined : v)}
+          >
+            <SelectTrigger className="w-[180px] h-9 text-sm">
+              <SelectValue placeholder="Shopify fulfillment" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__any__">Any fulfillment</SelectItem>
+              <SelectItem value="fulfilled">Fulfilled</SelectItem>
+              <SelectItem value="partial">Partial</SelectItem>
+              <SelectItem value="unfulfilled">Unfulfilled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2 mb-2 items-center">
+        <div className="relative flex-1 min-w-[160px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <Input placeholder="Search orders..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input
+            placeholder="Search by order ID, tracking ID, mobile, customer, product, SKU…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+            aria-label="Search orders"
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-2 shrink-0"
+          onClick={() => setFilterSheetOpen(true)}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          <span className="hidden sm:inline">Filters</span>
+        </Button>
+        {hasListFilters && (
+          <Button type="button" variant="ghost" size="sm" className="text-text-muted shrink-0" onClick={clearAllFilters}>
+            Clear all
+          </Button>
+        )}
+        <span className="text-xs text-text-muted whitespace-nowrap hidden sm:inline sm:ml-auto">
+          {total} total
+        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={page <= 1 || loading}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            Prev
+          </Button>
+          <span className="text-xs text-text-muted px-1">
+            Page {page} / {Math.max(1, Math.ceil(total / pageSize))}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loading || page * pageSize >= total}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next
+          </Button>
         </div>
         <Button variant="outline" size="icon" className="sm:hidden shrink-0" onClick={handleExport}><Download className="h-4 w-4" /></Button>
       </div>
 
+      {filterTags.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-3 items-center">
+          {filterTags.map((t) => (
+            <Badge key={t.id} variant="secondary" className="pl-2 pr-1 py-1 gap-1 font-normal text-xs max-w-full">
+              <span className="truncate">{t.label}</span>
+              <button
+                type="button"
+                className="rounded p-0.5 hover:bg-surface-2 shrink-0"
+                aria-label={`Remove ${t.label}`}
+                onClick={t.onRemove}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      <OrderListAdvancedFilters
+        open={filterSheetOpen}
+        onOpenChange={setFilterSheetOpen}
+        value={advancedFilters}
+        onApply={setAdvancedFilters}
+        couriers={couriers.map((c) => ({ id: c.id, name: c.name }))}
+        hidePayment={activeTab === "channel"}
+      />
+
       {isMobile ? (
         loading ? <OrderCardSkeleton /> : (
           filtered.length === 0 ? (
-            <EmptyState icon={Package} title="No orders found" description="Try adjusting your search or filter criteria" actionLabel="Clear Filters" onAction={() => { setSearch(""); setActiveTab("all"); }} />
+            <EmptyState
+              icon={Package}
+              title="No orders found for these filters."
+              description="Try clearing filters or changing your search."
+              actionLabel="Clear filters"
+              onAction={clearAllFilters}
+            />
           ) : <OrderCardList orders={filtered} onViewOrder={openOrder} />
         )
       ) : (
@@ -258,8 +499,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           isDefault: w.isDefault,
         }))}
         onOrderUpdated={async () => {
-          const refreshed = await refetch();
-          const nextOrders = refreshed.data ?? [];
+          const nextOrders = await refetch();
           if (!selectedOrder) return;
           const updated = nextOrders.find((o) => o.id === selectedOrder.id) ?? null;
           setSelectedOrder(updated);

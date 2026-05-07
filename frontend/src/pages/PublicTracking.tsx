@@ -61,6 +61,8 @@ function toSafeTrackingResult(input: Partial<VelocityTrackingResult> | null | un
         : undefined,
     pendingShipment: !!input?.pendingShipment,
     trackUrl: typeof input?.trackUrl === "string" ? input.trackUrl : undefined,
+    trackingUnavailable: !!input?.trackingUnavailable,
+    trackingMessage: typeof input?.trackingMessage === "string" ? input.trackingMessage : undefined,
   };
 }
 
@@ -204,9 +206,18 @@ export default function PublicTracking() {
             </div>
 
             {error && (
-              <div className="mt-6 rounded-lg bg-red-50 border border-red-200 p-4 flex items-center gap-3">
-                <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
-                <p className="text-sm text-red-700">{error}</p>
+              <div className="mt-6 rounded-lg bg-red-50 border border-red-200 p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleTrack()}
+                  className="text-sm font-medium text-red-800 underline-offset-2 hover:underline shrink-0"
+                >
+                  Retry
+                </button>
               </div>
             )}
 
@@ -218,6 +229,12 @@ export default function PublicTracking() {
                   </div>
                 ) : (
                   <>
+                    {result.trackingUnavailable && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 mb-4">
+                        {result.trackingMessage ||
+                          "Live tracking is temporarily unavailable. Showing the last saved status from our records."}
+                      </div>
+                    )}
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 mb-5">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">

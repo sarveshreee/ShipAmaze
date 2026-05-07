@@ -9,6 +9,7 @@ import { Package, Palette, Type, Eye, Monitor, Smartphone, RotateCcw, Bell, Mail
 import { toast } from "sonner";
 import { useBranding, defaultBranding } from "@/contexts/BrandingContext";
 import ShopifyConnect from "@/components/ShopifyConnect";
+import ShopifyAdminConnections from "@/components/ShopifyAdminConnections";
 
 const notifEvents = [
   { label: "Order Placed", icon: "📦" },
@@ -302,8 +303,9 @@ export default function AdminSettings() {
       )}
 
       {activeTab === "channels" && (
-        <div className="max-w-2xl space-y-4">
+        <div className="max-w-5xl space-y-6">
           <ShopifyConnect />
+          <ShopifyAdminConnections />
         </div>
       )}
 

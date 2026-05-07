@@ -5,7 +5,10 @@
 const velocityToInternalStatus: Record<string, string> = {
   pending: "pending",
   ready_for_pickup: "ready-to-ship",
-  pickup_scheduled: "ready-to-ship",
+  ready_to_ship: "ready-to-ship",
+  pickup_scheduled: "pickup-scheduled",
+  picked_up: "picked-up",
+  pickedup: "picked-up",
   not_picked: "not-picked",
   in_transit: "in-transit",
   out_for_delivery: "out-for-delivery",
@@ -32,12 +35,58 @@ export function mapVelocityStatus(velocityStatus: unknown): string {
   return velocityToInternalStatus[normalised] ?? raw;
 }
 
+const TERMINAL_INTERNAL = new Set(["delivered", "cancelled", "rto"]);
+
+/** Higher = later in typical forward journey (used to avoid status regression on sync). */
+export function internalShipmentProgressRank(internalStatus: string): number {
+  const s = String(internalStatus || "")
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .trim();
+  if (TERMINAL_INTERNAL.has(s)) return 100;
+  if (s === "ndr") return 65;
+  if (s === "out-for-delivery") return 55;
+  if (s === "picked-up") return 48;
+  if (s === "in-transit") return 45;
+  if (s === "pickup-scheduled") return 38;
+  if (s === "not-picked") return 36;
+  if (s === "ready-to-ship") return 32;
+  if (s === "pending") return 10;
+  return 20;
+}
+
+/**
+ * Returns true if we should update the order's main `status` from a Velocity poll.
+ * Blocks downgrades after terminal states; allows forward progress and NDR oscillation within non-terminal band.
+ */
+export function shouldApplyInternalStatusUpdate(currentInternal: string, incomingMapped: string): boolean {
+  const cur = String(currentInternal || "")
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .trim();
+  const inc = String(incomingMapped || "")
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .trim();
+  if (!inc) return false;
+  if (inc === cur) return true;
+
+  if (TERMINAL_INTERNAL.has(cur) && !TERMINAL_INTERNAL.has(inc)) return false;
+
+  const rCur = internalShipmentProgressRank(cur);
+  const rInc = internalShipmentProgressRank(inc);
+  if (TERMINAL_INTERNAL.has(inc)) return true;
+  return rInc >= rCur;
+}
+
 /** Human-readable label for Velocity status codes */
 export function velocityStatusLabel(velocityStatus: unknown): string {
   const labels: Record<string, string> = {
     pending: "Pending",
     ready_for_pickup: "Ready for Pickup",
     pickup_scheduled: "Pickup Scheduled",
+    ready_to_ship: "Ready to Ship",
+    picked_up: "Picked Up",
     not_picked: "Not Picked",
     in_transit: "In Transit",
     out_for_delivery: "Out for Delivery",

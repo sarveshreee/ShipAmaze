@@ -11,7 +11,7 @@ import type { Order, OrderStatus } from "@/types/logistics";
 import {
   User, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
   Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw, Loader2,
-  Zap, Download, ExternalLink, RotateCcw,
+  Zap, Download, ExternalLink, RotateCcw, ShoppingBag,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
@@ -68,7 +68,12 @@ const DEV_VELOCITY_WH_CODE = (import.meta.env.VITE_VELOCITY_DEV_WAREHOUSE_CODE a
 const CAN_USE_DEV_WH_OVERRIDE = Boolean(import.meta.env.DEV && DEV_VELOCITY_WH_CODE);
 
 function errMsg(err: unknown) {
-  if (err instanceof ApiError) return err.message;
+  if (err instanceof ApiError) {
+    const b = err.body as { message?: string; error?: string } | undefined;
+    if (b && typeof b.message === "string" && b.message.trim()) return b.message;
+    if (b && typeof b.error === "string" && b.error.trim()) return b.error;
+    return err.message;
+  }
   if (err instanceof Error) return err.message;
   return "Unknown error";
 }
@@ -202,12 +207,19 @@ export function OrderDetailDrawer({
         d.shipping_charges != null && `Charges: ₹${d.shipping_charges}`,
       ].filter(Boolean) as string[];
       toast.success("Shipment created", { description: lines.join(" · ") });
+      if (resp.walletDeduction?.debited && typeof resp.walletDeduction.amount === "number") {
+        toast.info(`Wallet debited ₹${resp.walletDeduction.amount} for shipping`);
+      }
       onOrderUpdated?.();
     } catch (err: unknown) {
       const message = errMsg(err);
       const normalized = message.toLowerCase();
-      if (isVelocityWarehouseLinkedError(message)) {
+      if (err instanceof ApiError && err.status === 402) {
+        toast.error("Insufficient wallet balance", { description: message });
+      } else if (isVelocityWarehouseLinkedError(message)) {
         toast.error(BACKEND_WH_MESSAGE);
+      } else if (normalized.includes("not serviceable") || normalized.includes("serviceability")) {
+        toast.error("Serviceability check failed", { description: message });
       } else if (normalized.includes("order already exists in velocity") || normalized.includes("order already exists")) {
         toast.error("This order already exists in Velocity. Try resync tracking or create shipment with a new shipment attempt.");
       } else if (normalized.includes("already") && (normalized.includes("awb") || normalized.includes("shipment"))) {
@@ -294,7 +306,7 @@ export function OrderDetailDrawer({
             <div className="rounded-xl border border-border bg-surface-2/50 p-4 space-y-2.5">
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-light text-primary font-semibold text-sm">
-                  {order.customer.charAt(0)}
+                  {(order.customer || "?").charAt(0)}
                 </div>
                 <div>
                   <p className="text-sm font-medium text-text-primary">{order.customer}</p>
@@ -309,6 +321,158 @@ export function OrderDetailDrawer({
               </div>
             </div>
           </section>
+
+          {(() => {
+            const raw = order.pickupAddress;
+            const po =
+              raw && typeof raw === "object"
+                ? (raw as {
+                    label?: string;
+                    warehouseName?: string;
+                    contactName?: string;
+                    phone?: string;
+                    alternatePhone?: string;
+                    email?: string;
+                    city?: string;
+                    state?: string;
+                    pincode?: string;
+                    address?: string;
+                    gstin?: string;
+                    velocityWarehouseId?: string;
+                  })
+                : null;
+            const warehouseTitle =
+              (po?.warehouseName && String(po.warehouseName).trim()) ||
+              (po?.label && String(po.label).trim()) ||
+              (typeof raw === "string" ? raw.trim() : "");
+            const hasPickupRef = Boolean(order.pickupAddressId);
+            if (!warehouseTitle && !hasPickupRef) return null;
+            return (
+              <section>
+                <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+                  <MapPin className="h-3.5 w-3.5" /> Pickup / Warehouse
+                </h4>
+                <div className="rounded-xl border border-border bg-surface-2/50 p-4 space-y-2 text-sm text-text-secondary">
+                  <p className="font-medium text-text-primary">
+                    {warehouseTitle || (hasPickupRef ? "Pickup address" : "—")}
+                  </p>
+                  {po?.contactName || po?.phone || (po as { contactPerson?: string }).contactPerson ? (
+                    <p className="text-xs">
+                      {(po?.contactName || (po as { contactPerson?: string }).contactPerson) ? (
+                        <span>{po?.contactName || (po as { contactPerson?: string }).contactPerson}</span>
+                      ) : null}
+                      {(po?.contactName || (po as { contactPerson?: string }).contactPerson) && po?.phone ? (
+                        <span className="text-text-muted"> · </span>
+                      ) : null}
+                      {po?.phone ? <span>{po.phone}</span> : null}
+                      {po?.alternatePhone ? (
+                        <span className="block text-text-muted mt-0.5">Alt: {po.alternatePhone}</span>
+                      ) : null}
+                    </p>
+                  ) : null}
+                  {(po?.city || po?.state || po?.pincode) && (
+                    <p className="text-xs">
+                      {[po?.city, po?.state].filter(Boolean).join(", ")}
+                      {po?.pincode ? ` · ${po.pincode}` : ""}
+                    </p>
+                  )}
+                  {po?.address ? <p className="text-xs leading-relaxed text-text-muted">{po.address}</p> : null}
+                  {po?.gstin ? <p className="text-xs">GSTIN: {po.gstin}</p> : null}
+                  {hasPickupRef && !warehouseTitle && !po?.address && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Pickup details are no longer available (address may have been removed). Order snapshot may still be on file.
+                    </p>
+                  )}
+                  {!order.velocityWarehouseId?.trim() && po?.velocityWarehouseId?.trim() ? (
+                    <p className="text-[11px] font-mono text-text-muted pt-1">
+                      Velocity warehouse: {po.velocityWarehouseId}
+                    </p>
+                  ) : null}
+                </div>
+              </section>
+            );
+          })()}
+
+          {(order.externalSource === "shopify" ||
+            order.channel === "Shopify" ||
+            order.externalOrderName ||
+            order.shopifyOrderNumericId) && (
+            <section>
+              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+                <ShoppingBag className="h-3.5 w-3.5" /> Shopify
+              </h4>
+              <div className="rounded-xl border border-border bg-surface-2/50 p-4 space-y-2 text-sm text-text-secondary">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-md bg-[#96bf48]/15 px-2 py-0.5 text-xs font-medium text-[#3d5c00] border border-[#96bf48]/25">
+                    Shopify
+                  </span>
+                  {order.sourceType ? (
+                    <span className="text-xs text-text-muted">source: {order.sourceType}</span>
+                  ) : null}
+                </div>
+                <dl className="grid grid-cols-1 gap-1.5 text-xs">
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                    <dt className="text-text-muted shrink-0">Order #</dt>
+                    <dd className="font-mono text-text-primary break-all">
+                      {order.externalOrderName?.trim() ||
+                        (order.shopifyOrderNumericId ? `#${order.shopifyOrderNumericId}` : "—")}
+                    </dd>
+                  </div>
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                    <dt className="text-text-muted shrink-0">Store</dt>
+                    <dd className="font-mono text-text-primary break-all">{order.shopifyShopDomain?.trim() || "—"}</dd>
+                  </div>
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                    <dt className="text-text-muted shrink-0">Payment (Shopify)</dt>
+                    <dd className="capitalize">{order.shopifyFinancialStatus?.trim() || "—"}</dd>
+                  </div>
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                    <dt className="text-text-muted shrink-0">Fulfillment (Shopify)</dt>
+                    <dd className="capitalize">{order.shopifyFulfillmentStatus?.trim() || "—"}</dd>
+                  </div>
+                  {order.lastShopifySyncAt ? (
+                    <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                      <dt className="text-text-muted shrink-0">Last Shopify sync</dt>
+                      <dd>{new Date(order.lastShopifySyncAt).toLocaleString()}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+                {order.shopifyNote?.trim() ? (
+                  <p className="text-xs pt-1 border-t border-border/60">
+                    <span className="text-text-muted">Note: </span>
+                    {order.shopifyNote}
+                  </p>
+                ) : null}
+                {order.shopifyTags?.trim() ? (
+                  <p className="text-xs">
+                    <span className="text-text-muted">Tags: </span>
+                    {order.shopifyTags}
+                  </p>
+                ) : null}
+                <p className="text-xs text-text-muted pt-1 border-t border-border/60">
+                  Sync updates line items and customer details. Local shipment / AWB is preserved when already set.
+                </p>
+              </div>
+            </section>
+          )}
+
+          {order.statusHistory && order.statusHistory.length > 0 && (
+            <section>
+              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+                <Calendar className="h-3.5 w-3.5" /> Status history
+              </h4>
+              <ul className="rounded-xl border border-border bg-card p-3 space-y-2 text-xs">
+                {[...order.statusHistory].reverse().map((e, i) => (
+                  <li key={i} className="flex justify-between gap-2 border-b border-border/60 last:border-0 pb-2 last:pb-0">
+                    <span className="font-medium text-text-primary capitalize">{e.status.replace(/_/g, " ")}</span>
+                    <span className="text-text-muted shrink-0">
+                      {e.at ? new Date(e.at).toLocaleString() : "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <section>
             <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
@@ -379,7 +543,7 @@ export function OrderDetailDrawer({
               </div>
             )}
 
-            {order.labelUrl && (
+            {order.labelUrl && /^https?:\/\//i.test(String(order.labelUrl)) && (
               <div className="mt-3 flex gap-2">
                 <a href={order.labelUrl} download className="flex-1">
                   <Button
@@ -397,6 +561,19 @@ export function OrderDetailDrawer({
                     className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30"
                   >
                     <ExternalLink className="h-3.5 w-3.5" /> Open Label
+                  </Button>
+                </a>
+              </div>
+            )}
+            {order.manifestUrl && /^https?:\/\//i.test(String(order.manifestUrl)) && (
+              <div className="mt-2 flex gap-2">
+                <a href={order.manifestUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" /> Open manifest
                   </Button>
                 </a>
               </div>

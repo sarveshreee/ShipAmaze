@@ -73,6 +73,10 @@ export default function AddOrder() {
   const [showAddModal, setShowAddModal] = useState(false);
 
   const allAddresses = apiPickups;
+  const selectablePickups = useMemo(
+    () => apiPickups.filter((a) => a.isActive !== false),
+    [apiPickups]
+  );
 
   const [selectedPickup, setSelectedPickup] = useState("");
   const [showReturn, setShowReturn] = useState(false);
@@ -203,6 +207,25 @@ export default function AddOrder() {
     }
   }, [pickupsLoading, allAddresses]);
 
+  useEffect(() => {
+    if (selectedPickup && !selectablePickups.some((a) => a.id === selectedPickup)) {
+      setSelectedPickup("");
+    }
+  }, [selectablePickups, selectedPickup]);
+
+  useEffect(() => {
+    if (selectablePickups.length && !selectedPickup) {
+      const def = selectablePickups.find((a) => a.isDefault) || selectablePickups[0];
+      if (def) setSelectedPickup(def.id);
+    }
+  }, [selectablePickups, selectedPickup]);
+
+  useEffect(() => {
+    if (selectedReturn && !selectablePickups.some((a) => a.id === selectedReturn)) {
+      setSelectedReturn("");
+    }
+  }, [selectablePickups, selectedReturn]);
+
   // Saved orders
   const [savedOrders, setSavedOrders] = useState<SavedOrder[]>(() => {
     try { return JSON.parse(localStorage.getItem("savedOrders") || "[]"); } catch { return []; }
@@ -291,8 +314,12 @@ export default function AddOrder() {
   const validateStep = useCallback((step: number): boolean => {
     const errors: StepErrors = {};
     if (step === 1) {
-      if (!selectedPickup) errors.pickup = "Please select pickup address";
-      if (showReturn && !selectedReturn) errors.return = "Please select a return address to continue";
+      if (!selectedPickup || !selectablePickups.some((a) => a.id === selectedPickup)) {
+        errors.pickup = "Please select an active pickup address";
+      }
+      if (showReturn && (!selectedReturn || !selectablePickups.some((a) => a.id === selectedReturn))) {
+        errors.return = "Please select an active return address";
+      }
     } else if (step === 2) {
       if (!consignee.fullName.trim()) errors.fullName = "Full name is required";
       if (!consignee.phone.trim() || consignee.phone.length !== 10) errors.phone = "Valid 10-digit phone is required";
@@ -314,7 +341,7 @@ export default function AddOrder() {
     }
     setStepErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [selectedPickup, showReturn, selectedReturn, consignee, shipment, packageDetails, products]);
+  }, [selectedPickup, showReturn, selectedReturn, consignee, shipment, packageDetails, products, selectablePickups]);
 
   const handleNext = () => {
     if (validateStep(currentStep)) {
@@ -570,23 +597,19 @@ export default function AddOrder() {
             <div className="flex flex-col lg:flex-row gap-6">
               <div className="flex-1 space-y-5">
                 <div>
-                  <Label className="text-sm font-medium">Select Pickup Address<span className="text-danger">*</span></Label>
-                  <select
-                    value={selectedPickup}
-                    onChange={(e) => setSelectedPickup(e.target.value)}
-                    className={cn(
-                      "mt-1 w-full rounded-md border bg-background px-3 py-2.5 text-sm",
-                      stepErrors.pickup ? "border-danger" : "border-border"
-                    )}
-                  >
-                    <option value="">-- Select Pickup Address --</option>
-                    {allAddresses.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.label}
-                      </option>
-                    ))}
-                  </select>
-                  {stepErrors.pickup && <p className="text-xs text-danger mt-1">{stepErrors.pickup}</p>}
+                  <Label className="text-sm font-medium" id="pickup-picker-label">
+                    Select Pickup Address<span className="text-danger">*</span>
+                  </Label>
+                  <p className="sr-only" aria-live="polite">
+                    {selectedPickupAddr
+                      ? `Selected pickup: ${selectedPickupAddr.label}`
+                      : "No pickup address selected"}
+                  </p>
+                  {stepErrors.pickup && (
+                    <p className="text-xs text-danger mt-1" role="alert">
+                      {stepErrors.pickup}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -597,13 +620,19 @@ export default function AddOrder() {
                 {showReturn && (
                   <div>
                     <Label className="text-sm font-medium">Select Return Address<span className="text-danger">*</span></Label>
-                    <select value={selectedReturn} onChange={e => setSelectedReturn(e.target.value)}
-                      className={cn("mt-1 w-full rounded-md border bg-background px-3 py-2.5 text-sm",
+                    <select
+                      value={selectedReturn}
+                      onChange={(e) => setSelectedReturn(e.target.value)}
+                      className={cn(
+                        "mt-1 w-full rounded-md border bg-background px-3 py-2.5 text-sm",
                         stepErrors.return ? "border-danger" : "border-border"
-                      )}>
+                      )}
+                    >
                       <option value="">-- Select Return Address --</option>
-                      {allAddresses.map(a => (
-                        <option key={a.id} value={a.id}>{a.label}</option>
+                      {selectablePickups.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label}
+                        </option>
                       ))}
                     </select>
                     {stepErrors.return && <p className="text-xs text-danger mt-1">{stepErrors.return}</p>}
@@ -628,21 +657,34 @@ export default function AddOrder() {
                         <Link to="/dropshipper/pickup-addresses">Add Pickup Address</Link>
                       </Button>
                     </div>
+                  ) : selectablePickups.length === 0 ? (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-center space-y-2">
+                      <p className="text-sm text-text-secondary">All pickup addresses are inactive. Activate one or add a new address.</p>
+                      <Button asChild variant="outline" size="sm" className="w-full">
+                        <Link to="/dropshipper/pickup-addresses">Manage pickup addresses</Link>
+                      </Button>
+                    </div>
                   ) : (
-                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1" role="listbox" aria-labelledby="pickup-picker-label">
                       {allAddresses.map((a) => {
+                        const active = a.isActive !== false;
                         const sel = selectedPickup === a.id;
                         return (
                           <button
                             key={a.id}
                             type="button"
+                            role="option"
+                            aria-selected={sel}
+                            disabled={!active}
                             onClick={() => {
+                              if (!active) return;
                               setSelectedPickup(a.id);
                               setStepErrors((prev) => ({ ...prev, pickup: "" }));
                             }}
                             className={cn(
                               "w-full text-left rounded-lg border p-3 transition-colors",
-                              sel ? "border-primary bg-primary-light/50 ring-1 ring-primary/30" : "border-border bg-card hover:bg-surface-2/50"
+                              !active && "opacity-50 cursor-not-allowed bg-muted/30",
+                              active && sel ? "border-primary bg-primary-light/50 ring-1 ring-primary/30" : active && "border-border bg-card hover:bg-surface-2/50"
                             )}
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -651,7 +693,9 @@ export default function AddOrder() {
                                 {a.isDefault && (
                                   <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground">Default</span>
                                 )}
-                                {a.velocityWarehouseId?.trim() ? (
+                                {!active ? (
+                                  <span className="rounded-full bg-text-muted/20 px-2 py-0.5 text-[10px] font-medium text-text-muted">Inactive</span>
+                                ) : a.velocityWarehouseId?.trim() ? (
                                   <Badge variant="outline" className="text-[10px] border-success/40 text-success">
                                     Velocity linked
                                   </Badge>

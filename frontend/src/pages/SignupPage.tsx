@@ -7,18 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Truck, Package, MapPin, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { roleDashboardPath } from "@/services/authService";
 
 type Role = "admin" | "vendor" | "dropshipper";
 const roles: { value: Role; label: string; icon: React.ReactNode }[] = [
   { value: "vendor", label: "Vendor", icon: <Package className="h-4 w-4" /> },
   { value: "dropshipper", label: "Dropshipper", icon: <Truck className="h-4 w-4" /> },
 ];
-
-const redirectMap: Record<Role, string> = {
-  admin: "/admin",
-  vendor: "/vendor",
-  dropshipper: "/dropshipper/home",
-};
 
 export default function SignupPage() {
   const [role, setRole] = useState<Role>("dropshipper");
@@ -37,16 +32,21 @@ export default function SignupPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !email || !password) {
+    const trimmedEmail = email.trim();
+    if (!fullName || !trimmedEmail || !password) {
       toast.error("Please fill all required fields");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast.error("Please enter a valid email address");
       return;
     }
     if (password !== confirmPassword) {
       toast.error("Passwords do not match");
       return;
     }
-    if (password.length < 6) {
-      toast.error("Password must be at least 6 characters");
+    if (password.length < 8) {
+      toast.error("Password must be at least 8 characters");
       return;
     }
     if (!agreed) {
@@ -55,14 +55,14 @@ export default function SignupPage() {
     }
 
     setLoading(true);
-    const { error } = await signupWithEmail(email, password, fullName, businessName, phone, role);
+    const { error } = await signupWithEmail(trimmedEmail, password, fullName, businessName, phone, role);
     setLoading(false);
 
     if (error) {
       toast.error(error);
     } else {
       toast.success("Account created successfully!");
-      navigate(redirectMap[role]);
+      navigate(roleDashboardPath(role), { replace: true });
     }
   };
 

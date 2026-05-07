@@ -10,7 +10,7 @@ export interface IUser extends Document {
   companyName: string;
   phone: string;
   permissions: string[];
-  status: "active" | "inactive";
+  status: "active" | "inactive" | "blocked";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,7 +24,7 @@ const userSchema = new Schema<IUser>(
     companyName: { type: String, default: "" },
     phone: { type: String, default: "" },
     permissions: { type: [String], default: [] },
-    status: { type: String, enum: ["active", "inactive"], default: "active" },
+    status: { type: String, enum: ["active", "inactive", "blocked"], default: "active" },
   },
   { timestamps: true }
 );

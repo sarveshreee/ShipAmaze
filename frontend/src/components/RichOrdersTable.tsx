@@ -341,9 +341,32 @@ interface Props {
     warehouseId: string;
     carrier_id?: string | number | "";
   }) => Promise<{ success: boolean; data: { awb_code: string; carrier_name: string } }>;
+  /** Shown under the icon when the server returned zero rows (not loading). */
+  emptyDescription?: string;
 }
 
-export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll, onClearSelection, onMarkJunk, onBulkJunk, onOpenProcessModal, onExport, loading, activeTab, onToggleSidebar, showProcessSelected = true, showBulkMoveToReady = false, onBulkMoveToReady, couriers: _couriers = [], warehouses = [], velocityEmptyLink = "/dropshipper/pickup-addresses", onCreateShipment }: Props) {
+export function RichOrdersTable({
+  orders,
+  selected,
+  onToggleSelect,
+  onSelectAll,
+  onClearSelection,
+  onMarkJunk,
+  onBulkJunk,
+  onOpenProcessModal,
+  onExport,
+  loading,
+  activeTab,
+  onToggleSidebar,
+  showProcessSelected = true,
+  showBulkMoveToReady = false,
+  onBulkMoveToReady,
+  couriers: _couriers = [],
+  warehouses = [],
+  velocityEmptyLink = "/dropshipper/pickup-addresses",
+  onCreateShipment,
+  emptyDescription = "No orders found for these filters.",
+}: Props) {
   const navigate = useNavigate();
   const { role } = useAuth();
   const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
@@ -815,8 +838,8 @@ export function RichOrdersTable({ orders, selected, onToggleSelect, onSelectAll,
             ) : filteredOrders.length === 0 ? (
               <tr><td colSpan={10} className="p-12 text-center text-text-muted">
                 <Package className="h-10 w-10 mx-auto mb-2 opacity-40" />
-                <p className="font-medium">No orders found</p>
-                <p className="text-xs mt-1">Try adjusting your filters</p>
+                <p className="font-medium text-text-primary">{emptyDescription}</p>
+                <p className="text-xs mt-1">Try clearing filters or changing your search.</p>
               </td></tr>
             ) : filteredOrders.map(o => {
               const products = o.products || [];

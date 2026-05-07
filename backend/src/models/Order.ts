@@ -6,6 +6,13 @@ export interface ITrackingActivity {
   location: string;
 }
 
+export interface IOrderStatusEvent {
+  status: string;
+  at: Date;
+  updatedBy?: Types.ObjectId;
+  note?: string;
+}
+
 export interface IOrder extends Document {
   orderId: string;
   customer: string;
@@ -51,7 +58,12 @@ export interface IOrder extends Document {
   createdBy: Types.ObjectId;
   /** Canonical owner id for dropshipper-owned orders (e.g. Shopify imports). */
   ownerUserId?: Types.ObjectId;
+  /** Legacy/query helper — same as owner for some imports */
+  dropshipperId?: Types.ObjectId;
   vendorId?: Types.ObjectId;
+  /** Manual / shopify / etc. */
+  sourceType?: string;
+  statusHistory?: IOrderStatusEvent[];
   externalSource?: string;
   externalOrderName?: string;
   channel?: string;
@@ -86,6 +98,14 @@ export interface IOrder extends Document {
   shippingPincode?: string;
   shippingCity?: string;
   shippingState?: string;
+  /** Shopify Admin REST order id (numeric as string) for webhooks/dedupe */
+  shopifyOrderNumericId?: string;
+  shopifyShopDomain?: string;
+  shopifyFinancialStatus?: string;
+  shopifyFulfillmentStatus?: string;
+  shopifyNote?: string;
+  shopifyTags?: string;
+  lastShopifySyncAt?: Date;
 }
 
 const trackingActivitySchema = new Schema<ITrackingActivity>(
@@ -93,6 +113,16 @@ const trackingActivitySchema = new Schema<ITrackingActivity>(
     date: { type: String, default: "" },
     activity: { type: String, default: "" },
     location: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const statusHistorySchema = new Schema<IOrderStatusEvent>(
+  {
+    status: { type: String, required: true },
+    at: { type: Date, default: Date.now },
+    updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    note: { type: String },
   },
   { _id: false }
 );
@@ -128,7 +158,10 @@ const orderSchema = new Schema<IOrder>(
     pickupWarehouseId: { type: String },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     ownerUserId: { type: Schema.Types.ObjectId, ref: "User" },
+    dropshipperId: { type: Schema.Types.ObjectId, ref: "User" },
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
+    sourceType: { type: String },
+    statusHistory: { type: [statusHistorySchema], default: undefined },
     externalSource: { type: String },
     externalOrderName: { type: String },
     channel: { type: String, default: "Manual" },
@@ -162,6 +195,13 @@ const orderSchema = new Schema<IOrder>(
     shippingPincode: { type: String },
     shippingCity: { type: String },
     shippingState: { type: String },
+    shopifyOrderNumericId: { type: String, index: true, sparse: true },
+    shopifyShopDomain: { type: String, index: true, sparse: true },
+    shopifyFinancialStatus: { type: String },
+    shopifyFulfillmentStatus: { type: String },
+    shopifyNote: { type: String },
+    shopifyTags: { type: String },
+    lastShopifySyncAt: { type: Date },
   },
   { timestamps: true }
 );
@@ -171,5 +211,6 @@ orderSchema.index({ createdBy: 1 });
 orderSchema.index({ ownerUserId: 1 });
 orderSchema.index({ shipmentStatus: 1 });
 orderSchema.index({ courierName: 1 });
+orderSchema.index({ shopifyShopDomain: 1, shopifyOrderNumericId: 1 }, { sparse: true });
 
 export const Order: Model<IOrder> = mongoose.models.Order || mongoose.model<IOrder>("Order", orderSchema);
