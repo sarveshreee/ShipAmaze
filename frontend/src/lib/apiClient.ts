@@ -21,8 +21,15 @@ export class ApiError extends Error {
 }
 
 function baseUrl(): string {
-  const u = import.meta.env.VITE_API_BASE_URL as string | undefined;
-  return (u || "http://localhost:5000/api").replace(/\/$/, "");
+  const u = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+  if (u) return u.replace(/\/$/, "");
+  if (import.meta.env.DEV) return "http://localhost:5000/api";
+  if (typeof console !== "undefined") {
+    console.error(
+      "[ShipAmaze] VITE_API_BASE_URL is not set. Configure it in Vercel (or your host) to your Render API base URL including /api."
+    );
+  }
+  return "";
 }
 
 async function parseBody(res: Response): Promise<unknown> {
@@ -102,3 +109,40 @@ export const apiClient = {
   patch: <T>(path: string, json?: unknown) => apiRequest<T>(path, { method: "PATCH", json }),
   delete: <T>(path: string) => apiRequest<T>(path, { method: "DELETE" }),
 };
+
+/** Authenticated download (CSV, etc.). Uses filename from Content-Disposition when present. */
+export async function downloadAuthenticatedFile(path: string, fallbackName: string): Promise<void> {
+  const url = `${baseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
+  const token = getStoredToken();
+  const headers: Record<string, string> = { Accept: "text/csv, */*" };
+  if (token && shouldAttachAuthToken(path)) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url, { headers });
+  if (res.status === 401 && token) {
+    setStoredToken(null);
+    window.dispatchEvent(new CustomEvent("shipamaze:unauthorized"));
+  }
+  if (!res.ok) {
+    const data = await parseBody(res);
+    let msg = res.statusText || "Download failed";
+    if (typeof data === "object" && data !== null) {
+      const o = data as { message?: string };
+      if (typeof o.message === "string" && o.message.trim()) msg = o.message;
+    }
+    throw new ApiError(res.status, msg, data);
+  }
+
+  let filename = fallbackName;
+  const cd = res.headers.get("Content-Disposition");
+  const m = cd?.match(/filename="([^"]+)"/i) ?? cd?.match(/filename=([^;]+)/i);
+  if (m?.[1]) filename = m[1].trim().replace(/^["']|["']$/g, "");
+
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}

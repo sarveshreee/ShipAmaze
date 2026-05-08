@@ -91,8 +91,22 @@ export async function listTransactions(params?: { page?: number; pageSize?: numb
   };
 }
 
-export async function listCodRemittances() {
-  return apiClient.get<CODRemittance[]>("/wallet/cod-remittances");
+export type CodRemittanceListResponse = {
+  items: CODRemittance[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export async function listCodRemittances(params?: Record<string, string | undefined>) {
+  const q = new URLSearchParams();
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== "") q.set(k, v);
+    }
+  }
+  const s = q.toString();
+  return apiClient.get<CodRemittanceListResponse>(`/wallet/cod-remittances${s ? `?${s}` : ""}`);
 }
 
 export type AdminWalletRow = {

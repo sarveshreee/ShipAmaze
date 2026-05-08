@@ -264,7 +264,7 @@ export interface Invoice {
   codCharges: number;
   gst: number;
   total: number;
-  status: "Paid" | "Unpaid" | "Overdue";
+  status: "Paid" | "Unpaid" | "Overdue" | "Cancelled" | string;
   downloadUrl?: string;
 }
 

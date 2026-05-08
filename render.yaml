@@ -1,0 +1,18 @@
+# Render Blueprint (monorepo): set the service root to `backend` in the Render dashboard
+# if not using a blueprint, or adjust `rootDir` per Render's current schema.
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: shipamaze-api
+    runtime: node
+    region: oregon
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Add in the dashboard (secrets): MONGODB_URI, JWT_SECRET, CORS_ORIGIN, ENCRYPTION_SECRET,
+      # SHOPIFY_*, and optionally VELOCITY_* when VELOCITY_ENABLED=true.

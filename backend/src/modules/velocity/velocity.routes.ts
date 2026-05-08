@@ -10,13 +10,14 @@
 
 import { Router } from "express";
 import { authMiddleware } from "../../middleware/authMiddleware.js";
+import { publicTrackingLimiter } from "../../middleware/rateLimits.js";
 import { requireRoles } from "../../middleware/roleMiddleware.js";
 import * as vc from "./velocity.controller.js";
 
 const router = Router();
 
 // ── Public tracking (no auth required) ──────────────────
-router.get("/track/public/:awb", vc.trackShipmentPublic);
+router.get("/track/public/:awb", publicTrackingLimiter, vc.trackShipmentPublic);
 
 // ── All remaining routes require a valid session ─────────
 router.use(authMiddleware);

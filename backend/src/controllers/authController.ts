@@ -13,6 +13,7 @@ import { Wallet } from "../models/Wallet.js";
 import { signToken } from "../utils/jwt.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { safeErrorMessage } from "../utils/logRedact.js";
 
 const registerSchema = z.object({
   email: z.string().min(1, "Email is required").email("Invalid email address"),
@@ -208,9 +209,7 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response) =
     try {
       await sendPasswordResetOtp(email, code);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[mail] Failed to send password reset email:", msg);
-      if (err instanceof Error && err.stack) console.error(err.stack);
+      console.error("[mail] Failed to send password reset email:", safeErrorMessage(err));
     }
   }
   res.json({ ok: true, message: "If an account exists for this email, a reset code has been sent." });

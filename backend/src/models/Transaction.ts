@@ -54,6 +54,8 @@ const transactionSchema = new Schema<ITransaction>(
   { timestamps: true }
 );
 
+transactionSchema.index({ userId: 1, createdAt: -1 });
+
 transactionSchema.index(
   { userId: 1, referenceType: 1, referenceId: 1 },
   {

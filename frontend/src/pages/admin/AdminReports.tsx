@@ -1,9 +1,25 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
-import { useOrders, useTransactions } from "@/hooks/useApiData";
-import { Download, FileText, BarChart3, TrendingUp, Package, IndianRupee, Calendar } from "lucide-react";
+import {
+  Download,
+  FileText,
+  BarChart3,
+  TrendingUp,
+  Package,
+  IndianRupee,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   BarChart,
   Bar,
@@ -12,50 +28,205 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  LineChart,
-  Line,
   Legend,
   PieChart,
   Pie,
   Cell,
 } from "recharts";
 import { cn } from "@/lib/utils";
-import { downloadCSV, downloadPDF } from "@/lib/exportUtils";
+import { downloadPDF } from "@/lib/exportUtils";
 import { toast } from "sonner";
+import * as reportsService from "@/services/reportsService";
+import type { ReportsSummary, ReportOrderRow } from "@/services/reportsService";
+import * as adminWorkflowService from "@/services/adminWorkflowService";
+import { ApiError } from "@/lib/apiClient";
 
-const dateRanges = ["Last 7 days", "Last 30 days", "Last 90 days", "This Year", "Custom"];
+type TabKey = "overview" | "courier" | "zone" | "orders";
+
+function presetToDates(preset: string): { dateFrom?: string; dateTo?: string } {
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  if (preset === "7d") start.setDate(start.getDate() - 6);
+  else if (preset === "30d") start.setDate(start.getDate() - 29);
+  else if (preset === "90d") start.setDate(start.getDate() - 89);
+  else if (preset === "ytd") {
+    start.setMonth(0, 1);
+  } else return {};
+  return {
+    dateFrom: start.toISOString().slice(0, 10),
+    dateTo: end.toISOString().slice(0, 10),
+  };
+}
+
+function buildFilterParams(opts: {
+  datePreset: string;
+  dateFrom: string;
+  dateTo: string;
+  status: string;
+  payment: string;
+  courier: string;
+  source: string;
+  scopeUserId: string;
+  page: number;
+  pageSize: number;
+}): Record<string, string | undefined> {
+  const p: Record<string, string | undefined> = {
+    page: String(opts.page),
+    pageSize: String(opts.pageSize),
+  };
+  if (opts.scopeUserId) p.scopeUserId = opts.scopeUserId;
+  if (opts.status && opts.status !== "all") p.status = opts.status;
+  if (opts.payment && opts.payment !== "all") {
+    p.payment = opts.payment === "cod" ? "cod" : opts.payment === "prepaid" ? "prepaid" : opts.payment;
+  }
+  if (opts.courier.trim()) p.courier = opts.courier.trim();
+  if (opts.source && opts.source !== "all") p.source = opts.source;
+
+  if (opts.datePreset === "custom") {
+    if (opts.dateFrom) p.dateFrom = opts.dateFrom;
+    if (opts.dateTo) p.dateTo = opts.dateTo;
+  } else if (opts.datePreset !== "all") {
+    const d = presetToDates(opts.datePreset);
+    if (d.dateFrom) p.dateFrom = d.dateFrom;
+    if (d.dateTo) p.dateTo = d.dateTo;
+  }
+  return p;
+}
 
 export default function AdminReports() {
-  const [tab, setTab] = useState<"overview" | "courier" | "zone" | "orders">("overview");
-  const [dateRange, setDateRange] = useState("Last 30 days");
-  const { data: orders = [], isLoading: ordersLoading } = useOrders();
-  const { data: transactions = [] } = useTransactions();
+  const [tab, setTab] = useState<TabKey>("overview");
+  const [datePreset, setDatePreset] = useState("30d");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [status, setStatus] = useState("all");
+  const [payment, setPayment] = useState("all");
+  const [courier, setCourier] = useState("");
+  const [source, setSource] = useState("all");
+  const [scopeUserId, setScopeUserId] = useState("");
+  const [scopeOptions, setScopeOptions] = useState<{ id: string; label: string }[]>([]);
 
-  const monthlyRevenue = useMemo(() => {
-    const months: string[] = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
-      months.push(d.toLocaleString("en-IN", { month: "short", year: "2-digit" }));
+  const [summary, setSummary] = useState<ReportsSummary | null>(null);
+  const [orders, setOrders] = useState<ReportOrderRow[]>([]);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+
+  const [loading, setLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const filterBase = useMemo(
+    () => ({
+      datePreset,
+      dateFrom,
+      dateTo,
+      status,
+      payment,
+      courier,
+      source,
+      scopeUserId,
+      page,
+      pageSize,
+    }),
+    [datePreset, dateFrom, dateTo, status, payment, courier, source, scopeUserId, page, pageSize]
+  );
+
+  const filterParams = useMemo(() => buildFilterParams(filterBase), [filterBase]);
+
+  const loadSummary = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { page: _p, pageSize: _ps, ...rest } = filterParams;
+      const s = await reportsService.fetchReportsSummary(rest);
+      setSummary(s);
+    } catch (e) {
+      setSummary(null);
+      setError(e instanceof ApiError ? e.message : "Failed to load report summary");
+    } finally {
+      setLoading(false);
     }
-    const byMonth = new Map<string, number>();
-    months.forEach((m) => byMonth.set(m, 0));
-    for (const t of transactions) {
-      const d = new Date(t.date);
-      if (Number.isNaN(d.getTime())) continue;
-      const key = d.toLocaleString("en-IN", { month: "short", year: "2-digit" });
-      if (!byMonth.has(key)) continue;
-      const cur = byMonth.get(key)!;
-      const a = Math.abs(t.amount);
-      byMonth.set(key, cur + (t.type === "Credit" ? a : -a));
+  }, [filterParams]);
+
+  const loadOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const r = await reportsService.fetchReportsOrders(filterParams);
+      setOrders(r.orders);
+      setTotalOrders(r.total);
+    } catch {
+      setOrders([]);
+      setTotalOrders(0);
+    } finally {
+      setOrdersLoading(false);
     }
-    return months.map((m) => {
-      const rev = Math.max(0, byMonth.get(m) || 0);
-      return { month: m, revenue: rev, shipping: 0, profit: Math.round(rev * 0.1) };
-    });
-  }, [transactions]);
+  }, [filterParams]);
+
+  useEffect(() => {
+    void loadSummary();
+  }, [loadSummary]);
+
+  useEffect(() => {
+    void loadOrders();
+  }, [loadOrders]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [v, d] = await Promise.all([
+          adminWorkflowService.adminListVendors({ limit: "150" }),
+          adminWorkflowService.adminListDropshippers({ limit: "150" }),
+        ]);
+        const opts: { id: string; label: string }[] = [{ id: "", label: "All accounts (platform)" }];
+        for (const x of v.items ?? []) {
+          opts.push({ id: x.userId, label: `Vendor: ${x.companyName || x.name}` });
+        }
+        for (const x of d.items ?? []) {
+          opts.push({ id: x.userId, label: `Dropshipper: ${x.name || x.email}` });
+        }
+        setScopeOptions(opts);
+      } catch {
+        setScopeOptions([{ id: "", label: "All accounts (platform)" }]);
+      }
+    })();
+  }, []);
+
+  const clearFilters = () => {
+    setDatePreset("30d");
+    setDateFrom("");
+    setDateTo("");
+    setStatus("all");
+    setPayment("all");
+    setCourier("");
+    setSource("all");
+    setScopeUserId("");
+    setPage(1);
+  };
+
+  const chips = useMemo(() => {
+    const c: { key: string; label: string }[] = [];
+    if (scopeUserId) {
+      const l = scopeOptions.find((o) => o.id === scopeUserId)?.label ?? scopeUserId;
+      c.push({ key: "scope", label: `Account: ${l}` });
+    }
+    if (datePreset === "custom" && (dateFrom || dateTo)) {
+      c.push({ key: "dates", label: `Dates: ${dateFrom || "…"} → ${dateTo || "…"}` });
+    } else if (datePreset !== "all") {
+      c.push({ key: "preset", label: `Period: ${datePreset}` });
+    }
+    if (status !== "all") c.push({ key: "status", label: `Status: ${status}` });
+    if (payment !== "all") c.push({ key: "pay", label: `Payment: ${payment}` });
+    if (courier.trim()) c.push({ key: "courier", label: `Courier: ${courier}` });
+    if (source !== "all") c.push({ key: "src", label: `Source: ${source}` });
+    return c;
+  }, [scopeUserId, scopeOptions, datePreset, dateFrom, dateTo, status, payment, courier, source]);
 
   const statusDistribution = useMemo(() => {
+    if (!summary?.byStatus.length) {
+      return [{ name: "No data", value: 1, color: "hsl(var(--color-text-muted))" }];
+    }
     const colors: Record<string, string> = {
       delivered: "hsl(var(--color-success))",
       "in-transit": "hsl(var(--color-primary))",
@@ -64,380 +235,480 @@ export default function AdminReports() {
       ndr: "hsl(var(--color-warning))",
       pending: "hsl(var(--color-text-muted))",
     };
-    const counts = new Map<string, number>();
-    for (const o of orders) {
-      counts.set(o.status, (counts.get(o.status) || 0) + 1);
-    }
-    if (counts.size === 0) {
-      return [{ name: "No data", value: 1, color: "hsl(var(--color-text-muted))" }];
-    }
-    return Array.from(counts.entries()).map(([name, value]) => ({
-      name: name.replace(/-/g, " "),
-      value,
-      color: colors[name] || "hsl(var(--color-text-muted))",
+    return summary.byStatus.map((s) => ({
+      name: String(s.status || "—").replace(/-/g, " "),
+      value: s.count,
+      color: colors[String(s.status)] || "hsl(var(--color-text-muted))",
     }));
-  }, [orders]);
+  }, [summary]);
 
-  const courierWise = useMemo(() => {
-    const byCourier = new Map<string, { tot: number; del: number; rto: number; ndr: number; rev: number }>();
-    for (const o of orders) {
-      const c = o.courier || "Other";
-      if (!byCourier.has(c)) byCourier.set(c, { tot: 0, del: 0, rto: 0, ndr: 0, rev: 0 });
-      const x = byCourier.get(c)!;
-      x.tot += 1;
-      x.rev += o.amount || 0;
-      if (o.status === "delivered") x.del += 1;
-      if (o.status === "rto") x.rto += 1;
-      if (o.status === "ndr") x.ndr += 1;
+  const courierWise = summary?.byCourier ?? [];
+  const zoneWise = summary?.byZone ?? [];
+
+  const handleExportCsv = async () => {
+    try {
+      const { page: _p, pageSize: _ps, ...rest } = filterParams;
+      if (tab === "orders") {
+        await reportsService.downloadReportCsv("orders", rest);
+      } else if (tab === "courier") {
+        await reportsService.downloadReportCsv("orders", rest);
+      } else if (tab === "zone") {
+        await reportsService.downloadReportCsv("orders", rest);
+      } else {
+        await reportsService.downloadReportCsv("orders", rest);
+      }
+      toast.success("CSV download started");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Export failed");
     }
-    return Array.from(byCourier.entries()).map(([courier, v]) => ({
-      courier,
-      orders: v.tot,
-      delivered: v.del,
-      rto: v.rto,
-      ndr: v.ndr,
-      revenue: v.rev,
-    }));
-  }, [orders]);
+  };
 
-  const zoneWise = useMemo(() => {
-    const byZ = new Map<string, { orders: number; del: number }>();
-    for (const o of orders) {
-      const z = o.zone && o.zone.trim() ? `Zone ${o.zone}` : "Unspecified";
-      if (!byZ.has(z)) byZ.set(z, { orders: 0, del: 0 });
-      const x = byZ.get(z)!;
-      x.orders += 1;
-      if (o.status === "delivered") x.del += 1;
+  const handleExportShipmentsCsv = async () => {
+    try {
+      const { page: _p, pageSize: _ps, ...rest } = filterParams;
+      await reportsService.downloadReportCsv("shipments", rest);
+      toast.success("Shipments CSV download started");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Export failed");
     }
-    if (byZ.size === 0) {
-      return [{ zone: "—", orders: 0, deliveryRate: 0, avgDays: 0 }];
-    }
-    return Array.from(byZ.entries()).map(([zone, v]) => ({
-      zone,
-      orders: v.orders,
-      deliveryRate: v.orders ? Math.round((v.del / v.orders) * 100) : 0,
-      avgDays: 3,
-    }));
-  }, [orders]);
-
-  const totalRev = useMemo(
-    () => monthlyRevenue.reduce((s, m) => s + m.revenue, 0),
-    [monthlyRevenue]
-  );
-  const deliveredN = useMemo(() => orders.filter((o) => o.status === "delivered").length, [orders]);
-  const deliveryRateStr = useMemo(() => {
-    if (!orders.length) return "0%";
-    return `${((deliveredN / orders.length) * 100).toFixed(1)}%`;
-  }, [orders, deliveredN]);
-  const avgOrderStr = useMemo(() => {
-    if (!orders.length) return "₹0";
-    const a = orders.reduce((s, o) => s + o.amount, 0) / orders.length;
-    return `₹${Math.round(a).toLocaleString("en-IN")}`;
-  }, [orders]);
-  const totalRevStr = useMemo(
-    () => (totalRev >= 1e5 ? `₹${(totalRev / 1e5).toFixed(1)}L` : `₹${totalRev.toLocaleString("en-IN")}`),
-    [totalRev]
-  );
-
-  const orderRows = orders.slice(0, 30);
-  const barCourierData = courierWise.length
-    ? courierWise
-    : [{ courier: "—", delivered: 0, rto: 0, ndr: 0, orders: 0, revenue: 0 }];
-
-  const handleExportCSV = () => {
-    if (tab === "courier") {
-      downloadCSV("courier_report", ["Courier", "Orders", "Delivered", "RTO", "NDR", "Revenue"],
-        courierWise.map((c) => [c.courier, c.orders, c.delivered, c.rto, c.ndr, `₹${c.revenue}`]));
-    } else if (tab === "zone") {
-      downloadCSV("zone_report", ["Zone", "Orders", "Delivery Rate", "Avg Days"],
-        zoneWise.map((z) => [z.zone, z.orders, `${z.deliveryRate}%`, `${z.avgDays} days`]));
-    } else if (tab === "orders") {
-      downloadCSV("orders_report", ["Order ID", "Customer", "City", "Courier", "Status", "Amount", "Date"],
-        orderRows.map((o) => [o.id, o.customer, o.city, o.courier, o.status, `₹${o.amount}`, o.date]));
-    } else {
-      downloadCSV("revenue_report", ["Month", "Revenue", "Shipping Cost", "Profit"],
-        monthlyRevenue.map((m) => [m.month, `₹${m.revenue}`, `₹${m.shipping}`, `₹${m.profit}`]));
-    }
-    toast.success("CSV exported successfully");
   };
 
   const handleExportPDF = () => {
-    if (tab === "courier") {
-      downloadPDF("courier_report", "Courier Performance Report",
-        ["Courier", "Orders", "Delivered", "RTO", "NDR", "Revenue"],
-        courierWise.map((c) => [c.courier, c.orders, c.delivered, c.rto, c.ndr, `₹${c.revenue.toLocaleString()}`]),
-        [`Total orders: ${orders.length}`]);
-    } else if (tab === "zone") {
-      downloadPDF("zone_report", "Zone-wise Performance Report",
-        ["Zone", "Orders", "Delivery Rate", "Avg Days"],
-        zoneWise.map((z) => [z.zone, z.orders, `${z.deliveryRate}%`, `${z.avgDays} days`]),
-        [`Total orders: ${orders.length}`]);
-    } else if (tab === "orders") {
-      downloadPDF("orders_summary", "Order Summary Report",
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (tab === "courier" && courierWise.length) {
+      downloadPDF(
+        `courier_report_${stamp}`,
+        "Courier Performance Report",
+        ["Courier", "Orders", "Revenue"],
+        courierWise.map((c) => [c.courier, c.count, `₹${c.revenue.toLocaleString("en-IN")}`]),
+        [`Generated: ${stamp}`, `Filters applied (see CSV for full export)`]
+      );
+    } else if (tab === "zone" && zoneWise.length) {
+      downloadPDF(
+        `zone_report_${stamp}`,
+        "Zone Performance Report",
+        ["Zone", "Orders", "Delivery %"],
+        zoneWise.map((z) => [z.zone, z.orders, `${z.deliveryRatePct}%`]),
+        [`Generated: ${stamp}`]
+      );
+    } else if (tab === "orders" && orders.length) {
+      downloadPDF(
+        `orders_report_${stamp}`,
+        "Orders Report (current page)",
         ["Order ID", "Customer", "City", "Courier", "Status", "Amount", "Date"],
-        orderRows.map((o) => [o.id, o.customer, o.city, o.courier, o.status, `₹${o.amount.toLocaleString()}`, o.date]),
-        [`Total orders: ${orders.length}`, `Period: ${dateRange}`]);
+        orders.map((o) => [o.id, o.customer, o.city, o.courier, o.status, `₹${o.amount}`, o.date]),
+        [`Page ${page} of ${Math.ceil(totalOrders / pageSize) || 1}`, `Export CSV for full filtered dataset`]
+      );
+    } else if (summary) {
+      downloadPDF(
+        `summary_report_${stamp}`,
+        "Reports Summary",
+        ["Metric", "Value"],
+        [
+          ["Total orders", summary.orderCount],
+          ["Total amount", `₹${summary.totalAmount.toLocaleString("en-IN")}`],
+          ["Shipments", summary.shipmentCount],
+          ["Delivered", summary.deliveredCount],
+          ["Delivery rate", `${summary.deliveryRatePct}%`],
+        ],
+        [`Generated: ${stamp}`]
+      );
     } else {
-      downloadPDF("revenue_report", "Revenue & Profit Report",
-        ["Month", "Revenue", "Shipping Cost", "Profit"],
-        monthlyRevenue.map((m) => [m.month, `₹${m.revenue.toLocaleString()}`, `₹${m.shipping.toLocaleString()}`, `₹${m.profit.toLocaleString()}`]),
-        ["Source: wallet transactions (approx.)"]);
+      toast.message("Load report data first");
     }
-    toast.success("PDF opened for download");
+    toast.success("PDF print dialog opened");
   };
 
-  if (ordersLoading) {
-    return <div className="animate-pulse p-8 text-text-muted">Loading reports...</div>;
-  }
+  const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize));
 
   return (
-    <div className="animate-fade-in-up">
-      <PageHeader title="Reports & Analytics" breadcrumb={["Admin", "Reports"]} />
+    <div className="animate-fade-in-up space-y-4">
+      <PageHeader title="Reports" breadcrumb={["Admin", "Reports"]} />
 
-      <div className="flex flex-wrap items-center gap-3 mb-6">
+      <div className="rounded-lg border border-border bg-card p-4 shadow-card space-y-3">
+        <div className="flex flex-col xl:flex-row gap-3 flex-wrap items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2 flex-1 w-full">
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Account scope</label>
+              <Select value={scopeUserId || "all"} onValueChange={(v) => { setScopeUserId(v === "all" ? "" : v); setPage(1); }}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Platform" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All platform</SelectItem>
+                  {scopeOptions.filter((o) => o.id).map((o) => (
+                    <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Date range</label>
+              <Select
+                value={datePreset}
+                onValueChange={(v) => {
+                  setDatePreset(v);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All time</SelectItem>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="90d">Last 90 days</SelectItem>
+                  <SelectItem value="ytd">Year to date</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {datePreset === "custom" && (
+              <>
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">From</label>
+                  <Input type="date" className="h-9" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} />
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">To</label>
+                  <Input type="date" className="h-9" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} />
+                </div>
+              </>
+            )}
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Order status</label>
+              <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                  <SelectItem value="shipped">Shipped</SelectItem>
+                  <SelectItem value="in-transit">In transit</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="rto">RTO</SelectItem>
+                  <SelectItem value="ndr">NDR</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Payment</label>
+              <Select value={payment} onValueChange={(v) => { setPayment(v); setPage(1); }}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="cod">COD</SelectItem>
+                  <SelectItem value="prepaid">Prepaid</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Source</label>
+              <Select value={source} onValueChange={(v) => { setSource(v); setPage(1); }}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="shopify">Shopify / channel</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label className="text-xs text-text-muted mb-1 block">Courier contains</label>
+              <Input
+                className="h-9"
+                placeholder="e.g. Delhivery"
+                value={courier}
+                onChange={(e) => {
+                  setCourier(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => { void loadSummary(); void loadOrders(); }}>
+              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          </div>
+        </div>
+
+        {chips.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-text-muted">Active:</span>
+            {chips.map((ch) => (
+              <span
+                key={ch.key}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2/50 px-2 py-0.5 text-xs text-text-secondary"
+              >
+                {ch.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-danger/30 bg-danger-light/20 px-4 py-3 text-sm flex justify-between gap-3 items-center">
+          <span>{error}</span>
+          <Button size="sm" variant="outline" onClick={() => void loadSummary()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-1 border-b border-border">
           {(["overview", "courier", "zone", "orders"] as const).map((t) => (
             <button
               key={t}
+              type="button"
               onClick={() => setTab(t)}
               className={cn(
                 "px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-[1px] transition-colors",
                 tab === t ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
               )}
             >
-              {t === "courier" ? "Courier Wise" : t === "zone" ? "Zone Wise" : t === "orders" ? "Orders" : "Overview"}
+              {t === "courier" ? "Courier" : t === "zone" ? "Zone" : t === "orders" ? "Orders" : "Overview"}
             </button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="relative">
-            <select
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
-              className="appearance-none bg-card border border-border rounded-lg px-3 py-1.5 pr-8 text-sm text-text-primary cursor-pointer"
-            >
-              {dateRanges.map((d) => (
-                <option key={d}>{d}</option>
-              ))}
-            </select>
-            <Calendar className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted pointer-events-none" />
-          </div>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => void handleExportShipmentsCsv()}>
+            <Download className="h-4 w-4 mr-1" />
+            Shipments CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void handleExportCsv()}>
+            <Download className="h-4 w-4 mr-1" />
+            Orders CSV
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExportPDF}>
             <FileText className="h-4 w-4 mr-1" />
-            Export PDF
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleExportCSV}>
-            <Download className="h-4 w-4 mr-1" />
-            Export CSV
+            Print / PDF
           </Button>
         </div>
       </div>
 
-      {tab === "overview" && (
+      {loading && !summary ? (
+        <div className="flex items-center gap-2 p-8 text-text-muted">
+          <Loader2 className="h-5 w-5 animate-spin" /> Loading reports…
+        </div>
+      ) : !summary ? (
+        <div className="rounded-lg border border-border p-8 text-center text-text-muted">No summary data</div>
+      ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <KPICard icon={Package} label="Total Shipments" value={String(orders.length)} color="primary" />
-            <KPICard icon={TrendingUp} label="Delivery Rate" value={deliveryRateStr} color="success" />
-            <KPICard icon={IndianRupee} label="Revenue (6 mo est.)" value={totalRevStr} color="tertiary" />
-            <KPICard icon={BarChart3} label="Avg Order Value" value={avgOrderStr} color="secondary" />
-          </div>
+          {tab === "overview" && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <KPICard icon={Package} label="Orders" value={String(summary.orderCount)} color="primary" />
+                <KPICard
+                  icon={TrendingUp}
+                  label="Delivery rate"
+                  value={`${summary.deliveryRatePct}%`}
+                  color="success"
+                />
+                <KPICard
+                  icon={IndianRupee}
+                  label="Order value (sum)"
+                  value={`₹${summary.totalAmount.toLocaleString("en-IN")}`}
+                  color="tertiary"
+                />
+                <KPICard icon={BarChart3} label="Shipments" value={String(summary.shipmentCount)} color="secondary" />
+              </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            <div className="lg:col-span-2 rounded-lg bg-card shadow-card p-5">
-              <h3 className="font-semibold text-text-primary mb-4">Revenue Trend (6 Months)</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={monthlyRevenue}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(var(--color-text-muted))" />
-                  <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="revenue" name="Revenue" stroke="hsl(var(--color-primary))" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="shipping" name="Shipping Cost" stroke="hsl(var(--color-danger))" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="profit" name="Profit" stroke="hsl(var(--color-success))" strokeWidth={2} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="rounded-lg bg-card shadow-card p-5">
-              <h3 className="font-semibold text-text-primary mb-4">Order Status Distribution</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={statusDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={55}
-                    outerRadius={85}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {statusDistribution.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => value.toLocaleString()} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 justify-center">
-                {statusDistribution.map((s) => (
-                  <div key={s.name} className="flex items-center gap-1.5 text-xs text-text-secondary">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-                    {s.name} ({s.value})
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 rounded-lg bg-card shadow-card p-5 border border-border">
+                  <h3 className="font-semibold text-text-primary mb-4">Revenue by courier (filtered)</h3>
+                  <div className="w-full min-h-[280px] min-w-0">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart data={(courierWise.length ? courierWise : [{ courier: "—", revenue: 0, count: 0 }]).slice(0, 12)}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
+                        <XAxis dataKey="courier" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
+                        <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
+                        <Tooltip formatter={(v: number) => `₹${v.toLocaleString("en-IN")}`} />
+                        <Legend />
+                        <Bar dataKey="revenue" name="Revenue (₹)" fill="hsl(var(--color-primary))" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
-                ))}
+                </div>
+
+                <div className="rounded-lg bg-card shadow-card p-5 border border-border">
+                  <h3 className="font-semibold text-text-primary mb-4">Status mix</h3>
+                  <div className="w-full min-h-[220px] min-w-0">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <PieChart>
+                        <Pie
+                          data={statusDistribution}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={55}
+                          outerRadius={85}
+                          paddingAngle={3}
+                          dataKey="value"
+                        >
+                          {statusDistribution.map((entry, i) => (
+                            <Cell key={i} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v: number) => v.toLocaleString()} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {tab === "courier" && (
+            <>
+              <div className="rounded-lg bg-card shadow-card p-5 border border-border mb-4">
+                <h3 className="font-semibold text-text-primary mb-4">By courier</h3>
+                <div className="w-full min-h-[260px] min-w-0">
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={courierWise.length ? courierWise : [{ courier: "—", count: 0, revenue: 0 }]}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
+                      <XAxis dataKey="courier" tick={{ fontSize: 11 }} stroke="hsl(var(--color-text-muted))" />
+                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
+                      <Tooltip />
+                      <Bar dataKey="count" name="Orders" fill="hsl(var(--color-primary))" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <div className="rounded-lg bg-card shadow-card overflow-x-auto border border-border">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead>
+                    <tr className="border-b border-border bg-surface-2/50">
+                      <th className="p-3 text-left">Courier</th>
+                      <th className="p-3 text-right">Orders</th>
+                      <th className="p-3 text-right">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {courierWise.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="p-8 text-center text-text-muted">
+                          No data for filters
+                        </td>
+                      </tr>
+                    ) : (
+                      courierWise.map((c) => (
+                        <tr key={c.courier} className="border-b border-border last:border-0">
+                          <td className="p-3 font-medium">{c.courier}</td>
+                          <td className="p-3 text-right">{c.count}</td>
+                          <td className="p-3 text-right">₹{c.revenue.toLocaleString("en-IN")}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {tab === "zone" && (
+            <div className="rounded-lg bg-card shadow-card overflow-x-auto border border-border">
+              <table className="w-full text-sm min-w-[520px]">
+                <thead>
+                  <tr className="border-b border-border bg-surface-2/50">
+                    <th className="p-3 text-left">Zone</th>
+                    <th className="p-3 text-right">Orders</th>
+                    <th className="p-3 text-right">Delivered</th>
+                    <th className="p-3 text-right">Delivery %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {zoneWise.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="p-8 text-center text-text-muted">
+                        No zone data
+                      </td>
+                    </tr>
+                  ) : (
+                    zoneWise.map((z) => (
+                      <tr key={z.zone} className="border-b border-border last:border-0">
+                        <td className="p-3 font-medium">{z.zone}</td>
+                        <td className="p-3 text-right">{z.orders}</td>
+                        <td className="p-3 text-right">{z.delivered}</td>
+                        <td className="p-3 text-right">{z.deliveryRatePct}%</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === "orders" && (
+            <div className="space-y-3">
+              {ordersLoading ? (
+                <div className="flex items-center gap-2 text-text-muted p-4">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading orders…
+                </div>
+              ) : orders.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-8 text-center text-text-muted">
+                  No orders match filters
+                </div>
+              ) : (
+                <div className="rounded-lg bg-card shadow-card overflow-x-auto border border-border">
+                  <table className="w-full text-sm min-w-[900px]">
+                    <thead>
+                      <tr className="border-b border-border bg-surface-2/50">
+                        <th className="p-3 text-left">Order</th>
+                        <th className="p-3 text-left">Customer</th>
+                        <th className="p-3 text-left">City</th>
+                        <th className="p-3 text-left">Courier</th>
+                        <th className="p-3 text-left">Pay</th>
+                        <th className="p-3 text-left">Status</th>
+                        <th className="p-3 text-right">Amt</th>
+                        <th className="p-3 text-left">Date</th>
+                        <th className="p-3 text-left">Ship</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orders.map((o) => (
+                        <tr key={o.id} className="border-b border-border last:border-0">
+                          <td className="p-3 font-mono text-xs text-primary">{o.id}</td>
+                          <td className="p-3">{o.customer}</td>
+                          <td className="p-3 text-text-secondary">{o.city}</td>
+                          <td className="p-3 text-text-secondary">{o.courier}</td>
+                          <td className="p-3">{o.payment}</td>
+                          <td className="p-3 capitalize">{o.status}</td>
+                          <td className="p-3 text-right">₹{o.amount.toLocaleString("en-IN")}</td>
+                          <td className="p-3 text-text-muted text-xs">{o.date}</td>
+                          <td className="p-3 text-xs">{o.shipmentCreated ? "Yes" : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-text-muted">
+                  Page {page} / {totalPages} · {totalOrders} orders
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                    Previous
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                    Next
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </>
-      )}
-
-      {tab === "courier" && (
-        <>
-          <div className="rounded-lg bg-card shadow-card p-5 mb-6">
-            <h3 className="font-semibold text-text-primary mb-4">Orders by Courier</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={barCourierData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
-                <XAxis dataKey="courier" tick={{ fontSize: 11 }} stroke="hsl(var(--color-text-muted))" />
-                <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="delivered" name="Delivered" fill="hsl(var(--color-success))" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="rto" name="RTO" fill="hsl(var(--color-danger))" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="ndr" name="NDR" fill="hsl(var(--color-warning))" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="rounded-lg bg-card shadow-card overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-2/50">
-                  <th className="p-3 text-left font-medium text-text-secondary">Courier</th>
-                  <th className="p-3 text-right font-medium text-text-secondary">Orders</th>
-                  <th className="p-3 text-right font-medium text-text-secondary">Delivered</th>
-                  <th className="p-3 text-right font-medium text-text-secondary">Del %</th>
-                  <th className="p-3 text-right font-medium text-text-secondary">RTO</th>
-                  <th className="p-3 text-right font-medium text-text-secondary">NDR</th>
-                  <th className="p-3 text-right font-medium text-text-secondary">Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                {courierWise.map((c) => (
-                  <tr key={c.courier} className="border-b border-border last:border-0 hover:bg-surface-2/30">
-                    <td className="p-3 font-medium text-text-primary">{c.courier}</td>
-                    <td className="p-3 text-right">{c.orders}</td>
-                    <td className="p-3 text-right text-success font-medium">{c.delivered}</td>
-                    <td className="p-3 text-right">
-                      <span
-                        className={cn(
-                          "font-medium",
-                          c.orders && (c.delivered / c.orders) * 100 > 85 ? "text-success" : "text-warning"
-                        )}
-                      >
-                        {c.orders ? ((c.delivered / c.orders) * 100).toFixed(1) : "0.0"}%
-                      </span>
-                    </td>
-                    <td className="p-3 text-right text-danger">{c.rto}</td>
-                    <td className="p-3 text-right text-warning">{c.ndr}</td>
-                    <td className="p-3 text-right font-medium">₹{c.revenue.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {tab === "zone" && (
-        <div className="rounded-lg bg-card shadow-card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface-2/50">
-                <th className="p-3 text-left font-medium text-text-secondary">Zone</th>
-                <th className="p-3 text-right font-medium text-text-secondary">Orders</th>
-                <th className="p-3 text-right font-medium text-text-secondary">Delivery Rate</th>
-                <th className="p-3 text-right font-medium text-text-secondary">Avg Days</th>
-              </tr>
-            </thead>
-            <tbody>
-              {zoneWise.map((z) => (
-                <tr key={z.zone} className="border-b border-border last:border-0 hover:bg-surface-2/30">
-                  <td className="p-3 font-medium text-text-primary">{z.zone}</td>
-                  <td className="p-3 text-right">{z.orders}</td>
-                  <td className="p-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="w-20 h-2 rounded-full bg-surface-2 overflow-hidden">
-                        <div className="h-full rounded-full bg-success" style={{ width: `${z.deliveryRate}%` }} />
-                      </div>
-                      <span className="text-success font-medium">{z.deliveryRate}%</span>
-                    </div>
-                  </td>
-                  <td className="p-3 text-right text-text-secondary">{z.avgDays} days</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {tab === "orders" && (
-        <div className="rounded-lg bg-card shadow-card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface-2/50">
-                <th className="p-3 text-left font-medium text-text-secondary">Order ID</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Customer</th>
-                <th className="p-3 text-left font-medium text-text-secondary">City</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Courier</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Payment</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Status</th>
-                <th className="p-3 text-right font-medium text-text-secondary">Amount</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orderRows.map((o) => (
-                <tr key={o.id} className="border-b border-border last:border-0 hover:bg-surface-2/30">
-                  <td className="p-3 font-mono text-xs text-primary">{o.id}</td>
-                  <td className="p-3 text-text-primary">{o.customer}</td>
-                  <td className="p-3 text-text-secondary">{o.city}</td>
-                  <td className="p-3 text-text-secondary">{o.courier}</td>
-                  <td className="p-3">
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-xs font-medium",
-                        o.payment === "COD" ? "bg-warning-light text-warning-dark" : "bg-success-light text-success-dark"
-                      )}
-                    >
-                      {o.payment}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-xs font-medium capitalize",
-                        o.status === "delivered"
-                          ? "bg-success-light text-success-dark"
-                          : o.status === "in-transit"
-                            ? "bg-primary-light text-primary-dark"
-                            : o.status === "rto"
-                              ? "bg-danger-light text-danger-dark"
-                              : o.status === "ndr"
-                                ? "bg-warning-light text-warning-dark"
-                                : "bg-surface-2 text-text-muted"
-                      )}
-                    >
-                      {o.status}
-                    </span>
-                  </td>
-                  <td className="p-3 text-right font-medium">₹{o.amount.toLocaleString()}</td>
-                  <td className="p-3 text-text-muted">{o.date}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       )}
     </div>
   );

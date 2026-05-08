@@ -4,8 +4,13 @@ const ALGORITHM = "aes-256-cbc";
 const IV_LENGTH = 16;
 
 function getKey(): Buffer {
-  const secret = process.env.ENCRYPTION_SECRET || process.env.JWT_SECRET || "fallback-secret-change-me";
-  return scryptSync(secret, "shipamaze-salt", 32) as Buffer;
+  const enc = process.env.ENCRYPTION_SECRET?.trim();
+  if (enc) return scryptSync(enc, "shipamaze-salt", 32) as Buffer;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("ENCRYPTION_SECRET is required in production for token encryption");
+  }
+  const dev = process.env.JWT_SECRET?.trim() || "dev-only-encryption-fallback";
+  return scryptSync(dev, "shipamaze-salt", 32) as Buffer;
 }
 
 export function encrypt(text: string): string {

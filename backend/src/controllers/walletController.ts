@@ -64,6 +64,15 @@ export const adminAdjustWalletHandler = asyncHandler(async (req: AuthRequest, re
     adminUserId: req.user._id,
   });
 
+  const { createInAppNotification } = await import("../services/inAppNotifications.js");
+  await createInAppNotification(
+    new mongoose.Types.ObjectId(userId),
+    "wallet_recharge",
+    signed >= 0 ? "Wallet credit applied" : "Wallet adjustment",
+    reason || `Balance change: ${signed >= 0 ? "+" : ""}₹${signed}`,
+    { txnId: r.txnId, signedAmount: signed }
+  );
+
   res.json({
     success: true,
     message: "Wallet adjusted",

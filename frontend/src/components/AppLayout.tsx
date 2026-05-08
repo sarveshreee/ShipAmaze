@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useEffect } from "react";
+import { ReactNode, useMemo, useEffect, useCallback } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -7,7 +7,7 @@ import { useWalletSummary } from "@/hooks/useApiData";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
-  LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X,
+  LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X, Layers,
   Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AddFundsModal } from "@/components/AddFundsModal";
 import type { UserRole } from "@/services/authService";
+import * as notificationService from "@/services/notificationService";
 
 interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; }
 interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[]; }
@@ -37,6 +38,7 @@ const adminNav: NavGroup[] = [
     { label: "Manifests & Pickups", icon: ClipboardList, path: "/admin/manifests" },
   ]},
   { title: "SUPPLIER", items: [
+    { label: "Catalogue", icon: Layers, path: "/admin/catalogue" },
     { label: "Add a Product", icon: Plus, path: "/admin/source-product" },
     { label: "Products", icon: ShoppingBag, path: "/admin/products" },
     { label: "Bulk Upload Products", icon: Upload, path: "/admin/bulk-upload-products" },
@@ -155,7 +157,53 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const toggleSidebarCollapse = () => setSidebarCollapsed(prev => !prev);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<notificationService.NotificationItem[]>([]);
+  const [notifUnread, setNotifUnread] = useState(0);
+  const [notifTotal, setNotifTotal] = useState(0);
+  const [notifLoading, setNotifLoading] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(["Orders"]));
+
+  const fetchNotifications = useCallback(
+    async (opts?: { page?: number; append?: boolean }) => {
+      const page = opts?.page ?? 1;
+      const append = opts?.append ?? false;
+      setNotifLoading(true);
+      try {
+        const r = await notificationService.listNotifications(page, 20);
+        setNotifUnread(r.unreadCount ?? 0);
+        setNotifTotal(r.total ?? 0);
+        if (append) {
+          setNotifications((prev) => [...prev, ...(r.items ?? [])]);
+        } else {
+          setNotifications(r.items ?? []);
+        }
+      } catch {
+        if (!append) {
+          setNotifications([]);
+          setNotifUnread(0);
+          setNotifTotal(0);
+        }
+      } finally {
+        setNotifLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!user) return;
+    void fetchNotifications({ page: 1, append: false });
+  }, [user, fetchNotifications]);
+
+  useEffect(() => {
+    const handler = () => void fetchNotifications({ page: 1, append: false });
+    window.addEventListener("shipamaze:refetch:notifications", handler);
+    return () => window.removeEventListener("shipamaze:refetch:notifications", handler);
+  }, [fetchNotifications]);
+
+  useEffect(() => {
+    if (notifOpen && user) void fetchNotifications({ page: 1, append: false });
+  }, [notifOpen, user, fetchNotifications]);
 
   const toggleMenu = (label: string) => {
     setExpandedMenus(prev => {
@@ -176,8 +224,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     })).filter(group => group.items.length > 0);
   }, [rawNav, role, isTabEnabled]);
 
-  const notifications: { id: string; title: string; time: string; read: boolean }[] = [];
-  const unread = notifications.filter((n) => !n.read).length;
+  const unread = notifUnread;
 
   const pageTitle = useMemo(() => {
     for (const group of nav) {
@@ -351,29 +398,99 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <div className="relative">
             <Button variant="ghost" size="icon" className="text-text-secondary relative" onClick={() => setNotifOpen(!notifOpen)}>
               <Bell className="h-4 w-4" />
-              {unread > 0 && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-danger" />}
+              {unread > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-[10px] font-bold text-white flex items-center justify-center">
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
             </Button>
             {notifOpen && (
               <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg bg-card border border-border shadow-card-lg z-50">
-                <div className="p-3 border-b border-border font-semibold text-sm text-text-primary">Notifications</div>
-                <div className="max-h-64 overflow-y-auto">
-                  {notifications.length === 0 ? (
+                <div className="p-3 border-b border-border flex items-center justify-between gap-2">
+                  <span className="font-semibold text-sm text-text-primary">Notifications</span>
+                  <div className="flex gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs px-2"
+                      onClick={async () => {
+                        try {
+                          await notificationService.markAllNotificationsRead();
+                          await fetchNotifications({ page: 1, append: false });
+                        } catch {
+                          /* ignore */
+                        }
+                      }}
+                    >
+                      Read all
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs px-2 text-danger"
+                      onClick={async () => {
+                        try {
+                          await notificationService.clearAllNotifications();
+                          await fetchNotifications({ page: 1, append: false });
+                        } catch {
+                          /* ignore */
+                        }
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {notifLoading && notifications.length === 0 ? (
+                    <div className="px-3 py-8 text-center text-sm text-text-muted">Loading…</div>
+                  ) : notifications.length === 0 ? (
                     <div className="px-3 py-8 text-center text-sm text-text-muted">No notifications yet</div>
                   ) : (
                     notifications.map((n) => (
-                      <div
+                      <button
+                        type="button"
                         key={n.id}
                         className={cn(
-                          "px-3 py-2.5 text-sm border-b border-border last:border-0",
+                          "w-full text-left px-3 py-2.5 text-sm border-b border-border last:border-0 hover:bg-surface-2/50 transition-colors",
                           !n.read && "bg-primary-light/50"
                         )}
+                        onClick={async () => {
+                          if (!n.read) {
+                            try {
+                              await notificationService.markNotificationRead(n.id);
+                            } catch {
+                              /* ignore */
+                            }
+                          }
+                          await fetchNotifications({ page: 1, append: false });
+                        }}
                       >
-                        <p className="text-text-primary">{n.title}</p>
-                        <p className="text-xs text-text-muted">{n.time}</p>
-                      </div>
+                        <p className="text-text-primary font-medium">{n.title}</p>
+                        {n.body ? <p className="text-xs text-text-secondary mt-0.5 line-clamp-2">{n.body}</p> : null}
+                        <p className="text-[10px] text-text-muted mt-1">
+                          {n.createdAt ? new Date(n.createdAt).toLocaleString() : ""}
+                        </p>
+                      </button>
                     ))
                   )}
                 </div>
+                {notifications.length < notifTotal && (
+                  <div className="p-2 border-t border-border">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full h-8 text-xs"
+                      disabled={notifLoading}
+                      onClick={() => {
+                        const next = Math.floor(notifications.length / 20) + 1;
+                        void fetchNotifications({ page: next, append: true });
+                      }}
+                    >
+                      {notifLoading ? "Loading…" : "Load more"}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>

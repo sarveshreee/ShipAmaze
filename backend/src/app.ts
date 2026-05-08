@@ -1,6 +1,15 @@
-import express, { type Request, type Response } from "express";
+import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { errorMiddleware } from "./middleware/errorMiddleware.js";
+import { notFoundHandler } from "./middleware/notFound.js";
+import {
+  authRouteLimiter,
+  passwordResetLimiter,
+  publicTrackingLimiter,
+  shopifyCallbackLimiter,
+  shopifyConnectLimiter,
+} from "./middleware/rateLimits.js";
 import { authMiddleware, type AuthRequest } from "./middleware/authMiddleware.js";
 import { requireRoles } from "./middleware/roleMiddleware.js";
 import * as authController from "./controllers/authController.js";
@@ -12,19 +21,50 @@ import * as shopifyController from "./controllers/shopifyController.js";
 import velocityRouter from "./modules/velocity/velocity.routes.js";
 import * as debugController from "./controllers/debugController.js";
 import * as walletController from "./controllers/walletController.js";
+import * as notificationController from "./controllers/notificationController.js";
+import * as adminWorkflowController from "./controllers/adminWorkflowController.js";
+import * as reportsController from "./controllers/reportsController.js";
+import * as invoiceController from "./controllers/invoiceController.js";
+
+function parseCorsOrigins(): string[] {
+  const raw = process.env.CORS_ORIGIN?.trim();
+  if (!raw) return [];
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
 
 export function createApp() {
   const app = express();
+  const isProd = process.env.NODE_ENV === "production";
+  const corsAllowed = parseCorsOrigins();
+
+  app.set("trust proxy", 1);
+  app.use(helmet());
+  app.get("/health", (_req, res) => {
+    res.json({ ok: true, service: "shipamaze-api", uptimeSeconds: Math.floor(process.uptime()) });
+  });
+
   app.use(
     cors({
-      origin: process.env.CORS_ORIGIN || "http://localhost:8080",
+      origin(origin, callback) {
+        if (!isProd && corsAllowed.length === 0) {
+          return callback(null, origin || true);
+        }
+        if (!origin) {
+          return callback(null, true);
+        }
+        if (corsAllowed.includes(origin)) {
+          return callback(null, true);
+        }
+        return callback(null, false);
+      },
       credentials: true,
     })
   );
+
   /** Shopify webhooks require raw body for HMAC verification (must be before express.json). */
   app.post(
     "/api/shopify/webhooks",
-    express.raw({ type: "application/json" }),
+    express.raw({ type: "application/json", limit: "2mb" }),
     (req, res, next) => {
       void shopifyController.handleWebhook(req, res).catch(next);
     }
@@ -33,10 +73,10 @@ export function createApp() {
 
   const api = express.Router();
 
-  api.post("/auth/register", authController.register);
-  api.post("/auth/login", authController.login);
-  api.post("/auth/forgot-password", authController.forgotPassword);
-  api.post("/auth/reset-password", authController.resetPasswordWithOtp);
+  api.post("/auth/register", authRouteLimiter, authController.register);
+  api.post("/auth/login", authRouteLimiter, authController.login);
+  api.post("/auth/forgot-password", passwordResetLimiter, authController.forgotPassword);
+  api.post("/auth/reset-password", passwordResetLimiter, authController.resetPasswordWithOtp);
   api.get("/auth/me", authMiddleware, authController.me);
   api.get("/auth/profile", authMiddleware, authController.me);
   api.put("/users/profile", authMiddleware, authController.updateProfile);
@@ -45,8 +85,8 @@ export function createApp() {
   api.post("/auth/change-password", authMiddleware, authController.changePassword);
   api.patch("/auth/change-password", authMiddleware, authController.changePassword);
 
-  api.get("/orders/track/:awb", orderController.trackOrderByAwb);
-  api.get("/orders/public/:orderId", orderController.publicOrderByOrderId);
+  api.get("/orders/track/:awb", publicTrackingLimiter, orderController.trackOrderByAwb);
+  api.get("/orders/public/:orderId", publicTrackingLimiter, orderController.publicOrderByOrderId);
 
   api.get("/orders", authMiddleware, orderController.listOrders);
   api.get("/orders/:orderId", authMiddleware, orderController.getOrderById);
@@ -72,6 +112,90 @@ export function createApp() {
   api.get("/dropshippers", authMiddleware, resourceController.listDropshippers);
   api.get("/users/by-role", authMiddleware, resourceController.listUsersByRole);
 
+  api.get("/notifications", authMiddleware, notificationController.listMyNotifications);
+  api.patch("/notifications/:id/read", authMiddleware, notificationController.markNotificationRead);
+  api.post("/notifications/read-all", authMiddleware, notificationController.markAllNotificationsRead);
+  api.delete("/notifications", authMiddleware, notificationController.clearAllNotifications);
+
+  api.get("/support/tickets", authMiddleware, adminWorkflowController.userListMySupportTickets);
+  api.post("/support/tickets", authMiddleware, adminWorkflowController.userCreateSupportTicket);
+  api.get("/support/tickets/:id", authMiddleware, adminWorkflowController.userGetSupportTicket);
+  api.post("/support/tickets/:id/comments", authMiddleware, adminWorkflowController.userAddSupportComment);
+
+  api.get(
+    "/admin/catalogue/products",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminListCatalogueProducts
+  );
+  api.patch(
+    "/admin/catalogue/products/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminPatchCatalogueProduct
+  );
+  api.post(
+    "/admin/catalogue/products/bulk",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminBulkCatalogueProducts
+  );
+
+  api.get(
+    "/admin/staff/admins",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminListAdminUsers
+  );
+
+  api.get("/admin/vendors", authMiddleware, requireRoles("admin"), adminWorkflowController.adminListVendors);
+  api.get("/admin/vendors/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminGetVendor);
+  api.patch("/admin/vendors/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminPatchVendor);
+
+  api.get(
+    "/admin/dropshippers",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminListDropshippers
+  );
+  api.get(
+    "/admin/dropshippers/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminGetDropshipper
+  );
+  api.patch(
+    "/admin/dropshippers/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminPatchDropshipper
+  );
+
+  api.get(
+    "/admin/support/tickets",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminListSupportTickets
+  );
+  api.get(
+    "/admin/support/tickets/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminGetSupportTicket
+  );
+  api.patch(
+    "/admin/support/tickets/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminPatchSupportTicket
+  );
+  api.post(
+    "/admin/support/tickets/:id/comments",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminAddSupportComment
+  );
+
   api.get("/warehouses", authMiddleware, resourceController.listWarehouses);
   api.post("/warehouses", authMiddleware, resourceController.createWarehouse);
   api.patch("/warehouses/:id", authMiddleware, resourceController.updateWarehouse);
@@ -95,6 +219,24 @@ export function createApp() {
   api.get("/admin/wallet-transactions", authMiddleware, walletController.adminListWalletTransactions);
 
   api.get("/invoices", authMiddleware, resourceController.listInvoices);
+  api.get("/invoices/:invoiceId/export.csv", authMiddleware, invoiceController.exportInvoiceCsv);
+  api.get("/invoices/:invoiceId", authMiddleware, invoiceController.getInvoice);
+  api.patch(
+    "/invoices/:invoiceId/status",
+    authMiddleware,
+    requireRoles("admin"),
+    invoiceController.patchInvoiceStatus
+  );
+  api.post(
+    "/invoices/:invoiceId/generate",
+    authMiddleware,
+    requireRoles("admin"),
+    invoiceController.postInvoiceGenerateStub
+  );
+
+  api.get("/reports/summary", authMiddleware, reportsController.getReportsSummary);
+  api.get("/reports/orders", authMiddleware, reportsController.getReportsOrders);
+  api.get("/exports/csv", authMiddleware, reportsController.exportCsv);
 
   api.get("/ndr", authMiddleware, resourceController.listNdr);
   api.patch("/ndr/:awb", authMiddleware, resourceController.updateNdr);
@@ -147,8 +289,8 @@ export function createApp() {
   api.post("/account/team/:id/resend", authMiddleware, accountController.resendTeam);
 
   // Shopify OAuth — connect redirects browser, callback is hit by Shopify (no Bearer token)
-  api.get("/shopify/connect", authMiddleware, shopifyController.initiateConnect);
-  api.get("/shopify/callback", shopifyController.handleCallback);
+  api.get("/shopify/connect", authMiddleware, shopifyConnectLimiter, shopifyController.initiateConnect);
+  api.get("/shopify/callback", shopifyCallbackLimiter, shopifyController.handleCallback);
   api.get("/shopify/status", authMiddleware, shopifyController.getStatus);
   api.post("/shopify/disconnect", authMiddleware, shopifyController.disconnect);
   api.post("/shopify/sync-orders", authMiddleware, shopifyController.syncOrders);
@@ -163,6 +305,7 @@ export function createApp() {
   api.use("/velocity", velocityRouter);
 
   app.use("/api", api);
+  app.use(notFoundHandler);
   app.use(errorMiddleware);
 
   return app;

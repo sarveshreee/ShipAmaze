@@ -314,6 +314,15 @@ export const addWalletBalance = asyncHandler(async (req: AuthRequest, res: Respo
     reason: "Manual or test recharge (no payment gateway)",
   });
 
+  const { createInAppNotification } = await import("../services/inAppNotifications.js");
+  await createInAppNotification(
+    req.user._id,
+    "wallet_recharge",
+    "Wallet recharged",
+    `₹${amount} added to your wallet (manual / test).`,
+    { txnId: r.txnId, amount }
+  );
+
   res.status(201).json({
     success: true,
     message: "Balance added successfully (manual / test recharge).",
@@ -379,10 +388,22 @@ export const listTransactions = asyncHandler(async (req: AuthRequest, res: Respo
 
 export const listCodRemittances = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const q = req.user.role === "admin" ? {} : { userId: req.user._id };
-  const rows = await CodRemittance.find(q).sort({ createdAt: -1 }).lean();
-  res.json(
-    rows.map((c) => ({
+  const raw = req.query as Record<string, unknown>;
+  const page = Math.max(1, parseInt(String(raw.page ?? "1"), 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(String(raw.pageSize ?? "50"), 10) || 50));
+  const skip = (page - 1) * pageSize;
+
+  const q: Record<string, unknown> = req.user.role === "admin" ? {} : { userId: req.user._id };
+  const status = String(raw.status ?? "").trim();
+  if (status) q.status = status;
+
+  const [rows, total] = await Promise.all([
+    CodRemittance.find(q).sort({ createdAt: -1 }).skip(skip).limit(pageSize).lean(),
+    CodRemittance.countDocuments(q),
+  ]);
+
+  res.json({
+    items: rows.map((c) => ({
       id: c.remittanceId,
       dropshipper: c.dropshipper,
       ordersCount: c.ordersCount,
@@ -392,16 +413,48 @@ export const listCodRemittances = asyncHandler(async (req: AuthRequest, res: Res
       status: c.status,
       settleDate: c.settleDate,
       utr: c.utr,
-    }))
-  );
+    })),
+    total,
+    page,
+    pageSize,
+  });
 });
 
 export const listInvoices = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const q = req.user.role === "admin" ? {} : { userId: req.user._id };
-  const rows = await Invoice.find(q).sort({ createdAt: -1 }).lean();
-  res.json(
-    rows.map((inv) => ({
+  const raw = req.query as Record<string, unknown>;
+  const page = Math.max(1, parseInt(String(raw.page ?? "1"), 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(String(raw.pageSize ?? "50"), 10) || 50));
+  const skip = (page - 1) * pageSize;
+
+  const q: Record<string, unknown> = req.user.role === "admin" ? {} : { userId: req.user._id };
+  const status = String(raw.status ?? "").trim();
+  if (status) q.status = status;
+  const dateFrom = String(raw.dateFrom ?? "").trim();
+  const dateTo = String(raw.dateTo ?? "").trim();
+  if (dateFrom || dateTo) {
+    const range: Record<string, Date> = {};
+    if (dateFrom) {
+      const d = new Date(dateFrom);
+      if (!Number.isNaN(d.getTime())) range.$gte = d;
+    }
+    if (dateTo) {
+      const d = new Date(dateTo);
+      if (!Number.isNaN(d.getTime())) {
+        d.setHours(23, 59, 59, 999);
+        range.$lte = d;
+      }
+    }
+    if (Object.keys(range).length) q.createdAt = range;
+  }
+
+  const [rows, total] = await Promise.all([
+    Invoice.find(q).sort({ createdAt: -1 }).skip(skip).limit(pageSize).lean(),
+    Invoice.countDocuments(q),
+  ]);
+
+  res.json({
+    items: rows.map((inv) => ({
       id: inv.invoiceId,
       date: inv.date,
       period: inv.period,
@@ -412,8 +465,11 @@ export const listInvoices = asyncHandler(async (req: AuthRequest, res: Response)
       total: inv.total,
       status: inv.status,
       downloadUrl: inv.downloadUrl,
-    }))
-  );
+    })),
+    total,
+    page,
+    pageSize,
+  });
 });
 
 export const listNdr = asyncHandler(async (_req: AuthRequest, res: Response) => {
@@ -904,16 +960,55 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
 
 export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const p = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  const p = await Product.findById(req.params.id);
   if (!p) throw new AppError(404, "Product not found");
-  res.json(p);
+  if (req.user.role === "admin") {
+    Object.assign(p, req.body);
+    await p.save();
+    res.json(p);
+    return;
+  }
+  if (req.user.role === "vendor") {
+    const v = await Vendor.findOne({ userId: req.user._id });
+    if (!v || String(p.vendorId) !== String(v._id)) throw new AppError(403, "Forbidden");
+    Object.assign(p, req.body);
+    await p.save();
+    res.json(p);
+    return;
+  }
+  if (req.user.role === "dropshipper") {
+    if (String(p.uploadedBy) !== String(req.user._id)) throw new AppError(403, "Forbidden");
+    Object.assign(p, req.body);
+    await p.save();
+    res.json(p);
+    return;
+  }
+  throw new AppError(403, "Forbidden");
 });
 
 export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const r = await Product.findByIdAndDelete(req.params.id);
-  if (!r) throw new AppError(404, "Product not found");
-  res.json({ ok: true });
+  const p = await Product.findById(req.params.id);
+  if (!p) throw new AppError(404, "Product not found");
+  if (req.user.role === "admin") {
+    await p.deleteOne();
+    res.json({ ok: true });
+    return;
+  }
+  if (req.user.role === "vendor") {
+    const v = await Vendor.findOne({ userId: req.user._id });
+    if (!v || String(p.vendorId) !== String(v._id)) throw new AppError(403, "Forbidden");
+    await p.deleteOne();
+    res.json({ ok: true });
+    return;
+  }
+  if (req.user.role === "dropshipper") {
+    if (String(p.uploadedBy) !== String(req.user._id)) throw new AppError(403, "Forbidden");
+    await p.deleteOne();
+    res.json({ ok: true });
+    return;
+  }
+  throw new AppError(403, "Forbidden");
 });
 
 export const listProductRequests = asyncHandler(async (req: AuthRequest, res: Response) => {

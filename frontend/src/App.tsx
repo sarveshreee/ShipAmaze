@@ -26,6 +26,7 @@ import AdminVendors from "@/pages/admin/AdminVendors";
 import AdminFinance from "@/pages/admin/AdminFinance";
 import AdminAnalytics from "@/pages/admin/AdminAnalytics";
 import AdminSupport from "@/pages/admin/AdminSupport";
+import AdminCatalogue from "@/pages/admin/AdminCatalogue";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminReturns from "@/pages/admin/AdminReturns";
 import AdminManifests from "@/pages/admin/AdminManifests";
@@ -74,6 +75,7 @@ import MarketplaceProductDetail from "@/pages/marketplace/MarketplaceProductDeta
 
 import type { UserRole } from "@/services/authService";
 import { roleDashboardPath } from "@/services/authService";
+import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 
 function AuthLoadingScreen() {
   return (
@@ -111,6 +113,7 @@ function AppRoutes() {
   useCartSync();
 
   return (
+    <RouteErrorBoundary>
     <Routes>
       <Route path="/store" element={<ShopifyStore />} />
       <Route path="/login" element={<LoginGate />} />
@@ -126,7 +129,7 @@ function AppRoutes() {
       <Route path="/admin/ndr" element={<RoleProtectedRoute allow={["admin"]}><AdminNDR /></RoleProtectedRoute>} />
       <Route path="/admin/returns" element={<RoleProtectedRoute allow={["admin"]}><AdminReturns /></RoleProtectedRoute>} />
       <Route path="/admin/manifests" element={<RoleProtectedRoute allow={["admin"]}><AdminManifests /></RoleProtectedRoute>} />
-      <Route path="/admin/catalogue" element={<RoleProtectedRoute allow={["admin"]}><Navigate to="/admin/dashboard" replace /></RoleProtectedRoute>} />
+      <Route path="/admin/catalogue" element={<RoleProtectedRoute allow={["admin"]}><AdminCatalogue /></RoleProtectedRoute>} />
       <Route path="/admin/rates" element={<RoleProtectedRoute allow={["admin"]}><AdminRates /></RoleProtectedRoute>} />
       <Route path="/admin/couriers" element={<RoleProtectedRoute allow={["admin"]}><AdminCouriers /></RoleProtectedRoute>} />
       <Route path="/admin/dropshippers" element={<RoleProtectedRoute allow={["admin"]}><AdminDropshippers /></RoleProtectedRoute>} />
@@ -212,6 +215,7 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </RouteErrorBoundary>
   );
 }
 

@@ -20,6 +20,8 @@ import {
   buildOrderListFiltersQuery,
 } from "../utils/orderFilters.js";
 import type { IOrder } from "../models/Order.js";
+import { createInAppNotification } from "../services/inAppNotifications.js";
+import { orderWalletUserId } from "../services/walletLedger.js";
 
 function normalizePickupAddressForClient(pickup: unknown): unknown {
   if (pickup == null) return pickup;
@@ -588,6 +590,13 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   });
   appendStatusHistory(doc, String(doc.status), req.user._id, "created");
   await doc.save();
+  await createInAppNotification(
+    req.user._id,
+    "order_created",
+    `Order ${orderId} created`,
+    `Customer: ${doc.customer}. Amount: ₹${doc.amount}.`,
+    { orderId }
+  );
   res.status(201).json(mapOrder(doc));
 });
 
@@ -777,6 +786,17 @@ export const createShipment = asyncHandler(async (req: AuthRequest, res: Respons
   order.isJunk = false;
   order.pickupAddress = warehouse.name || order.pickupAddress;
   await order.save();
+
+  const owner = orderWalletUserId(order);
+  if (owner) {
+    await createInAppNotification(
+      owner,
+      "shipment_created",
+      `Shipment created for ${order.orderId}`,
+      `Tracking: ${trackingId}. Courier: ${courier.name}.`,
+      { orderId: order.orderId, trackingId, shipmentId }
+    );
+  }
 
   res.json({
     success: true,

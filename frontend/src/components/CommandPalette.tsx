@@ -23,10 +23,12 @@ import {
   AlertTriangle,
   Search,
   User,
+  Layers,
 } from "lucide-react";
 
 const pages = [
   { label: "Admin Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
+  { label: "Admin Catalogue", path: "/admin/catalogue", icon: Layers },
   { label: "Orders", path: "/admin/orders", icon: Package },
   { label: "NDR Management", path: "/admin/ndr", icon: AlertTriangle },
   { label: "Rates & Shipping", path: "/admin/rates", icon: Calculator },

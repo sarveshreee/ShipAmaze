@@ -413,7 +413,10 @@ export function useManifests() {
 }
 
 export function useInvoices() {
-  const queryFn = useCallback(async () => invoiceService.listInvoices(), []);
+  const queryFn = useCallback(async () => {
+    const r = await invoiceService.listInvoices({ page: "1", pageSize: "200" });
+    return r.items;
+  }, []);
   return useApiQuery<Invoice>("invoices", queryFn);
 }
 
@@ -581,7 +584,10 @@ export function useCouriers() {
 }
 
 export function useCodRemittances() {
-  const queryFn = useCallback(async () => walletService.listCodRemittances(), []);
+  const queryFn = useCallback(async () => {
+    const r = await walletService.listCodRemittances({ page: "1", pageSize: "200" });
+    return r.items;
+  }, []);
   return useApiQuery<CODRemittance>("cod_remittances", queryFn);
 }
 

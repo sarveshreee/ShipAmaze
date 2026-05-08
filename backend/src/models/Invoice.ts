@@ -12,6 +12,8 @@ export interface IInvoice extends Document {
   total: number;
   status: string;
   downloadUrl?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const invoiceSchema = new Schema<IInvoice>(

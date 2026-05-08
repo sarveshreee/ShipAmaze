@@ -4,8 +4,8 @@ import { CheckCircle2, Clock, RotateCcw, AlertTriangle, Target, Download, FileTe
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
-import { useMemo } from "react";
+import { useMemo, Component, type ErrorInfo, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { useOrders, useNdrOrders } from "@/hooks/useApiData";
 import type { Order } from "@/types/logistics";
 
@@ -19,6 +19,29 @@ const PIE_COLORS = [
   "hsl(var(--color-text-muted))",
 ];
 
+class ChartErrorBoundary extends Component<{ children: ReactNode }, { err: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { err: false };
+  }
+  static getDerivedStateFromError() {
+    return { err: true };
+  }
+  override componentDidCatch(_e: Error, _info: ErrorInfo) {
+    /* charts: avoid console noise in production */
+  }
+  override render() {
+    if (this.state.err) {
+      return (
+        <div className="flex h-[240px] items-center justify-center text-sm text-text-muted border border-dashed border-border rounded-lg">
+          Chart could not be rendered. Try refreshing or check data.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function getHeatColor(count: number, max: number) {
   if (count === 0) return "bg-surface-2";
   const safeMax = Math.max(max, 1);
@@ -30,8 +53,9 @@ function getHeatColor(count: number, max: number) {
 }
 
 export default function AdminAnalytics() {
-  const { data: orders = [], isLoading: ordersLoading } = useOrders();
-  const { data: ndrRows = [], isLoading: ndrLoading } = useNdrOrders();
+  const navigate = useNavigate();
+  const { data: orders = [], isLoading: ordersLoading, isError: ordersErr, refetch: refetchOrders } = useOrders();
+  const { data: ndrRows = [], isLoading: ndrLoading, isError: ndrErr, refetch: refetchNdr } = useNdrOrders();
 
   const ordersOverTime = useMemo(() => {
     const days = 7;
@@ -188,6 +212,26 @@ export default function AdminAnalytics() {
     return <div className="animate-pulse p-8 text-text-muted">Loading analytics…</div>;
   }
 
+  if (ordersErr || ndrErr) {
+    return (
+      <div className="animate-fade-in-up p-6">
+        <PageHeader title="Analytics" breadcrumb={["Admin", "Analytics"]} />
+        <div className="rounded-lg border border-border bg-card p-6 text-center space-y-3">
+          <p className="text-text-secondary">Could not load analytics data.</p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              void refetchOrders();
+              void refetchNdr();
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Analytics" breadcrumb={["Admin", "Analytics"]} />
@@ -206,10 +250,20 @@ export default function AdminAnalytics() {
             <p className="text-xs text-text-muted">Based on order dates in your system</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={() => toast.success("Export uses live orders in Reports")}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs h-8"
+              onClick={() => navigate("/admin/reports")}
+            >
               <Download className="h-3.5 w-3.5" /> Export CSV
             </Button>
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={() => toast.info("Use Reports for PDF export")}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs h-8"
+              onClick={() => navigate("/admin/reports")}
+            >
               <FileText className="h-3.5 w-3.5" /> Export PDF
             </Button>
           </div>
@@ -254,83 +308,107 @@ export default function AdminAnalytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <div className="rounded-lg bg-card shadow-card p-5">
           <h3 className="font-semibold text-text-primary mb-4">Orders (last 7 days)</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={ordersOverTime}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
-              <XAxis dataKey="day" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
-              <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" allowDecimals={false} />
-              <Tooltip />
-              <Area type="monotone" dataKey="orders" stroke="hsl(var(--color-success))" fill="hsl(var(--color-success))" fillOpacity={0.12} strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <ChartErrorBoundary>
+            <div className="w-full min-h-[260px] min-w-0">
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={ordersOverTime}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
+                  <XAxis dataKey="day" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
+                  <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" allowDecimals={false} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="orders" stroke="hsl(var(--color-success))" fill="hsl(var(--color-success))" fillOpacity={0.12} strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartErrorBoundary>
         </div>
         <div className="rounded-lg bg-card shadow-card p-5">
           <h3 className="font-semibold text-text-primary mb-4">Orders by courier</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={courierPerformance} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
-              <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" allowDecimals={false} />
-              <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} stroke="hsl(var(--color-text-muted))" width={100} />
-              <Tooltip />
-              <Bar dataKey="count" fill="hsl(var(--color-primary))" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <ChartErrorBoundary>
+            <div className="w-full min-h-[260px] min-w-0">
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={courierPerformance} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
+                  <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" allowDecimals={false} />
+                  <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} stroke="hsl(var(--color-text-muted))" width={100} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="hsl(var(--color-primary))" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartErrorBoundary>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <div className="rounded-lg bg-card shadow-card p-5">
           <h3 className="font-semibold text-text-primary mb-4">Delivery rate trend (14d)</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={deliveryTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
-              <XAxis dataKey="day" tick={{ fontSize: 9 }} stroke="hsl(var(--color-text-muted))" />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
-              <Tooltip />
-              <Area type="monotone" dataKey="rate" stroke="hsl(var(--color-success))" fill="hsl(var(--color-success))" fillOpacity={0.1} strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <ChartErrorBoundary>
+            <div className="w-full min-h-[260px] min-w-0">
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={deliveryTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
+                  <XAxis dataKey="day" tick={{ fontSize: 9 }} stroke="hsl(var(--color-text-muted))" />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="rate" stroke="hsl(var(--color-success))" fill="hsl(var(--color-success))" fillOpacity={0.1} strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartErrorBoundary>
         </div>
         <div className="rounded-lg bg-card shadow-card p-5">
           <h3 className="font-semibold text-text-primary mb-4">RTO % by courier</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={rtoChartData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
-              <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
-              <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} stroke="hsl(var(--color-text-muted))" width={90} />
-              <Tooltip />
-              <Bar dataKey="rto" fill="hsl(var(--color-danger))" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <ChartErrorBoundary>
+            <div className="w-full min-h-[260px] min-w-0">
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={rtoChartData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
+                  <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
+                  <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} stroke="hsl(var(--color-text-muted))" width={90} />
+                  <Tooltip />
+                  <Bar dataKey="rto" fill="hsl(var(--color-danger))" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartErrorBoundary>
         </div>
       </div>
 
       <div className="rounded-lg bg-card shadow-card p-5 mb-6">
         <h3 className="font-semibold text-text-primary mb-4">Revenue by month (order amounts)</h3>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={revenueData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
-            <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
-            <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
-            <Tooltip />
-            <Bar dataKey="revenue" fill="hsl(var(--color-secondary))" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <ChartErrorBoundary>
+          <div className="w-full min-h-[250px] min-w-0">
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={revenueData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" />
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
+                <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--color-text-muted))" />
+                <Tooltip />
+                <Bar dataKey="revenue" fill="hsl(var(--color-secondary))" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartErrorBoundary>
       </div>
 
       <div className="rounded-lg bg-card shadow-card p-5">
         <h3 className="font-semibold text-text-primary mb-4">NDR reasons</h3>
         <div className="flex flex-col md:flex-row items-center gap-6">
-          <ResponsiveContainer width={200} height={200}>
-            <PieChart>
-              <Pie data={ndrReasons} innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
-                {ndrReasons.map((e, i) => (
-                  <Cell key={`${e.name}-${i}`} fill={e.color} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+          <ChartErrorBoundary>
+            <div className="w-[200px] h-[200px] min-w-[200px] shrink-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={ndrReasons} innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
+                    {ndrReasons.map((e, i) => (
+                      <Cell key={`${e.name}-${i}`} fill={e.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartErrorBoundary>
           <div className="space-y-2">
             {ndrReasons.map((r) => (
               <div key={r.name} className="flex items-center gap-2 text-sm">

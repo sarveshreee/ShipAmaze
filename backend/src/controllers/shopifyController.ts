@@ -31,8 +31,17 @@ function cfg() {
   return { apiKey, apiSecret, scopes, redirectUri };
 }
 
+function resolveFrontendBaseUrl(): string {
+  const explicit = process.env.FRONTEND_URL?.trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const firstCors = process.env.CORS_ORIGIN?.split(",")[0]?.trim();
+  if (firstCors) return firstCors.replace(/\/+$/, "");
+  if (process.env.NODE_ENV !== "production") return "http://localhost:8080";
+  throw new AppError(500, "Set FRONTEND_URL or the first CORS_ORIGIN entry for Shopify OAuth redirects.");
+}
+
 function buildFrontendRedirect(status: "connected" | "error", reason?: string): string {
-  const frontendBaseUrl = (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || "http://localhost:8080").replace(/\/+$/, "");
+  const frontendBaseUrl = resolveFrontendBaseUrl();
   const postConnectPath = process.env.SHOPIFY_POST_CONNECT_PATH || "/dropshipper/channels";
   const normalisedPath = postConnectPath.startsWith("/") ? postConnectPath : `/${postConnectPath}`;
   const u = new URL(`${frontendBaseUrl}${normalisedPath}`);
@@ -253,7 +262,9 @@ export const getStatus = asyncHandler(async (req: AuthRequest, res: Response) =>
   const conn = await ShopifyStoreConnection.findOne({
     ownerUserId: req.user._id,
     isActive: true,
-  }).lean();
+  })
+    .select("shopDomain scope installedAt lastSyncedAt syncCount lastSyncError")
+    .lean();
 
   if (!conn) {
     res.json({ connected: false });
@@ -383,6 +394,15 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       skipped > 0 ? `${skipped} order(s) skipped due to mapping or save errors` : undefined;
     conn.syncCount = (conn.syncCount ?? 0) + 1;
     await conn.save();
+
+    const { createInAppNotification } = await import("../services/inAppNotifications.js");
+    await createInAppNotification(
+      req.user._id,
+      "shopify_sync",
+      "Shopify orders synced",
+      `${shopOrders.length} orders processed (${inserted} new, ${updated} updated).`,
+      { shopDomain: conn.shopDomain, inserted, updated, skipped }
+    );
 
     res.json({
       ok: true,

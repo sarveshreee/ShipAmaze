@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
+import { safeErrorMessage } from "../utils/logRedact.js";
 
 export class AppError extends Error {
   statusCode: number;
@@ -34,7 +35,11 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     const msg = `Duplicate value for ${key}. Please use a unique value.`;
     return res.status(400).json({ success: false, message: msg, error: msg });
   }
-  console.error(err);
+  if (process.env.NODE_ENV === "development") {
+    console.error(err);
+  } else {
+    console.error(safeErrorMessage(err));
+  }
   return res.status(500).json({
     success: false,
     message: "Internal server error",
