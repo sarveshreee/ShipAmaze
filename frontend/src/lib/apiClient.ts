@@ -48,7 +48,8 @@ function shouldAttachAuthToken(path: string): boolean {
     p === "/auth/login" ||
     p === "/auth/register" ||
     p === "/auth/forgot-password" ||
-    p === "/auth/reset-password"
+    p === "/auth/reset-password" ||
+    p === "/public/settings/label-invoice"
   ) {
     return false;
   }

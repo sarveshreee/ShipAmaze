@@ -25,6 +25,7 @@ import * as notificationController from "./controllers/notificationController.js
 import * as adminWorkflowController from "./controllers/adminWorkflowController.js";
 import * as reportsController from "./controllers/reportsController.js";
 import * as invoiceController from "./controllers/invoiceController.js";
+import * as labelInvoiceSettingsController from "./controllers/labelInvoiceSettingsController.js";
 
 function parseCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN?.trim();
@@ -87,6 +88,11 @@ export function createApp() {
 
   api.get("/orders/track/:awb", publicTrackingLimiter, orderController.trackOrderByAwb);
   api.get("/orders/public/:orderId", publicTrackingLimiter, orderController.publicOrderByOrderId);
+  api.get(
+    "/public/settings/label-invoice",
+    publicTrackingLimiter,
+    labelInvoiceSettingsController.getPublicLabelInvoiceSettings
+  );
 
   api.get("/orders", authMiddleware, orderController.listOrders);
   api.get("/orders/:orderId", authMiddleware, orderController.getOrderById);
@@ -98,6 +104,14 @@ export function createApp() {
   api.post("/orders/:id/junk", authMiddleware, orderController.markOrderJunk);
   api.patch("/orders/:orderId/status", authMiddleware, orderController.updateOrderStatus);
   api.put("/orders/:orderId", authMiddleware, orderController.updateOrder);
+
+  api.get("/settings/label-invoice", authMiddleware, labelInvoiceSettingsController.getLabelInvoiceSettings);
+  api.put(
+    "/settings/label-invoice",
+    authMiddleware,
+    requireRoles("admin"),
+    labelInvoiceSettingsController.putLabelInvoiceSettings
+  );
 
   api.get("/products/marketplace", authMiddleware, resourceController.listMarketplaceProducts);
   api.get("/products", authMiddleware, resourceController.listProducts);

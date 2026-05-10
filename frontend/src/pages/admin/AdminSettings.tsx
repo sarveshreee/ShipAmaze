@@ -3,13 +3,28 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
-import { Package, Palette, Type, Eye, Monitor, Smartphone, RotateCcw, Bell, Mail, MessageSquare, Phone } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Package, Palette, Type, Eye, Monitor, Smartphone, RotateCcw, Bell, Mail, MessageSquare, Phone, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useBranding, defaultBranding } from "@/contexts/BrandingContext";
 import ShopifyConnect from "@/components/ShopifyConnect";
 import ShopifyAdminConnections from "@/components/ShopifyAdminConnections";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { createOrderLabelElement, getLabelPreviewSampleOrder } from "@/components/orderLabelDom";
+import * as labelInvoiceSettingsService from "@/services/labelInvoiceSettingsService";
+import { DEFAULT_LABEL_INVOICE_SETTINGS, type LabelInvoiceSettings } from "@/types/labelInvoice";
+
+const SETTINGS_TABS: { id: string; label: string }[] = [
+  { id: "general", label: "General" },
+  { id: "tracking page", label: "Tracking page" },
+  { id: "label-invoice", label: "Label & Invoice" },
+  { id: "notifications", label: "Notifications" },
+  { id: "channels", label: "Channels" },
+  { id: "api", label: "API" },
+];
 
 const notifEvents = [
   { label: "Order Placed", icon: "📦" },
@@ -41,18 +56,100 @@ export default function AdminSettings() {
     }));
   };
 
-  const tabs = ["general", "tracking page", "notifications", "channels", "api"];
+  const [liLoading, setLiLoading] = useState(false);
+  const [liSaving, setLiSaving] = useState(false);
+  const [liForm, setLiForm] = useState<LabelInvoiceSettings>(DEFAULT_LABEL_INVOICE_SETTINGS);
+  const [labelPreviewOpen, setLabelPreviewOpen] = useState(false);
+  const labelPreviewHostRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!labelPreviewOpen) {
+      labelPreviewHostRef.current?.replaceChildren();
+      return;
+    }
+    const t = window.setTimeout(() => {
+      const host = labelPreviewHostRef.current;
+      if (!host) return;
+      host.replaceChildren();
+      host.appendChild(createOrderLabelElement(getLabelPreviewSampleOrder(), liForm, { documentTitle: "Preview" }));
+    }, 0);
+    return () => {
+      window.clearTimeout(t);
+      labelPreviewHostRef.current?.replaceChildren();
+    };
+  }, [labelPreviewOpen, liForm]);
+
+  useEffect(() => {
+    if (activeTab !== "label-invoice") return;
+    let cancelled = false;
+    setLiLoading(true);
+    void labelInvoiceSettingsService
+      .getLabelInvoiceSettings()
+      .then((s) => {
+        if (!cancelled) setLiForm({ ...DEFAULT_LABEL_INVOICE_SETTINGS, ...s });
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("Could not load Label & Invoice settings");
+      })
+      .finally(() => {
+        if (!cancelled) setLiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab]);
+
+  const saveLabelInvoice = async () => {
+    setLiSaving(true);
+    try {
+      const saved = await labelInvoiceSettingsService.putLabelInvoiceSettings(liForm);
+      setLiForm({ ...DEFAULT_LABEL_INVOICE_SETTINGS, ...saved });
+      toast.success("Label & Invoice settings saved");
+    } catch {
+      toast.error("Save failed");
+    } finally {
+      setLiSaving(false);
+    }
+  };
+
+  const onLogoFile = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file");
+      return;
+    }
+    if (file.size > 900_000) {
+      toast.error("Logo image is too large (max ~900KB). Use a smaller file or a URL instead.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => {
+      toast.error("Could not read the image file.");
+    };
+    reader.onload = () => {
+      const r = String(reader.result ?? "");
+      if (r.startsWith("data:")) setLiForm((f) => ({ ...f, logoUrl: r }));
+    };
+    reader.readAsDataURL(file);
+  };
 
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Settings" breadcrumb={["Admin", "Settings"]} />
 
       <div className="flex gap-2 mb-6 border-b border-border overflow-x-auto">
-        {tabs.map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className={cn("px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-[1px] transition-colors whitespace-nowrap",
-              activeTab === tab ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
-            )}>{tab}</button>
+        {SETTINGS_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={cn(
+              "px-4 py-2 text-sm font-medium border-b-2 -mb-[1px] transition-colors whitespace-nowrap",
+              activeTab === tab.id ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
+            )}
+          >
+            {tab.label}
+          </button>
         ))}
       </div>
 
@@ -238,6 +335,145 @@ export default function AdminSettings() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === "label-invoice" && (
+        <div className="rounded-lg bg-card shadow-card p-6 max-w-2xl space-y-5">
+          <h3 className="font-semibold text-text-primary flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" /> Label &amp; Invoice
+          </h3>
+          <p className="text-xs text-text-muted">
+            Used for printed shipping labels and downloadable PDFs. Dropshippers and vendors can read these settings; only admins can change them.
+          </p>
+          {liLoading ? (
+            <p className="text-sm text-text-muted">Loading…</p>
+          ) : (
+            <>
+              <div>
+                <Label>Company / seller name</Label>
+                <Input
+                  className="mt-1"
+                  value={liForm.companyName}
+                  onChange={(e) => setLiForm((f) => ({ ...f, companyName: e.target.value }))}
+                  placeholder="Shown top-left on labels"
+                />
+              </div>
+              <div>
+                <Label>Seller address</Label>
+                <Textarea
+                  className="mt-1 min-h-[88px]"
+                  value={liForm.address}
+                  onChange={(e) => setLiForm((f) => ({ ...f, address: e.target.value }))}
+                  placeholder="Multi-line address"
+                />
+              </div>
+              <div>
+                <Label>Logo URL or upload</Label>
+                <Input
+                  className="mt-1"
+                  value={liForm.logoUrl}
+                  onChange={(e) => setLiForm((f) => ({ ...f, logoUrl: e.target.value }))}
+                  placeholder="https://… or leave blank after upload"
+                />
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="mt-2 block text-xs text-text-muted file:mr-2 file:rounded file:border file:border-border file:bg-surface-2 file:px-2 file:py-1"
+                  onChange={(e) => onLogoFile(e.target.files?.[0] ?? null)}
+                />
+                {liForm.logoUrl.startsWith("data:") || liForm.logoUrl.startsWith("http") ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <img src={liForm.logoUrl} alt="Logo preview" className="h-10 w-auto max-w-[160px] object-contain border border-border rounded" />
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <Label>Default invoice / important note</Label>
+                <Textarea
+                  className="mt-1 min-h-[72px]"
+                  value={liForm.invoiceNote}
+                  onChange={(e) => setLiForm((f) => ({ ...f, invoiceNote: e.target.value }))}
+                  placeholder="Shown on label (e.g. unboxing video notice)"
+                />
+              </div>
+              <div>
+                <Label>Return / dispute footer note</Label>
+                <Textarea
+                  className="mt-1 min-h-[72px]"
+                  value={liForm.footerNote}
+                  onChange={(e) => setLiForm((f) => ({ ...f, footerNote: e.target.value }))}
+                  placeholder="Legal / jurisdiction note at bottom of label"
+                />
+              </div>
+              <div className="flex flex-wrap gap-6">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={liForm.showBarcode}
+                    onCheckedChange={(v) => setLiForm((f) => ({ ...f, showBarcode: v === true }))}
+                  />
+                  <span className="text-sm text-text-primary">Show barcodes</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={liForm.showCodValue}
+                    onCheckedChange={(v) => setLiForm((f) => ({ ...f, showCodValue: v === true }))}
+                  />
+                  <span className="text-sm text-text-primary">Show COD collectable value</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={liForm.showProductTable}
+                    onCheckedChange={(v) => setLiForm((f) => ({ ...f, showProductTable: v === true }))}
+                  />
+                  <span className="text-sm text-text-primary">Show product table</span>
+                </div>
+              </div>
+              <div>
+                <Label>Default label size</Label>
+                <Select
+                  value={liForm.labelSize}
+                  onValueChange={(v) =>
+                    setLiForm((f) => ({ ...f, labelSize: v as LabelInvoiceSettings["labelSize"] }))
+                  }
+                >
+                  <SelectTrigger className="mt-1 w-full max-w-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="4x6">4×6 (thermal)</SelectItem>
+                    <SelectItem value="A6">A6</SelectItem>
+                    <SelectItem value="A5">A5</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button type="button" variant="outline" onClick={() => setLabelPreviewOpen(true)}>
+                  <Eye className="h-4 w-4 mr-2" /> Preview label
+                </Button>
+                <Button
+                  className="bg-primary text-primary-foreground hover:bg-primary-dark"
+                  disabled={liSaving}
+                  onClick={() => void saveLabelInvoice()}
+                >
+                  {liSaving ? "Saving…" : "Save Label & Invoice settings"}
+                </Button>
+              </div>
+            </>
+          )}
+          <Dialog open={labelPreviewOpen} onOpenChange={setLabelPreviewOpen}>
+            <DialogContent className="max-w-[min(640px,96vw)] max-h-[90vh] overflow-y-auto bg-card">
+              <DialogHeader>
+                <DialogTitle>Label preview</DialogTitle>
+                <DialogDescription>
+                  Uses the current form values (including unsaved edits). Shown for layout only—not a real order.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-md border border-border bg-white p-2 overflow-x-auto text-black">
+                <div ref={labelPreviewHostRef} className="min-h-[120px]" />
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 

@@ -22,7 +22,12 @@ const couriersResult = [
 ];
 
 interface ProductLine {
-  name: string; qty: string; weight: string; price: string;
+  name: string;
+  qty: string;
+  weight: string;
+  price: string;
+  sku: string;
+  productCode: string;
 }
 
 export default function CreateOrder() {
@@ -37,7 +42,9 @@ export default function CreateOrder() {
   const [selectedPickup, setSelectedPickup] = useState<string>("");
   const [pincode, setPincode] = useState("");
   const [pincodeValid, setPincodeValid] = useState<boolean | null>(null);
-  const [products, setProducts] = useState<ProductLine[]>([{ name: "", qty: "1", weight: "0.5", price: "" }]);
+  const [products, setProducts] = useState<ProductLine[]>([
+    { name: "", qty: "1", weight: "0.5", price: "", sku: "", productCode: "" },
+  ]);
   const [showRates, setShowRates] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -96,7 +103,8 @@ export default function CreateOrder() {
     }
   };
 
-  const addProduct = () => setProducts([...products, { name: "", qty: "1", weight: "0.2", price: "" }]);
+  const addProduct = () =>
+    setProducts([...products, { name: "", qty: "1", weight: "0.2", price: "", sku: "", productCode: "" }]);
   const removeProduct = (i: number) => setProducts(products.filter((_, idx) => idx !== i));
 
   const totalWeight = products.reduce((s, p) => s + (parseFloat(p.weight) || 0), 0);
@@ -125,6 +133,10 @@ export default function CreateOrder() {
     }
     if (products.some((p) => !p.name.trim())) {
       toast.error("Each product needs a name");
+      return;
+    }
+    if (products.some((p) => p.name.trim() && !p.sku.trim())) {
+      toast.error("Each product must have a SKU");
       return;
     }
     if (altPhoneDuplicate) {
@@ -179,12 +191,16 @@ export default function CreateOrder() {
           qty: parseInt(p.qty, 10) || 1,
           price: parseFloat(p.price) || 0,
           weight: p.weight,
+          sku: p.sku.trim(),
+          ...(p.productCode.trim() ? { productCode: p.productCode.trim() } : {}),
         })),
         orderItems: products.map((p) => ({
           name: p.name.trim(),
           quantity: parseInt(p.qty, 10) || 1,
           qty: parseInt(p.qty, 10) || 1,
           price: parseFloat(p.price) || 0,
+          sku: p.sku.trim(),
+          ...(p.productCode.trim() ? { productCode: p.productCode.trim() } : {}),
         })),
         dimensions: dims,
         zone: "B",
@@ -238,6 +254,8 @@ export default function CreateOrder() {
           qty: parseInt(p.qty, 10) || 1,
           price: parseFloat(p.price) || 0,
           weight: p.weight,
+          sku: p.sku.trim(),
+          ...(p.productCode.trim() ? { productCode: p.productCode.trim() } : {}),
         })),
         channel: "Manual",
         sourceType: "manual",
@@ -392,16 +410,22 @@ export default function CreateOrder() {
                 </Button>
               </div>
               {products.map((p, i) => (
-                <div key={i} className="grid grid-cols-[1fr_80px_80px_100px_32px] gap-2 mb-2 items-end">
-                  <div><Label className="text-xs">Name *</Label><Input placeholder="Product name" value={p.name} onChange={e => { const np = [...products]; np[i].name = e.target.value; setProducts(np); }} /></div>
-                  <div><Label className="text-xs">Qty</Label><Input type="number" value={p.qty} onChange={e => { const np = [...products]; np[i].qty = e.target.value; setProducts(np); }} /></div>
-                  <div><Label className="text-xs">Wt (kg)</Label><Input type="number" value={p.weight} onChange={e => { const np = [...products]; np[i].weight = e.target.value; setProducts(np); }} /></div>
-                  <div><Label className="text-xs">Price (₹)</Label><Input type="number" value={p.price} onChange={e => { const np = [...products]; np[i].price = e.target.value; setProducts(np); }} /></div>
-                  {products.length > 1 && (
-                    <Button size="sm" variant="ghost" onClick={() => removeProduct(i)} className="h-9 w-9 p-0 text-danger hover:bg-danger-light">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
+                <div key={i} className="mb-3 rounded-lg border border-border p-3 space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_72px_72px_88px_auto] gap-2 items-end">
+                    <div><Label className="text-xs">Name *</Label><Input placeholder="Product name" value={p.name} onChange={e => { const np = [...products]; np[i].name = e.target.value; setProducts(np); }} /></div>
+                    <div><Label className="text-xs">Qty</Label><Input type="number" value={p.qty} onChange={e => { const np = [...products]; np[i].qty = e.target.value; setProducts(np); }} /></div>
+                    <div><Label className="text-xs">Wt (kg)</Label><Input type="number" value={p.weight} onChange={e => { const np = [...products]; np[i].weight = e.target.value; setProducts(np); }} /></div>
+                    <div><Label className="text-xs">Price (₹)</Label><Input type="number" value={p.price} onChange={e => { const np = [...products]; np[i].price = e.target.value; setProducts(np); }} /></div>
+                    {products.length > 1 ? (
+                      <Button size="sm" variant="ghost" onClick={() => removeProduct(i)} className="h-9 w-9 p-0 text-danger hover:bg-danger-light shrink-0">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    ) : <span className="hidden sm:block w-9 shrink-0" />}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div><Label className="text-xs">SKU ID *</Label><Input placeholder="Required for labels" value={p.sku} onChange={e => { const np = [...products]; np[i].sku = e.target.value; setProducts(np); }} /></div>
+                    <div><Label className="text-xs">Product code</Label><Input placeholder="Optional" value={p.productCode} onChange={e => { const np = [...products]; np[i].productCode = e.target.value; setProducts(np); }} /></div>
+                  </div>
                 </div>
               ))}
             </div>

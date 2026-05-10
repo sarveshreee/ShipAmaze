@@ -1,9 +1,27 @@
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, Suspense } from "react";
-import { Package, MapPin, Truck, Phone, User, CreditCard, Calendar, Weight, Ruler, Printer, RefreshCw, AlertTriangle, XCircle } from "lucide-react";
+import {
+  Package,
+  MapPin,
+  Truck,
+  Phone,
+  User,
+  CreditCard,
+  Calendar,
+  Weight,
+  Ruler,
+  Printer,
+  RefreshCw,
+  AlertTriangle,
+  XCircle,
+  FileDown,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { printShippingLabel } from "@/components/ShippingLabel";
+import { downloadInvoicePdf, downloadShippingLabelPdf, printShippingLabel } from "@/components/ShippingLabel";
+import * as labelInvoiceSettingsService from "@/services/labelInvoiceSettingsService";
+import { DEFAULT_LABEL_INVOICE_SETTINGS, type LabelInvoiceSettings } from "@/types/labelInvoice";
 import { TimelineTracker } from "@/components/TimelineTracker";
 import { cn } from "@/lib/utils";
 import * as orderService from "@/services/orderService";
@@ -118,6 +136,8 @@ export default function PublicOrderDetail() {
   const orderId = params.get("id");
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [labelSettings, setLabelSettings] = useState<LabelInvoiceSettings>(DEFAULT_LABEL_INVOICE_SETTINGS);
+  const [pdfLoading, setPdfLoading] = useState<null | "label" | "invoice">(null);
 
   // Modal states
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -125,6 +145,21 @@ export default function PublicOrderDetail() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [ndrReason, setNdrReason] = useState("");
   const [newStatus, setNewStatus] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void labelInvoiceSettingsService
+      .getPublicLabelInvoiceSettings()
+      .then((s) => {
+        if (!cancelled) setLabelSettings({ ...DEFAULT_LABEL_INVOICE_SETTINGS, ...s });
+      })
+      .catch(() => {
+        /* keep defaults */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!orderId) { setLoading(false); return; }
@@ -352,19 +387,60 @@ export default function PublicOrderDetail() {
         {/* Quick Actions */}
         <div className="rounded-xl bg-card border border-border p-5 space-y-3">
           <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Quick Actions</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <Button variant="outline" className="h-11 gap-2 text-sm font-medium" onClick={() => { printShippingLabel(order); toast.success("Printing label..."); }}>
-              <Printer className="h-4 w-4" /> Print Label
-            </Button>
-            <Button variant="outline" className="h-11 gap-2 text-sm font-medium" onClick={() => { setNewStatus(""); setStatusOpen(true); }}>
-              <RefreshCw className="h-4 w-4" /> Update Status
-            </Button>
-            <Button variant="outline" className="h-11 gap-2 text-sm font-medium text-warning-dark" onClick={() => { setNdrReason(""); setNdrOpen(true); }}>
-              <AlertTriangle className="h-4 w-4" /> Raise NDR
-            </Button>
-            <Button variant="outline" className="h-11 gap-2 text-sm font-medium text-destructive border-destructive/30 bg-destructive/5 hover:bg-destructive/10" onClick={() => setCancelOpen(true)}>
-              <XCircle className="h-4 w-4" /> Cancel Order
-            </Button>
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Button
+                variant="outline"
+                className="h-11 gap-2 text-sm font-medium bg-background text-foreground border-border hover:bg-muted/50"
+                onClick={() => {
+                  printShippingLabel(order, labelSettings);
+                  toast.success("Printing label…");
+                }}
+              >
+                <Printer className="h-4 w-4" /> Print Label
+              </Button>
+              <Button
+                variant="outline"
+                className="h-11 gap-2 text-sm font-medium bg-background text-foreground border-border hover:bg-muted/50"
+                disabled={pdfLoading !== null}
+                onClick={() => {
+                  setPdfLoading("label");
+                  void downloadShippingLabelPdf(order, labelSettings)
+                    .then(() => toast.success("Label PDF downloaded"))
+                    .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Download failed"))
+                    .finally(() => setPdfLoading(null));
+                }}
+              >
+                {pdfLoading === "label" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                Label PDF
+              </Button>
+              <Button
+                variant="outline"
+                className="h-11 gap-2 text-sm font-medium bg-background text-foreground border-border hover:bg-muted/50"
+                disabled={pdfLoading !== null}
+                onClick={() => {
+                  setPdfLoading("invoice");
+                  void downloadInvoicePdf(order, labelSettings)
+                    .then(() => toast.success("Invoice PDF downloaded"))
+                    .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Download failed"))
+                    .finally(() => setPdfLoading(null));
+                }}
+              >
+                {pdfLoading === "invoice" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                Invoice PDF
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Button variant="outline" className="h-11 gap-2 text-sm font-medium" onClick={() => { setNewStatus(""); setStatusOpen(true); }}>
+                <RefreshCw className="h-4 w-4" /> Update Status
+              </Button>
+              <Button variant="outline" className="h-11 gap-2 text-sm font-medium text-warning-dark" onClick={() => { setNdrReason(""); setNdrOpen(true); }}>
+                <AlertTriangle className="h-4 w-4" /> Raise NDR
+              </Button>
+              <Button variant="outline" className="h-11 gap-2 text-sm font-medium text-destructive border-destructive/30 bg-destructive/5 hover:bg-destructive/10 col-span-2" onClick={() => setCancelOpen(true)}>
+                <XCircle className="h-4 w-4" /> Cancel Order
+              </Button>
+            </div>
           </div>
         </div>
 

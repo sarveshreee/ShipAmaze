@@ -4,6 +4,7 @@ import { TimelineTracker } from "@/components/TimelineTracker";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -11,13 +12,15 @@ import type { Order, OrderStatus } from "@/types/logistics";
 import {
   User, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
   Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw, Loader2,
-  Zap, Download, ExternalLink, RotateCcw, ShoppingBag,
+  Zap, Download, ExternalLink, RotateCcw, ShoppingBag, FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 import * as orderService from "@/services/orderService";
 import * as velocityService from "@/services/velocityService";
-import { printShippingLabel } from "@/components/ShippingLabel";
+import { downloadInvoicePdf, downloadShippingLabelPdf, printShippingLabel } from "@/components/ShippingLabel";
+import * as labelInvoiceSettingsService from "@/services/labelInvoiceSettingsService";
+import { DEFAULT_LABEL_INVOICE_SETTINGS, type LabelInvoiceSettings } from "@/types/labelInvoice";
 import { ApiError } from "@/lib/apiClient";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -87,6 +90,14 @@ export function OrderDetailDrawer({
 }: OrderDetailDrawerProps) {
   const { role } = useAuth();
   const isAdmin = role === "admin";
+  const canEditLineSkus = role === "admin" || role === "vendor" || role === "dropshipper";
+
+  const [labelSettings, setLabelSettings] = useState<LabelInvoiceSettings>(DEFAULT_LABEL_INVOICE_SETTINGS);
+  const [lineRows, setLineRows] = useState<
+    Array<{ name: string; qty: number; price: number; weight: string; sku: string; productCode: string }>
+  >([]);
+  const [lineSaveLoading, setLineSaveLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState<null | "label" | "invoice">(null);
 
   const [updating, setUpdating] = useState(false);
   const [shippingLoading, setShippingLoading] = useState(false);
@@ -115,6 +126,39 @@ export function OrderDetailDrawer({
     });
   }, [open, order?.id, warehousesKey, linkedWarehouses]);
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const s = await labelInvoiceSettingsService.getLabelInvoiceSettings();
+        if (!cancelled) setLabelSettings({ ...DEFAULT_LABEL_INVOICE_SETTINGS, ...s });
+      } catch {
+        if (!cancelled) setLabelSettings(DEFAULT_LABEL_INVOICE_SETTINGS);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !order) return;
+    setLineRows(
+      order.products.map((p) => {
+        const rec = p as Record<string, unknown>;
+        return {
+          name: p.name,
+          qty: Number(p.qty) || 1,
+          price: Number(p.price) || 0,
+          weight: String(p.weight ?? ""),
+          sku: String(rec.sku ?? "").trim(),
+          productCode: String(rec.productCode ?? rec.code ?? "").trim(),
+        };
+      })
+    );
+  }, [open, order?.id, order?.updatedAt]);
+
   if (!order) return null;
 
   const currentStep = statusToStep[order.status] ?? -1;
@@ -126,6 +170,33 @@ export function OrderDetailDrawer({
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success(`${text} copied to clipboard`);
+  };
+
+  const saveOrderLineItems = async () => {
+    if (!canEditLineSkus) return;
+    if (lineRows.some((r) => !String(r.sku ?? "").trim())) {
+      toast.error("Each line item must have a non-empty SKU before saving.");
+      return;
+    }
+    setLineSaveLoading(true);
+    try {
+      await orderService.updateOrder(order.id, {
+        orderItems: lineRows.map((r) => ({
+          name: r.name.trim(),
+          qty: r.qty,
+          price: r.price,
+          weight: r.weight,
+          sku: r.sku.trim(),
+          ...(r.productCode.trim() ? { productCode: r.productCode.trim() } : {}),
+        })),
+      });
+      toast.success("Line items updated");
+      onOrderUpdated?.();
+    } catch (err: unknown) {
+      toast.error(`Save failed: ${errMsg(err)}`);
+    } finally {
+      setLineSaveLoading(false);
+    }
   };
 
   const updateStatus = async (newStatus: string) => {
@@ -581,22 +652,66 @@ export function OrderDetailDrawer({
           </section>
 
           <section>
-            <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-              <Box className="h-3.5 w-3.5" /> Products
+            <h4 className="flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+              <span className="flex items-center gap-2">
+                <Box className="h-3.5 w-3.5" /> Products
+              </span>
+              {canEditLineSkus && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={lineSaveLoading}
+                  onClick={() => void saveOrderLineItems()}
+                >
+                  {lineSaveLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  Save SKUs
+                </Button>
+              )}
             </h4>
-            <div className="rounded-xl border border-border overflow-hidden">
-              {order.products.map((p, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 border-b border-border last:border-0">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-light/50">
-                    <Package className="h-4 w-4 text-primary" />
+            <div className="rounded-xl border border-border overflow-hidden divide-y divide-border">
+              {lineRows.map((p, i) => (
+                <div key={i} className="p-3 space-y-2 bg-card">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-light/50">
+                      <Package className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <p className="text-sm font-medium text-text-primary">{p.name}</p>
+                      <p className="text-xs text-text-muted">
+                        Qty: {p.qty} · {p.weight || "—"} · ₹{p.price}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text-primary truncate">{p.name}</p>
-                    <p className="text-xs text-text-muted">
-                      Qty: {p.qty} · {p.weight}
-                    </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-0 sm:pl-12">
+                    <div>
+                      <Label className="text-[10px] text-text-muted">Product code</Label>
+                      <Input
+                        className="h-8 mt-0.5 bg-background text-text-primary border-border"
+                        value={p.productCode}
+                        disabled={!canEditLineSkus}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setLineRows((rows) => rows.map((r, j) => (j === i ? { ...r, productCode: v } : r)));
+                        }}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-text-muted">SKU ID *</Label>
+                      <Input
+                        className="h-8 mt-0.5 bg-background text-text-primary border-border"
+                        value={p.sku}
+                        disabled={!canEditLineSkus}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setLineRows((rows) => rows.map((r, j) => (j === i ? { ...r, sku: v } : r)));
+                        }}
+                        placeholder="Required for labels"
+                      />
+                    </div>
                   </div>
-                  <p className="text-sm font-semibold text-text-primary">₹{p.price}</p>
                 </div>
               ))}
             </div>
@@ -750,13 +865,45 @@ export function OrderDetailDrawer({
                 </Button>
               )}
 
-              <Button
-                variant="outline"
-                className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30"
-                onClick={() => printShippingLabel(order)}
-              >
-                <Printer className="h-4 w-4" /> Print Label
-              </Button>
+              <div className="col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Button
+                  variant="outline"
+                  className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30"
+                  onClick={() => printShippingLabel(order, labelSettings)}
+                >
+                  <Printer className="h-4 w-4" /> Print Label
+                </Button>
+                <Button
+                  variant="outline"
+                  className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30"
+                  disabled={pdfLoading !== null}
+                  onClick={() => {
+                    setPdfLoading("label");
+                    void downloadShippingLabelPdf(order, labelSettings)
+                      .then(() => toast.success("Label PDF downloaded"))
+                      .catch((err: unknown) => toast.error(errMsg(err)))
+                      .finally(() => setPdfLoading(null));
+                  }}
+                >
+                  {pdfLoading === "label" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                  Label PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30"
+                  disabled={pdfLoading !== null}
+                  onClick={() => {
+                    setPdfLoading("invoice");
+                    void downloadInvoicePdf(order, labelSettings)
+                      .then(() => toast.success("Invoice PDF downloaded"))
+                      .catch((err: unknown) => toast.error(errMsg(err)))
+                      .finally(() => setPdfLoading(null));
+                  }}
+                >
+                  {pdfLoading === "invoice" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                  Invoice PDF
+                </Button>
+              </div>
               <Button
                 variant="outline"
                 className="gap-2 h-10 text-warning hover:bg-warning-light hover:border-warning/30"

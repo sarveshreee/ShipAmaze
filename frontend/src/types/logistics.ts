@@ -58,9 +58,25 @@ export interface Order {
   date: string;
   awb: string;
   amount: number;
-  products: { name: string; qty: number; price: number; weight: string }[];
+  products: { name: string; qty: number; price: number; weight: string; sku?: string; productCode?: string }[];
   /** Line items (alias of products / orderItems from API) */
-  items?: { name: string; qty: number; price: number; weight?: string }[];
+  items?: {
+    name: string;
+    qty: number;
+    price: number;
+    weight?: string;
+    sku?: string;
+    productCode?: string;
+  }[];
+  /** Raw line items from API when present */
+  orderItems?: {
+    name: string;
+    qty: number;
+    price: number;
+    weight?: string;
+    sku?: string;
+    productCode?: string;
+  }[];
   dimensions?: string;
   zone?: string;
   pickupAddress?: string | {

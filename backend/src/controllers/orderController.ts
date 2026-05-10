@@ -305,7 +305,7 @@ function extractItemsFromBody(body: Record<string, unknown>): unknown[] {
   return raw.filter((row) => row !== null && row !== undefined);
 }
 
-function validateOrderItems(items: unknown[]): void {
+function validateOrderItems(items: unknown[], opts?: { requireSku?: boolean }): void {
   if (items.length === 0) throw new AppError(400, "At least one order line item is required");
   for (const row of items) {
     const o = row as Record<string, unknown>;
@@ -317,6 +317,10 @@ function validateOrderItems(items: unknown[]): void {
       throw new AppError(400, "Each item must have a valid quantity (whole number ≥ 1)");
     }
     if (!Number.isFinite(price) || price < 0) throw new AppError(400, "Each item must have a valid price (≥ 0)");
+    if (opts?.requireSku) {
+      const sku = String(o.sku ?? "").trim();
+      if (!sku) throw new AppError(400, "Each line item must have a non-empty SKU");
+    }
   }
 }
 
@@ -716,6 +720,33 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   const h = order.height;
   if (l && w && h) {
     order.dimensions = `${l}x${w}x${h} cm`;
+  }
+
+  const hasLineItemsUpdate =
+    body.orderItems !== undefined || body.items !== undefined || body.products !== undefined;
+  if (hasLineItemsUpdate) {
+    if (req.user.role !== "admin" && req.user.role !== "vendor" && req.user.role !== "dropshipper") {
+      throw new AppError(403, "Forbidden");
+    }
+    const lineItems = extractItemsFromBody(body);
+    if (lineItems.length === 0) {
+      throw new AppError(400, "orderItems must be a non-empty array when updating line items");
+    }
+    validateOrderItems(lineItems, { requireSku: true });
+    order.products = lineItems;
+    order.items = lineItems;
+    order.orderItems = lineItems;
+    order.markModified("products");
+    order.markModified("items");
+    order.markModified("orderItems");
+    const amt = body.amount;
+    if (amt !== undefined && amt !== null && String(amt).trim() !== "") {
+      const n = Number(amt);
+      if (!Number.isFinite(n) || n < 0) throw new AppError(400, "amount must be a valid number ≥ 0");
+      order.amount = n;
+    } else {
+      order.amount = sumItemsAmount(lineItems);
+    }
   }
 
   const rawPickupUpdate = body.pickupAddressId ?? body.pickupWarehouseId;

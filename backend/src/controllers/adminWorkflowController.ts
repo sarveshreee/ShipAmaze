@@ -151,6 +151,11 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
   for (const k of allowed) {
     if (body[k] !== undefined) patch[k] = body[k];
   }
+  if (Object.prototype.hasOwnProperty.call(patch, "sku")) {
+    const sku = String(patch.sku ?? "").trim();
+    if (!sku) throw new AppError(400, "SKU cannot be empty");
+    patch.sku = sku;
+  }
   if (Object.keys(patch).length === 0) throw new AppError(400, "No valid fields");
   const p = await Product.findByIdAndUpdate(id, { $set: patch }, { new: true }).lean();
   if (!p) throw new AppError(404, "Product not found");

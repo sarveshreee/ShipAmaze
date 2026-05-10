@@ -329,8 +329,11 @@ export default function AddOrder() {
       if (!consignee.state.trim()) errors.state = "State is required";
       if (!consignee.country.trim()) errors.country = "Country is required";
     } else if (step === 3) {
-      const hasProduct = products.some(p => p.name.trim());
-      if (!hasProduct) errors.products = "At least one product is required";
+      const named = products.filter((p) => p.name.trim());
+      if (!named.length) errors.products = "At least one product is required";
+      else if (named.some((p) => !String(p.sku || "").trim())) {
+        errors.products = "Each product must have a SKU";
+      }
     } else if (step === 4) {
       const validProducts = products.filter(p => p.name.trim());
       for (let i = 0; i < validProducts.length; i++) {
@@ -492,7 +495,7 @@ export default function AddOrder() {
             price: Number(p.price) || 0,
             weight: "0.5 kg",
             category: p.category,
-            sku: p.sku,
+            sku: String(p.sku || "").trim(),
             hsn: p.hsn,
             discount: 0,
             tax: 0,
@@ -501,7 +504,7 @@ export default function AddOrder() {
           .filter((p) => p.name)
           .map((p) => ({
             name: p.name,
-            sku: p.sku || "",
+            sku: String(p.sku || "").trim(),
             quantity: Number(p.qty) || 1,
             qty: Number(p.qty) || 1,
             units: Number(p.qty) || 1,
@@ -515,7 +518,7 @@ export default function AddOrder() {
           .filter((p) => p.name)
           .map((p) => ({
             name: p.name,
-            sku: p.sku || "",
+            sku: String(p.sku || "").trim(),
             quantity: Number(p.qty) || 1,
             qty: Number(p.qty) || 1,
             units: Number(p.qty) || 1,
