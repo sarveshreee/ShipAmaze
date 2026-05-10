@@ -1,6 +1,6 @@
 # Email & notification testing checklist (ShipAmaze)
 
-Use a real SMTP inbox (or Mailhog) with `backend/.env` configured (`MAIL_FROM_EMAIL`, `SMTP_*` or `GMAIL_*`). Never commit secrets.
+Configure `backend/.env` with **`EMAIL_FROM` + `EMAIL_PASS`** (Gmail + App Password), or `GMAIL_USER` + `GMAIL_APP_PASSWORD`, or custom `SMTP_*`. Never commit secrets.
 
 ## Auth & verification
 

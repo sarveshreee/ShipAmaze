@@ -57,7 +57,11 @@ export async function safeSend(to: string, subject: string, html: string, text: 
   try {
     await sendMailWithSmtp({ to, subject, html, text });
   } catch (e: unknown) {
-    console.error("[email] safeSend error:", safeErrorMessage(e));
+    if (process.env.NODE_ENV === "production") {
+      console.warn("[email] Email send failed: unexpected error");
+    } else {
+      console.warn("[email] safeSend unexpected error:", safeErrorMessage(e));
+    }
   }
 }
 

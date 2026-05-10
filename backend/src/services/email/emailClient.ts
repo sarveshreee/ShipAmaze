@@ -9,14 +9,23 @@ export function envTrim(key: string): string {
   return s;
 }
 
-export type ResolvedSmtp = {
-  host: string;
-  port: number;
-  secure: boolean;
-  auth: { user: string; pass: string };
-  from: string;
-  replyTo?: string;
-};
+/** Resolved outbound mail: Gmail App Password (preferred) or generic SMTP. */
+export type ResolvedSmtp =
+  | {
+      kind: "gmail";
+      from: string;
+      replyTo?: string;
+      auth: { user: string; pass: string };
+    }
+  | {
+      kind: "smtp";
+      host: string;
+      port: number;
+      secure: boolean;
+      from: string;
+      replyTo?: string;
+      auth: { user: string; pass: string };
+    };
 
 export type BrandEmailConfig = {
   logoUrl: string;
@@ -29,7 +38,8 @@ export type BrandEmailConfig = {
 export function getBrandEmailConfig(): BrandEmailConfig {
   return {
     logoUrl: envTrim("BRAND_LOGO_URL") || "",
-    supportEmail: envTrim("BRAND_SUPPORT_EMAIL") || envTrim("SMTP_USER") || envTrim("GMAIL_USER") || "",
+    supportEmail:
+      envTrim("BRAND_SUPPORT_EMAIL") || envTrim("EMAIL_FROM") || envTrim("GMAIL_USER") || envTrim("SMTP_USER") || "",
     websiteUrl: envTrim("BRAND_WEBSITE_URL") || envTrim("FRONTEND_URL") || "http://localhost:8080",
     primaryColor: envTrim("BRAND_PRIMARY_COLOR") || "#2563eb",
     fromName: envTrim("MAIL_FROM_NAME") || "ShipAmaze",
@@ -44,25 +54,42 @@ function buildFromHeader(): string {
   if (legacy) return legacy;
   const gu = envTrim("GMAIL_USER");
   if (gu) return `${name} <${gu}>`;
+  const ef = envTrim("EMAIL_FROM");
+  if (ef) return `${name} <${ef}>`;
   return "";
 }
 
 /**
- * Resolve SMTP: prefers explicit SMTP_* + MAIL_FROM_*, or Gmail shorthand (GMAIL_USER + GMAIL_APP_PASSWORD).
+ * Resolve mail transport (priority):
+ * 1. `EMAIL_FROM` + `EMAIL_PASS` — Gmail App Password (same Nodemailer `service: 'gmail'` as below)
+ * 2. `GMAIL_USER` + `GMAIL_APP_PASSWORD` — Gmail App Password
+ * 3. Custom SMTP (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, plus From via MAIL_FROM_EMAIL / SMTP_FROM / GMAIL_USER / EMAIL_FROM)
+ * 4. null — development-safe skip (no secrets / OTPs logged here)
  */
 export function resolveSmtp(): ResolvedSmtp | null {
+  const emailFrom = envTrim("EMAIL_FROM");
+  const emailPass = envTrim("EMAIL_PASS");
+  if (emailFrom && emailPass) {
+    const login = emailFrom.toLowerCase();
+    const from = buildFromHeader() || `ShipAmaze <${login}>`;
+    return {
+      kind: "gmail",
+      from,
+      replyTo: login,
+      auth: { user: login, pass: emailPass.replace(/\s+/g, "") },
+    };
+  }
+
   const gmailUser = envTrim("GMAIL_USER");
   const gmailAppPass = envTrim("GMAIL_APP_PASSWORD");
 
   if (gmailUser && gmailAppPass) {
     const from = buildFromHeader() || `ShipAmaze <${gmailUser}>`;
     return {
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false,
-      auth: { user: gmailUser, pass: gmailAppPass.replace(/\s+/g, "") },
+      kind: "gmail",
       from,
       replyTo: gmailUser,
+      auth: { user: gmailUser, pass: gmailAppPass.replace(/\s+/g, "") },
     };
   }
 
@@ -73,12 +100,14 @@ export function resolveSmtp(): ResolvedSmtp | null {
 
   if (!host || !user || !pass) {
     if (host && (!user || !pass)) {
-      console.error("[email] SMTP_HOST is set but SMTP_USER / SMTP_PASS are missing.");
+      console.warn("[email] SMTP_HOST is set but SMTP_USER or SMTP_PASS is missing; outbound mail disabled.");
     }
     return null;
   }
   if (!from) {
-    console.error("[email] MAIL_FROM_EMAIL (or SMTP_FROM / GMAIL_USER) is required when using SMTP_HOST.");
+    console.warn(
+      "[email] Custom SMTP requires a From address: set MAIL_FROM_EMAIL (or SMTP_FROM, EMAIL_FROM, or GMAIL_USER)."
+    );
     return null;
   }
 
@@ -86,13 +115,20 @@ export function resolveSmtp(): ResolvedSmtp | null {
   const secure = envTrim("SMTP_SECURE") === "true" || port === 465;
 
   return {
+    kind: "smtp",
     host,
     port,
     secure,
-    auth: { user, pass },
     from,
     replyTo: user,
+    auth: { user, pass },
   };
+}
+
+export function getMailTransportStatus(): "gmail" | "smtp" | "none" {
+  const r = resolveSmtp();
+  if (!r) return "none";
+  return r.kind;
 }
 
 export function isSmtpReady(): boolean {
@@ -106,8 +142,18 @@ export type SendMailPayload = {
   text: string;
 };
 
+function logSendFailure(err: unknown): void {
+  const isProd = process.env.NODE_ENV === "production";
+  if (isProd) {
+    console.warn("[email] Email send failed: transport error");
+  } else {
+    const msg = err instanceof Error ? err.message : "unknown_error";
+    console.warn("[email] Email send failed:", msg);
+  }
+}
+
 /**
- * Sends email via Nodemailer. On failure logs a safe message and rethrows only if throwOnFailure is true.
+ * Sends email via Nodemailer (Gmail service or SMTP). Never logs app passwords or message bodies.
  */
 export async function sendMailWithSmtp(
   payload: SendMailPayload,
@@ -118,37 +164,51 @@ export async function sendMailWithSmtp(
 
   if (!cfg) {
     if (!isProd) {
-      console.info(`[email] SMTP not configured; skipped send to=${payload.to} subject="${payload.subject}"`);
-    } else {
-      console.warn(`[email] SMTP not configured; cannot send to=${payload.to} subject="${payload.subject}"`);
+      console.info(
+        "[email] Transactional email skipped: set EMAIL_FROM+EMAIL_PASS, GMAIL_USER+GMAIL_APP_PASSWORD, or SMTP_*."
+      );
     }
     if (opts?.throwOnFailure) {
-      throw new Error("SMTP is not configured");
+      throw new Error("Email transport is not configured");
     }
-    return { ok: false, reason: "smtp_not_configured" };
+    return { ok: false, reason: "transport_not_configured" };
   }
 
   const nodemailer = (await import("nodemailer")).default;
-  const transporter = nodemailer.createTransport({
-    host: cfg.host,
-    port: cfg.port,
-    secure: cfg.secure,
-    auth: cfg.auth,
-    ...(cfg.port === 587 && !cfg.secure
-      ? {
-          requireTLS: true,
-          tls: { minVersion: "TLSv1.2" as const },
-        }
-      : {}),
-  });
+  const transporter =
+    cfg.kind === "gmail"
+      ? nodemailer.createTransport({
+          service: "gmail",
+          auth: cfg.auth,
+        })
+      : nodemailer.createTransport({
+          host: cfg.host,
+          port: cfg.port,
+          secure: cfg.secure,
+          auth: cfg.auth,
+          ...(cfg.port === 587 && !cfg.secure
+            ? {
+                requireTLS: true,
+                tls: { minVersion: "TLSv1.2" as const },
+              }
+            : {}),
+        });
 
   if (envTrim("SMTP_VERIFY") === "true") {
-    await transporter.verify();
-    if (!isProd) console.info("[email] SMTP verify() OK");
+    try {
+      await transporter.verify();
+      if (!isProd) {
+        console.info("[email] Email transport verified successfully");
+      }
+    } catch (e: unknown) {
+      logSendFailure(e);
+      if (opts?.throwOnFailure) throw e;
+      return { ok: false, reason: "verify_failed" };
+    }
   }
 
   try {
-    const info = await transporter.sendMail({
+    await transporter.sendMail({
       from: cfg.from,
       to: payload.to,
       subject: payload.subject,
@@ -156,14 +216,11 @@ export async function sendMailWithSmtp(
       html: payload.html,
       replyTo: cfg.replyTo,
     });
-    if (envTrim("SMTP_DEBUG") === "true" && !isProd) {
-      console.info("[email] sendMail:", info.messageId, info.response);
-    }
-    return { ok: true, messageId: info.messageId as string | undefined };
+    console.info("[email] Email sent successfully");
+    return { ok: true };
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "send_failed";
-    console.error("[email] sendMail failed:", msg);
+    logSendFailure(e);
     if (opts?.throwOnFailure) throw e;
-    return { ok: false, reason: msg };
+    return { ok: false, reason: "send_failed" };
   }
 }

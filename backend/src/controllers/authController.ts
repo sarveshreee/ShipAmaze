@@ -256,7 +256,7 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response) =
     try {
       await sendPasswordResetOtp(email, code);
     } catch (err) {
-      console.error("[mail] Failed to send password reset email:", safeErrorMessage(err));
+      console.warn("[email] Failed to send password reset email:", safeErrorMessage(err));
     }
   }
   res.json({ ok: true, message: "If an account exists for this email, a reset code has been sent." });

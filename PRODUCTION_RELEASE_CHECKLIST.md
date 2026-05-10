@@ -23,7 +23,9 @@ Copy from `backend/.env.example`. **Never commit real `.env` files.**
 | `SHOPIFY_SCOPES` | As registered in Shopify Partners. |
 | `VELOCITY_ENABLED` | `true` only if Velocity is used; then `VELOCITY_USERNAME` and `VELOCITY_PASSWORD` are **required**. |
 | `VELOCITY_BASE_URL` | Default `https://shazam.velocity.in` if omitted. |
-| Email (`GMAIL_*` or `SMTP_*`) | Optional; without SMTP, password-reset email may not send (see app logs in dev). |
+| `EMAIL_FROM`, `EMAIL_PASS` | Optional transactional email: Gmail address + App Password (preferred names; same as `GMAIL_*`). App starts without them; outbound mail is skipped with a startup warning. |
+| `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Optional; used if `EMAIL_FROM` / `EMAIL_PASS` are not set. |
+| Custom SMTP (`SMTP_*`, `MAIL_FROM_EMAIL`, …) | Optional fallback if Gmail-style vars are not set. |
 
 Optional tuning: `MONGODB_CONNECT_RETRIES`, `RATE_LIMIT_*` (see `.env.example`).
 
@@ -105,7 +107,7 @@ After deploy, run through `SMOKE_TEST_CHECKLIST.md` (auth, pickup, order, wallet
 
 ## 9. Known limitations
 
-- Password reset depends on SMTP or dev-only log visibility.
+- Transactional email requires `EMAIL_FROM`+`EMAIL_PASS`, `GMAIL_USER`+`GMAIL_APP_PASSWORD`, or custom SMTP; otherwise outbound mail is skipped (startup warning only).
 - Shopify OAuth state is in-memory (single-instance or sticky sessions recommended if you scale horizontally; otherwise users may see occasional “invalid state” during connect).
 - CSV exports and reports may cap row counts (see API docs / `REPORTS_BILLING_TESTING_CHECKLIST.md`).
 - No real payment gateway is integrated; wallet/top-up flows are application-level only.
