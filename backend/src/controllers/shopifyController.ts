@@ -404,6 +404,22 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       { shopDomain: conn.shopDomain, inserted, updated, skipped }
     );
 
+    if (shopOrders.length > 0) {
+      try {
+        const { sendShopifySyncEmail } = await import("../services/email/emailService.js");
+        await sendShopifySyncEmail({
+          userId: req.user._id,
+          shopDomain: conn.shopDomain,
+          synced: shopOrders.length,
+          inserted,
+          updated,
+          skipped,
+        });
+      } catch {
+        /* optional email */
+      }
+    }
+
     res.json({
       ok: true,
       synced: shopOrders.length,

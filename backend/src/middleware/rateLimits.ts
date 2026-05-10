@@ -38,6 +38,24 @@ export const shopifyConnectLimiter = rateLimit({
   message: jsonMessage,
 });
 
+/** Email verification OTP verify (per IP). */
+export const emailOtpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_EMAIL_OTP_VERIFY_MAX ?? 30),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: jsonMessage,
+});
+
+/** Resend signup verification OTP (per IP). */
+export const emailOtpResendLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_EMAIL_OTP_RESEND_MAX ?? 8),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: jsonMessage,
+});
+
 /** Public AWB / order tracking. */
 export const publicTrackingLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

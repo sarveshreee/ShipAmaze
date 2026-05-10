@@ -55,6 +55,8 @@ export type CreditWalletInput = {
   referenceType: WalletReferenceType;
   referenceId?: string;
   reason?: string;
+  /** When true, skip wallet transactional email (rare). */
+  suppressWalletEmail?: boolean;
 };
 
 export type DebitWalletInput = {
@@ -65,6 +67,7 @@ export type DebitWalletInput = {
   referenceType: WalletReferenceType;
   referenceId: string;
   reason?: string;
+  suppressWalletEmail?: boolean;
 };
 
 async function insertTransaction(doc: Record<string, unknown>, session: ClientSession | null): Promise<void> {
@@ -111,6 +114,21 @@ export async function creditWallet(input: CreditWalletInput): Promise<{ balanceA
     );
 
     await session.commitTransaction();
+    if (!input.suppressWalletEmail) {
+      try {
+        const { sendWalletTxnEmail } = await import("./email/emailService.js");
+        await sendWalletTxnEmail({
+          userId: input.userId,
+          credit: true,
+          amount: roundMoney(input.amount),
+          balanceAfter,
+          reason: input.reason ?? input.description,
+          reference: input.referenceId ?? txnId,
+        });
+      } catch {
+        /* email must not break ledger */
+      }
+    }
     return { balanceAfter, txnId };
   } catch (e) {
     await session.abortTransaction();
@@ -159,6 +177,21 @@ export async function debitWallet(input: DebitWalletInput): Promise<{ balanceAft
     );
 
     await session.commitTransaction();
+    if (!input.suppressWalletEmail) {
+      try {
+        const { sendWalletTxnEmail } = await import("./email/emailService.js");
+        await sendWalletTxnEmail({
+          userId: input.userId,
+          credit: false,
+          amount: amt,
+          balanceAfter,
+          reason: input.reason ?? input.description,
+          reference: input.referenceId.trim(),
+        });
+      } catch {
+        /* email must not break ledger */
+      }
+    }
     return { balanceAfter, txnId };
   } catch (e) {
     await session.abortTransaction();
@@ -270,6 +303,19 @@ export async function adminAdjustWallet(params: {
     );
 
     await session.commitTransaction();
+    try {
+      const { sendWalletTxnEmail } = await import("./email/emailService.js");
+      await sendWalletTxnEmail({
+        userId: params.targetUserId,
+        credit: raw > 0,
+        amount: amt,
+        balanceAfter,
+        reason,
+        reference: refId,
+      });
+    } catch {
+      /* non-fatal */
+    }
     return { balanceAfter, txnId };
   } catch (e) {
     await session.abortTransaction();

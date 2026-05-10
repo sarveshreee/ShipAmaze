@@ -68,6 +68,7 @@ import BulkUploadProducts from "@/pages/supplier/BulkUploadProducts";
 import ChangePassword from "@/pages/ChangePassword";
 import ProfilePage from "@/pages/ProfilePage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
+import VerifyEmailPage from "@/pages/VerifyEmailPage";
 
 // Marketplace (Home)
 import MarketplaceHome from "@/pages/marketplace/MarketplaceHome";
@@ -119,6 +120,7 @@ function AppRoutes() {
       <Route path="/login" element={<LoginGate />} />
       <Route path="/signup" element={<SignupGate />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/track" element={<PublicTracking />} />
       <Route path="/order-detail" element={<PublicOrderDetail />} />
       <Route path="/product-preview" element={<ProductPreview />} />

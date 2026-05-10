@@ -18,7 +18,7 @@ interface AuthContextType {
     businessName: string,
     phone: string,
     role: UserRole
-  ) => Promise<{ error?: string; user?: AuthUser }>;
+  ) => Promise<{ error?: string; user?: AuthUser; needsVerification?: boolean; verifyEmail?: string }>;
   logout: () => void;
   /** Replace session user from API (e.g. after profile save). */
   applyUser: (u: AuthUser) => void;
@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     role: UserRole
   ) => {
     try {
-      const { user: u } = await authService.register({
+      const res = await authService.register({
         email,
         password,
         name: fullName,
@@ -106,8 +106,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         companyName: businessName,
         phone,
       });
-      setUser(u);
-      return { user: u };
+      if ("needsEmailVerification" in res && res.needsEmailVerification) {
+        return { needsVerification: true, verifyEmail: res.user.email, user: res.user };
+      }
+      if ("token" in res && res.token) {
+        const u = res.user;
+        setUser(u);
+        return { user: u };
+      }
+      return { error: "Unexpected registration response" };
     } catch (e: unknown) {
       return { error: errMessage(e) };
     }
@@ -117,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void authService.logout().finally(() => {
       setUser(null);
       const pathOnly = window.location.pathname;
-      if (!/^\/(login|signup)(\/|$)/i.test(pathOnly)) {
+      if (!/^\/(login|signup|verify-email)(\/|$)/i.test(pathOnly)) {
         window.location.replace(`${window.location.origin}/login`);
       }
     });

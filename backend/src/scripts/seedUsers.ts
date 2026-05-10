@@ -54,6 +54,7 @@ async function ensureUser(u: SeedUser) {
     phone: u.phone ?? "",
     permissions: [],
     status: "active",
+    emailVerified: true,
   });
 
   await Profile.create({ userId: user._id });

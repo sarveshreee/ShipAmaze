@@ -19,6 +19,9 @@ export async function authMiddleware(req: AuthRequest, _res: Response, next: Nex
 
     if (user.status === "blocked") throw new AppError(403, "Your account has been blocked");
     if (user.status === "inactive") throw new AppError(403, "Your account is inactive");
+    if (user.emailVerified === false) {
+      throw new AppError(403, "Please verify your email before logging in.");
+    }
 
     req.user = user;
     next();

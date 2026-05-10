@@ -1,4 +1,5 @@
 import mongoose, { Schema, type Document, type Model, type Types } from "mongoose";
+import { registerOrderEmailHooks } from "../services/orderTransactionalEmail.js";
 
 export interface ITrackingActivity {
   date: string;
@@ -212,5 +213,7 @@ orderSchema.index({ ownerUserId: 1 });
 orderSchema.index({ shipmentStatus: 1 });
 orderSchema.index({ courierName: 1 });
 orderSchema.index({ shopifyShopDomain: 1, shopifyOrderNumericId: 1 }, { sparse: true });
+
+registerOrderEmailHooks(orderSchema);
 
 export const Order: Model<IOrder> = mongoose.models.Order || mongoose.model<IOrder>("Order", orderSchema);

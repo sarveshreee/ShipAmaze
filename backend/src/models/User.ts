@@ -11,6 +11,8 @@ export interface IUser extends Document {
   phone: string;
   permissions: string[];
   status: "active" | "inactive" | "blocked";
+  /** When false, user must verify email before login. Omitted/undefined = legacy verified accounts. */
+  emailVerified?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,6 +27,7 @@ const userSchema = new Schema<IUser>(
     phone: { type: String, default: "" },
     permissions: { type: [String], default: [] },
     status: { type: String, enum: ["active", "inactive", "blocked"], default: "active" },
+    emailVerified: { type: Boolean },
   },
   { timestamps: true }
 );

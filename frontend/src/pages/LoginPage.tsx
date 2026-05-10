@@ -1,20 +1,34 @@
-import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Truck, Package, MapPin, ArrowRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { roleDashboardPath } from "@/services/authService";
+import { roleDashboardPath, resendEmailVerificationOtp } from "@/services/authService";
+import { ApiError } from "@/lib/apiClient";
 
 export default function LoginPage() {
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const { loginWithEmail } = useAuth();
   const navigate = useNavigate();
+  const [verifyHint, setVerifyHint] = useState(false);
+
+  useEffect(() => {
+    const hint = searchParams.get("unverified");
+    const em = searchParams.get("email")?.trim();
+    if (em) setEmail(em);
+    if (hint === "1") {
+      toast.message("Please verify your email before logging in.", {
+        description: "Use Verify email below after entering your password, or open the link from your inbox.",
+      });
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +49,9 @@ export default function LoginPage() {
 
     if (error) {
       toast.error(error);
+      setVerifyHint(error.toLowerCase().includes("verify your email"));
     } else if (user) {
+      setVerifyHint(false);
       toast.success("Logged in successfully!");
       navigate(roleDashboardPath(user.role), { replace: true });
     }
@@ -141,6 +157,40 @@ export default function LoginPage() {
               Sign In
               <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
             </Button>
+            {verifyHint && (
+              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-center text-text-secondary">
+                <Link
+                  to={`/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`}
+                  className="text-primary font-semibold hover:underline"
+                >
+                  Verify email
+                </Link>
+                <span className="text-text-muted"> · </span>
+                <button
+                  type="button"
+                  className="text-primary font-medium hover:underline"
+                  disabled={loading}
+                  onClick={async () => {
+                    const em = email.trim().toLowerCase();
+                    if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+                      toast.error("Enter your email above first");
+                      return;
+                    }
+                    setLoading(true);
+                    try {
+                      await resendEmailVerificationOtp(em);
+                      toast.success("If this account is awaiting verification, a new code was sent.");
+                    } catch (err) {
+                      toast.error(err instanceof ApiError ? err.message : "Could not resend");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                >
+                  Resend code
+                </button>
+              </div>
+            )}
           </form>
 
           <p className="mt-6 text-center text-sm text-text-secondary">

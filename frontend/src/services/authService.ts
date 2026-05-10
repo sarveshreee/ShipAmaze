@@ -17,7 +17,13 @@ export interface AuthUser {
   phone: string;
   address: string;
   avatarUrl: string | null;
+  /** False when signup verification is still required. */
+  emailVerified?: boolean;
 }
+
+export type RegisterResult =
+  | { needsEmailVerification: true; message?: string; user: AuthUser }
+  | { user: AuthUser; token: string };
 
 export async function login(email: string, password: string) {
   const res = await apiClient.post<{ user: AuthUser; token: string }>("/auth/login", { email, password });
@@ -32,10 +38,20 @@ export async function register(payload: {
   role: UserRole;
   companyName?: string;
   phone?: string;
-}) {
-  const res = await apiClient.post<{ user: AuthUser; token: string }>("/auth/register", payload);
+}): Promise<RegisterResult> {
+  const res = await apiClient.post<RegisterResult>("/auth/register", payload);
+  if ("token" in res && res.token) setStoredToken(res.token);
+  return res;
+}
+
+export async function verifyEmailOtp(email: string, otp: string) {
+  const res = await apiClient.post<{ user: AuthUser; token: string }>("/auth/verify-email-otp", { email, otp });
   setStoredToken(res.token);
   return res;
+}
+
+export async function resendEmailVerificationOtp(email: string) {
+  return apiClient.post<{ ok: boolean; message: string }>("/auth/resend-email-otp", { email });
 }
 
 export async function logout() {

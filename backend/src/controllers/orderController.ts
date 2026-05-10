@@ -897,6 +897,8 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
     }
   }
 
+  const prevStatusByOrderId = new Map(orders.map((o) => [o.orderId, String(o.status ?? "")]));
+
   const now = new Date();
   const result = await Order.updateMany(
     { orderId: { $in: ids } },
@@ -908,6 +910,15 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
       },
     }
   );
+
+  const refreshed = await Order.find({ orderId: { $in: ids } }).lean();
+  const { sendOrderTrackingEmail } = await import("../services/email/emailService.js");
+  for (const row of refreshed) {
+    void sendOrderTrackingEmail({
+      order: row as never,
+      previousStatusRaw: prevStatusByOrderId.get(row.orderId) ?? "",
+    });
+  }
 
   res.json({
     success: true,

@@ -22,7 +22,7 @@ async function main() {
     console.log(`[server] CORS origins: ${process.env.CORS_ORIGIN ?? "(dev: permissive if unset)"}`);
     console.log(`[server] JWT: ${process.env.JWT_SECRET?.trim() ? "configured" : "missing (dev fallback may apply)"}`);
     console.log(`[server] ENCRYPTION_SECRET: ${process.env.ENCRYPTION_SECRET?.trim() ? "configured" : "missing (dev may use JWT for key derivation)"}`);
-    console.log(`[server] Password-reset email: ${isSmtpReady() ? "SMTP configured" : "not configured (codes only in server log in dev)"}`);
+    console.log(`[server] Transactional email (SMTP): ${isSmtpReady() ? "configured" : "not configured (emails skipped until MAIL_FROM_EMAIL + SMTP_* or GMAIL_* are set)"}`);
     console.log(`[server] Shopify API: ${process.env.SHOPIFY_API_KEY?.trim() ? "configured" : "(not set)"}`);
     if (isVelocityEnabledFlag()) {
       console.log(`[server] Velocity: enabled (credentials ${process.env.VELOCITY_USERNAME?.trim() ? "set" : "missing"})`);

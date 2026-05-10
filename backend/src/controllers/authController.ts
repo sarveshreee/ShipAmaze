@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { AuthRequest } from "../middleware/authMiddleware.js";
 import { User } from "../models/User.js";
 import { PasswordResetOtp } from "../models/PasswordResetOtp.js";
+import { EmailVerificationOtp } from "../models/EmailVerificationOtp.js";
 import { sendPasswordResetOtp } from "../services/mail.js";
 import { Profile } from "../models/Profile.js";
 import { Vendor } from "../models/Vendor.js";
@@ -14,6 +15,14 @@ import { signToken } from "../utils/jwt.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { safeErrorMessage } from "../utils/logRedact.js";
+
+const EMAIL_OTP_MINUTES = Math.min(60, Math.max(5, Number(process.env.EMAIL_VERIFICATION_OTP_MINUTES ?? 10) || 10));
+const EMAIL_OTP_MAX_ATTEMPTS = Math.min(20, Math.max(3, Number(process.env.EMAIL_VERIFICATION_MAX_ATTEMPTS ?? 5) || 5));
+const PASSWORD_RESET_MAX_ATTEMPTS = Math.min(20, Math.max(3, Number(process.env.PASSWORD_RESET_MAX_ATTEMPTS ?? 8) || 8));
+
+function isEmailVerifiedForLogin(user: { emailVerified?: boolean }): boolean {
+  return user.emailVerified !== false;
+}
 
 const registerSchema = z.object({
   email: z.string().min(1, "Email is required").email("Invalid email address"),
@@ -37,6 +46,7 @@ async function toPublicUser(user: {
   permissions: string[];
   companyName: string;
   phone?: string;
+  emailVerified?: boolean;
 }) {
   const profile = await Profile.findOne({ userId: user._id }).lean();
   return {
@@ -47,6 +57,7 @@ async function toPublicUser(user: {
     permissions: user.permissions,
     companyName: user.companyName,
     phone: user.phone ?? "",
+    emailVerified: user.emailVerified !== false,
     address: profile?.address ?? "",
     avatarUrl:
       profile?.avatarUrl && String(profile.avatarUrl).trim() ? String(profile.avatarUrl).trim() : null,
@@ -67,6 +78,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     companyName: body.companyName ?? "",
     phone: body.phone ?? "",
     permissions: [],
+    emailVerified: false,
   });
 
   await Profile.create({ userId: user._id });
@@ -92,9 +104,27 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
-  const token = signToken({ sub: String(user._id), role: user.role });
+  const code = String(crypto.randomInt(100000, 1000000));
+  const otpHash = await bcrypt.hash(code, 10);
+  const expiresAt = new Date(Date.now() + EMAIL_OTP_MINUTES * 60 * 1000);
+  await EmailVerificationOtp.findOneAndUpdate(
+    { email: user.email },
+    { $set: { otpHash, expiresAt, attempts: 0 } },
+    { upsert: true }
+  );
+  try {
+    const { sendSignupVerificationOtp } = await import("../services/email/emailService.js");
+    await sendSignupVerificationOtp(user.email, user.name, code, EMAIL_OTP_MINUTES);
+  } catch (err) {
+    console.error("[auth] Failed to send verification email:", safeErrorMessage(err));
+  }
+
   const publicUser = await toPublicUser(user);
-  res.status(201).json({ user: publicUser, token });
+  res.status(201).json({
+    needsEmailVerification: true,
+    message: "Please verify your email. We sent a 6-digit code to your inbox.",
+    user: publicUser,
+  });
 });
 
 export const login = asyncHandler(async (req: Request, res: Response) => {
@@ -107,6 +137,10 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
   const ok = await bcrypt.compare(body.password, user.passwordHash);
   if (!ok) throw new AppError(401, "Incorrect password");
+
+  if (!isEmailVerifiedForLogin(user)) {
+    throw new AppError(403, "Please verify your email before logging in.");
+  }
 
   const token = signToken({ sub: String(user._id), role: user.role });
   const publicUser = await toPublicUser(user);
@@ -138,6 +172,13 @@ export const updateProfile = asyncHandler(async (req: AuthRequest, res: Response
   if (body.phone !== undefined) req.user.phone = body.phone.trim();
   if (body.companyName !== undefined) req.user.companyName = body.companyName.trim();
   await req.user.save();
+
+  try {
+    const { sendSecurityEmail } = await import("../services/email/emailService.js");
+    await sendSecurityEmail(req.user._id, "profile_updated");
+  } catch (err) {
+    console.error("[auth] profile security email:", safeErrorMessage(err));
+  }
 
   if (body.address !== undefined || body.avatarUrl !== undefined) {
     const $set: Record<string, string> = {};
@@ -185,6 +226,12 @@ export const changePassword = asyncHandler(async (req: AuthRequest, res: Respons
   if (!ok) throw new AppError(400, "Current password is incorrect");
   req.user.passwordHash = await bcrypt.hash(body.newPassword, 10);
   await req.user.save();
+  try {
+    const { sendSecurityEmail } = await import("../services/email/emailService.js");
+    await sendSecurityEmail(req.user._id, "password_changed");
+  } catch (err) {
+    console.error("[auth] password-changed email:", safeErrorMessage(err));
+  }
   res.json({ ok: true });
 });
 
@@ -203,7 +250,7 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response) =
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
     await PasswordResetOtp.findOneAndUpdate(
       { email },
-      { $set: { otpHash, expiresAt } },
+      { $set: { otpHash, expiresAt, attempts: 0 } },
       { upsert: true }
     );
     try {
@@ -244,11 +291,90 @@ export const resetPasswordWithOtp = asyncHandler(async (req: Request, res: Respo
   if (!record || record.expiresAt.getTime() <= Date.now()) {
     throw new AppError(400, "Invalid or expired code");
   }
+  const attempts = record.attempts ?? 0;
+  if (attempts >= PASSWORD_RESET_MAX_ATTEMPTS) {
+    throw new AppError(429, "Too many attempts. Please request a new reset code.");
+  }
   const otpOk = await bcrypt.compare(body.otp.trim(), record.otpHash);
-  if (!otpOk) throw new AppError(400, "Invalid or expired code");
+  if (!otpOk) {
+    await PasswordResetOtp.updateOne({ email }, { $inc: { attempts: 1 } });
+    throw new AppError(400, "Invalid or expired code");
+  }
 
   user.passwordHash = await bcrypt.hash(body.newPassword, 10);
   await user.save();
   await PasswordResetOtp.deleteMany({ email });
   res.json({ ok: true });
+});
+
+const verifyEmailOtpSchema = z.object({
+  email: z.string().min(1).email(),
+  otp: z.string().min(6).max(6),
+});
+
+export const verifyEmailOtp = asyncHandler(async (req: Request, res: Response) => {
+  const body = verifyEmailOtpSchema.parse(req.body);
+  const email = body.email.trim().toLowerCase();
+  const user = await User.findOne({ email });
+  if (!user) throw new AppError(400, "Invalid or expired code");
+  if (user.emailVerified !== false) {
+    throw new AppError(400, "Email is already verified");
+  }
+
+  const record = await EmailVerificationOtp.findOne({ email });
+  if (!record || record.expiresAt.getTime() <= Date.now()) {
+    throw new AppError(400, "Invalid or expired code");
+  }
+  if ((record.attempts ?? 0) >= EMAIL_OTP_MAX_ATTEMPTS) {
+    throw new AppError(429, "Too many attempts. Please request a new code.");
+  }
+
+  const otpOk = await bcrypt.compare(body.otp.trim(), record.otpHash);
+  if (!otpOk) {
+    await EmailVerificationOtp.updateOne({ email }, { $inc: { attempts: 1 } });
+    throw new AppError(400, "Invalid or expired code");
+  }
+
+  user.emailVerified = true;
+  await user.save();
+  await EmailVerificationOtp.deleteMany({ email });
+
+  try {
+    const { sendWelcomeEmail, sendSecurityEmail } = await import("../services/email/emailService.js");
+    await sendWelcomeEmail(user.email, user.name, user.role);
+    await sendSecurityEmail(user._id, "email_verified");
+  } catch (err) {
+    console.error("[auth] welcome/security email:", safeErrorMessage(err));
+  }
+
+  const token = signToken({ sub: String(user._id), role: user.role });
+  const publicUser = await toPublicUser(user);
+  res.json({ user: publicUser, token });
+});
+
+const resendEmailOtpSchema = z.object({
+  email: z.string().min(1).email(),
+});
+
+export const resendEmailVerificationOtp = asyncHandler(async (req: Request, res: Response) => {
+  const body = resendEmailOtpSchema.parse(req.body);
+  const email = body.email.trim().toLowerCase();
+  const user = await User.findOne({ email });
+  if (user && user.emailVerified === false) {
+    const code = String(crypto.randomInt(100000, 1000000));
+    const otpHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + EMAIL_OTP_MINUTES * 60 * 1000);
+    await EmailVerificationOtp.findOneAndUpdate(
+      { email },
+      { $set: { otpHash, expiresAt, attempts: 0 } },
+      { upsert: true }
+    );
+    try {
+      const { sendSignupVerificationOtp } = await import("../services/email/emailService.js");
+      await sendSignupVerificationOtp(email, user.name, code, EMAIL_OTP_MINUTES);
+    } catch (err) {
+      console.error("[auth] resend verification email:", safeErrorMessage(err));
+    }
+  }
+  res.json({ ok: true, message: "If this account exists and is awaiting verification, a new code has been sent." });
 });

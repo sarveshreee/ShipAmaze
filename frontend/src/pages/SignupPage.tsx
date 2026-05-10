@@ -55,11 +55,21 @@ export default function SignupPage() {
     }
 
     setLoading(true);
-    const { error } = await signupWithEmail(trimmedEmail, password, fullName, businessName, phone, role);
+    const { error, needsVerification, verifyEmail } = await signupWithEmail(
+      trimmedEmail,
+      password,
+      fullName,
+      businessName,
+      phone,
+      role
+    );
     setLoading(false);
 
     if (error) {
       toast.error(error);
+    } else if (needsVerification && verifyEmail) {
+      toast.success("Check your email for a verification code.");
+      navigate(`/verify-email?email=${encodeURIComponent(verifyEmail)}`, { replace: true });
     } else {
       toast.success("Account created successfully!");
       navigate(roleDashboardPath(role), { replace: true });

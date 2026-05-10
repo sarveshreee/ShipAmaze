@@ -6,6 +6,8 @@ import { notFoundHandler } from "./middleware/notFound.js";
 import {
   authRouteLimiter,
   passwordResetLimiter,
+  emailOtpVerifyLimiter,
+  emailOtpResendLimiter,
   publicTrackingLimiter,
   shopifyCallbackLimiter,
   shopifyConnectLimiter,
@@ -76,6 +78,8 @@ export function createApp() {
 
   api.post("/auth/register", authRouteLimiter, authController.register);
   api.post("/auth/login", authRouteLimiter, authController.login);
+  api.post("/auth/verify-email-otp", emailOtpVerifyLimiter, authController.verifyEmailOtp);
+  api.post("/auth/resend-email-otp", emailOtpResendLimiter, authController.resendEmailVerificationOtp);
   api.post("/auth/forgot-password", passwordResetLimiter, authController.forgotPassword);
   api.post("/auth/reset-password", passwordResetLimiter, authController.resetPasswordWithOtp);
   api.get("/auth/me", authMiddleware, authController.me);

@@ -47,6 +47,8 @@ function shouldAttachAuthToken(path: string): boolean {
   if (
     p === "/auth/login" ||
     p === "/auth/register" ||
+    p === "/auth/verify-email-otp" ||
+    p === "/auth/resend-email-otp" ||
     p === "/auth/forgot-password" ||
     p === "/auth/reset-password" ||
     p === "/public/settings/label-invoice"
@@ -83,7 +85,7 @@ export async function apiRequest<T>(
     setStoredToken(null);
     window.dispatchEvent(new CustomEvent("shipamaze:unauthorized"));
     const pathOnly = window.location.pathname;
-    if (!/^\/(login|signup|forgot-password)(\/|$)/i.test(pathOnly)) {
+    if (!/^\/(login|signup|forgot-password|verify-email)(\/|$)/i.test(pathOnly)) {
       window.location.replace(`${window.location.origin}/login`);
     }
   }
