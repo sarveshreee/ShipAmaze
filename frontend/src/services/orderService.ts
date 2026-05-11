@@ -156,3 +156,21 @@ export async function bulkMoveOrders(orderIds: string[], targetStatus: "ready_to
     targetStatus,
   });
 }
+
+export type ProcessSelectedPayload = {
+  orderIds: string[];
+  pickupAddressId: string;
+  courierName: string;
+  shipmentMode: "forward" | "reverse";
+  weight?: number;
+  length?: number;
+  width?: number;
+  height?: number;
+};
+
+export async function processSelectedOrders(payload: ProcessSelectedPayload) {
+  return apiClient.post<{ success: boolean; updatedCount: number; updated: { orderId: string; awb: string }[] }>(
+    "/orders/process-selected",
+    payload
+  );
+}

@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import type { IUser } from "../models/User.js";
 import { Vendor } from "../models/Vendor.js";
 
@@ -27,23 +28,25 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
   const t = tab.toLowerCase();
   if (t === "junk") return undefined;
 
+  // All / Channel / Manual include Ready-to-Ship (and other non-junk, non-reship) so admins can
+  // "Process Selected" from these tabs without switching away from channel/manual slices.
   if (t === "all") {
     return {
       isJunk: { $ne: true },
-      status: { $nin: [...READY_OR_PENDING_PICKUP, "reship"] },
+      status: { $ne: "reship" },
     };
   }
   if (t === "channel") {
     return {
       isJunk: { $ne: true },
-      status: { $nin: [...READY_OR_PENDING_PICKUP, "reship"] },
+      status: { $ne: "reship" },
       $or: [{ externalSource: "shopify" }, { channel: "Shopify" }],
     };
   }
   if (t === "manual") {
     return {
       isJunk: { $ne: true },
-      status: { $nin: [...READY_OR_PENDING_PICKUP, "reship"] },
+      status: { $ne: "reship" },
       $nor: [{ externalSource: "shopify" }, { channel: "Shopify" }],
     };
   }
@@ -162,12 +165,14 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
 
   let dateFrom: Date | undefined;
   let dateTo: Date | undefined;
-  if (q.dateFrom) {
-    const d = new Date(String(q.dateFrom));
+  const rawFrom = q.dateFrom ?? q.fromDate;
+  const rawTo = q.dateTo ?? q.toDate;
+  if (rawFrom) {
+    const d = new Date(String(rawFrom));
     if (!Number.isNaN(d.getTime())) dateFrom = d;
   }
-  if (q.dateTo) {
-    const d = new Date(String(q.dateTo));
+  if (rawTo) {
+    const d = new Date(String(rawTo));
     if (!Number.isNaN(d.getTime())) dateTo = d;
   }
 
@@ -203,7 +208,8 @@ function escapeRegex(s: string): string {
 
 /** Case-insensitive partial match across order id, tracking, customer, line items, etc. */
 export function buildSearchQuery(search: string): Record<string, unknown> {
-  const esc = escapeRegex(search.trim());
+  const trimmed = search.trim();
+  const esc = escapeRegex(trimmed);
   const rx = new RegExp(esc, "i");
   const or: Record<string, unknown>[] = [
     { orderId: rx },
@@ -212,11 +218,13 @@ export function buildSearchQuery(search: string): Record<string, unknown> {
     { customerPhone: rx },
     { awb: rx },
     { trackingId: rx },
+    { trackingUrl: rx },
     { shipmentId: rx },
     { velocityShipmentId: rx },
     { velocityOrderId: rx },
     { externalOrderName: rx },
     { shopifyOrderNumericId: rx },
+    { channel: rx },
     { "products.name": rx },
     { "products.title": rx },
     { "products.sku": rx },
@@ -230,6 +238,13 @@ export function buildSearchQuery(search: string): Record<string, unknown> {
     { "shopifyLineItems.title": rx },
     { "shopifyLineItems.sku": rx },
   ];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && String(trimmed).length === 24) {
+    try {
+      or.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+    } catch {
+      /* ignore invalid cast */
+    }
+  }
   return { $or: or };
 }
 

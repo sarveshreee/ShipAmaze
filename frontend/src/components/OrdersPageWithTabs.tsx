@@ -10,6 +10,7 @@ import { useCouriers, useOrdersQuery, usePickupAddresses } from "@/hooks/useApiD
 import type { Order } from "@/types/logistics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Search, Download, Package, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -74,7 +75,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   }, [activeTab, channelPayment, advancedFilters.payment]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => window.clearTimeout(t);
   }, [search]);
 
@@ -138,12 +139,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const isAdmin = role === "admin";
 
-  // Operational processing actions are restricted to specific tabs
-  const PROCESS_TABS = new Set(["ready-to-ship", "pending-pickup", "in-transit", "out-for-delivery"]);
-  const tabAllowsProcessing = PROCESS_TABS.has(activeTab);
-
-  // Process Selected: admin only
-  const showProcessSelected = isAdmin && tabAllowsProcessing;
+  /** Admin: show Process Selected on all tabs except Junk (same workflow everywhere). */
+  const ADMIN_PROCESS_TABS = useMemo(
+    () => new Set(tabs.map((t) => t.filter).filter((f) => f !== "junk")),
+    []
+  );
+  const showProcessSelected = isAdmin && ADMIN_PROCESS_TABS.has(activeTab);
 
   const BULK_MOVE_TO_READY_TABS = new Set(["all", "channel", "manual"]);
   const showBulkMoveToReady = BULK_MOVE_TO_READY_TABS.has(activeTab);
@@ -223,26 +224,24 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     return tags;
   }, [advancedFilters, activeTab, channelPayment, channelFulfillment]);
 
-  const hasListFilters = Boolean(debouncedSearch) || filterTags.length > 0;
+  const hasListFilters =
+    Boolean(debouncedSearch) ||
+    filterTags.length > 0 ||
+    Boolean(advancedFilters.dateFrom) ||
+    Boolean(advancedFilters.dateTo);
 
   const filterByTab = (o: Order, tab: string) => {
     const status = (o as any).status;
-    const st = String(status ?? "").toLowerCase();
     const isReship = status === "reship";
     const isJunk = Boolean((o as any).isJunk);
     const channel = ((o as any).channel as string | undefined) ?? "";
     const externalSource = ((o as any).externalSource as string | undefined) ?? "";
-    const isReadyOrPendingPickup =
-      st === "ready-to-ship" ||
-      st === "ready_to_ship" ||
-      st === "pending-pickup" ||
-      st === "pending_pickup";
-    if (tab === "all") return !isJunk && !isReship && !isReadyOrPendingPickup;
+    if (tab === "all") return !isJunk && !isReship;
     if (tab === "channel") {
-      return (channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship && !isReadyOrPendingPickup;
+      return (channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship;
     }
     if (tab === "manual") {
-      return !(channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship && !isReadyOrPendingPickup;
+      return !(channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship;
     }
     if (tab === "pending-pickup") {
       return !!(o as any).courier && !isJunk && !isReship && (status === "pending-pickup" || (status === "ready-to-ship" && !(o as any).picked_up));
@@ -253,6 +252,21 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   };
 
   const filtered = orders;
+
+  const selectedOrders = useMemo(() => filtered.filter((o) => selected.has(o.id)), [filtered, selected]);
+  const canProcessSelectedSelection = useMemo(() => {
+    if (selectedOrders.length === 0) return false;
+    return selectedOrders.every((o) => {
+      const st = String(o.status ?? "").toLowerCase().replace(/-/g, "_");
+      const ready = st === "ready_to_ship";
+      if ((o as { isJunk?: boolean }).isJunk) return false;
+      if (o.shipmentCreated) return false;
+      if (String(o.awb ?? "").trim()) return false;
+      return ready;
+    });
+  }, [selectedOrders]);
+
+  const [processSubmitting, setProcessSubmitting] = useState(false);
 
   const getCount = useCallback(
     (filter: string) => {
@@ -369,12 +383,38 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         <div className="relative flex-1 min-w-[160px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
           <Input
-            placeholder="Search by order ID, tracking ID, mobile, customer, product, SKU…"
+            placeholder="Search by tracking ID, order ID, order number, mobile, customer, product, SKU"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
             aria-label="Search orders"
           />
+        </div>
+        <div className="flex flex-wrap items-end gap-2 shrink-0">
+          <div>
+            <Label className="text-xs text-text-muted block mb-1">From date</Label>
+            <Input
+              type="date"
+              className="h-9 w-[150px] text-sm"
+              value={advancedFilters.dateFrom ?? ""}
+              onChange={(e) =>
+                setAdvancedFilters((p) => ({ ...p, dateFrom: e.target.value ? e.target.value : undefined }))
+              }
+              aria-label="Filter from date"
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-text-muted block mb-1">To date</Label>
+            <Input
+              type="date"
+              className="h-9 w-[150px] text-sm"
+              value={advancedFilters.dateTo ?? ""}
+              onChange={(e) =>
+                setAdvancedFilters((p) => ({ ...p, dateTo: e.target.value ? e.target.value : undefined }))
+              }
+              aria-label="Filter to date"
+            />
+          </div>
         </div>
         <Button
           type="button"
@@ -475,6 +515,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           activeTab={activeTab}
           onToggleSidebar={() => window.dispatchEvent(new Event('toggle-sidebar'))}
           showProcessSelected={showProcessSelected}
+          processSelectedDisabled={selected.size > 0 && !canProcessSelectedSelection}
           showBulkMoveToReady={showBulkMoveToReady}
           couriers={couriers}
           warehouses={linkedWarehouseOptions}
@@ -508,12 +549,24 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
       <ProcessSelectedModal
         open={processModalOpen}
-        onClose={() => setProcessModalOpen(false)}
-        selectedCount={selected.size}
-        onSubmit={() => {
-          toast.success(`Processing ${selected.size} order(s)`);
-          setProcessModalOpen(false);
-          setSelected(new Set());
+        onClose={() => !processSubmitting && setProcessModalOpen(false)}
+        orderIds={Array.from(selected)}
+        couriers={couriers.map((c) => ({ id: c.id, name: c.name }))}
+        submitting={processSubmitting}
+        onProcess={async (payload) => {
+          setProcessSubmitting(true);
+          try {
+            const res = await orderService.processSelectedOrders(payload);
+            toast.success(`Processed ${res.updatedCount} order(s)`);
+            setProcessModalOpen(false);
+            setSelected(new Set());
+            await refetch();
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Process selected failed";
+            toast.error(msg);
+          } finally {
+            setProcessSubmitting(false);
+          }
         }}
       />
     </div>

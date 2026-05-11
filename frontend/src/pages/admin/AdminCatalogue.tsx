@@ -125,7 +125,7 @@ export default function AdminCatalogue() {
     }
     setSaving(true);
     try {
-      const r = await adminWorkflowService.adminBulkCatalog(ids, action);
+      const r = await adminWorkflowService.adminBulkCatalogue(ids, action);
       toast.success(`Updated ${r.modified} product(s)`);
       setSelected(new Set());
       await load();

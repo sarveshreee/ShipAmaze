@@ -1,8 +1,9 @@
-﻿{
+{
   "name": "shipamaze",
   "private": true,
   "type": "module",
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "concurrently": "^9.0.1"
   },
   "scripts": {
@@ -10,7 +11,13 @@
     "dev:frontend": "powershell -NoProfile -Command \"cd frontend; npm run dev\"",
     "dev:backend": "powershell -NoProfile -Command \"cd backend; npm run dev\"",
     "build": "powershell -NoProfile -Command \"cd frontend; npm run build\"",
+    "build:backend": "powershell -NoProfile -Command \"cd backend; npm run build\"",
+    "build:all": "powershell -NoProfile -Command \"cd backend; npm run build; cd ..\\frontend; npm run build\"",
     "lint": "powershell -NoProfile -Command \"cd frontend; npm run lint\"",
-    "test": "powershell -NoProfile -Command \"cd frontend; npm run test\""
+    "typecheck": "powershell -NoProfile -Command \"cd backend; npm run typecheck; cd ..\\frontend; npm run typecheck\"",
+    "test": "powershell -NoProfile -Command \"cd frontend; npm run test\"",
+    "test:backend": "powershell -NoProfile -Command \"cd backend; npm run test\"",
+    "test:all": "powershell -NoProfile -Command \"cd backend; npm run test; cd ..\\frontend; npm run test\"",
+    "test:e2e": "powershell -NoProfile -Command \"npx playwright test\""
   }
 }

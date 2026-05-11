@@ -329,6 +329,8 @@ interface Props {
   activeTab?: string;
   onToggleSidebar?: () => void;
   showProcessSelected?: boolean;
+  /** When true, Process Selected is visible but disabled (e.g. selection includes non–Ready-to-Ship orders). */
+  processSelectedDisabled?: boolean;
   /** All / Manual / Channel tabs: bulk move to Ready to Ship only */
   showBulkMoveToReady?: boolean;
   onBulkMoveToReady?: () => Promise<void>;
@@ -359,6 +361,7 @@ export function RichOrdersTable({
   activeTab,
   onToggleSidebar,
   showProcessSelected = true,
+  processSelectedDisabled = false,
   showBulkMoveToReady = false,
   onBulkMoveToReady,
   couriers: _couriers = [],
@@ -621,7 +624,21 @@ export function RichOrdersTable({
               </>
             )}
             {showProcessSelected && (
-              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onOpenProcessModal}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                disabled={processSelectedDisabled}
+                title={
+                  processSelectedDisabled
+                    ? "All selected orders must be Ready to Ship with no AWB and no shipment created"
+                    : undefined
+                }
+                onClick={() => {
+                  if (processSelectedDisabled) return;
+                  onOpenProcessModal?.();
+                }}
+              >
                 <CheckSquare className="h-3.5 w-3.5" /> Process Selected
               </Button>
             )}
