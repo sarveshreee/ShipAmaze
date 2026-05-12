@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import { indianStates } from "@/constants/indianStates";
 import { MapPin, Plus, Edit, Trash2, Star, Phone, User, Mail } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -246,6 +247,11 @@ export default function DropshipperPickupAddresses() {
                           Default
                         </span>
                       )}
+                      {(Boolean(a.velocityWarehouseId?.trim()) || a.velocityLinked) && (
+                        <Badge variant="secondary" className="text-[10px] font-medium px-2 py-0 h-5 border-indigo-500/40 bg-indigo-500/15 text-indigo-700 dark:text-indigo-200">
+                          Velocity Linked
+                        </Badge>
+                      )}
                       {a.isActive === false ? (
                         <span className="inline-flex rounded-full bg-text-muted/20 text-text-muted px-2 py-0.5 text-[10px] font-medium">
                           Inactive
@@ -256,6 +262,9 @@ export default function DropshipperPickupAddresses() {
                         </span>
                       )}
                     </div>
+                    {a.velocityStatus ? (
+                      <p className="mt-1 text-[10px] text-text-muted">Velocity: {a.velocityStatus}</p>
+                    ) : null}
                   </div>
                 </div>
               </div>

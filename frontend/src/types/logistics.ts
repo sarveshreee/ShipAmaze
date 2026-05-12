@@ -246,6 +246,10 @@ export interface PickupAddress {
   isActive?: boolean;
   /** Set after linking to Velocity dashboard warehouse */
   velocityWarehouseId?: string;
+  /** Present when API exposes explicit link flag */
+  velocityLinked?: boolean;
+  /** Velocity sync / link status from integration when available */
+  velocityStatus?: string;
 }
 
 export interface Manifest {

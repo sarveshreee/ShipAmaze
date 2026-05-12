@@ -342,7 +342,21 @@ interface Props {
     orderId: string;
     warehouseId: string;
     carrier_id?: string | number | "";
-  }) => Promise<{ success: boolean; data: { awb_code: string; carrier_name: string } }>;
+  }) => Promise<{
+    success: boolean;
+    data: {
+      order_id: string;
+      shipment_id: string;
+      awb_code: string;
+      carrier_name: string;
+      label_url?: string;
+      manifest_url?: string;
+      shipping_charges?: number;
+      cod_charges?: number;
+      rto_charges?: number;
+      status: string;
+    };
+  }>;
   /** Shown under the icon when the server returned zero rows (not loading). */
   emptyDescription?: string;
 }

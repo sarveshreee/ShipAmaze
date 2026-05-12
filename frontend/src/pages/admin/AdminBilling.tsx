@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import * as invoiceService from "@/services/invoiceService";
-import type { Invoice, InvoiceDetail } from "@/services/invoiceService";
+import type { InvoiceDetail } from "@/services/invoiceService";
+import type { Invoice } from "@/types/logistics";
 import * as walletService from "@/services/walletService";
 import type { CODRemittance } from "@/types/logistics";
 import { FileText, Download, IndianRupee, Clock, CheckCircle2, AlertTriangle, Loader2, RefreshCw, ExternalLink } from "lucide-react";

@@ -173,7 +173,7 @@ export default function PublicOrderDetail() {
         }
 
         try {
-          const data = (await orderService.getPublicOrder(orderId)) as Record<string, unknown>;
+          const data = (await orderService.getPublicOrder(orderId)) as unknown as Record<string, unknown>;
           if (data && (data as { id?: string }).id) {
             setOrder(
               normalizeOrderRecord({
@@ -201,7 +201,7 @@ export default function PublicOrderDetail() {
           /* try AWB */
         }
         try {
-          const data = (await orderService.trackByAwb(orderId)) as Record<string, unknown>;
+          const data = (await orderService.trackByAwb(orderId)) as unknown as Record<string, unknown>;
           if (data && (data as { id?: string }).id) {
             setOrder(
               normalizeOrderRecord({

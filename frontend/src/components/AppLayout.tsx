@@ -109,6 +109,7 @@ const dropshipperNav: NavGroup[] = [
     { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet", tabKey: "wallet" },
     { label: "Rate Calculator", icon: Calculator, path: "/dropshipper/rates", tabKey: "rates" },
     { label: "Weight Disputes", icon: Scale, path: "/dropshipper/weight-disputes", tabKey: "weight-disputes" },
+    { label: "Pickup Addresses", icon: MapPin, path: "/dropshipper/pickup-addresses", tabKey: "addresses" },
   ]},
   { title: "", items: [
     { label: "Profile", icon: User, path: "/dropshipper/profile" },
@@ -132,7 +133,6 @@ function profilePathForRole(role: UserRole) {
 function walletPagePath(role: UserRole) {
   if (role === "vendor") return "/vendor/wallet";
   if (role === "dropshipper") return "/dropshipper/wallet";
-  if (role === "vendor") return "/vendor/payouts";
   return "/admin/finance";
 }
 
@@ -230,6 +230,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     for (const group of nav) {
       for (const item of group.items) {
         if (location.pathname === item.path) return item.label;
+        const children = (item as NavItem & { children?: NavItem[] }).children;
+        const child = children?.find((c) => location.pathname === c.path);
+        if (child) return child.label;
       }
     }
     return "Dashboard";
@@ -265,12 +268,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             to={role === "dropshipper" ? "/dropshipper/home" : role === "admin" ? "/admin/dashboard" : "/vendor/dashboard"}
             className="flex items-center gap-2 min-w-0 flex-1"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
-              <Package className="h-4 w-4 text-sidebar-primary-foreground" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 dark:bg-indigo-600">
+              <Package className="h-4 w-4 text-white" />
             </div>
-            <span className="text-lg font-bold text-sidebar-primary-foreground truncate">ShipAmaze</span>
+            <span className="text-lg font-bold truncate text-slate-100 dark:text-white">ShipAmaze</span>
           </Link>
-          <button className="lg:hidden text-sidebar-foreground" onClick={() => setSidebarOpen(false)}>
+          <button
+            type="button"
+            className="lg:hidden rounded-md p-1 text-slate-200 hover:bg-white/10 dark:text-slate-100"
+            onClick={() => setSidebarOpen(false)}
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -278,6 +285,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <nav className="flex-1 overflow-y-auto scrollbar-hide py-3 px-2 space-y-0.5">
           {nav.map((group, gi) => (
             <div key={gi} className={cn(gi > 0 && "mt-2 pt-2 border-t border-sidebar-border/40")}>
+              {group.title ? (
+                <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {group.title}
+                </p>
+              ) : null}
 
               {group.items.map(item => {
                 const hasChildren = !!(item as any).children?.length;
@@ -289,14 +301,23 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 if (hasChildren && children) {
                   return (
                     <div key={item.label}>
-                      <button onClick={() => toggleMenu(item.label)}
+                      <button
+                        type="button"
+                        onClick={() => toggleMenu(item.label)}
                         className={cn(
                           "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                          childActive ? "text-sidebar-primary-foreground font-medium" : "text-sidebar-foreground hover:bg-sidebar-accent"
-                        )}>
-                        <item.icon className="h-[18px] w-[18px] shrink-0" />
+                          childActive
+                            ? "font-medium text-white dark:text-slate-50"
+                            : "text-slate-200 hover:bg-white/10 dark:text-slate-100"
+                        )}
+                      >
+                        <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
                         <span className="flex-1 text-left">{item.label}</span>
-                        {isExpanded ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                        {isExpanded ? (
+                          <ChevronUp className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-400" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-400" />
+                        )}
                       </button>
                       {isExpanded && (
                         <div className="ml-4 mt-0.5 space-y-0.5">
@@ -307,11 +328,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                                 className={cn(
                                   "flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
                                   cActive
-                                    ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
-                                    : "text-sidebar-foreground hover:bg-sidebar-accent"
+                                    ? "bg-indigo-600 font-medium text-white shadow-sm dark:bg-indigo-600"
+                                    : "text-slate-200 hover:bg-white/10 dark:text-slate-100"
                                 )}>
                                 <span>{child.label}</span>
-                                {child.shortcut && <span className="text-[10px] text-sidebar-foreground/40 font-mono">{child.shortcut}</span>}
+                                {child.shortcut && (
+                                  <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
+                                    {child.shortcut}
+                                  </span>
+                                )}
                               </Link>
                             );
                           })}
@@ -326,10 +351,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     className={cn(
                       "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                       active
-                        ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent"
+                        ? "bg-indigo-600 font-medium text-white shadow-sm dark:bg-indigo-600"
+                        : "text-slate-200 hover:bg-white/10 dark:text-slate-100"
                     )}>
-                    <item.icon className="h-[18px] w-[18px] shrink-0" />
+                    <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
                     <span>{item.label}</span>
                   </Link>
                 );
@@ -343,20 +368,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none ring-sidebar-primary focus-visible:ring-2 hover:bg-sidebar-accent transition-colors"
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none ring-indigo-400 focus-visible:ring-2 hover:bg-white/10 transition-colors"
               >
                 {avatarSrc ? (
                   <img src={avatarSrc} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover border border-sidebar-border" />
                 ) : (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sm font-medium text-sidebar-foreground">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-slate-100 dark:text-slate-100">
                     {avatarLetter}
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-sm font-medium text-sidebar-primary-foreground">{userName || "User"}</p>
-                  <p className="truncate text-xs text-sidebar-foreground/60 capitalize">{role}</p>
+                  <p className="truncate text-sm font-medium text-slate-100 dark:text-white">{userName || "User"}</p>
+                  <p className="truncate text-xs capitalize text-slate-400 dark:text-slate-400">{role}</p>
                 </div>
-                <ChevronDown className="h-4 w-4 shrink-0 text-sidebar-foreground/50 -rotate-90" />
+                <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-slate-400 dark:text-slate-400" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-56">

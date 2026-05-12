@@ -176,7 +176,7 @@ export function createOrderLabelElement(
       color: "#000000",
       fontFamily: "system-ui, Segoe UI, Arial, sans-serif",
       fontSize: "11px",
-      lineHeight: 1.35,
+      lineHeight: "1.35",
       colorScheme: "light",
     },
   });
@@ -223,7 +223,7 @@ export function createOrderLabelElement(
   const logoCell = el("div", {
     style: {
       width: "120px",
-      flexShrink: 0,
+      flexShrink: "0",
       textAlign: "right",
       minHeight: "48px",
       display: "flex",

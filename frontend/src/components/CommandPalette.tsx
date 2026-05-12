@@ -24,6 +24,7 @@ import {
   Search,
   User,
   Layers,
+  MapPin,
 } from "lucide-react";
 
 const pages = [
@@ -42,6 +43,7 @@ const pages = [
   { label: "Profile", path: "/admin/profile", icon: User },
   { label: "Create Order", path: "/dropshipper/create-order", icon: Package },
   { label: "Bulk Upload", path: "/dropshipper/bulk-upload", icon: Package },
+  { label: "Pickup Addresses", path: "/dropshipper/pickup-addresses", icon: MapPin },
   { label: "Track Shipment", path: "/track", icon: Search },
 ];
 

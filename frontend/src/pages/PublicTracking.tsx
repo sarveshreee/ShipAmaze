@@ -10,12 +10,15 @@ import { getPublicOrder } from "@/services/orderService";
 function toSafeTrackingResult(input: Partial<VelocityTrackingResult> | null | undefined): VelocityTrackingResult {
   const activities = Array.isArray(input?.activities)
     ? input.activities
-        .filter((act): act is { date?: unknown; activity?: unknown; location?: unknown } => !!act && typeof act === "object")
-        .map((act) => ({
-          date: typeof act.date === "string" ? act.date : "",
-          activity: typeof act.activity === "string" ? act.activity : "Status updated",
-          location: typeof act.location === "string" ? act.location : "",
-        }))
+        .filter((act) => act != null && typeof act === "object")
+        .map((act) => {
+          const row = act as unknown as Record<string, unknown>;
+          return {
+            date: typeof row.date === "string" ? row.date : "",
+            activity: typeof row.activity === "string" ? row.activity : "Status updated",
+            location: typeof row.location === "string" ? row.location : "",
+          };
+        })
     : [];
 
   return {

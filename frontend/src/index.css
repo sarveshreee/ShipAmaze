@@ -139,6 +139,10 @@
     --color-sidebar-icon: 231 80% 72%;
     --color-sidebar-border: 222 30% 18%;
 
+    /* Sidebar stays dark; do not tie to --color-text-inverse (used for light text on bright CTAs in dark UI). */
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent-foreground: 226 60% 85%;
+
     /* === SHADOWS DARK === */
     --shadow-sm: 0 1px 3px hsl(0 0% 0% / 0.2), 0 1px 2px hsl(0 0% 0% / 0.15);
     --shadow-md: 0 4px 12px hsl(0 0% 0% / 0.3), 0 2px 4px hsl(0 0% 0% / 0.2);
