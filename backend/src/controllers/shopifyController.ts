@@ -16,6 +16,12 @@ import {
 } from "../services/shopifyOrderSync.js";
 import type { ShopifyOrder } from "../services/shopify.service.js";
 import type { ShopifySyncUserContext } from "../services/shopifyOrderSync.js";
+import {
+  applyCachedDefaultPickupIfMissingForShopify,
+  applyDefaultPickupIfMissingForShopify,
+  findDefaultOrFirstActivePickupForShopifyOwner,
+  type ShopifyPickupApplyTarget,
+} from "../services/shopifyOrderPickup.js";
 
 /* ------------------------------------------------------------------ */
 /*  Env helpers                                                          */
@@ -355,6 +361,8 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       vendorId: vendor?._id,
     };
 
+    const defaultPickup = await findDefaultOrFirstActivePickupForShopifyOwner(req.user._id, req.user.role);
+
     let inserted = 0;
     let updated = 0;
     let skipped = 0;
@@ -378,9 +386,13 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
           existing.ownerUserId = req.user!._id;
           if (ctx.dropshipperId) existing.dropshipperId = ctx.dropshipperId;
           if (ctx.vendorId) existing.vendorId = ctx.vendorId;
+          if (applyCachedDefaultPickupIfMissingForShopify(existing, defaultPickup)) {
+            existing.markModified("pickupAddress");
+          }
           await existing.save();
           updated++;
         } else {
+          applyCachedDefaultPickupIfMissingForShopify(mapped as ShopifyPickupApplyTarget, defaultPickup);
           await Order.create(mapped);
           inserted++;
         }
@@ -623,8 +635,12 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
     try {
       if (existing) {
         mergeShopifyPayloadIntoOrder(existing, mapped, cancelled);
+        if (await applyDefaultPickupIfMissingForShopify(existing, conn.ownerUserId, conn.role)) {
+          existing.markModified("pickupAddress");
+        }
         await existing.save();
       } else {
+        await applyDefaultPickupIfMissingForShopify(mapped as ShopifyPickupApplyTarget, conn.ownerUserId, conn.role);
         await Order.create(mapped);
       }
       conn.lastSyncedAt = new Date();
