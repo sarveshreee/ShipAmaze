@@ -37,12 +37,6 @@ const adminNav: NavGroup[] = [
     { label: "Returns & RTO", icon: Undo2, path: "/admin/returns" },
     { label: "Manifests & Pickups", icon: ClipboardList, path: "/admin/manifests" },
   ]},
-  { title: "SUPPLIER", items: [
-    { label: "Add a Product", icon: Plus, path: "/admin/source-product" },
-    { label: "Products", icon: ShoppingBag, path: "/admin/products" },
-    { label: "Bulk Upload Products", icon: Upload, path: "/admin/bulk-upload-products" },
-    { label: "New Product Request", icon: ClipboardList, path: "/admin/product-requests" },
-  ]},
   { title: "MANAGEMENT", items: [
     { label: "Rates & Shipping", icon: Calculator, path: "/admin/rates" },
     { label: "Couriers", icon: Truck, path: "/admin/couriers" },
@@ -216,38 +210,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   // Filter nav items based on permissions
   const nav = useMemo(() => {
-    if (role === "admin") return rawNav;
+    if (role === "admin") return rawNav.filter((group) => group.items.length > 0);
     return rawNav.map(group => ({
       ...group,
       items: group.items.filter(item => !item.tabKey || isTabEnabled(item.tabKey))
     })).filter(group => group.items.length > 0);
   }, [rawNav, role, isTabEnabled]);
-
-  // #region agent log
-  useEffect(() => {
-    if (role !== "admin") return;
-    const supplier = nav.find((g) => g.title === "SUPPLIER");
-    const paths = supplier?.items.map((i) => i.path) ?? [];
-    const catalogueEntry = supplier?.items.find((i) => i.path === "/admin/catalogue");
-    fetch("http://127.0.0.1:7443/ingest/7b7399fc-5ef8-4a05-b389-4e13d8b0b579", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "c31e0a" },
-      body: JSON.stringify({
-        sessionId: "c31e0a",
-        location: "AppLayout.tsx:nav",
-        message: "admin SUPPLIER nav snapshot",
-        data: {
-          paths,
-          hasCataloguePath: paths.includes("/admin/catalogue"),
-          catalogueTabKey: catalogueEntry ? (catalogueEntry.tabKey ?? null) : null,
-        },
-        timestamp: Date.now(),
-        runId: "post-fix",
-        hypothesisId: "H1",
-      }),
-    }).catch(() => {});
-  }, [role, nav]);
-  // #endregion
 
   const unread = notifUnread;
 
