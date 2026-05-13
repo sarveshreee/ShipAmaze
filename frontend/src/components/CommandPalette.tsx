@@ -23,13 +23,11 @@ import {
   AlertTriangle,
   Search,
   User,
-  Layers,
   MapPin,
 } from "lucide-react";
 
 const pages = [
   { label: "Admin Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
-  { label: "Admin Catalogue", path: "/admin/catalogue", icon: Layers },
   { label: "Orders", path: "/admin/orders", icon: Package },
   { label: "NDR Management", path: "/admin/ndr", icon: AlertTriangle },
   { label: "Rates & Shipping", path: "/admin/rates", icon: Calculator },
@@ -52,6 +50,25 @@ export function CommandPalette() {
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const { data: orders = [] } = useOrders();
+
+  // #region agent log
+  useEffect(() => {
+    const adminCatalogueInPalette = pages.some((p) => p.path === "/admin/catalogue");
+    fetch("http://127.0.0.1:7443/ingest/7b7399fc-5ef8-4a05-b389-4e13d8b0b579", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "c31e0a" },
+      body: JSON.stringify({
+        sessionId: "c31e0a",
+        location: "CommandPalette.tsx:mount",
+        message: "command palette pages include admin catalogue",
+        data: { adminCatalogueInPalette },
+        timestamp: Date.now(),
+        runId: "post-fix",
+        hypothesisId: "H2",
+      }),
+    }).catch(() => {});
+  }, []);
+  // #endregion
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
