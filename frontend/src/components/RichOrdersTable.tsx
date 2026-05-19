@@ -663,8 +663,8 @@ export function RichOrdersTable({
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm border-collapse">
+      <div className="overflow-x-auto overscroll-x-contain -mx-4 px-4 sm:mx-0 sm:px-0">
+        <table className="w-full min-w-[640px] text-sm border-collapse">
           <thead>
             <tr className="border-b border-border bg-transparent">
               <th className="p-3 text-left w-10">

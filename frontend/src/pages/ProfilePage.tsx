@@ -1,5 +1,4 @@
 import { PageHeader } from "@/components/PageHeader";
-import { Card } from "@/components/ui/card";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -13,24 +12,18 @@ export default function ProfilePage() {
   if (isLoading || !user) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className="animate-fade-in-up w-full max-w-4xl">
-      <PageHeader
-        title="Profile"
-        breadcrumb={[capitalizeRole(role), "Profile"]}
-        className="mb-3"
-      />
-      <p className="mb-3 text-sm text-text-muted leading-snug">
-        Update your details. Email and role cannot be changed here.
+    <div className="animate-fade-in-up mx-auto max-w-5xl space-y-6 overflow-x-hidden">
+      <PageHeader title="Profile" breadcrumb={[capitalizeRole(role), "Profile"]} />
+      <p className="text-sm text-text-secondary">
+        Manage your account details. Email and role are managed by your administrator.
       </p>
-      <Card className="p-4 sm:p-5 shadow-sm">
-        <ProfileEditor user={user} onSaved={applyUser} />
-      </Card>
+      <ProfileEditor user={user} onSaved={applyUser} layout="split" />
     </div>
   );
 }
