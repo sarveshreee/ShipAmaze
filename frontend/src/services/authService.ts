@@ -2,9 +2,20 @@ import { apiClient, setStoredToken } from "@/lib/apiClient";
 
 export type UserRole = "admin" | "vendor" | "dropshipper";
 
-/** Post-login home path for each role (used for redirects and guards). */
+/** Post-login dashboard/analytics path for each role. */
 export function roleDashboardPath(role: UserRole): string {
   return `/${role}/dashboard`;
+}
+
+/** Marketplace / sidebar “Home” destination (matches AppLayout home link). */
+export function roleHomePath(role: UserRole): string {
+  if (role === "dropshipper") return "/dropshipper/home";
+  return `/${role}/home`;
+}
+
+/** Sidebar “Add Order” page (dropshipper only; route exists in App.tsx). */
+export function roleAddOrderPath(role: UserRole): string {
+  return `/${role}/add-order`;
 }
 
 export interface AuthUser {

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AddFundsModal } from "@/components/AddFundsModal";
 import type { UserRole } from "@/services/authService";
+import { roleHomePath } from "@/services/authService";
 import * as notificationService from "@/services/notificationService";
 
 interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; }
@@ -288,8 +289,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("toggle-sidebar", handler);
   }, [toggleSidebarCollapse]);
 
-  const homePath =
-    role === "dropshipper" ? "/dropshipper/home" : role === "admin" ? "/admin/dashboard" : "/vendor/dashboard";
+  const homePath = roleHomePath(role);
 
   const [isLgScreen, setIsLgScreen] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true,
