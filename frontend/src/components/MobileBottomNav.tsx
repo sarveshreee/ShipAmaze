@@ -3,56 +3,87 @@ import { useLocation, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, Package, AlertTriangle, Settings, Plus, Wallet, Calculator, Truck,
-  BarChart3, Undo2, Users
+  Package,
+  AlertTriangle,
+  Settings,
+  Plus,
+  Wallet,
+  Home,
+  BarChart3,
+  Users,
 } from "lucide-react";
+import type { UserRole } from "@/services/authService";
+import { roleAddOrderPath, roleHomePath } from "@/services/authService";
 
-interface TabItem { label: string; icon: any; path: string; }
+interface TabItem {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  path: string;
+}
 
-const adminTabs: TabItem[] = [
-  { label: "Home", icon: LayoutDashboard, path: "/admin/dashboard" },
-  { label: "Orders", icon: Package, path: "/admin/orders" },
-  { label: "NDR", icon: AlertTriangle, path: "/admin/ndr" },
-  { label: "Analytics", icon: BarChart3, path: "/admin/analytics" },
-  { label: "Settings", icon: Settings, path: "/admin/settings" },
-];
+function isNavTabActive(tabPath: string, pathname: string): boolean {
+  if (pathname === tabPath) return true;
+  if (pathname.startsWith(`${tabPath}/`)) return true;
+  if (pathname.startsWith(`${tabPath}?`)) return true;
+  return false;
+}
 
-const vendorTabs: TabItem[] = [
-  { label: "Home", icon: LayoutDashboard, path: "/vendor/dashboard" },
-  { label: "Orders", icon: Package, path: "/vendor/orders" },
-  { label: "Team", icon: Users, path: "/vendor/team" },
-  { label: "Settings", icon: Settings, path: "/vendor/settings" },
-];
-
-const dropshipperTabs: TabItem[] = [
-  { label: "Home", icon: LayoutDashboard, path: "/dropshipper/dashboard" },
-  { label: "Orders", icon: Package, path: "/dropshipper/orders" },
-  { label: "Create", icon: Plus, path: "/dropshipper/create-order" },
-  { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet" },
-  { label: "Settings", icon: Settings, path: "/dropshipper/settings" },
-];
-
-const roleTabMap = { admin: adminTabs, vendor: vendorTabs, dropshipper: dropshipperTabs };
+function tabsForRole(role: UserRole): TabItem[] {
+  switch (role) {
+    case "dropshipper":
+      return [
+        { label: "Home", icon: Home, path: roleHomePath("dropshipper") },
+        { label: "Orders", icon: Package, path: "/dropshipper/orders" },
+        { label: "Create", icon: Plus, path: roleAddOrderPath("dropshipper") },
+        { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet" },
+        { label: "Settings", icon: Settings, path: "/dropshipper/settings" },
+      ];
+    case "vendor":
+      return [
+        { label: "Home", icon: Home, path: roleHomePath("vendor") },
+        { label: "Orders", icon: Package, path: "/vendor/orders" },
+        { label: "Team", icon: Users, path: "/vendor/team" },
+        { label: "Settings", icon: Settings, path: "/vendor/settings" },
+      ];
+    case "admin":
+      return [
+        { label: "Home", icon: Home, path: roleHomePath("admin") },
+        { label: "Orders", icon: Package, path: "/admin/orders" },
+        { label: "NDR", icon: AlertTriangle, path: "/admin/ndr" },
+        { label: "Analytics", icon: BarChart3, path: "/admin/analytics" },
+        { label: "Settings", icon: Settings, path: "/admin/settings" },
+      ];
+  }
+}
 
 export function MobileBottomNav() {
   const { role } = useAuth();
   const location = useLocation();
-  const tabs = roleTabMap[role];
+  const tabs = useMemo(() => tabsForRole(role), [role]);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-card border-t border-border safe-area-bottom">
-      <div className="flex items-stretch justify-around">
-        {tabs.map(tab => {
-          const active = location.pathname === tab.path;
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-sm lg:hidden safe-area-bottom"
+      aria-label="Mobile navigation"
+    >
+      <div className="flex items-stretch justify-around px-1">
+        {tabs.map((tab) => {
+          const active = isNavTabActive(tab.path, location.pathname);
+          const Icon = tab.icon;
           return (
-            <Link key={tab.path} to={tab.path}
+            <Link
+              key={tab.path}
+              to={tab.path}
               className={cn(
-                "flex flex-1 flex-col items-center gap-0.5 py-2 pt-2.5 text-[10px] font-medium transition-colors relative",
-                active ? "text-primary" : "text-text-muted"
-              )}>
-              {active && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-primary" />}
-              <tab.icon className={cn("h-5 w-5", active && "scale-110")} />
-              <span>{tab.label}</span>
+                "relative flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] font-medium transition-colors",
+                active ? "text-primary" : "text-text-muted",
+              )}
+            >
+              {active && (
+                <div className="absolute top-0 left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full bg-primary" />
+              )}
+              <Icon className={cn("h-5 w-5 shrink-0", active && "scale-110")} />
+              <span className="max-w-full truncate">{tab.label}</span>
             </Link>
           );
         })}

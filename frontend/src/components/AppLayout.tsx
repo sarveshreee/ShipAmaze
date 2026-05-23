@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useEffect, useCallback } from "react";
+import { ReactNode, useMemo, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -8,12 +8,14 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, ChevronRight
+  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, ChevronRight,
+  PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AddFundsModal } from "@/components/AddFundsModal";
 import type { UserRole } from "@/services/authService";
+import { roleHomePath } from "@/services/authService";
 import * as notificationService from "@/services/notificationService";
 
 interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; }
@@ -113,6 +116,26 @@ const dropshipperNav: NavGroup[] = [
 
 const roleNavMap = { admin: adminNav, vendor: vendorNav, dropshipper: dropshipperNav };
 
+const SIDEBAR_COLLAPSED_KEY = "shipamaze_sidebar_collapsed";
+
+function readSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function navItemClasses(active: boolean, collapsed: boolean) {
+  return cn(
+    "flex w-full items-center rounded-lg text-sm transition-all duration-200 outline-none",
+    collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5 max-lg:min-h-[44px] max-lg:py-3",
+    active
+      ? "bg-indigo-600 font-medium text-white shadow-sm ring-1 ring-indigo-400/30 dark:bg-indigo-600 dark:ring-indigo-500/40"
+      : "text-slate-200 hover:bg-white/10 dark:text-slate-100 dark:hover:bg-white/[0.08]",
+  );
+}
+
 function settingsPathForRole(role: UserRole) {
   if (role === "admin") return "/admin/settings";
   if (role === "vendor") return "/vendor/settings";
@@ -147,8 +170,27 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const toggleSidebarCollapse = () => setSidebarCollapsed(prev => !prev);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [collapsedFlyout, setCollapsedFlyout] = useState<string | null>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  const toggleSidebarCollapse = useCallback(() => {
+    setSidebarCollapsed((prev) => !prev);
+    setCollapsedFlyout(null);
+  }, []);
+
+  const expandSidebar = useCallback(() => {
+    setSidebarCollapsed(false);
+    setCollapsedFlyout(null);
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed));
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarCollapsed]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<notificationService.NotificationItem[]>([]);
   const [notifUnread, setNotifUnread] = useState(0);
@@ -242,179 +284,433 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   // Listen for sidebar toggle events from child components
   useEffect(() => {
-    const handler = () => setSidebarCollapsed(prev => !prev);
-    window.addEventListener('toggle-sidebar', handler);
-    return () => window.removeEventListener('toggle-sidebar', handler);
+    const handler = () => toggleSidebarCollapse();
+    window.addEventListener("toggle-sidebar", handler);
+    return () => window.removeEventListener("toggle-sidebar", handler);
+  }, [toggleSidebarCollapse]);
+
+  const homePath = roleHomePath(role);
+
+  const [isLgScreen, setIsLgScreen] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => setIsLgScreen(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+    setCollapsedFlyout(null);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!sidebarOpen || isLgScreen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [sidebarOpen, isLgScreen]);
+
+  const isDesktopCollapsed = sidebarCollapsed && isLgScreen;
+
+  const handleSidebarPaddingClick = (e: React.MouseEvent<HTMLElement>) => {
+    if (!isDesktopCollapsed) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-sidebar-nav-item]") || target.closest("[data-sidebar-toggle]")) return;
+    expandSidebar();
+  };
+
+  const wrapNavTooltip = (label: string, node: ReactNode) => {
+    if (!isDesktopCollapsed) return node;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{node}</TooltipTrigger>
+        <TooltipContent side="right" className="font-medium">
+          {label}
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+      {sidebarOpen && !isLgScreen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden
+        />
+      )}
 
-      <aside className={cn(
-        "fixed inset-y-0 left-0 z-50 flex w-60 flex-col bg-sidebar transition-all duration-200 lg:static lg:translate-x-0",
-        sidebarOpen ? "translate-x-0" : "-translate-x-full",
-        sidebarCollapsed && "lg:w-0 lg:overflow-hidden lg:opacity-0"
-      )}>
-        <div className="flex h-[60px] items-center gap-2 px-5 border-b border-sidebar-border">
-          <Link
-            to={role === "dropshipper" ? "/dropshipper/home" : role === "admin" ? "/admin/dashboard" : "/vendor/dashboard"}
-            className="flex items-center gap-2 min-w-0 flex-1"
+      <TooltipProvider delayDuration={0} skipDelayDuration={0}>
+        <aside
+          ref={sidebarRef}
+          onClick={handleSidebarPaddingClick}
+          className={cn(
+            "fixed inset-y-0 left-0 z-50 flex w-[min(280px,88vw)] flex-col border-r border-sidebar-border bg-sidebar shadow-xl transition-[width,transform] duration-300 ease-in-out lg:static lg:w-60 lg:shadow-none",
+            sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+            isDesktopCollapsed
+              ? "lg:w-0 lg:min-w-0 lg:overflow-hidden lg:border-r-0 lg:opacity-0 lg:pointer-events-none"
+              : "",
+          )}
+        >
+          <div
+            className={cn(
+              "relative flex shrink-0 items-center border-b border-sidebar-border/80",
+              isDesktopCollapsed ? "h-[60px] justify-center px-2" : "h-[60px] gap-2 px-3",
+            )}
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 dark:bg-indigo-600">
-              <Package className="h-4 w-4 text-white" />
-            </div>
-            <span className="text-lg font-bold truncate text-slate-100 dark:text-white">ShipAmaze</span>
-          </Link>
-          <button
-            type="button"
-            className="lg:hidden rounded-md p-1 text-slate-200 hover:bg-white/10 dark:text-slate-100"
-            onClick={() => setSidebarOpen(false)}
+            <Link
+              to={homePath}
+              onClick={() => setSidebarOpen(false)}
+              className={cn(
+                "flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-90",
+                isDesktopCollapsed ? "justify-center" : "flex-1",
+              )}
+              title={isDesktopCollapsed ? "ShipAmaze" : undefined}
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500 shadow-md shadow-indigo-900/30 dark:bg-indigo-600">
+                <Package className="h-4 w-4 text-white" />
+              </div>
+              {!isDesktopCollapsed && (
+                <span className="truncate text-lg font-bold tracking-tight text-slate-50 dark:text-white">
+                  ShipAmaze
+                </span>
+              )}
+            </Link>
+
+            <button
+              type="button"
+              data-sidebar-toggle
+              className={cn(
+                "hidden rounded-lg p-1.5 text-slate-300 transition-colors hover:bg-white/10 hover:text-white lg:flex",
+                isDesktopCollapsed
+                  ? "absolute -right-3 top-1/2 z-10 h-6 w-6 -translate-y-1/2 items-center justify-center border border-sidebar-border bg-sidebar shadow-md"
+                  : "shrink-0",
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleSidebarCollapse();
+              }}
+              aria-label={isDesktopCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {isDesktopCollapsed ? (
+                <PanelLeftOpen className="h-3.5 w-3.5" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              className="rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white lg:hidden"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close menu"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <nav
+            className={cn(
+              "flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide py-3",
+              isDesktopCollapsed ? "px-2 space-y-1" : "px-2.5 space-y-0.5",
+            )}
           >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+            {nav.map((group, gi) => (
+              <div
+                key={gi}
+                className={cn(
+                  gi > 0 && (isDesktopCollapsed ? "mt-2 pt-2 border-t border-sidebar-border/50" : "mt-3 pt-3 border-t border-sidebar-border/40"),
+                )}
+              >
+                {group.title && !isDesktopCollapsed ? (
+                  <p className="mb-1 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400/90 dark:text-slate-500">
+                    {group.title}
+                  </p>
+                ) : group.title && isDesktopCollapsed ? (
+                  <div className="mx-auto mb-1.5 h-px w-6 bg-sidebar-border/60" aria-hidden />
+                ) : null}
 
-        <nav className="flex-1 overflow-y-auto scrollbar-hide py-3 px-2 space-y-0.5">
-          {nav.map((group, gi) => (
-            <div key={gi} className={cn(gi > 0 && "mt-2 pt-2 border-t border-sidebar-border/40")}>
-              {group.title ? (
-                <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  {group.title}
-                </p>
-              ) : null}
+                <div className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const hasChildren = !!(item as NavItem & { children?: NavItem[] }).children?.length;
+                    const children = (item as NavItem & { children?: NavItem[] }).children;
+                    const active = location.pathname === item.path;
+                    const isExpanded = expandedMenus.has(item.label);
+                    const childActive = children?.some((c) => location.pathname === c.path);
 
-              {group.items.map(item => {
-                const hasChildren = !!(item as any).children?.length;
-                const children = (item as any).children as NavItem[] | undefined;
-                const active = location.pathname === item.path;
-                const isExpanded = expandedMenus.has(item.label);
-                const childActive = children?.some(c => location.pathname === c.path);
+                    if (hasChildren && children) {
+                      if (isDesktopCollapsed) {
+                        return (
+                          <Popover
+                            key={item.label}
+                            open={collapsedFlyout === item.label}
+                            onOpenChange={(open) => setCollapsedFlyout(open ? item.label : null)}
+                          >
+                            {wrapNavTooltip(
+                              item.label,
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  data-sidebar-nav-item
+                                  className={navItemClasses(!!childActive, true)}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <item.icon className="h-[18px] w-[18px] shrink-0" />
+                                </button>
+                              </PopoverTrigger>,
+                            )}
+                            <PopoverContent
+                              side="right"
+                              align="start"
+                              sideOffset={12}
+                              className="w-52 p-1.5"
+                              onOpenAutoFocus={(e) => e.preventDefault()}
+                            >
+                              <p className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                {item.label}
+                              </p>
+                              {children.map((child) => {
+                                const cActive = location.pathname === child.path;
+                                return (
+                                  <Link
+                                    key={child.path}
+                                    to={child.path}
+                                    data-sidebar-nav-item
+                                    onClick={() => {
+                                      setSidebarOpen(false);
+                                      setCollapsedFlyout(null);
+                                    }}
+                                    className={cn(
+                                      "flex items-center justify-between rounded-md px-2.5 py-2 text-sm transition-colors",
+                                      cActive
+                                        ? "bg-indigo-600 font-medium text-white"
+                                        : "text-foreground hover:bg-muted",
+                                    )}
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <child.icon className="h-4 w-4 opacity-70" />
+                                      {child.label}
+                                    </span>
+                                    {child.shortcut && (
+                                      <span className="text-[10px] font-mono text-muted-foreground">{child.shortcut}</span>
+                                    )}
+                                  </Link>
+                                );
+                              })}
+                            </PopoverContent>
+                          </Popover>
+                        );
+                      }
 
-                if (hasChildren && children) {
-                  return (
-                    <div key={item.label}>
-                      <button
-                        type="button"
-                        onClick={() => toggleMenu(item.label)}
-                        className={cn(
-                          "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                          childActive
-                            ? "font-medium text-white dark:text-slate-50"
-                            : "text-slate-200 hover:bg-white/10 dark:text-slate-100"
-                        )}
-                      >
-                        <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
-                        <span className="flex-1 text-left">{item.label}</span>
-                        {isExpanded ? (
-                          <ChevronUp className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-400" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-400" />
-                        )}
-                      </button>
-                      {isExpanded && (
-                        <div className="ml-4 mt-0.5 space-y-0.5">
-                          {children.map(child => {
-                            const cActive = location.pathname === child.path;
-                            return (
-                              <Link key={child.path} to={child.path} onClick={() => setSidebarOpen(false)}
-                                className={cn(
-                                  "flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
-                                  cActive
-                                    ? "bg-indigo-600 font-medium text-white shadow-sm dark:bg-indigo-600"
-                                    : "text-slate-200 hover:bg-white/10 dark:text-slate-100"
-                                )}>
-                                <span>{child.label}</span>
-                                {child.shortcut && (
-                                  <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
-                                    {child.shortcut}
-                                  </span>
-                                )}
-                              </Link>
-                            );
-                          })}
+                      return (
+                        <div key={item.label} data-sidebar-nav-item>
+                          <button
+                            type="button"
+                            onClick={() => toggleMenu(item.label)}
+                            className={navItemClasses(!!childActive, false)}
+                          >
+                            <item.icon className="h-[18px] w-[18px] shrink-0" />
+                            <span className="flex-1 text-left">{item.label}</span>
+                            {isExpanded ? (
+                              <ChevronUp className="h-4 w-4 shrink-0 opacity-60" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+                            )}
+                          </button>
+                          <div
+                            className={cn(
+                              "grid transition-all duration-200 ease-in-out",
+                              isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                            )}
+                          >
+                            <div className="overflow-hidden">
+                              <div className="ml-3 mt-0.5 space-y-0.5 border-l border-sidebar-border/50 pl-2">
+                                {children.map((child) => {
+                                  const cActive = location.pathname === child.path;
+                                  return (
+                                    <Link
+                                      key={child.path}
+                                      to={child.path}
+                                      onClick={() => setSidebarOpen(false)}
+                                      className={cn(
+                                        "flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors max-lg:min-h-[44px]",
+                                        cActive
+                                          ? "bg-indigo-600 font-medium text-white shadow-sm dark:bg-indigo-600"
+                                          : "text-slate-200 hover:bg-white/10 dark:text-slate-100",
+                                      )}
+                                    >
+                                      <span>{child.label}</span>
+                                      {child.shortcut && (
+                                        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
+                                          {child.shortcut}
+                                        </span>
+                                      )}
+                                    </Link>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  );
-                }
+                      );
+                    }
 
-                return (
-                  <Link key={item.path} to={item.path} onClick={() => setSidebarOpen(false)}
+                    const link = (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        data-sidebar-nav-item
+                        onClick={() => setSidebarOpen(false)}
+                        className={navItemClasses(active, isDesktopCollapsed)}
+                      >
+                        <item.icon className="h-[18px] w-[18px] shrink-0" />
+                        {!isDesktopCollapsed && <span className="truncate">{item.label}</span>}
+                      </Link>
+                    );
+
+                    return <div key={item.path}>{wrapNavTooltip(item.label, link)}</div>;
+                  })}
+                </div>
+              </div>
+            ))}
+          </nav>
+
+          <div className={cn("shrink-0 border-t border-sidebar-border/80 p-2", isDesktopCollapsed && "flex justify-center")}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                {wrapNavTooltip(
+                  userName || "Account",
+                  <button
+                    type="button"
+                    data-sidebar-nav-item
                     className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                      active
-                        ? "bg-indigo-600 font-medium text-white shadow-sm dark:bg-indigo-600"
-                        : "text-slate-200 hover:bg-white/10 dark:text-slate-100"
-                    )}>
-                    <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
+                      "flex items-center rounded-lg text-left outline-none ring-indigo-400 transition-colors hover:bg-white/10 focus-visible:ring-2",
+                      isDesktopCollapsed ? "justify-center p-2" : "w-full gap-3 px-3 py-2",
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {avatarSrc ? (
+                      <img
+                        src={avatarSrc}
+                        alt=""
+                        className="h-9 w-9 shrink-0 rounded-full border-2 border-sidebar-border/80 object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600/80 text-sm font-semibold text-white">
+                        {avatarLetter}
+                      </div>
+                    )}
+                    {!isDesktopCollapsed && (
+                      <>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-slate-50 dark:text-white">{userName || "User"}</p>
+                          <p className="truncate text-xs capitalize text-slate-400 dark:text-slate-400">{role}</p>
+                        </div>
+                        <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-slate-400" />
+                      </>
+                    )}
+                  </button>,
+                )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side={isDesktopCollapsed ? "right" : "top"} align="start" className="w-56">
+                <DropdownMenuLabel className="font-normal">
+                  <p className="truncate text-sm font-medium">{userName || "User"}</p>
+                  <p className="truncate text-xs text-muted-foreground">{user?.email ?? ""}</p>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => navigate(profilePathForRole(role))}>
+                  <User className="mr-2 h-4 w-4" />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onLogoutClick} className="text-danger focus:text-danger">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+      </aside>
+      </TooltipProvider>
 
-        <div className="border-t border-sidebar-border p-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+      <div className="flex min-w-0 flex-1 flex-col transition-[margin] duration-300 ease-in-out">
+        <header className="flex h-14 shrink-0 items-center gap-2 overflow-hidden border-b border-border bg-card px-4 sm:h-[60px] sm:gap-3 sm:px-5 lg:px-8">
+          <div className="flex min-w-0 items-center gap-2 lg:hidden">
+            <button
+              type="button"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <Link
+              to={homePath}
+              onClick={() => setSidebarOpen(false)}
+              className="flex min-w-0 items-center gap-2 transition-opacity hover:opacity-90"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 shadow-sm dark:bg-indigo-600">
+                <Package className="h-4 w-4 text-white" />
+              </div>
+              <span className="truncate text-base font-bold tracking-tight text-text-primary sm:text-lg">ShipAmaze</span>
+            </Link>
+          </div>
+
+          {isDesktopCollapsed && (
+            <div className="hidden min-w-0 items-center gap-2 lg:flex">
               <button
                 type="button"
-                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none ring-indigo-400 focus-visible:ring-2 hover:bg-white/10 transition-colors"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
+                onClick={expandSidebar}
+                aria-label="Open sidebar menu"
               >
-                {avatarSrc ? (
-                  <img src={avatarSrc} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover border border-sidebar-border" />
-                ) : (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-slate-100 dark:text-slate-100">
-                    {avatarLetter}
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-100 dark:text-white">{userName || "User"}</p>
-                  <p className="truncate text-xs capitalize text-slate-400 dark:text-slate-400">{role}</p>
-                </div>
-                <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-slate-400 dark:text-slate-400" />
+                <Menu className="h-5 w-5" />
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" className="w-56">
-              <DropdownMenuLabel className="font-normal">
-                <p className="truncate text-sm font-medium">{userName || "User"}</p>
-                <p className="truncate text-xs text-muted-foreground">{user?.email ?? ""}</p>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => navigate(profilePathForRole(role))}>
-                <User className="h-4 w-4 mr-2" />
-                Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
-                <Settings className="h-4 w-4 mr-2" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onLogoutClick} className="text-danger focus:text-danger">
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </aside>
+              <Link to={homePath} className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-90">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 shadow-sm dark:bg-indigo-600">
+                  <Package className="h-4 w-4 text-white" />
+                </div>
+                <span className="truncate text-lg font-bold tracking-tight text-text-primary">ShipAmaze</span>
+              </Link>
+            </div>
+          )}
 
-      <div className="flex flex-1 flex-col min-w-0">
-        <header className="flex h-[60px] items-center gap-3 border-b border-border bg-card px-4 lg:px-6 shrink-0">
-          <button className="lg:hidden text-text-secondary" onClick={() => setSidebarOpen(true)}>
-            <Menu className="h-5 w-5" />
-          </button>
-          <h2 className="text-lg font-semibold text-text-primary truncate">{pageTitle}</h2>
-          <div className="flex-1 min-w-0" />
+          {!isDesktopCollapsed && (
+            <div className="hidden min-w-0 items-center gap-2 lg:flex">
+              <button
+                type="button"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
+                onClick={toggleSidebarCollapse}
+                aria-label="Collapse sidebar"
+              >
+                <PanelLeftClose className="h-5 w-5" />
+              </button>
+              <h2 className="min-w-0 truncate text-lg font-semibold text-text-primary">{pageTitle}</h2>
+            </div>
+          )}
 
-          <Button variant="ghost" size="icon" className="text-text-secondary" onClick={toggleTheme}>
+          <div className="min-w-0 flex-1" />
+
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+
+          <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0 text-text-secondary sm:h-10 sm:w-10" onClick={toggleTheme}>
             {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </Button>
 
           <div className="relative">
-            <Button variant="ghost" size="icon" className="text-text-secondary relative" onClick={() => setNotifOpen(!notifOpen)}>
+            <Button variant="ghost" size="icon" className="relative h-9 w-9 shrink-0 text-text-secondary sm:h-10 sm:w-10" onClick={() => setNotifOpen(!notifOpen)}>
               <Bell className="h-4 w-4" />
               {unread > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-[10px] font-bold text-white flex items-center justify-center">
@@ -517,13 +813,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-sm font-medium text-text-primary hover:bg-surface-2 transition-colors shrink-0"
+                className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-border bg-card text-sm font-medium text-text-primary hover:bg-surface-2 transition-colors w-9 sm:w-auto sm:px-3 sm:py-1.5"
+                aria-label="Wallet balance"
               >
                 <IndianRupee className="h-3.5 w-3.5 text-success shrink-0" />
                 {walletLoading ? (
-                  <span className="h-4 w-20 animate-pulse rounded-md bg-surface-2" />
+                  <span className="hidden h-4 w-16 animate-pulse rounded-md bg-surface-2 sm:inline-block" />
                 ) : (
-                  <span className="tabular-nums">{formatInrTop(displayBalance)}</span>
+                  <span className="hidden tabular-nums sm:inline">{formatInrTop(displayBalance)}</span>
                 )}
               </button>
             </PopoverTrigger>
@@ -595,9 +892,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-20 lg:pb-6">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-20 sm:px-5 lg:px-8 lg:py-6 lg:pb-6">
           {children}
         </main>
       </div>

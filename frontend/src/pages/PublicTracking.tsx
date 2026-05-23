@@ -1,11 +1,35 @@
-import { useState } from "react";
-import { Package, Search, Loader2, AlertCircle, ExternalLink, Truck, CalendarDays, Hash, CircleDot, User, Phone, MapPin, Wallet, CreditCard, Scale, Boxes } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
+import {
+  Package,
+  Search,
+  Loader2,
+  AlertCircle,
+  ExternalLink,
+  Truck,
+  CalendarDays,
+  Hash,
+  CircleDot,
+  User,
+  Phone,
+  MapPin,
+  Wallet,
+  CreditCard,
+  Scale,
+  Boxes,
+  Clock,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
+import { PageHeader } from "@/components/PageHeader";
 import { useBranding } from "@/contexts/BrandingContext";
 import { trackShipmentPublic } from "@/services/velocityService";
 import type { VelocityTrackingResult } from "@/services/velocityService";
 import { getPublicOrder } from "@/services/orderService";
+import { cn } from "@/lib/utils";
+
+const RECENT_KEY = "shipamaze_recent_tracking";
 
 function toSafeTrackingResult(input: Partial<VelocityTrackingResult> | null | undefined): VelocityTrackingResult {
   const activities = Array.isArray(input?.activities)
@@ -87,18 +111,182 @@ function formatCurrencyINR(amount?: number): string {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(amount);
 }
 
+function readRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    return raw ? (JSON.parse(raw) as string[]).slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushRecent(q: string) {
+  try {
+    const prev = readRecent().filter((x) => x !== q);
+    localStorage.setItem(RECENT_KEY, JSON.stringify([q, ...prev].slice(0, 5)));
+  } catch {
+    /* ignore */
+  }
+}
+
+function TrackingResults({ result }: { result: VelocityTrackingResult }) {
+  if (result.pendingShipment) {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-center text-sm text-amber-900 dark:text-amber-100">
+        Shipment has not been created yet. Generate AWB first.
+      </div>
+    );
+  }
+
+  return (
+  <>
+    {result.trackingUnavailable && (
+      <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100">
+        {result.trackingMessage ||
+          "Live tracking is temporarily unavailable. Showing the last saved status from our records."}
+      </div>
+    )}
+
+    <div className="rounded-xl border border-border bg-surface-2/50 p-4 mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card">
+            <Truck className="h-5 w-5 text-text-muted" />
+          </div>
+          <div>
+            <p className="text-xs text-text-muted">Current status</p>
+            <StatusBadge status={result.status} className="mt-1 text-sm px-3 py-1" />
+          </div>
+        </div>
+        {result.activities[0]?.date && (
+          <div className="text-right">
+            <p className="text-[11px] text-text-muted">Last update</p>
+            <p className="text-xs font-medium text-text-primary">{formatDateTime(result.activities[0].date)}</p>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 mb-4">
+      {[
+        { label: "AWB Number", value: result.awb || "-", icon: Hash },
+        { label: "Order ID", value: result.order?.id || "-", icon: Package },
+        { label: "Courier", value: result.carrierName || "-", icon: Truck },
+      ].map((item) => (
+        <div key={item.label} className="rounded-xl border border-border bg-card p-3">
+          <p className="text-[11px] text-text-muted flex items-center gap-1">
+            <item.icon className="h-3.5 w-3.5" /> {item.label}
+          </p>
+          <p className="text-sm font-semibold text-text-primary mt-1 break-all">{item.value}</p>
+        </div>
+      ))}
+    </div>
+
+    <div className="rounded-xl border border-border bg-card p-4 mb-4">
+      <h3 className="text-sm font-semibold text-text-primary mb-3">Order details</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {[
+          { label: "Customer", value: result.orderDetails?.customerName, icon: User },
+          { label: "Phone", value: result.orderDetails?.phone, icon: Phone },
+          { label: "Payment", value: result.orderDetails?.paymentType, icon: CreditCard },
+          { label: "Amount", value: formatCurrencyINR(result.orderDetails?.amount), icon: Wallet },
+          { label: "Weight", value: result.orderDetails?.shipment?.weight, icon: Scale },
+          { label: "Shipment ID", value: result.orderDetails?.shipment?.shipmentId, icon: Boxes },
+        ].map((item) => (
+          <div key={item.label} className="rounded-lg border border-border bg-surface-2/40 p-3">
+            <p className="text-[11px] text-text-muted flex items-center gap-1">
+              <item.icon className="h-3.5 w-3.5" /> {item.label}
+            </p>
+            <p className="text-sm font-semibold text-text-primary mt-1 break-all">{item.value || "-"}</p>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border border-border bg-surface-2/40 p-3 mt-3">
+        <p className="text-[11px] text-text-muted flex items-center gap-1">
+          <MapPin className="h-3.5 w-3.5" /> Delivery address
+        </p>
+        <p className="text-sm font-semibold text-text-primary mt-1">
+          {[
+            result.orderDetails?.destination?.address,
+            result.orderDetails?.destination?.city,
+            result.orderDetails?.destination?.state,
+            result.orderDetails?.destination?.pincode,
+          ]
+            .filter(Boolean)
+            .join(", ") || "-"}
+        </p>
+      </div>
+    </div>
+
+    {result.trackUrl && (
+      <a
+        href={result.trackUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mb-4 flex items-center justify-center gap-2 text-sm text-indigo-600 hover:underline dark:text-indigo-400"
+      >
+        Open carrier tracking <ExternalLink className="h-3.5 w-3.5" />
+      </a>
+    )}
+
+    {result.activities.length > 0 ? (
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <CalendarDays className="h-4 w-4 text-text-muted" />
+          <h3 className="text-sm font-semibold text-text-primary">Tracking timeline</h3>
+        </div>
+        <div className="space-y-4">
+          {result.activities.map((act, i) => (
+            <div key={i} className="flex gap-3">
+              <div className="flex flex-col items-center pt-0.5">
+                <CircleDot className="h-4 w-4 text-indigo-600 shrink-0 dark:text-indigo-400" />
+                {i !== result.activities.length - 1 && (
+                  <div className="w-px flex-1 min-h-8 bg-border mt-1" />
+                )}
+              </div>
+              <div className="flex-1 rounded-lg border border-border bg-surface-2/40 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-sm font-medium text-text-primary">{act.activity}</p>
+                  <span className="text-[11px] text-text-muted whitespace-nowrap">
+                    {formatDateTime(act.date)}
+                  </span>
+                </div>
+                {act.location && <p className="text-xs text-text-secondary mt-1">{act.location}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : (
+      <div className="rounded-xl border border-dashed border-border bg-surface-2/30 py-8 px-4 text-center">
+        <p className="text-sm font-medium text-text-primary">No tracking events yet</p>
+        <p className="text-xs text-text-muted mt-1">Updates appear once the courier scans the shipment.</p>
+      </div>
+    )}
+  </>
+  );
+}
+
 export default function PublicTracking() {
+  const location = useLocation();
+  const isEmbedded = /^\/(dropshipper|vendor|admin)\//.test(location.pathname);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<VelocityTrackingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recent, setRecent] = useState<string[]>([]);
   const { branding } = useBranding();
+
+  useEffect(() => {
+    setRecent(readRecent());
+  }, []);
 
   const btnRadius = branding.buttonStyle === "pill" ? "9999px" : branding.buttonStyle === "square" ? "0px" : "8px";
 
-  const handleTrack = async () => {
-    const trimmed = query.trim();
+  const handleTrack = async (searchQuery?: string) => {
+    const trimmed = (searchQuery ?? query).trim();
     if (!trimmed) return;
+    setQuery(trimmed);
     setLoading(true);
     setError(null);
     setResult(null);
@@ -111,37 +299,43 @@ export default function PublicTracking() {
       }
 
       if (orderLookup && !orderLookup.awb) {
-        setResult(toSafeTrackingResult({
-          awb: trimmed,
-          status: orderLookup.status,
-          carrierName: orderLookup.courierName ?? orderLookup.courier,
-          activities: orderLookup.trackingActivities ?? [],
-          order: { id: orderLookup.id },
-          orderDetails: {
-            customerName: orderLookup.customer,
-            phone: orderLookup.customerPhone ?? orderLookup.phone,
-            paymentType: orderLookup.payment,
-            amount: orderLookup.amount,
-            destination: {
-              city: orderLookup.shippingCity ?? orderLookup.city,
-              state: orderLookup.shippingState ?? orderLookup.state,
-              pincode: orderLookup.shippingPincode ?? orderLookup.pincode,
-              address: [orderLookup.shippingAddress1, orderLookup.shippingAddress2, orderLookup.address].filter(Boolean).join(", "),
+        setResult(
+          toSafeTrackingResult({
+            awb: trimmed,
+            status: orderLookup.status,
+            carrierName: orderLookup.courierName ?? orderLookup.courier,
+            activities: orderLookup.trackingActivities ?? [],
+            order: { id: orderLookup.id },
+            orderDetails: {
+              customerName: orderLookup.customer,
+              phone: orderLookup.customerPhone ?? orderLookup.phone,
+              paymentType: orderLookup.payment,
+              amount: orderLookup.amount,
+              destination: {
+                city: orderLookup.shippingCity ?? orderLookup.city,
+                state: orderLookup.shippingState ?? orderLookup.state,
+                pincode: orderLookup.shippingPincode ?? orderLookup.pincode,
+                address: [orderLookup.shippingAddress1, orderLookup.shippingAddress2, orderLookup.address]
+                  .filter(Boolean)
+                  .join(", "),
+              },
+              dates: {
+                orderDate: orderLookup.date,
+                assignedAt: orderLookup.assignedDateTime,
+                movedToReadyAt: orderLookup.movedToReadyAt,
+              },
+              shipment: {
+                shipmentId: orderLookup.shipmentId ?? orderLookup.velocityShipmentId,
+                velocityOrderId: orderLookup.velocityOrderId,
+                channel: orderLookup.channel,
+                weight: orderLookup.weight,
+              },
             },
-            dates: {
-              orderDate: orderLookup.date,
-              assignedAt: orderLookup.assignedDateTime,
-              movedToReadyAt: orderLookup.movedToReadyAt,
-            },
-            shipment: {
-              shipmentId: orderLookup.shipmentId ?? orderLookup.velocityShipmentId,
-              velocityOrderId: orderLookup.velocityOrderId,
-              channel: orderLookup.channel,
-              weight: orderLookup.weight,
-            },
-          },
-          pendingShipment: true,
-        }));
+            pendingShipment: true,
+          }),
+        );
+        pushRecent(trimmed);
+        setRecent(readRecent());
         return;
       }
 
@@ -152,10 +346,12 @@ export default function PublicTracking() {
           ...resp.data,
           awb: (resp.data.awb || awbToQuery).trim(),
           carrierName: resp.data.carrierName || orderLookup?.courierName || orderLookup?.courier || "",
-        })
+        }),
       );
+      pushRecent(trimmed);
+      setRecent(readRecent());
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Order not found");
+      setError(err instanceof Error ? err.message : "Shipment not found. Check the AWB or Order ID.");
     } finally {
       setLoading(false);
     }
@@ -165,9 +361,117 @@ export default function PublicTracking() {
     if (e.key === "Enter") void handleTrack();
   };
 
+  const searchCard = (
+    <div className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <Input
+          placeholder="Enter AWB or Order ID"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKey}
+          className="flex-1 h-11 bg-background"
+          disabled={loading}
+        />
+        <Button
+          onClick={() => void handleTrack()}
+          disabled={loading || !query.trim()}
+          className="h-11 w-full bg-indigo-600 hover:bg-indigo-700 text-white sm:w-auto sm:shrink-0"
+          style={{ borderRadius: isEmbedded ? undefined : btnRadius }}
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+          <span className="ml-2">Track</span>
+        </Button>
+      </div>
+
+      {recent.length > 0 && !result && !error && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-text-muted flex items-center gap-1">
+            <Clock className="h-3.5 w-3.5" /> Recent:
+          </span>
+          {recent.map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => void handleTrack(r)}
+              className="rounded-full border border-border bg-surface-2/50 px-3 py-1 text-xs text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-colors"
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <p className="mt-3 text-xs text-text-muted">
+        Example: paste your AWB number (e.g. AWB1234567) or internal order ID from ShipAmaze.
+      </p>
+    </div>
+  );
+
+  if (isEmbedded) {
+    return (
+      <div className="animate-fade-in-up mx-auto max-w-3xl space-y-6 overflow-x-hidden">
+        <PageHeader title="Track Shipment" breadcrumb={["Dropshipper", "Track Shipment"]} />
+
+        <div className="rounded-2xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 p-6 text-white shadow-lg sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/15">
+              <Truck className="h-6 w-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold">Track your shipment</h2>
+              <p className="mt-1 text-sm text-indigo-100">
+                Real-time status for AWB and order lookups across your couriers.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {searchCard}
+
+        {!result && !error && !loading && (
+          <div className="rounded-2xl border border-dashed border-border bg-surface-2/30 p-10 text-center">
+            <Package className="mx-auto mb-3 h-10 w-10 text-text-muted" />
+            <p className="font-medium text-text-primary">Enter a tracking number to get started</p>
+            <p className="mt-1 text-sm text-text-muted">
+              Search by AWB or order ID to view status, timeline, and delivery details.
+            </p>
+          </div>
+        )}
+
+        {loading && (
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-12 text-text-secondary">
+            <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
+            Tracking shipment…
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-xl border border-danger/30 bg-danger-light/30 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-danger shrink-0" />
+              <p className="text-sm text-text-primary">{error}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void handleTrack()}>
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {result && !loading && (
+          <div className="rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm animate-fade-in-up">
+            <TrackingResults result={result} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: branding.bgColor }}>
-      <header className="flex items-center gap-2 px-6 py-4 border-b border-border" style={{ backgroundColor: branding.primaryColor }}>
+    <div className="min-h-screen flex flex-col bg-background" style={{ backgroundColor: branding.bgColor }}>
+      <header
+        className="flex items-center gap-2 px-6 py-4 border-b border-border"
+        style={{ backgroundColor: branding.primaryColor }}
+      >
         {branding.logoUrl ? (
           <img src={branding.logoUrl} alt="Logo" className="h-7 w-7 rounded object-cover" />
         ) : (
@@ -178,205 +482,52 @@ export default function PublicTracking() {
         <span className="text-lg font-bold text-white">{branding.brandName}</span>
       </header>
 
-      <main className="flex-1 flex items-start justify-center p-6 pt-16">
-        <div className="w-full max-w-[600px]">
-          <div className="rounded-xl bg-white shadow-xl p-8 animate-fade-in-up">
-            <h1 className="text-2xl font-bold text-center mb-1" style={{ color: "#1a1a2e" }}>
-              {branding.headerText}
-            </h1>
-            <p className="text-sm text-center mb-6" style={{ color: "#6b7280" }}>
-              {branding.subText}
-            </p>
-
-            <div className="flex gap-2">
-              <Input
-                placeholder="Enter AWB or Order ID"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleKey}
-                className="flex-1"
-                disabled={loading}
-              />
-              <button
-                onClick={() => void handleTrack()}
-                disabled={loading || !query.trim()}
-                className="px-5 py-2 text-sm font-medium text-white flex items-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-60"
-                style={{ backgroundColor: branding.primaryColor, borderRadius: btnRadius }}
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                Track
-              </button>
-            </div>
-
-            {error && (
-              <div className="mt-6 rounded-lg bg-red-50 border border-red-200 p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3">
-                  <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
-                  <p className="text-sm text-red-700">{error}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleTrack()}
-                  className="text-sm font-medium text-red-800 underline-offset-2 hover:underline shrink-0"
-                >
-                  Retry
-                </button>
-              </div>
-            )}
-
-            {result && (
-              <div className="mt-8 animate-fade-in-up">
-                {result.pendingShipment ? (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 text-center">
-                    Shipment has not been created yet. Generate AWB first.
-                  </div>
-                ) : (
-                  <>
-                    {result.trackingUnavailable && (
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 mb-4">
-                        {result.trackingMessage ||
-                          "Live tracking is temporarily unavailable. Showing the last saved status from our records."}
-                      </div>
-                    )}
-                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 mb-5">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <div className="h-9 w-9 rounded-full bg-white border border-gray-200 flex items-center justify-center">
-                            <Truck className="h-4 w-4 text-gray-500" />
-                          </div>
-                          <div>
-                            <p className="text-xs text-gray-500">Current shipment status</p>
-                            <div className="mt-1">
-                              <StatusBadge status={result.status} className="text-sm px-3 py-1" />
-                            </div>
-                          </div>
-                        </div>
-                        {result.activities[0]?.date && (
-                          <div className="text-right">
-                            <p className="text-[11px] text-gray-500">Last update</p>
-                            <p className="text-xs font-medium text-gray-700">{formatDateTime(result.activities[0].date)}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-                      <div className="rounded-lg border border-gray-200 p-3 bg-white">
-                        <p className="text-[11px] text-gray-500 flex items-center gap-1">
-                          <Hash className="h-3.5 w-3.5" /> AWB Number
-                        </p>
-                        <p className="text-sm font-semibold text-gray-900 mt-1 break-all">{result.awb || "-"}</p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 p-3 bg-white">
-                        <p className="text-[11px] text-gray-500 flex items-center gap-1">
-                          <Package className="h-3.5 w-3.5" /> Order ID
-                        </p>
-                        <p className="text-sm font-semibold text-gray-900 mt-1">{result.order?.id || "-"}</p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 p-3 bg-white">
-                        <p className="text-[11px] text-gray-500 flex items-center gap-1">
-                          <Truck className="h-3.5 w-3.5" /> Courier Partner
-                        </p>
-                        <p className="text-sm font-semibold text-gray-900 mt-1">{result.carrierName || "-"}</p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-3">Order Details</h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                          <p className="text-[11px] text-gray-500 flex items-center gap-1"><User className="h-3.5 w-3.5" /> Customer</p>
-                          <p className="text-sm font-semibold text-gray-900 mt-1">{result.orderDetails?.customerName || "-"}</p>
-                        </div>
-                        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                          <p className="text-[11px] text-gray-500 flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> Phone</p>
-                          <p className="text-sm font-semibold text-gray-900 mt-1">{result.orderDetails?.phone || "-"}</p>
-                        </div>
-                        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                          <p className="text-[11px] text-gray-500 flex items-center gap-1"><CreditCard className="h-3.5 w-3.5" /> Payment Type</p>
-                          <p className="text-sm font-semibold text-gray-900 mt-1">{result.orderDetails?.paymentType || "-"}</p>
-                        </div>
-                        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                          <p className="text-[11px] text-gray-500 flex items-center gap-1"><Wallet className="h-3.5 w-3.5" /> Order Amount</p>
-                          <p className="text-sm font-semibold text-gray-900 mt-1">{formatCurrencyINR(result.orderDetails?.amount)}</p>
-                        </div>
-                        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                          <p className="text-[11px] text-gray-500 flex items-center gap-1"><Scale className="h-3.5 w-3.5" /> Weight</p>
-                          <p className="text-sm font-semibold text-gray-900 mt-1">{result.orderDetails?.shipment?.weight || "-"}</p>
-                        </div>
-                        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                          <p className="text-[11px] text-gray-500 flex items-center gap-1"><Boxes className="h-3.5 w-3.5" /> Shipment ID</p>
-                          <p className="text-sm font-semibold text-gray-900 mt-1 break-all">{result.orderDetails?.shipment?.shipmentId || "-"}</p>
-                        </div>
-                      </div>
-                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 mt-3">
-                        <p className="text-[11px] text-gray-500 flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> Delivery Address</p>
-                        <p className="text-sm font-semibold text-gray-900 mt-1">
-                          {[
-                            result.orderDetails?.destination?.address,
-                            result.orderDetails?.destination?.city,
-                            result.orderDetails?.destination?.state,
-                            result.orderDetails?.destination?.pincode,
-                          ]
-                            .filter(Boolean)
-                            .join(", ") || "-"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {result.trackUrl && (
-                      <a
-                        href={result.trackUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 text-sm text-primary hover:underline mb-4"
-                      >
-                        Open carrier tracking <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    )}
-
-                    {result.activities.length > 0 ? (
-                      <div className="rounded-xl border border-gray-200 bg-white p-4">
-                        <div className="flex items-center gap-2 mb-4">
-                          <CalendarDays className="h-4 w-4 text-gray-500" />
-                          <h3 className="text-sm font-semibold text-gray-900">Tracking Timeline</h3>
-                        </div>
-                        <div className="space-y-4">
-                          {result.activities.map((act, i) => (
-                            <div key={i} className="flex gap-3">
-                              <div className="flex flex-col items-center pt-0.5">
-                                <CircleDot className="h-4 w-4 text-primary shrink-0" />
-                                {i !== result.activities.length - 1 && <div className="w-px flex-1 min-h-8 bg-gray-200 mt-1" />}
-                              </div>
-                              <div className="flex-1 rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                <div className="flex items-start justify-between gap-3">
-                                  <p className="text-sm font-medium text-gray-900">{act.activity}</p>
-                                  <span className="text-[11px] text-gray-500 whitespace-nowrap">{formatDateTime(act.date)}</span>
-                                </div>
-                                {act.location && <p className="text-xs text-gray-600 mt-1">{act.location}</p>}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      !result.pendingShipment && (
-                        <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 py-8 px-4 text-center">
-                          <p className="text-sm font-medium text-gray-700">No tracking events yet</p>
-                          <p className="text-xs text-gray-500 mt-1">Updates will appear here once the courier scans the shipment.</p>
-                        </div>
-                      )
-                    )}
-                  </>
-                )}
-              </div>
-            )}
+      <main className="flex-1 flex justify-center p-4 sm:p-6 pt-10 pb-12">
+        <div className="w-full max-w-[640px] space-y-6">
+          <div className="rounded-2xl border border-border bg-card shadow-lg p-6 sm:p-8 animate-fade-in-up">
+            <h1 className="text-2xl font-bold text-center text-text-primary mb-1">{branding.headerText}</h1>
+            <p className="text-sm text-center text-text-secondary mb-6">{branding.subText}</p>
+            {searchCard}
           </div>
 
+          {!result && !error && !loading && (
+            <div className="rounded-2xl border border-dashed border-border bg-card/50 p-8 text-center">
+              <Truck className="mx-auto mb-3 h-9 w-9 text-text-muted" />
+              <p className="text-sm text-text-muted">No search yet — enter an AWB or order ID above.</p>
+            </div>
+          )}
+
+          {loading && (
+            <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-10 text-text-secondary">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Tracking…
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-xl border border-danger/30 bg-danger-light/30 p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="h-5 w-5 text-danger shrink-0" />
+                <p className="text-sm text-text-primary">{error}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleTrack()}
+                className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400 shrink-0"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {result && !loading && (
+            <div className="rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm animate-fade-in-up">
+              <TrackingResults result={result} />
+            </div>
+          )}
+
           {branding.showBranding && (
-            <p className="text-center text-xs mt-6" style={{ color: "#9ca3af" }}>
-              {branding.footerText}
-            </p>
+            <p className="text-center text-xs text-text-muted">{branding.footerText}</p>
           )}
         </div>
       </main>

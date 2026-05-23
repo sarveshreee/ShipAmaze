@@ -13,9 +13,9 @@ export function PageHeader({ title, breadcrumb, actions, className }: PageHeader
   return (
     <div className={cn("mb-6 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between", className)}>
       <div>
-        <h1 className="text-xl font-semibold text-text-primary">{title}</h1>
+        <h1 className="text-lg font-semibold text-text-primary sm:text-xl">{title}</h1>
         {breadcrumb && (
-          <div className="flex items-center gap-1 text-xs text-text-muted mt-0.5">
+          <div className="flex flex-wrap items-center gap-1 text-xs text-text-muted mt-0.5">
             {breadcrumb.map((item, i) => (
               <span key={i} className="flex items-center gap-1">
                 {i > 0 && <ChevronRight className="h-3 w-3" />}
