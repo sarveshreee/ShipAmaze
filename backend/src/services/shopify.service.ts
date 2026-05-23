@@ -72,10 +72,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function shopifyFetch<T>(url: string, accessToken: string): Promise<T> {
+async function shopifyRequest<T>(
+  method: "GET" | "POST",
+  url: string,
+  accessToken: string,
+  body?: unknown
+): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const res = await fetch(url, { headers: shopifyHeaders(accessToken) });
+    const res = await fetch(url, {
+      method,
+      headers: shopifyHeaders(accessToken),
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
     if (res.status === 429) {
       const retryAfter = parseInt(res.headers.get("retry-after") || "2", 10);
       await sleep(Math.min(30, Math.max(1, retryAfter)) * 1000 * (attempt + 1));
@@ -93,6 +102,41 @@ async function shopifyFetch<T>(url: string, accessToken: string): Promise<T> {
     return res.json() as Promise<T>;
   }
   throw lastErr instanceof Error ? lastErr : new AppError(429, "Shopify rate limit exceeded. Try again in a minute.");
+}
+
+async function shopifyFetch<T>(url: string, accessToken: string): Promise<T> {
+  return shopifyRequest<T>("GET", url, accessToken);
+}
+
+export interface ShopifyWebhookSubscription {
+  id: number;
+  topic: string;
+  address: string;
+  format: string;
+}
+
+export async function listWebhooks(accessToken: string, shop: string): Promise<ShopifyWebhookSubscription[]> {
+  const data = await shopifyRequest<{ webhooks?: ShopifyWebhookSubscription[] }>(
+    "GET",
+    `${shopifyBaseUrl(shop)}/webhooks.json?limit=250`,
+    accessToken
+  );
+  return Array.isArray(data.webhooks) ? data.webhooks : [];
+}
+
+export async function createWebhook(
+  accessToken: string,
+  shop: string,
+  topic: string,
+  address: string
+): Promise<ShopifyWebhookSubscription> {
+  const data = await shopifyRequest<{ webhook: ShopifyWebhookSubscription }>(
+    "POST",
+    `${shopifyBaseUrl(shop)}/webhooks.json`,
+    accessToken,
+    { webhook: { topic, address, format: "json" } }
+  );
+  return data.webhook;
 }
 
 export async function getShopDetails(accessToken: string, shop: string): Promise<ShopifyShop> {

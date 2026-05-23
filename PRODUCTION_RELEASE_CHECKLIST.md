@@ -86,7 +86,7 @@ Backend `CORS_ORIGIN` must include the exact Vercel origin(s), e.g. `https://you
 ## 5. Shopify
 
 - [ ] App **Allowed redirection URL(s)** include production `SHOPIFY_REDIRECT_URI`.
-- [ ] Webhook URL: `https://<api-host>/api/shopify/webhooks` (POST, raw JSON body for HMAC).
+- [ ] Webhook URL reachable: `https://<api-host>/api/shopify/webhooks` (POST, raw JSON body for HMAC). Registered automatically on OAuth via `ensureShopifyWebhooksRegistered` (optional override: `SHOPIFY_WEBHOOK_URL`).
 - [ ] API credentials in env match the Partners app.
 
 ## 6. Velocity (if enabled)
@@ -108,7 +108,7 @@ After deploy, run through `SMOKE_TEST_CHECKLIST.md` (auth, pickup, order, wallet
 ## 9. Known limitations
 
 - Transactional email requires `EMAIL_FROM`+`EMAIL_PASS`, `GMAIL_USER`+`GMAIL_APP_PASSWORD`, or custom SMTP; otherwise outbound mail is skipped (startup warning only).
-- Shopify OAuth state is in-memory (single-instance or sticky sessions recommended if you scale horizontally; otherwise users may see occasional “invalid state” during connect).
+- Shopify OAuth state is stored in MongoDB (`OAuthState` collection, 10-minute TTL on `expiresAt`) — safe for horizontal scaling on Render.
 - CSV exports and reports may cap row counts (see API docs / `REPORTS_BILLING_TESTING_CHECKLIST.md`).
 - No real payment gateway is integrated; wallet/top-up flows are application-level only.
 

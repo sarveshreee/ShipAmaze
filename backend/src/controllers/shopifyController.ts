@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { AuthRequest } from "../middleware/authMiddleware.js";
+import { OAuthState, defaultOAuthStateExpiry } from "../models/OAuthState.js";
 import { ShopifyStoreConnection } from "../models/ShopifyStoreConnection.js";
 import { ShopifyWebhookReceipt, defaultWebhookReceiptExpiry } from "../models/ShopifyWebhookReceipt.js";
 import { Order } from "../models/Order.js";
@@ -9,6 +10,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { encrypt, decrypt } from "../utils/crypto.js";
 import * as shopifyService from "../services/shopify.service.js";
+import { ensureShopifyWebhooksRegistered } from "../services/shopifyWebhooks.js";
 import {
   buildShopifyOrderPayload,
   mergeShopifyPayloadIntoOrder,
@@ -81,37 +83,32 @@ function verifyShopifyHmac(query: Record<string, string>, secret: string): boole
 }
 
 /* ------------------------------------------------------------------ */
-/*  State store: temporary OAuth state (in-memory)                      */
+/*  State store: temporary OAuth state (MongoDB — multi-instance safe)   */
 /* ------------------------------------------------------------------ */
-type OAuthStateRecord = { ownerUserId: string; createdAtMs: number };
-const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-const oauthStateStore = new Map<string, OAuthStateRecord>();
-
 const syncInFlight = new Set<string>();
 
 function isMongoDuplicateKey(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === 11000;
 }
 
-function cleanupExpiredStates(nowMs = Date.now()) {
-  for (const [k, v] of oauthStateStore.entries()) {
-    if (nowMs - v.createdAtMs > OAUTH_STATE_TTL_MS) oauthStateStore.delete(k);
-  }
-}
-
-function createOAuthState(ownerUserId: string): string {
-  cleanupExpiredStates();
+async function createOAuthState(ownerUserId: string): Promise<string> {
   const state = randomBytes(16).toString("hex");
-  oauthStateStore.set(state, { ownerUserId, createdAtMs: Date.now() });
+  await OAuthState.create({
+    state,
+    ownerUserId,
+    expiresAt: defaultOAuthStateExpiry(),
+  });
   return state;
 }
 
-function consumeOAuthState(state: string): { ownerUserId: string } {
-  const rec = oauthStateStore.get(state);
-  oauthStateStore.delete(state);
+/** Atomically consume state (one-time use) — safe across horizontal scaling. */
+async function consumeOAuthState(state: string): Promise<{ ownerUserId: string }> {
+  const rec = await OAuthState.findOneAndDelete({
+    state,
+    expiresAt: { $gt: new Date() },
+  }).lean();
   if (!rec) throw new AppError(400, "Invalid OAuth state");
-  if (Date.now() - rec.createdAtMs > OAUTH_STATE_TTL_MS) throw new AppError(400, "Expired OAuth state");
-  return { ownerUserId: rec.ownerUserId };
+  return { ownerUserId: String(rec.ownerUserId) };
 }
 
 function isValidShopDomain(shop: string): boolean {
@@ -141,15 +138,15 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
   }
 
   const shopDomain = shop.toLowerCase();
-  const state = createOAuthState(String(req.user._id));
+  const state = await createOAuthState(String(req.user._id));
 
+  // Omit grant_options — Shopify issues a non-expiring offline access token (standard SaaS pattern).
   const oauthUrl =
     `https://${shopDomain}/admin/oauth/authorize` +
     `?client_id=${apiKey}` +
     `&scope=${encodeURIComponent(scopes)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&state=${state}` +
-    `&grant_options[]=per-user`;
+    `&state=${state}`;
 
   if (process.env.NODE_ENV === "development") {
     console.info("[shopify] oauth initiate", { shop: shopDomain });
@@ -199,7 +196,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
 
   let ownerUserId: string;
   try {
-    ownerUserId = consumeOAuthState(state).ownerUserId;
+    ownerUserId = (await consumeOAuthState(state)).ownerUserId;
   } catch {
     console.warn("[shopify:oauth] callback invalid/expired state");
     res.redirect(buildFrontendRedirect("error", "Session expired or invalid. Start connect again from ShipAmaze."));
@@ -255,6 +252,28 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     },
     { upsert: true, new: true }
   );
+
+  try {
+    const wh = await ensureShopifyWebhooksRegistered(access_token, shopDetails.myshopify_domain);
+    if (process.env.NODE_ENV === "development") {
+      console.info("[shopify] webhooks ensured", {
+        shop: shopDetails.myshopify_domain,
+        address: wh.address,
+        registered: wh.registered,
+        skipped: wh.skipped,
+      });
+    }
+  } catch (whErr: unknown) {
+    const msg = whErr instanceof Error ? whErr.message : "Webhook registration failed";
+    console.warn("[shopify:oauth] webhook registration failed", {
+      shop: shopDetails.myshopify_domain,
+      message: msg,
+    });
+    await ShopifyStoreConnection.updateOne(
+      { ownerUserId, shopDomain: shopDetails.myshopify_domain },
+      { lastSyncError: `Webhook registration failed: ${msg.slice(0, 240)}` }
+    );
+  }
 
   res.redirect(buildFrontendRedirect("connected"));
 });
