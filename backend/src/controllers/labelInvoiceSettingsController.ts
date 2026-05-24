@@ -13,56 +13,101 @@ function strField(v: unknown): string {
   return String(v);
 }
 
-function toDto(doc?: {
-  companyName?: string | null;
-  address?: string | null;
-  logoUrl?: string | null;
-  invoiceNote?: string | null;
-  footerNote?: string | null;
-  showBarcode?: boolean | null;
-  showCodValue?: boolean | null;
-  showProductTable?: boolean | null;
-  labelSize?: string | null;
-  updatedAt?: Date;
-} | null) {
+function optBool(v: unknown, def: boolean) {
+  return v === true || v === false ? v : def;
+}
+
+function toDto(doc?: Record<string, unknown> | null) {
   const d = doc ?? {};
   return {
     companyName: strField(d.companyName),
     address: strField(d.address),
     logoUrl: strField(d.logoUrl),
+    gstAddress: strField(d.gstAddress),
+    returnAddress: strField(d.returnAddress),
+    returnMobile: strField(d.returnMobile),
+    warehouseAddress: strField(d.warehouseAddress),
+    warehouseMobile: strField(d.warehouseMobile),
+    brandName: strField(d.brandName),
     invoiceNote: strField(d.invoiceNote),
     footerNote: strField(d.footerNote),
     showBarcode: d.showBarcode !== false,
     showCodValue: d.showCodValue !== false,
     showProductTable: d.showProductTable !== false,
+    hideCustomerMobile: d.hideCustomerMobile === true,
+    hideWarehouseAddress: d.hideWarehouseAddress === true,
+    hideWarehouseMobile: d.hideWarehouseMobile === true,
+    hideReturnAddress: d.hideReturnAddress === true,
+    hideReturnMobile: d.hideReturnMobile === true,
+    showLogo: d.showLogo !== false,
+    showBrandName: d.showBrandName !== false,
+    showWeight: d.showWeight !== false,
+    showProductName: d.showProductName !== false,
+    showGstAddress: d.showGstAddress === true,
     labelSize: (LABEL_SIZES.has(d.labelSize as LabelSizePreset) ? d.labelSize : "4x6") as LabelSizePreset,
     updatedAt: d.updatedAt instanceof Date ? d.updatedAt.toISOString() : undefined,
   };
 }
 
 /** Safe subset for unauthenticated label rendering (no internal metadata). */
-function toPublicDto(doc?: {
-  companyName?: string | null;
-  address?: string | null;
-  logoUrl?: string | null;
-  invoiceNote?: string | null;
-  footerNote?: string | null;
-  showBarcode?: boolean | null;
-  showCodValue?: boolean | null;
-  showProductTable?: boolean | null;
-  labelSize?: string | null;
-} | null) {
+function toPublicDto(doc?: Record<string, unknown> | null) {
   const base = toDto(doc ?? {});
   return {
     companyName: base.companyName,
     address: base.address,
     logoUrl: base.logoUrl,
+    gstAddress: base.gstAddress,
+    returnAddress: base.returnAddress,
+    returnMobile: base.returnMobile,
+    warehouseAddress: base.warehouseAddress,
+    warehouseMobile: base.warehouseMobile,
+    brandName: base.brandName,
     invoiceNote: base.invoiceNote,
     footerNote: base.footerNote,
     showBarcode: base.showBarcode,
     showCodValue: base.showCodValue,
     showProductTable: base.showProductTable,
+    hideCustomerMobile: base.hideCustomerMobile,
+    hideWarehouseAddress: base.hideWarehouseAddress,
+    hideWarehouseMobile: base.hideWarehouseMobile,
+    hideReturnAddress: base.hideReturnAddress,
+    hideReturnMobile: base.hideReturnMobile,
+    showLogo: base.showLogo,
+    showBrandName: base.showBrandName,
+    showWeight: base.showWeight,
+    showProductName: base.showProductName,
+    showGstAddress: base.showGstAddress,
     labelSize: base.labelSize,
+  };
+}
+
+function buildPayloadFromBody(b: Record<string, unknown>, labelSize: LabelSizePreset) {
+  return {
+    companyName: String(b.companyName ?? "").trim(),
+    address: String(b.address ?? "").trim(),
+    logoUrl: String(b.logoUrl ?? "").trim(),
+    gstAddress: String(b.gstAddress ?? "").trim(),
+    returnAddress: String(b.returnAddress ?? "").trim(),
+    returnMobile: String(b.returnMobile ?? "").trim(),
+    warehouseAddress: String(b.warehouseAddress ?? "").trim(),
+    warehouseMobile: String(b.warehouseMobile ?? "").trim(),
+    brandName: String(b.brandName ?? "").trim(),
+    invoiceNote: String(b.invoiceNote ?? "").trim(),
+    footerNote: String(b.footerNote ?? "").trim(),
+    showBarcode: optBool(b.showBarcode, true),
+    showCodValue: optBool(b.showCodValue, true),
+    showProductTable: optBool(b.showProductTable, true),
+    hideCustomerMobile: optBool(b.hideCustomerMobile, false),
+    hideWarehouseAddress: optBool(b.hideWarehouseAddress, false),
+    hideWarehouseMobile: optBool(b.hideWarehouseMobile, false),
+    hideReturnAddress: optBool(b.hideReturnAddress, false),
+    hideReturnMobile: optBool(b.hideReturnMobile, false),
+    showLogo: optBool(b.showLogo, true),
+    showBrandName: optBool(b.showBrandName, true),
+    showWeight: optBool(b.showWeight, true),
+    showProductName: optBool(b.showProductName, true),
+    showGstAddress: optBool(b.showGstAddress, false),
+    labelSize,
   };
 }
 
@@ -84,20 +129,7 @@ export const putLabelInvoiceSettings = asyncHandler(async (req: AuthRequest, res
   const b = req.body as Record<string, unknown>;
   const labelSizeRaw = String(b.labelSize ?? "").trim();
   const labelSize = LABEL_SIZES.has(labelSizeRaw as LabelSizePreset) ? (labelSizeRaw as LabelSizePreset) : "4x6";
-
-  const optBool = (v: unknown, def: boolean) => (v === true || v === false ? v : def);
-
-  const payload = {
-    companyName: String(b.companyName ?? "").trim(),
-    address: String(b.address ?? "").trim(),
-    logoUrl: String(b.logoUrl ?? "").trim(),
-    invoiceNote: String(b.invoiceNote ?? "").trim(),
-    footerNote: String(b.footerNote ?? "").trim(),
-    showBarcode: optBool(b.showBarcode, true),
-    showCodValue: optBool(b.showCodValue, true),
-    showProductTable: optBool(b.showProductTable, true),
-    labelSize,
-  };
+  const payload = buildPayloadFromBody(b, labelSize);
 
   const doc = await LabelInvoiceSetting.findOneAndUpdate(
     { key: GLOBAL_KEY },

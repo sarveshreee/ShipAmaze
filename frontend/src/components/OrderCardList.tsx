@@ -1,5 +1,6 @@
 import type { Order } from "@/types/logistics";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
+import { ProductLineDisplay } from "@/components/ProductLineDisplay";
 import { Package, MapPin, Truck, Eye, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,20 @@ export function OrderCardList({ orders, onViewOrder }: OrderCardListProps) {
             </div>
             <StatusBadge status={order.status} />
           </div>
+
+          {(() => {
+            const products = order.products ?? order.items ?? [];
+            const first = products[0];
+            if (!first) return null;
+            return (
+              <div className="border-t border-border/60 pt-2">
+                <ProductLineDisplay product={first} compact />
+                {products.length > 1 ? (
+                  <p className="text-[10px] text-text-muted mt-1">+{products.length - 1} more item(s)</p>
+                ) : null}
+              </div>
+            );
+          })()}
 
           {/* Customer */}
           <div className="flex items-center justify-between text-sm">

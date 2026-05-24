@@ -406,27 +406,65 @@ export default function AdminSettings() {
                   placeholder="Legal / jurisdiction note at bottom of label"
                 />
               </div>
-              <div className="flex flex-wrap gap-6">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={liForm.showBarcode}
-                    onCheckedChange={(v) => setLiForm((f) => ({ ...f, showBarcode: v === true }))}
-                  />
-                  <span className="text-sm text-text-primary">Show barcodes</span>
+              <div>
+                <Label>Brand name (on label)</Label>
+                <Input
+                  className="mt-1"
+                  value={liForm.brandName}
+                  onChange={(e) => setLiForm((f) => ({ ...f, brandName: e.target.value }))}
+                  placeholder="Optional display name"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label>Warehouse address</Label>
+                  <Textarea className="mt-1 min-h-[64px]" value={liForm.warehouseAddress} onChange={(e) => setLiForm((f) => ({ ...f, warehouseAddress: e.target.value }))} />
                 </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={liForm.showCodValue}
-                    onCheckedChange={(v) => setLiForm((f) => ({ ...f, showCodValue: v === true }))}
-                  />
-                  <span className="text-sm text-text-primary">Show COD collectable value</span>
+                <div>
+                  <Label>Return address</Label>
+                  <Textarea className="mt-1 min-h-[64px]" value={liForm.returnAddress} onChange={(e) => setLiForm((f) => ({ ...f, returnAddress: e.target.value }))} />
                 </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={liForm.showProductTable}
-                    onCheckedChange={(v) => setLiForm((f) => ({ ...f, showProductTable: v === true }))}
-                  />
-                  <span className="text-sm text-text-primary">Show product table</span>
+                <div>
+                  <Label>Warehouse mobile</Label>
+                  <Input className="mt-1" value={liForm.warehouseMobile} onChange={(e) => setLiForm((f) => ({ ...f, warehouseMobile: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Return mobile</Label>
+                  <Input className="mt-1" value={liForm.returnMobile} onChange={(e) => setLiForm((f) => ({ ...f, returnMobile: e.target.value }))} />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label>GST address</Label>
+                  <Textarea className="mt-1 min-h-[64px]" value={liForm.gstAddress} onChange={(e) => setLiForm((f) => ({ ...f, gstAddress: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-text-primary mb-2">Label visibility</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(
+                    [
+                      ["hideCustomerMobile", "Hide customer mobile"],
+                      ["hideWarehouseAddress", "Hide warehouse address"],
+                      ["hideWarehouseMobile", "Hide warehouse mobile"],
+                      ["hideReturnAddress", "Hide return address"],
+                      ["hideReturnMobile", "Hide return mobile"],
+                      ["showLogo", "Show logo"],
+                      ["showBrandName", "Show brand name"],
+                      ["showWeight", "Show weight"],
+                      ["showProductName", "Show product name on table"],
+                      ["showGstAddress", "Show GST address"],
+                      ["showBarcode", "Show barcodes"],
+                      ["showCodValue", "Show COD collectable value"],
+                      ["showProductTable", "Show product table"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <Switch
+                        checked={liForm[key]}
+                        onCheckedChange={(v) => setLiForm((f) => ({ ...f, [key]: v === true }))}
+                      />
+                      <span className="text-sm text-text-primary">{label}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
               <div>

@@ -211,13 +211,16 @@ export function createOrderLabelElement(
   };
 
   // --- Header: seller | logo ---
+  const brandLabel = settings.showBrandName
+    ? dash(settings.brandName || settings.companyName)
+    : "—";
   const sellerLines = [
-    dash(settings.companyName) !== "—" ? settings.companyName : "—",
+    brandLabel !== "—" ? brandLabel : dash(settings.companyName),
     ...String(settings.address || "")
       .split(/\n|,/)
       .map((s) => s.trim())
       .filter(Boolean),
-  ];
+  ].filter((x) => x !== "—");
   const sellerBlock = block("From (Seller)", sellerLines.length ? sellerLines : ["—"]);
 
   const logoCell = el("div", {
@@ -231,7 +234,7 @@ export function createOrderLabelElement(
       justifyContent: "flex-end",
     },
   });
-  const lu = settings.logoUrl?.trim();
+  const lu = settings.showLogo ? settings.logoUrl?.trim() : "";
   if (lu && (lu.startsWith("http") || lu.startsWith("data:"))) {
     const img = document.createElement("img");
     img.src = lu;
@@ -251,13 +254,37 @@ export function createOrderLabelElement(
   shipInner.appendChild(el("div", { style: { fontWeight: "700", fontSize: "10px", marginBottom: "4px" }, text: "Deliver To" }));
   shipInner.appendChild(el("div", { style: { fontWeight: "700" }, text: st.name }));
   st.lines.forEach((ln) => shipInner.appendChild(el("div", { text: ln })));
-  if (st.phone !== "—") shipInner.appendChild(el("div", { text: `Phone: ${st.phone}` }));
+  if (st.phone !== "—" && !settings.hideCustomerMobile) {
+    shipInner.appendChild(el("div", { text: `Phone: ${st.phone}` }));
+  }
   host.appendChild(row([shipInner]));
+
+  const extraBlocks: string[] = [];
+  if (!settings.hideWarehouseAddress && settings.warehouseAddress.trim()) {
+    extraBlocks.push(`Warehouse: ${settings.warehouseAddress.trim()}`);
+  }
+  if (!settings.hideWarehouseMobile && settings.warehouseMobile.trim()) {
+    extraBlocks.push(`Warehouse phone: ${settings.warehouseMobile.trim()}`);
+  }
+  if (!settings.hideReturnAddress && settings.returnAddress.trim()) {
+    extraBlocks.push(`Return: ${settings.returnAddress.trim()}`);
+  }
+  if (!settings.hideReturnMobile && settings.returnMobile.trim()) {
+    extraBlocks.push(`Return phone: ${settings.returnMobile.trim()}`);
+  }
+  if (settings.showGstAddress && settings.gstAddress.trim()) {
+    extraBlocks.push(`GST: ${settings.gstAddress.trim()}`);
+  }
+  if (extraBlocks.length) {
+    host.appendChild(row([block("Additional", extraBlocks)]));
+  }
 
   // --- Dims / AWB ---
   const leftMeta = el("div", { style: { flex: "1", minWidth: "0" } });
   leftMeta.appendChild(el("div", { text: `Dimensions: ${dimsText(order)}` }));
-  leftMeta.appendChild(el("div", { style: { marginTop: "4px", fontWeight: "600" }, text: weightLine(order) }));
+  if (settings.showWeight) {
+    leftMeta.appendChild(el("div", { style: { marginTop: "4px", fontWeight: "600" }, text: weightLine(order) }));
+  }
 
   const rightAwb = el("div", { style: { flex: "1", minWidth: "0", textAlign: "right" } });
   const awbVal = dash(order.awb || order.trackingId || order.velocityShipmentId);
@@ -346,7 +373,10 @@ export function createOrderLabelElement(
     tbl.style.fontSize = "10px";
     const thead = document.createElement("thead");
     const hr = document.createElement("tr");
-    for (const h of ["Product Name", "Product Code", "SKU ID", "Qty", "Total Price"]) {
+    const headers: string[] = [];
+    if (settings.showProductName) headers.push("Product Name");
+    headers.push("Product Code", "SKU ID", "Qty", "Total Price");
+    for (const h of headers) {
       const th = document.createElement("th");
       th.textContent = h;
       th.style.border = "1px solid #000";
@@ -360,7 +390,9 @@ export function createOrderLabelElement(
     const tb = document.createElement("tbody");
     for (const line of lines) {
       const tr = document.createElement("tr");
-      const cells = [lineName(line), lineProductCode(line), lineSku(line), lineQty(line), lineRowTotal(line)];
+      const cells: string[] = [];
+      if (settings.showProductName) cells.push(lineName(line));
+      cells.push(lineProductCode(line), lineSku(line), lineQty(line), lineRowTotal(line));
       for (const c of cells) {
         const td = document.createElement("td");
         td.textContent = c;

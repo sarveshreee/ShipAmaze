@@ -49,6 +49,12 @@ async function toPublicUser(user: {
   emailVerified?: boolean;
 }) {
   const profile = await Profile.findOne({ userId: user._id }).lean();
+  let dropshipperAccessType: "FULL" | "RESTRICTED" | undefined;
+  if (user.role === "dropshipper") {
+    const { Dropshipper } = await import("../models/Dropshipper.js");
+    const d = await Dropshipper.findOne({ userId: user._id }).select("accessType").lean();
+    dropshipperAccessType = d?.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL";
+  }
   return {
     id: String(user._id),
     name: user.name,
@@ -61,6 +67,7 @@ async function toPublicUser(user: {
     address: profile?.address ?? "",
     avatarUrl:
       profile?.avatarUrl && String(profile.avatarUrl).trim() ? String(profile.avatarUrl).trim() : null,
+    dropshipperAccessType,
   };
 }
 

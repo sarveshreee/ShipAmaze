@@ -18,6 +18,8 @@ export function roleAddOrderPath(role: UserRole): string {
   return `/${role}/add-order`;
 }
 
+export type DropshipperAccessType = "FULL" | "RESTRICTED";
+
 export interface AuthUser {
   id: string;
   name: string;
@@ -30,6 +32,8 @@ export interface AuthUser {
   avatarUrl: string | null;
   /** False when signup verification is still required. */
   emailVerified?: boolean;
+  /** Present for dropshipper accounts — RESTRICTED limits vendors/warehouses/processing. */
+  dropshipperAccessType?: DropshipperAccessType;
 }
 
 export type RegisterResult =

@@ -27,9 +27,10 @@ import {
 import { AddFundsModal } from "@/components/AddFundsModal";
 import type { UserRole } from "@/services/authService";
 import { roleHomePath } from "@/services/authService";
+import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import * as notificationService from "@/services/notificationService";
 
-interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; }
+interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; requiresFullAccess?: boolean; }
 interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[]; }
 
 const adminNav: NavGroup[] = [
@@ -92,9 +93,9 @@ const dropshipperNav: NavGroup[] = [
   { title: "ORDERS", items: [
     { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", children: [
       { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", shortcut: "G+O" },
-      { label: "Add Order", icon: Plus, path: "/dropshipper/add-order", tabKey: "create-order", shortcut: "A+O" },
+      { label: "Add Order", icon: Plus, path: "/dropshipper/add-order", tabKey: "create-order", shortcut: "A+O", requiresFullAccess: true },
     ]},
-    { label: "Bulk Upload", icon: Upload, path: "/dropshipper/bulk-upload", tabKey: "bulk-upload" },
+    { label: "Bulk Upload", icon: Upload, path: "/dropshipper/bulk-upload", tabKey: "bulk-upload", requiresFullAccess: true },
     { label: "Returns", icon: Undo2, path: "/dropshipper/returns", tabKey: "returns" },
     { label: "NDR", icon: AlertTriangle, path: "/dropshipper/ndr", tabKey: "ndr" },
   ]},
@@ -167,6 +168,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [walletPopoverOpen, setWalletPopoverOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { isTabEnabled } = useTabPermissions();
+  const { isRestricted } = useDropshipperAccess();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -252,12 +254,29 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   // Filter nav items based on permissions
   const nav = useMemo(() => {
+    const allowItem = (item: NavItem & { children?: NavItem[] }) => {
+      if (isRestricted && item.requiresFullAccess) return false;
+      if (item.tabKey && !isTabEnabled(item.tabKey)) return false;
+      if (item.children?.length) {
+        const kids = item.children.filter(allowItem);
+        return kids.length > 0;
+      }
+      return true;
+    };
     if (role === "admin") return rawNav.filter((group) => group.items.length > 0);
-    return rawNav.map(group => ({
-      ...group,
-      items: group.items.filter(item => !item.tabKey || isTabEnabled(item.tabKey))
-    })).filter(group => group.items.length > 0);
-  }, [rawNav, role, isTabEnabled]);
+    return rawNav
+      .map((group) => ({
+        ...group,
+        items: group.items
+          .filter(allowItem)
+          .map((item) =>
+            item.children?.length
+              ? { ...item, children: item.children.filter(allowItem) }
+              : item
+          ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [rawNav, role, isTabEnabled, isRestricted]);
 
   const unread = notifUnread;
 

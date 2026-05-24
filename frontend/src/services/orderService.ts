@@ -106,6 +106,27 @@ export async function updateOrder(orderId: string, body: Record<string, unknown>
   return apiClient.put<Order>(`/orders/${encodeURIComponent(orderId)}`, body);
 }
 
+export async function patchOrderLineItemSku(orderId: string, lineIndex: number, sku: string) {
+  return apiClient.patch<{ order: Order; audit: Record<string, unknown> | null }>(
+    `/orders/${encodeURIComponent(orderId)}/line-items/${lineIndex}/sku`,
+    { sku }
+  );
+}
+
+export async function listOrderSkuAudit(orderId: string) {
+  return apiClient.get<{
+    items: {
+      id: string;
+      lineIndex: number;
+      oldSku: string;
+      newSku: string;
+      productName?: string;
+      updatedByName?: string;
+      createdAt: string;
+    }[];
+  }>(`/orders/${encodeURIComponent(orderId)}/sku-audit`);
+}
+
 export async function trackByAwb(awb: string) {
   return apiClient.get<Order>(`/orders/track/${encodeURIComponent(awb)}`);
 }

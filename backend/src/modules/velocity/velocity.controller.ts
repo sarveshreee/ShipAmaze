@@ -26,6 +26,28 @@ import {
   debitShipmentChargeIfApplicable,
   orderWalletUserId,
 } from "../../services/walletLedger.js";
+import { resolvePreferredCourierName } from "../../services/courierPriorityService.js";
+
+async function applyCourierPriorityRules(
+  merged: Record<string, unknown>,
+  localOrder: IOrder | null
+): Promise<void> {
+  if (merged.carrier_id != null && String(merged.carrier_id).trim() !== "") return;
+  if (!localOrder) return;
+  const { courierName, candidates, matchedRules } = await resolvePreferredCourierName(localOrder);
+  if (!courierName) return;
+  localOrder.courier = courierName;
+  localOrder.courierName = courierName;
+  console.info(
+    "[velocity:courier-priority]",
+    JSON.stringify({
+      orderId: localOrder.orderId,
+      courierName,
+      matchedRules,
+      candidates: candidates.slice(0, 8).map((c) => c.courierName),
+    })
+  );
+}
 
 async function precheckForwardShipmentWallet(localOrder: IOrder | null): Promise<void> {
   if (!localOrder) return;
@@ -465,6 +487,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
   }
 
   const merged = await mergeVelocityWarehouse(req, body, localOrder);
+  await applyCourierPriorityRules(merged as Record<string, unknown>, localOrder);
   const resolvedVelocityWarehouseId =
     merged.warehouse_id != null && String(merged.warehouse_id).trim() !== ""
       ? String(merged.warehouse_id).trim()

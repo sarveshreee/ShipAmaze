@@ -23,6 +23,14 @@ import type { IOrder } from "../models/Order.js";
 import { createInAppNotification } from "../services/inAppNotifications.js";
 import { orderWalletUserId } from "../services/walletLedger.js";
 import { buildPickupSnapshotFromLean } from "../utils/pickupSnapshot.js";
+import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
+import {
+  firstItemArrayFromOrderDoc,
+  normalizeLineItem,
+  normalizeLineItems,
+  syncOrderLineItemArrays,
+} from "../utils/orderLineItems.js";
+import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddleware.js";
 
 function normalizePickupAddressForClient(pickup: unknown): unknown {
   if (pickup == null) return pickup;
@@ -669,9 +677,10 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
       throw new AppError(400, "orderItems must be a non-empty array when updating line items");
     }
     validateOrderItems(lineItems, { requireSku: true });
-    order.products = lineItems;
-    order.items = lineItems;
-    order.orderItems = lineItems;
+    const normalized = normalizeLineItems(lineItems);
+    order.products = normalized;
+    order.items = normalized;
+    order.orderItems = normalized;
     order.markModified("products");
     order.markModified("items");
     order.markModified("orderItems");
@@ -681,7 +690,7 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
       if (!Number.isFinite(n) || n < 0) throw new AppError(400, "amount must be a valid number ≥ 0");
       order.amount = n;
     } else {
-      order.amount = sumItemsAmount(lineItems);
+      order.amount = sumItemsAmount(normalized);
     }
   }
 
@@ -717,6 +726,100 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
 
   await order.save();
   res.json(mapOrder(order));
+});
+
+/** Update SKU on a single line item with audit trail. */
+export const patchOrderLineItemSku = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin" && req.user.role !== "vendor" && req.user.role !== "dropshipper") {
+    throw new AppError(403, "Forbidden");
+  }
+  if (req.user.role === "dropshipper") {
+    const access = await getDropshipperAccessType(req.user._id);
+    if (access === "RESTRICTED") throw new AppError(403, "Restricted account cannot edit SKU");
+  }
+
+  const { orderId } = req.params;
+  const lineIndex = Number(req.params.lineIndex);
+  if (!Number.isInteger(lineIndex) || lineIndex < 0) throw new AppError(400, "Invalid line index");
+
+  const body = req.body as { sku?: unknown };
+  const newSku = String(body.sku ?? "").trim();
+  if (!newSku) throw new AppError(400, "SKU cannot be empty");
+
+  const order = await Order.findOne({ orderId });
+  if (!order) throw new AppError(404, "Order not found");
+  await assertOrderAccess(req.user, order);
+
+  const lines = firstItemArrayFromOrderDoc(order);
+  if (lineIndex >= lines.length) throw new AppError(400, "Line index out of range");
+
+  const current = lines[lineIndex];
+  const oldSku = String(current.sku ?? "").trim();
+  if (oldSku === newSku) {
+    res.json({ order: mapOrder(order), audit: null, unchanged: true });
+    return;
+  }
+
+  const productName = String(current.name ?? current.productName ?? "").trim();
+  current.sku = newSku;
+  current.productSku = newSku;
+  lines[lineIndex] = normalizeLineItem(current);
+  syncOrderLineItemArrays(order, lines);
+
+  const audit = await OrderSkuAudit.create({
+    orderId: order.orderId,
+    lineIndex,
+    oldSku: oldSku || "—",
+    newSku,
+    productName: productName || undefined,
+    updatedBy: req.user._id,
+    updatedByName: req.user.name,
+  });
+
+  appendStatusHistory(
+    order,
+    String(order.status ?? "pending"),
+    req.user._id,
+    `SKU updated line ${lineIndex + 1}: "${oldSku || "—"}" → "${newSku}"`
+  );
+
+  await order.save();
+  res.json({
+    order: mapOrder(order),
+    audit: {
+      id: String(audit._id),
+      orderId: audit.orderId,
+      lineIndex: audit.lineIndex,
+      oldSku: audit.oldSku,
+      newSku: audit.newSku,
+      productName: audit.productName,
+      updatedBy: String(audit.updatedBy),
+      updatedByName: audit.updatedByName,
+      createdAt: audit.createdAt,
+    },
+  });
+});
+
+export const listOrderSkuAudit = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const { orderId } = req.params;
+  const order = await Order.findOne({ orderId }).select("orderId createdBy ownerUserId vendorId dropshipperId");
+  if (!order) throw new AppError(404, "Order not found");
+  await assertOrderAccess(req.user, order);
+  const rows = await OrderSkuAudit.find({ orderId }).sort({ createdAt: -1 }).limit(50).lean();
+  res.json({
+    items: rows.map((r) => ({
+      id: String(r._id),
+      lineIndex: r.lineIndex,
+      oldSku: r.oldSku,
+      newSku: r.newSku,
+      productName: r.productName,
+      updatedBy: String(r.updatedBy),
+      updatedByName: r.updatedByName,
+      createdAt: r.createdAt,
+    })),
+  });
 });
 
 export const createShipment = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -796,6 +899,10 @@ const BLOCKED_BULK_MOVE_TO_READY = new Set([
 
 export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "dropshipper") {
+    const access = await getDropshipperAccessType(req.user._id);
+    if (access === "RESTRICTED") throw new AppError(403, "Restricted account cannot process orders");
+  }
   const body = req.body as { orderIds?: unknown; targetStatus?: unknown };
   const orderIds = body.orderIds;
   const targetStatus = body.targetStatus;

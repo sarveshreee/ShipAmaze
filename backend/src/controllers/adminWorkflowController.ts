@@ -404,6 +404,7 @@ export const adminListDropshippers = asyncHandler(async (req: AuthRequest, res: 
         email: u?.email ?? "",
         phone: u?.phone ?? "",
         companyName: u?.companyName,
+        accessType: d.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL",
         accountStatus: u?.status,
         totalOrders: d.totalOrders,
         activeOrders: d.activeOrders,
@@ -446,6 +447,7 @@ export const adminGetDropshipper = asyncHandler(async (req: AuthRequest, res: Re
   res.json({
     id: String(d._id),
     userId: String(d.userId),
+    accessType: d.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL",
     totalOrders: d.totalOrders,
     activeOrders: d.activeOrders,
     kycVerified: d.kycVerified,
@@ -477,7 +479,7 @@ export const adminPatchDropshipper = asyncHandler(async (req: AuthRequest, res: 
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const d = await Dropshipper.findById(id);
   if (!d) throw new AppError(404, "Dropshipper not found");
-  const body = req.body as { userStatus?: string };
+  const body = req.body as { userStatus?: string; accessType?: string };
 
   if (body.userStatus === "active" || body.userStatus === "inactive" || body.userStatus === "blocked") {
     const u = await User.findById(d.userId);
@@ -485,6 +487,11 @@ export const adminPatchDropshipper = asyncHandler(async (req: AuthRequest, res: 
     if (u.role !== "dropshipper") throw new AppError(400, "Invalid user role");
     u.status = body.userStatus;
     await u.save();
+  }
+
+  if (body.accessType === "FULL" || body.accessType === "RESTRICTED") {
+    d.accessType = body.accessType;
+    await d.save();
   }
 
   res.json({ ok: true });

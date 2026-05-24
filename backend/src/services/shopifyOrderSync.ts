@@ -58,6 +58,7 @@ export function buildShopifyOrderPayload(
 
   const products = lineItems.map((li) => ({
     name: li.title || "Item",
+    productName: li.title || "Item",
     qty: li.quantity ?? 1,
     price: parseFloat(String(li.price ?? "0")) || 0,
     sku: li.sku ?? "",
@@ -73,6 +74,7 @@ export function buildShopifyOrderPayload(
 
   const itemBlocks = lineItems.map((li, idx) => ({
     name: li.title || "Item",
+    productName: li.title || "Item",
     sku: li.sku || `SKU-${idx + 1}`,
     quantity: li.quantity || 1,
     qty: li.quantity || 1,

@@ -24,6 +24,8 @@ import { DEFAULT_LABEL_INVOICE_SETTINGS, type LabelInvoiceSettings } from "@/typ
 import { ApiError } from "@/lib/apiClient";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
+import { ProductLineDisplay } from "@/components/ProductLineDisplay";
 
 /** Local warehouses (Mongo) that may carry a linked Velocity pickup id after linkOnly. */
 export interface OrderDetailWarehouseOption {
@@ -90,7 +92,8 @@ export function OrderDetailDrawer({
 }: OrderDetailDrawerProps) {
   const { role } = useAuth();
   const isAdmin = role === "admin";
-  const canEditLineSkus = role === "admin" || role === "vendor" || role === "dropshipper";
+  const { canEditSku } = useDropshipperAccess();
+  const canEditLineSkus = canEditSku;
 
   const [labelSettings, setLabelSettings] = useState<LabelInvoiceSettings>(DEFAULT_LABEL_INVOICE_SETTINGS);
   const [lineRows, setLineRows] = useState<
@@ -677,10 +680,14 @@ export function OrderDetailDrawer({
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-light/50">
                       <Package className="h-4 w-4 text-primary" />
                     </div>
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <p className="text-sm font-medium text-text-primary">{p.name}</p>
-                      <p className="text-xs text-text-muted">
-                        Qty: {p.qty} · {p.weight || "—"} · ₹{p.price}
+                    <div className="flex-1 min-w-0">
+                      <ProductLineDisplay
+                        product={{ name: p.name, sku: p.sku, qty: p.qty }}
+                        index={i}
+                        showQty={false}
+                      />
+                      <p className="text-xs text-text-muted mt-1">
+                        {p.weight || "—"} · ₹{p.price} · Qty {p.qty}
                       </p>
                     </div>
                   </div>

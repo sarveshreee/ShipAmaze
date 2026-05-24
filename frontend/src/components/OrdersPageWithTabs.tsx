@@ -30,6 +30,7 @@ import type { OrderListFilterValues } from "@/services/orderService";
 import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
 import { OrderListAdvancedFilters } from "@/components/OrderListAdvancedFilters";
 import { Badge } from "@/components/ui/badge";
+import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 
 const tabs: { label: string; filter: string }[] = [
   { label: "All", filter: "all" },
@@ -138,6 +139,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   }, [role, pickupAddresses, vendorWarehouses]);
 
   const isAdmin = role === "admin";
+  const { canProcessOrders } = useDropshipperAccess();
 
   /** Admin: show Process Selected on all tabs except Junk (same workflow everywhere). */
   const ADMIN_PROCESS_TABS = useMemo(
@@ -147,7 +149,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const showProcessSelected = isAdmin && ADMIN_PROCESS_TABS.has(activeTab);
 
   const BULK_MOVE_TO_READY_TABS = new Set(["all", "channel", "manual"]);
-  const showBulkMoveToReady = BULK_MOVE_TO_READY_TABS.has(activeTab);
+  const showBulkMoveToReady = BULK_MOVE_TO_READY_TABS.has(activeTab) && canProcessOrders;
 
   useEffect(() => {
     if (ordersError) toast.error(ordersError.message);
@@ -520,11 +522,15 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           couriers={couriers}
           warehouses={linkedWarehouseOptions}
           velocityEmptyLink={role === "dropshipper" ? "/dropshipper/pickup-addresses" : "/vendor/warehouse"}
-          onCreateShipment={async (payload) => {
-            const res = await orderService.createShipment(payload);
-            await refetch();
-            return res;
-          }}
+          onCreateShipment={
+            canProcessOrders
+              ? async (payload) => {
+                  const res = await orderService.createShipment(payload);
+                  await refetch();
+                  return res;
+                }
+              : undefined
+          }
         />
       )}
 

@@ -28,6 +28,8 @@ import * as adminWorkflowController from "./controllers/adminWorkflowController.
 import * as reportsController from "./controllers/reportsController.js";
 import * as invoiceController from "./controllers/invoiceController.js";
 import * as labelInvoiceSettingsController from "./controllers/labelInvoiceSettingsController.js";
+import * as courierPriorityController from "./controllers/courierPriorityController.js";
+import { requireFullDropshipper } from "./middleware/dropshipperAccessMiddleware.js";
 
 function parseCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN?.trim();
@@ -103,8 +105,14 @@ export function createApp() {
   api.post("/orders", authMiddleware, orderController.createOrder);
   api.post("/orders/bulk", authMiddleware, orderController.createOrdersBulk);
   api.post("/orders/bulk-move", authMiddleware, orderController.bulkMoveOrders);
-  api.post("/orders/create-shipment", authMiddleware, orderController.createShipment);
+  api.post("/orders/create-shipment", authMiddleware, requireFullDropshipper, orderController.createShipment);
   api.post("/orders/process-selected", authMiddleware, orderController.processSelectedOrders);
+  api.patch(
+    "/orders/:orderId/line-items/:lineIndex/sku",
+    authMiddleware,
+    orderController.patchOrderLineItemSku
+  );
+  api.get("/orders/:orderId/sku-audit", authMiddleware, orderController.listOrderSkuAudit);
   api.post("/orders/:id/junk", authMiddleware, orderController.markOrderJunk);
   api.patch("/orders/:orderId/status", authMiddleware, orderController.updateOrderStatus);
   api.put("/orders/:orderId", authMiddleware, orderController.updateOrder);
@@ -221,6 +229,43 @@ export function createApp() {
 
   api.get("/couriers", authMiddleware, resourceController.listCouriers);
   api.post("/couriers", authMiddleware, resourceController.upsertCourier);
+
+  api.get(
+    "/admin/courier-priority-rules",
+    authMiddleware,
+    requireRoles("admin"),
+    courierPriorityController.listCourierPriorityRules
+  );
+  api.post(
+    "/admin/courier-priority-rules",
+    authMiddleware,
+    requireRoles("admin"),
+    courierPriorityController.createCourierPriorityRule
+  );
+  api.patch(
+    "/admin/courier-priority-rules/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    courierPriorityController.updateCourierPriorityRule
+  );
+  api.delete(
+    "/admin/courier-priority-rules/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    courierPriorityController.deleteCourierPriorityRule
+  );
+  api.post(
+    "/admin/courier-priority-rules/reorder",
+    authMiddleware,
+    requireRoles("admin"),
+    courierPriorityController.reorderCourierPriorityRules
+  );
+  api.post(
+    "/admin/courier-priority-rules/evaluate",
+    authMiddleware,
+    requireRoles("admin"),
+    courierPriorityController.evaluateCourierPriority
+  );
 
   api.get("/pincodes", authMiddleware, resourceController.listPincodes);
   api.post("/pincodes", authMiddleware, resourceController.upsertPincode);

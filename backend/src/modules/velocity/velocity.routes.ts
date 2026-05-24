@@ -12,6 +12,7 @@ import { Router } from "express";
 import { authMiddleware } from "../../middleware/authMiddleware.js";
 import { publicTrackingLimiter } from "../../middleware/rateLimits.js";
 import { requireRoles } from "../../middleware/roleMiddleware.js";
+import { requireFullDropshipper } from "../../middleware/dropshipperAccessMiddleware.js";
 import * as vc from "./velocity.controller.js";
 
 const router = Router();
@@ -35,14 +36,14 @@ router.post(
   vc.createWarehouse
 );
 
-// Forward shipment (full orchestration) – admin, vendor, dropshipper
-router.post("/forward/create", vc.createForwardShipment);
+// Forward shipment (full orchestration) – admin, vendor, dropshipper (full access)
+router.post("/forward/create", requireFullDropshipper, vc.createForwardShipment);
 
-// Forward order only – admin, vendor, dropshipper
-router.post("/forward/create-order-only", vc.createForwardOrderOnly);
+// Forward order only – admin, vendor, dropshipper (full access)
+router.post("/forward/create-order-only", requireFullDropshipper, vc.createForwardOrderOnly);
 
-// Assign AWB to existing order – admin, vendor, dropshipper
-router.post("/forward/create-shipment", vc.createForwardShipmentLater);
+// Assign AWB to existing order – admin, vendor, dropshipper (full access)
+router.post("/forward/create-shipment", requireFullDropshipper, vc.createForwardShipmentLater);
 
 // Reverse / Return (full orchestration) – admin, vendor, dropshipper
 router.post("/reverse/create", vc.createReverseShipment);

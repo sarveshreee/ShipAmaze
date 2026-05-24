@@ -14,6 +14,7 @@ import NotFound from "@/pages/NotFound";
 import ShopifyStore from "@/pages/ShopifyStore";
 import ProductPreview from "@/pages/ProductPreview";
 import { useCartSync } from "@/hooks/useCartSync";
+import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 
 // Admin
 import AdminDashboard from "@/pages/admin/AdminDashboard";
@@ -96,6 +97,13 @@ function RoleProtectedRoute({ children, allow }: { children: React.ReactNode; al
   return <AppLayout>{children}</AppLayout>;
 }
 
+/** Blocks restricted dropshippers from operational pages (add order, bulk upload, etc.). */
+function FullDropshipperRoute({ children }: { children: React.ReactNode }) {
+  const { isRestricted } = useDropshipperAccess();
+  if (isRestricted) return <Navigate to="/dropshipper/orders" replace />;
+  return <>{children}</>;
+}
+
 function LoginGate() {
   const { isAuthenticated, isLoading, user } = useAuth();
   if (isLoading) return <AuthLoadingScreen />;
@@ -162,9 +170,9 @@ function AppRoutes() {
       {/* Dropshipper */}
       <Route path="/dropshipper/dashboard" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperDashboard /></RoleProtectedRoute>} />
       <Route path="/dropshipper/orders" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperOrders /></RoleProtectedRoute>} />
-      <Route path="/dropshipper/create-order" element={<RoleProtectedRoute allow={["dropshipper"]}><CreateOrder /></RoleProtectedRoute>} />
-      <Route path="/dropshipper/add-order" element={<RoleProtectedRoute allow={["dropshipper"]}><AddOrder /></RoleProtectedRoute>} />
-      <Route path="/dropshipper/bulk-upload" element={<RoleProtectedRoute allow={["dropshipper"]}><BulkUpload /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/create-order" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><CreateOrder /></FullDropshipperRoute></RoleProtectedRoute>} />
+      <Route path="/dropshipper/add-order" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><AddOrder /></FullDropshipperRoute></RoleProtectedRoute>} />
+      <Route path="/dropshipper/bulk-upload" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><BulkUpload /></FullDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/channels" element={<RoleProtectedRoute allow={["dropshipper"]}><ChannelConnect /></RoleProtectedRoute>} />
       <Route path="/dropshipper/wallet" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/vendor/wallet" element={<RoleProtectedRoute allow={["vendor"]}><DropshipperWallet /></RoleProtectedRoute>} />

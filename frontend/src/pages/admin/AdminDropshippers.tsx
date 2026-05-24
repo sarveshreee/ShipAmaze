@@ -104,6 +104,21 @@ export default function AdminDropshippers() {
     }
   };
 
+  const patchAccessType = async (accessType: "FULL" | "RESTRICTED") => {
+    if (!detailId) return;
+    setSaving(true);
+    try {
+      await adminWorkflowService.adminPatchDropshipper(detailId, { accessType });
+      toast.success(`Access set to ${accessType}`);
+      await load();
+      setDetail(await adminWorkflowService.adminGetDropshipper(detailId));
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Update failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const user = detail?.user as Record<string, unknown> | undefined;
   const shopify = detail?.shopify as Record<string, unknown> | undefined;
@@ -287,6 +302,25 @@ export default function AdminDropshippers() {
                 ) : (
                   <p className="text-xs text-text-muted">Not connected</p>
                 )}
+              </div>
+              <div className="rounded-md border border-border p-3 space-y-2">
+                <p className="font-medium">Dropshipper access type</p>
+                <p className="text-xs text-text-muted">
+                  Full: vendors, warehouses, order processing. Restricted: view-only operational access.
+                </p>
+                <Select
+                  value={(detail.accessType as string) === "RESTRICTED" ? "RESTRICTED" : "FULL"}
+                  onValueChange={(v) => void patchAccessType(v as "FULL" | "RESTRICTED")}
+                  disabled={saving}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FULL">Full Dropshipper</SelectItem>
+                    <SelectItem value="RESTRICTED">Restricted Dropshipper</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex flex-wrap gap-2 pt-4 border-t border-border">
                 <Button size="sm" disabled={saving} onClick={() => void patchAccount("active")}>

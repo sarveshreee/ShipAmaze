@@ -4,7 +4,10 @@ import type { Order } from "@/types/logistics";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User, Trash2, Truck, Calendar, IndianRupee } from "lucide-react";
+import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User, Trash2, Truck, Calendar, IndianRupee, Tag } from "lucide-react";
+import { ProductLineDisplay } from "@/components/ProductLineDisplay";
+import { EditSkuModal } from "@/components/EditSkuModal";
+import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 
 import { cn } from "@/lib/utils";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
@@ -386,6 +389,7 @@ export function RichOrdersTable({
 }: Props) {
   const navigate = useNavigate();
   const { role } = useAuth();
+  const { canEditSku, canProcessOrders } = useDropshipperAccess();
   const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
@@ -433,6 +437,7 @@ export function RichOrdersTable({
   const [editProductOrder, setEditProductOrder] = useState<Order | null>(null);
   const [editPriceOrder, setEditPriceOrder] = useState<Order | null>(null);
   const [editAddressOrder, setEditAddressOrder] = useState<Order | null>(null);
+  const [editSku, setEditSku] = useState<{ order: Order; lineIndex: number } | null>(null);
 
   const allProductNames = Array.from(new Set(orders.flatMap(o => (o.products || []).map(p => p.name))));
   const allCities = Array.from(new Set(orders.map(o => o.city).filter(Boolean)));
@@ -910,18 +915,39 @@ export function RichOrdersTable({
 
                   {/* Products Details */}
                   <td className="p-3">
-                    <div className="relative">
-                      <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditProductOrder(o)}>
-                        <Pencil className="h-3 w-3 text-primary" />
-                      </button>
-                      <div className="pr-6">
+                    <div className="relative min-w-[140px] max-w-[220px]">
+                      <div className="absolute -top-1 -right-1 flex gap-0.5 z-10">
+                        <button
+                          type="button"
+                          className="p-1 rounded hover:bg-primary-light transition-colors"
+                          title="Edit product"
+                          onClick={(e) => { e.stopPropagation(); setEditProductOrder(o); }}
+                        >
+                          <Pencil className="h-3 w-3 text-primary" />
+                        </button>
+                      </div>
+                      <div className="pr-8 space-y-2">
                         {products.length > 0 ? products.map((p, pi) => (
-                          <div key={pi} className={cn("pb-2", pi > 0 && "pt-2 border-t border-border/50")}>
-                            <div className="flex justify-between text-[11px] text-text-muted mb-1">
-                              <span>SKU: {(p as any).sku || `SKU-${pi + 1}`}</span>
-                              <span>QTY: {p.qty?.toFixed?.(2) ?? p.qty}</span>
+                          <div key={pi} className={cn(pi > 0 && "pt-2 border-t border-border/50")}>
+                            <div className="flex items-start gap-1">
+                              <div className="flex-1 min-w-0">
+                                <ProductLineDisplay
+                                  product={{ name: p.name, sku: (p as { sku?: string }).sku, qty: p.qty }}
+                                  index={pi}
+                                  compact
+                                />
+                              </div>
+                              {canEditSku ? (
+                                <button
+                                  type="button"
+                                  className="shrink-0 p-1 rounded hover:bg-surface-2 text-text-muted hover:text-primary"
+                                  title="Edit SKU"
+                                  onClick={(e) => { e.stopPropagation(); setEditSku({ order: o, lineIndex: pi }); }}
+                                >
+                                  <Tag className="h-3 w-3" />
+                                </button>
+                              ) : null}
                             </div>
-                            <p className="text-xs text-text-primary leading-snug">{p.name}</p>
                           </div>
                         )) : <p className="text-xs text-text-muted">No products</p>}
                       </div>
@@ -1188,6 +1214,14 @@ export function RichOrdersTable({
       {editProductOrder && (
         <EditProductModal open={!!editProductOrder} onClose={() => setEditProductOrder(null)} order={editProductOrder} onSave={handleEditProductSave} />
       )}
+
+      <EditSkuModal
+        open={!!editSku}
+        onClose={() => setEditSku(null)}
+        order={editSku?.order ?? null}
+        lineIndex={editSku?.lineIndex ?? 0}
+        onSaved={() => window.dispatchEvent(new Event("shipamaze:refetch:orders"))}
+      />
 
       {/* Edit Price Modal */}
       {editPriceOrder && (

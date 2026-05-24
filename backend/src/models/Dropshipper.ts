@@ -1,7 +1,11 @@
 import mongoose, { Schema, type Document, type Model, type Types } from "mongoose";
 
+export type DropshipperAccessType = "FULL" | "RESTRICTED";
+
 export interface IDropshipper extends Document {
   userId: Types.ObjectId;
+  /** FULL = vendors/warehouses/order processing; RESTRICTED = limited operational access */
+  accessType: DropshipperAccessType;
   totalOrders: number;
   activeOrders: number;
   kycVerified: boolean;
@@ -11,6 +15,11 @@ export interface IDropshipper extends Document {
 const dropshipperSchema = new Schema<IDropshipper>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+    accessType: {
+      type: String,
+      enum: ["FULL", "RESTRICTED"],
+      default: "FULL",
+    },
     totalOrders: { type: Number, default: 0 },
     activeOrders: { type: Number, default: 0 },
     kycVerified: { type: Boolean, default: false },
