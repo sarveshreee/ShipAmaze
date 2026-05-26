@@ -11,9 +11,11 @@ import { useVendorWarehouses, type Warehouse } from "@/hooks/useVendorWarehouses
 import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
 import WarehouseFormModal from "@/components/vendor/WarehouseFormModal";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function VendorWarehouse() {
-  const { warehouses, loading, addWarehouse, updateWarehouse, refetch: refetchWarehouses, error: listError } = useVendorWarehouses();
+  const { role } = useAuth();
+  const { warehouses, vendorOptions, loading, addWarehouse, updateWarehouse, refetch: refetchWarehouses, error: listError } = useVendorWarehouses();
 
   const [showFilters, setShowFilters] = useState(false);
   const [search, setSearch] = useState("");
@@ -69,8 +71,8 @@ export default function VendorWarehouse() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Warehouse"
-        breadcrumb={["Vendor", "Warehouse"]}
+        title={role === "dropshipper" ? "Warehouses" : "Warehouse"}
+        breadcrumb={[role === "dropshipper" ? "Dropshipper" : "Vendor", "Warehouse"]}
         actions={
           <Button variant="outline" onClick={() => setShowFilters((s) => !s)}>
             <Filter className="h-4 w-4" /> Filters
@@ -82,6 +84,15 @@ export default function VendorWarehouse() {
         <Alert variant="destructive">
           <AlertTitle>Could not load warehouses</AlertTitle>
           <AlertDescription>{listError}</AlertDescription>
+        </Alert>
+      )}
+
+      {role === "dropshipper" && vendorOptions.length === 0 && (
+        <Alert>
+          <AlertTitle>Create a vendor first</AlertTitle>
+          <AlertDescription>
+            Warehouse creation needs a dropshipper-owned or assigned vendor before it can be linked safely.
+          </AlertDescription>
         </Alert>
       )}
 
@@ -120,7 +131,7 @@ export default function VendorWarehouse() {
       <Card className="p-0 overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b bg-muted/30">
           <Badge variant="outline" className="text-primary border-primary/40">Total : {total}</Badge>
-          <Button onClick={openAdd}>
+          <Button onClick={openAdd} disabled={role === "dropshipper" && vendorOptions.length === 0}>
             <Plus className="h-4 w-4" /> Add Warehouse
           </Button>
         </div>

@@ -2,6 +2,9 @@ import mongoose, { Schema, type Document, type Model, type Types } from "mongoos
 
 export interface IVendor extends Document {
   userId: Types.ObjectId;
+  ownerUserId?: Types.ObjectId;
+  assignedUserIds?: Types.ObjectId[];
+  createdByRole?: "admin" | "vendor" | "dropshipper";
   name: string;
   city: string;
   pin: string;
@@ -16,6 +19,9 @@ export interface IVendor extends Document {
 const vendorSchema = new Schema<IVendor>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+    ownerUserId: { type: Schema.Types.ObjectId, ref: "User" },
+    assignedUserIds: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    createdByRole: { type: String, enum: ["admin", "vendor", "dropshipper"] },
     name: { type: String, required: true },
     city: { type: String, default: "" },
     pin: { type: String, default: "" },

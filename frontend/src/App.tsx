@@ -60,6 +60,7 @@ import DropshipperReturns from "@/pages/dropshipper/DropshipperReturns";
 import DropshipperNDR from "@/pages/dropshipper/DropshipperNDR";
 import DropshipperWeightDisputes from "@/pages/dropshipper/DropshipperWeightDisputes";
 import DropshipperPickupAddresses from "@/pages/dropshipper/DropshipperPickupAddresses";
+import DropshipperVendors from "@/pages/dropshipper/DropshipperVendors";
 // Supplier (shared across all roles)
 import SourceProduct from "@/pages/supplier/SourceProduct";
 import ProductsPage from "@/pages/supplier/ProductsPage";
@@ -101,6 +102,12 @@ function RoleProtectedRoute({ children, allow }: { children: React.ReactNode; al
 function FullDropshipperRoute({ children }: { children: React.ReactNode }) {
   const { isRestricted } = useDropshipperAccess();
   if (isRestricted) return <Navigate to="/dropshipper/orders" replace />;
+  return <>{children}</>;
+}
+
+function WarehouseAccessRoute({ children }: { children: React.ReactNode }) {
+  const { allowWarehouseAccess } = useDropshipperAccess();
+  if (!allowWarehouseAccess) return <Navigate to="/dropshipper/orders" replace />;
   return <>{children}</>;
 }
 
@@ -174,6 +181,8 @@ function AppRoutes() {
       <Route path="/dropshipper/add-order" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><AddOrder /></FullDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/bulk-upload" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><BulkUpload /></FullDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/channels" element={<RoleProtectedRoute allow={["dropshipper"]}><ChannelConnect /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/vendors" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><DropshipperVendors /></WarehouseAccessRoute></RoleProtectedRoute>} />
+      <Route path="/dropshipper/warehouses" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><VendorWarehouse /></WarehouseAccessRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/wallet" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/vendor/wallet" element={<RoleProtectedRoute allow={["vendor"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/dropshipper/rates" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperRates /></RoleProtectedRoute>} />

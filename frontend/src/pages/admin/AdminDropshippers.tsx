@@ -104,12 +104,12 @@ export default function AdminDropshippers() {
     }
   };
 
-  const patchAccessType = async (accessType: "FULL" | "RESTRICTED") => {
+  const patchWarehouseAccess = async (allowWarehouseAccess: boolean) => {
     if (!detailId) return;
     setSaving(true);
     try {
-      await adminWorkflowService.adminPatchDropshipper(detailId, { accessType });
-      toast.success(`Access set to ${accessType}`);
+      await adminWorkflowService.adminPatchDropshipper(detailId, { allowWarehouseAccess });
+      toast.success(`Warehouse access ${allowWarehouseAccess ? "enabled" : "disabled"}`);
       await load();
       setDetail(await adminWorkflowService.adminGetDropshipper(detailId));
     } catch (e) {
@@ -304,21 +304,21 @@ export default function AdminDropshippers() {
                 )}
               </div>
               <div className="rounded-md border border-border p-3 space-y-2">
-                <p className="font-medium">Dropshipper access type</p>
+                <p className="font-medium">Warehouse / vendor access</p>
                 <p className="text-xs text-text-muted">
-                  Full: vendors, warehouses, order processing. Restricted: view-only operational access.
+                  When enabled, the dropshipper can manage only self-owned or assigned vendors and warehouses.
                 </p>
                 <Select
-                  value={(detail.accessType as string) === "RESTRICTED" ? "RESTRICTED" : "FULL"}
-                  onValueChange={(v) => void patchAccessType(v as "FULL" | "RESTRICTED")}
+                  value={detail.allowWarehouseAccess === false ? "off" : "on"}
+                  onValueChange={(v) => void patchWarehouseAccess(v === "on")}
                   disabled={saving}
                 >
                   <SelectTrigger className="h-9">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="FULL">Full Dropshipper</SelectItem>
-                    <SelectItem value="RESTRICTED">Restricted Dropshipper</SelectItem>
+                    <SelectItem value="on">ALLOW_WAREHOUSE_ACCESS = ON</SelectItem>
+                    <SelectItem value="off">ALLOW_WAREHOUSE_ACCESS = OFF</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

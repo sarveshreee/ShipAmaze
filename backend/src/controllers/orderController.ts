@@ -31,6 +31,7 @@ import {
   syncOrderLineItemArrays,
 } from "../utils/orderLineItems.js";
 import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddleware.js";
+import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 
 function normalizePickupAddressForClient(pickup: unknown): unknown {
   if (pickup == null) return pickup;
@@ -241,6 +242,27 @@ function appendStatusHistory(order: IOrder, status: string, userId: Types.Object
   h.push(ev);
   order.statusHistory = h;
   order.markModified("statusHistory");
+}
+
+async function applyOrderRoutingFromSku(order: IOrder, sku: string) {
+  const routing = await resolveRoutingForSku(sku);
+  if (!routing) return null;
+
+  if (routing.vendorId && mongoose.isValidObjectId(routing.vendorId)) {
+    order.vendorId = new mongoose.Types.ObjectId(routing.vendorId);
+  }
+  if (routing.warehouseId) {
+    order.pickupWarehouseId = routing.warehouseId;
+  }
+  if (routing.velocityWarehouseId) {
+    order.velocityWarehouseId = routing.velocityWarehouseId;
+  }
+  if (routing.pickupAddressSnapshot) {
+    order.pickupAddress = routing.pickupAddressSnapshot;
+    order.pickupAddressId = undefined;
+  }
+
+  return routing;
 }
 
 function extractItemsFromBody(body: Record<string, unknown>): unknown[] {
@@ -669,9 +691,7 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   const hasLineItemsUpdate =
     body.orderItems !== undefined || body.items !== undefined || body.products !== undefined;
   if (hasLineItemsUpdate) {
-    if (req.user.role !== "admin" && req.user.role !== "vendor" && req.user.role !== "dropshipper") {
-      throw new AppError(403, "Forbidden");
-    }
+    if (req.user.role !== "admin") throw new AppError(403, "Only admin can update line items and SKU");
     const lineItems = extractItemsFromBody(body);
     if (lineItems.length === 0) {
       throw new AppError(400, "orderItems must be a non-empty array when updating line items");
@@ -731,13 +751,7 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
 /** Update SKU on a single line item with audit trail. */
 export const patchOrderLineItemSku = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  if (req.user.role !== "admin" && req.user.role !== "vendor" && req.user.role !== "dropshipper") {
-    throw new AppError(403, "Forbidden");
-  }
-  if (req.user.role === "dropshipper") {
-    const access = await getDropshipperAccessType(req.user._id);
-    if (access === "RESTRICTED") throw new AppError(403, "Restricted account cannot edit SKU");
-  }
+  if (req.user.role !== "admin") throw new AppError(403, "Only admin can change SKU");
 
   const { orderId } = req.params;
   const lineIndex = Number(req.params.lineIndex);
@@ -767,6 +781,8 @@ export const patchOrderLineItemSku = asyncHandler(async (req: AuthRequest, res: 
   lines[lineIndex] = normalizeLineItem(current);
   syncOrderLineItemArrays(order, lines);
 
+  const routing = await applyOrderRoutingFromSku(order, newSku);
+
   const audit = await OrderSkuAudit.create({
     orderId: order.orderId,
     lineIndex,
@@ -781,7 +797,13 @@ export const patchOrderLineItemSku = asyncHandler(async (req: AuthRequest, res: 
     order,
     String(order.status ?? "pending"),
     req.user._id,
-    `SKU updated line ${lineIndex + 1}: "${oldSku || "—"}" → "${newSku}"`
+    [
+      `SKU updated line ${lineIndex + 1}: "${oldSku || "—"}" → "${newSku}"`,
+      routing?.vendorName ? `vendor=${routing.vendorName}` : null,
+      routing?.warehouseName ? `warehouse=${routing.warehouseName}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ")
   );
 
   await order.save();
@@ -798,6 +820,7 @@ export const patchOrderLineItemSku = asyncHandler(async (req: AuthRequest, res: 
       updatedByName: audit.updatedByName,
       createdAt: audit.createdAt,
     },
+    routing,
   });
 });
 

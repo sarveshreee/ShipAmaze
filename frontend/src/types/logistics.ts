@@ -58,10 +58,11 @@ export interface Order {
   date: string;
   awb: string;
   amount: number;
-  products: { name: string; qty: number; price: number; weight: string; sku?: string; productCode?: string }[];
+  products: { name: string; productName?: string; qty: number; price: number; weight: string; sku?: string; productCode?: string }[];
   /** Line items (alias of products / orderItems from API) */
   items?: {
     name: string;
+    productName?: string;
     qty: number;
     price: number;
     weight?: string;
@@ -71,6 +72,7 @@ export interface Order {
   /** Raw line items from API when present */
   orderItems?: {
     name: string;
+    productName?: string;
     qty: number;
     price: number;
     weight?: string;
@@ -140,6 +142,7 @@ export interface Order {
   shopifyNote?: string;
   shopifyTags?: string;
   lastShopifySyncAt?: string;
+  vendorId?: string;
 }
 
 export interface Dropshipper {
@@ -166,6 +169,8 @@ export interface Vendor {
   contactPerson?: string;
   phone?: string;
   email?: string;
+  ownerUserId?: string;
+  assignedUserIds?: string[];
 }
 
 export type WalletTxnStatus = "completed" | "pending" | "failed";

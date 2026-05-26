@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import * as warehouseService from "@/services/warehouseService";
+import * as vendorService from "@/services/vendorService";
 
 export interface Warehouse {
   id: string;
@@ -59,27 +60,40 @@ function mapDoc(r: Record<string, unknown>, vendorName: string, vendorUserId: st
 }
 
 export function useVendorWarehouses() {
-  const { userId, userName, user } = useAuth();
+  const { userId, userName, user, role } = useAuth();
   const vendorName = user?.name || userName || "Vendor";
   const vid = userId || "";
 
   const [items, setItems] = useState<Warehouse[]>([]);
+  const [vendorOptions, setVendorOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = (await warehouseService.listWarehouses()) as unknown as Record<string, unknown>[];
-      setItems(rows.map((r) => mapDoc(r, vendorName, vid)));
+      const [rows, vendors] = await Promise.all([
+        warehouseService.listWarehouses() as Promise<unknown[]>,
+        role === "dropshipper" ? vendorService.listVendors() : Promise.resolve([]),
+      ]);
+      const vendorList = Array.isArray(vendors) ? vendors : [];
+      setVendorOptions(vendorList.map((v) => ({ id: v.id, name: v.name })));
+      setItems(
+        (rows as Record<string, unknown>[]).map((r) => {
+          const rawVendorId = String(r.vendorId ?? "");
+          const matchedVendor = vendorList.find((v) => v.id === rawVendorId);
+          return mapDoc(r, String(r.vendorName ?? matchedVendor?.name ?? vendorName), vid);
+        })
+      );
       setError(null);
     } catch {
       setItems([]);
+      setVendorOptions([]);
       setError("Failed to load warehouses. Please try again or sign in again.");
     } finally {
       setLoading(false);
     }
-  }, [vendorName, vid]);
+  }, [role, vendorName, vid]);
 
   useEffect(() => {
     void load();
@@ -91,6 +105,7 @@ export function useVendorWarehouses() {
     async (data: Omit<Warehouse, "id" | "vendorId" | "vendorName" | "createdAt" | "updatedAt">) => {
       await warehouseService.createWarehouse({
         name: data.warehouseName,
+        ...(role === "dropshipper" && vendorOptions[0]?.id ? { vendorId: vendorOptions[0].id } : {}),
         contactName: data.contactPerson,
         phone: data.phoneNumber,
         email: data.email,
@@ -103,7 +118,7 @@ export function useVendorWarehouses() {
       });
       await load();
     },
-    [load]
+    [load, role, vendorOptions]
   );
 
   const updateWarehouse = useCallback(
@@ -124,6 +139,7 @@ export function useVendorWarehouses() {
 
   return {
     warehouses: myItems,
+    vendorOptions,
     loading,
     error,
     addWarehouse,

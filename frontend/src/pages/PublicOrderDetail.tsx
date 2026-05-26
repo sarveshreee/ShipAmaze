@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
 
 const statusColors: Record<string, string> = {
   delivered: "bg-success-light text-success-dark",
@@ -372,10 +373,15 @@ export default function PublicOrderDetail() {
             </h2>
             <div className="divide-y divide-border">
               {(Array.isArray(order.products) ? order.products : []).map((p: any, i: number) => (
-                <div key={i} className="flex items-center justify-between py-2 text-sm">
-                  <div>
-                    <p className="text-text-primary font-medium">{p.name}</p>
-                    <p className="text-xs text-text-muted">Qty: {p.qty} · {p.weight}</p>
+                <div key={i} className="flex items-center justify-between gap-4 py-2 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1">Product Name</p>
+                    <ProductNameText product={{ name: p.name, productName: p.productName }} />
+                    <div className="mt-2">
+                      <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1">SKU</p>
+                      <SkuBadge product={{ sku: p.sku }} index={i} />
+                    </div>
+                    <p className="text-xs text-text-muted mt-2">Qty: {p.qty} · {p.weight}</p>
                   </div>
                   <span className="font-medium text-text-primary">₹{Number(p.price).toLocaleString()}</span>
                 </div>

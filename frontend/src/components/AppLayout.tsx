@@ -30,7 +30,15 @@ import { roleHomePath } from "@/services/authService";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import * as notificationService from "@/services/notificationService";
 
-interface NavItem { label: string; icon: any; path: string; tabKey?: string; shortcut?: string; requiresFullAccess?: boolean; }
+interface NavItem {
+  label: string;
+  icon: any;
+  path: string;
+  tabKey?: string;
+  shortcut?: string;
+  requiresFullAccess?: boolean;
+  requiresWarehouseAccess?: boolean;
+}
 interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[]; }
 
 const adminNav: NavGroup[] = [
@@ -102,6 +110,10 @@ const dropshipperNav: NavGroup[] = [
   { title: "CONNECT", items: [
     { label: "Channels", icon: Link2, path: "/dropshipper/channels", tabKey: "channels" },
   ]},
+  { title: "OPERATIONS", items: [
+    { label: "Vendors", icon: Users, path: "/dropshipper/vendors", requiresWarehouseAccess: true },
+    { label: "Warehouses", icon: Warehouse, path: "/dropshipper/warehouses", requiresWarehouseAccess: true },
+  ]},
   { title: "FINANCE", items: [
     { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet", tabKey: "wallet" },
     { label: "Rate Calculator", icon: Calculator, path: "/dropshipper/rates", tabKey: "rates" },
@@ -168,7 +180,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [walletPopoverOpen, setWalletPopoverOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { isTabEnabled } = useTabPermissions();
-  const { isRestricted } = useDropshipperAccess();
+  const { isRestricted, allowWarehouseAccess } = useDropshipperAccess();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -256,6 +268,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const nav = useMemo(() => {
     const allowItem = (item: NavItem & { children?: NavItem[] }) => {
       if (isRestricted && item.requiresFullAccess) return false;
+      if (!allowWarehouseAccess && item.requiresWarehouseAccess) return false;
       if (item.tabKey && !isTabEnabled(item.tabKey)) return false;
       if (item.children?.length) {
         const kids = item.children.filter(allowItem);
@@ -276,7 +289,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           ),
       }))
       .filter((group) => group.items.length > 0);
-  }, [rawNav, role, isTabEnabled, isRestricted]);
+  }, [rawNav, role, isTabEnabled, isRestricted, allowWarehouseAccess]);
 
   const unread = notifUnread;
 

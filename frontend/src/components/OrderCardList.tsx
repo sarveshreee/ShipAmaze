@@ -1,7 +1,10 @@
+import { useState } from "react";
 import type { Order } from "@/types/logistics";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
-import { ProductLineDisplay } from "@/components/ProductLineDisplay";
-import { Package, MapPin, Truck, Eye, Printer } from "lucide-react";
+import { ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
+import { EditSkuModal } from "@/components/EditSkuModal";
+import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
+import { Package, MapPin, Truck, Eye, Printer, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -11,73 +14,114 @@ interface OrderCardListProps {
 }
 
 export function OrderCardList({ orders, onViewOrder }: OrderCardListProps) {
+  const { canEditSku } = useDropshipperAccess();
+  const [editSku, setEditSku] = useState<{ order: Order; lineIndex: number } | null>(null);
+
   return (
-    <div className="space-y-3">
-      {orders.map(order => (
-        <div key={order.id}
-          className="rounded-xl bg-card border border-border p-4 space-y-3 active:scale-[0.99] transition-transform"
+    <>
+      <div className="space-y-3">
+        {orders.map((order) => (
+          <div
+            key={order.id}
+            className="rounded-xl bg-card border border-border p-4 space-y-3 active:scale-[0.99] transition-transform"
           >
-          {/* Header row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-light">
-                <Package className="h-4 w-4 text-primary" />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-light">
+                  <Package className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <p className="font-mono text-xs text-primary font-semibold">{order.id}</p>
+                  <p className="text-[10px] text-text-muted">{order.date}</p>
+                </div>
               </div>
+              <StatusBadge status={order.status} />
+            </div>
+
+            {(() => {
+              const products = order.products ?? order.items ?? [];
+              if (products.length === 0) return null;
+              return (
+                <div className="border-t border-border/60 pt-2 space-y-2">
+                  {products.map((product, index) => (
+                    <div key={index} className={cn(index > 0 && "pt-2 border-t border-border/50")}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1">Product Name</p>
+                          <ProductNameText product={product} compact />
+                        </div>
+                        {canEditSku ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-text-muted"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditSku({ order, lineIndex: index });
+                            }}
+                          >
+                            <Tag className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : null}
+                      </div>
+                      <div className="mt-2">
+                        <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1">SKU</p>
+                        <SkuBadge product={{ sku: (product as { sku?: string }).sku }} index={index} compact />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            <div className="flex items-center justify-between text-sm">
               <div>
-                <p className="font-mono text-xs text-primary font-semibold">{order.id}</p>
-                <p className="text-[10px] text-text-muted">{order.date}</p>
+                <p className="font-medium text-text-primary">{order.customer}</p>
+                <p className="text-xs text-text-muted flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  {order.city} — {order.pincode}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="font-semibold text-text-primary">₹{order.amount.toLocaleString()}</p>
+                <PaymentBadge type={order.payment} />
               </div>
             </div>
-            <StatusBadge status={order.status} />
-          </div>
 
-          {(() => {
-            const products = order.products ?? order.items ?? [];
-            const first = products[0];
-            if (!first) return null;
-            return (
-              <div className="border-t border-border/60 pt-2">
-                <ProductLineDisplay product={first} compact />
-                {products.length > 1 ? (
-                  <p className="text-[10px] text-text-muted mt-1">+{products.length - 1} more item(s)</p>
-                ) : null}
+            <div className="flex items-center justify-between pt-2 border-t border-border">
+              <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+                <Truck className="h-3.5 w-3.5 text-text-muted" />
+                <span>{order.courier}</span>
+                <span className="text-text-muted">·</span>
+                <span>{order.weight}</span>
               </div>
-            );
-          })()}
-
-          {/* Customer */}
-          <div className="flex items-center justify-between text-sm">
-            <div>
-              <p className="font-medium text-text-primary">{order.customer}</p>
-              <p className="text-xs text-text-muted flex items-center gap-1">
-                <MapPin className="h-3 w-3" />{order.city} — {order.pincode}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="font-semibold text-text-primary">₹{order.amount.toLocaleString()}</p>
-              <PaymentBadge type={order.payment} />
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="flex items-center justify-between pt-2 border-t border-border">
-            <div className="flex items-center gap-1.5 text-xs text-text-secondary">
-              <Truck className="h-3.5 w-3.5 text-text-muted" />
-              <span>{order.courier}</span>
-              <span className="text-text-muted">·</span>
-              <span>{order.weight}</span>
-            </div>
-            <div className="flex gap-1">
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-text-muted" onClick={e => { e.stopPropagation(); window.open(`/order-detail?id=${order.id}`, '_blank'); }}>
-                <Eye className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-text-muted" onClick={e => e.stopPropagation()}>
-                <Printer className="h-3.5 w-3.5" />
-              </Button>
+              <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-text-muted"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.open(`/order-detail?id=${order.id}`, "_blank");
+                  }}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-text-muted" onClick={(e) => e.stopPropagation()}>
+                  <Printer className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+      <EditSkuModal
+        open={!!editSku}
+        onClose={() => setEditSku(null)}
+        order={editSku?.order ?? null}
+        lineIndex={editSku?.lineIndex ?? 0}
+        onSaved={() => window.dispatchEvent(new Event("shipamaze:refetch:orders"))}
+      />
+    </>
   );
 }

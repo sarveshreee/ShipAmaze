@@ -41,6 +41,7 @@ import { TabPermission } from "../models/TabPermission.js";
 import mongoose, { type Types } from "mongoose";
 import { randomBytes } from "crypto";
 import { creditWallet } from "../services/walletLedger.js";
+import { getDropshipperWarehouseAccess } from "../middleware/dropshipperAccessMiddleware.js";
 
 function transactionDisplayType(ledgerType: string | undefined, type: "Credit" | "Debit"): string {
   const lt = (ledgerType || "general").toLowerCase();
@@ -52,24 +53,172 @@ function transactionDisplayType(ledgerType: string | undefined, type: "Credit" |
   return "Credit";
 }
 
+function mapVendorSummary(v: {
+  _id: unknown;
+  name: string;
+  city: string;
+  pin: string;
+  assignedVendors: number;
+  ordersToday: number;
+  status: "Active" | "Inactive";
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  ownerUserId?: unknown;
+  assignedUserIds?: unknown[];
+}) {
+  return {
+    id: String(v._id),
+    name: v.name,
+    city: v.city,
+    pin: v.pin,
+    assignedVendors: v.assignedVendors,
+    ordersToday: v.ordersToday,
+    status: v.status,
+    contactPerson: v.contactPerson,
+    phone: v.phone,
+    email: v.email,
+    ownerUserId: v.ownerUserId ? String(v.ownerUserId) : undefined,
+    assignedUserIds: Array.isArray(v.assignedUserIds) ? v.assignedUserIds.map((id) => String(id)) : [],
+  };
+}
+
+async function assertDropshipperWarehousePermission(req: AuthRequest) {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "dropshipper") return;
+  const allowed = await getDropshipperWarehouseAccess(req.user._id);
+  if (!allowed) {
+    throw new AppError(403, "Warehouse and vendor access is disabled for this dropshipper.");
+  }
+}
+
+function dropshipperVendorQuery(userId: Types.ObjectId) {
+  return {
+    $or: [{ ownerUserId: userId }, { assignedUserIds: userId }, { userId }],
+  };
+}
+
+async function accessibleVendorIdsForDropshipper(userId: Types.ObjectId): Promise<Types.ObjectId[]> {
+  const rows = await Vendor.find(dropshipperVendorQuery(userId)).select("_id").lean();
+  return rows.map((v) => v._id as Types.ObjectId);
+}
+
 export const listVendors = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
-  const rows = await Vendor.find().populate("userId").lean();
-  res.json(
-    rows.map((v) => ({
-      id: String(v._id),
-      name: v.name,
-      city: v.city,
-      pin: v.pin,
-      assignedVendors: v.assignedVendors,
-      ordersToday: v.ordersToday,
-      status: v.status,
-      contactPerson: v.contactPerson,
-      phone: v.phone,
-      email: v.email,
-    }))
-  );
+  if (req.user.role === "admin") {
+    const rows = await Vendor.find().populate("userId").lean();
+    res.json(rows.map((v) => mapVendorSummary(v)));
+    return;
+  }
+  if (req.user.role === "vendor") {
+    const own = await Vendor.findOne({ userId: req.user._id }).lean();
+    res.json(own ? [mapVendorSummary(own)] : []);
+    return;
+  }
+  if (req.user.role === "dropshipper") {
+    await assertDropshipperWarehousePermission(req);
+    const rows = await Vendor.find(dropshipperVendorQuery(req.user._id)).lean();
+    res.json(rows.map((v) => mapVendorSummary(v)));
+    return;
+  }
+  throw new AppError(403, "Forbidden");
+});
+
+export const createVendor = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const name = trimStr((req.body as { name?: string }).name);
+  if (!name) throw new AppError(400, "Vendor name is required");
+  const city = trimStr((req.body as { city?: string }).city);
+  const pin = trimStr((req.body as { pin?: string }).pin);
+  const contactPerson = trimStr((req.body as { contactPerson?: string }).contactPerson);
+  const phone = trimStr((req.body as { phone?: string }).phone);
+  const email = trimStr((req.body as { email?: string }).email);
+
+  if (req.user.role === "dropshipper") {
+    await assertDropshipperWarehousePermission(req);
+    const existing = await Vendor.findOne({ userId: req.user._id });
+    if (existing) throw new AppError(409, "This dropshipper already has a vendor profile");
+    const doc = await Vendor.create({
+      userId: req.user._id,
+      ownerUserId: req.user._id,
+      assignedUserIds: [req.user._id],
+      createdByRole: "dropshipper",
+      name,
+      city,
+      pin,
+      contactPerson,
+      phone,
+      email,
+      assignedVendors: 0,
+      ordersToday: 0,
+      status: "Active",
+    });
+    res.status(201).json(mapVendorSummary(doc));
+    return;
+  }
+
+  if (req.user.role === "admin") {
+    const rawUserId = trimStr((req.body as { userId?: string }).userId);
+    if (!rawUserId || !mongoose.isValidObjectId(rawUserId)) {
+      throw new AppError(400, "userId is required for admin vendor creation");
+    }
+    const doc = await Vendor.create({
+      userId: new mongoose.Types.ObjectId(rawUserId),
+      name,
+      city,
+      pin,
+      contactPerson,
+      phone,
+      email,
+      assignedVendors: 0,
+      ordersToday: 0,
+      status: "Active",
+      createdByRole: "admin",
+    });
+    res.status(201).json(mapVendorSummary(doc));
+    return;
+  }
+
+  throw new AppError(403, "Forbidden");
+});
+
+export const updateVendorSelfService = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const body = req.body as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+  for (const key of ["name", "city", "pin", "contactPerson", "phone", "email", "status"]) {
+    if (body[key] !== undefined) patch[key] = typeof body[key] === "string" ? trimStr(body[key] as string) : body[key];
+  }
+
+  let query: Record<string, unknown>;
+  if (req.user.role === "dropshipper") {
+    await assertDropshipperWarehousePermission(req);
+    query = { _id: req.params.id, ...dropshipperVendorQuery(req.user._id) };
+  } else if (req.user.role === "admin") {
+    query = { _id: req.params.id };
+  } else {
+    throw new AppError(403, "Forbidden");
+  }
+
+  const doc = await Vendor.findOneAndUpdate(query, { $set: patch }, { new: true }).lean();
+  if (!doc) throw new AppError(404, "Vendor not found");
+  res.json(mapVendorSummary(doc));
+});
+
+export const deleteVendorSelfService = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  let query: Record<string, unknown>;
+  if (req.user.role === "dropshipper") {
+    await assertDropshipperWarehousePermission(req);
+    query = { _id: req.params.id, ...dropshipperVendorQuery(req.user._id) };
+  } else if (req.user.role === "admin") {
+    query = { _id: req.params.id };
+  } else {
+    throw new AppError(403, "Forbidden");
+  }
+  const doc = await Vendor.findOneAndUpdate(query, { $set: { status: "Inactive" } }, { new: true }).lean();
+  if (!doc) throw new AppError(404, "Vendor not found");
+  res.json({ ok: true });
 });
 
 export const listDropshippers = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -126,11 +275,56 @@ export const listWarehouses = asyncHandler(async (req: AuthRequest, res: Respons
     res.json(await Warehouse.find().lean());
     return;
   }
+  if (req.user.role === "dropshipper") {
+    await assertDropshipperWarehousePermission(req);
+    const vendorIds = await accessibleVendorIdsForDropshipper(req.user._id);
+    const rows = await Warehouse.find({
+      $and: [
+        { $or: [{ isActive: true }, { isActive: { $exists: false } }] },
+        {
+          $or: [{ ownerUserId: req.user._id }, { assignedUserIds: req.user._id }, { vendorId: { $in: vendorIds } }],
+        },
+      ],
+    }).lean();
+    res.json(rows);
+    return;
+  }
   res.json([]);
 });
 
 export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "dropshipper") {
+    await assertDropshipperWarehousePermission(req);
+    const vendorIds = await accessibleVendorIdsForDropshipper(req.user._id);
+    const rawVendorId = trimStr((req.body as { vendorId?: string }).vendorId) || String(vendorIds[0] ?? "");
+    if (!rawVendorId || !mongoose.isValidObjectId(rawVendorId)) {
+      throw new AppError(400, "Create a vendor first before adding a warehouse");
+    }
+    if (!vendorIds.some((id) => String(id) === rawVendorId)) {
+      throw new AppError(403, "You can only create warehouses for your own or assigned vendors");
+    }
+    const w = await Warehouse.create({
+      ...req.body,
+      vendorId: new mongoose.Types.ObjectId(rawVendorId),
+      ownerUserId: req.user._id,
+      assignedUserIds: [req.user._id],
+      createdByRole: "dropshipper",
+    });
+    res.status(201).json(w);
+    return;
+  }
+  if (req.user.role === "admin") {
+    const rawVendorId = trimStr((req.body as { vendorId?: string }).vendorId);
+    if (!rawVendorId || !mongoose.isValidObjectId(rawVendorId)) throw new AppError(400, "vendorId is required");
+    const w = await Warehouse.create({
+      ...req.body,
+      vendorId: new mongoose.Types.ObjectId(rawVendorId),
+      createdByRole: "admin",
+    });
+    res.status(201).json(w);
+    return;
+  }
   const vendor = await Vendor.findOne({ userId: req.user._id });
   if (!vendor) throw new AppError(400, "Vendor profile not found");
   const w = await Warehouse.create({ ...req.body, vendorId: vendor._id });
@@ -139,6 +333,27 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
 
 export const updateWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "dropshipper") {
+    await assertDropshipperWarehousePermission(req);
+    const vendorIds = await accessibleVendorIdsForDropshipper(req.user._id);
+    const w = await Warehouse.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        $or: [{ ownerUserId: req.user._id }, { assignedUserIds: req.user._id }, { vendorId: { $in: vendorIds } }],
+      },
+      req.body,
+      { new: true }
+    );
+    if (!w) throw new AppError(404, "Not found");
+    res.json(w);
+    return;
+  }
+  if (req.user.role === "admin") {
+    const w = await Warehouse.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!w) throw new AppError(404, "Not found");
+    res.json(w);
+    return;
+  }
   const vendor = await Vendor.findOne({ userId: req.user._id });
   if (!vendor) throw new AppError(403, "Forbidden");
   const w = await Warehouse.findOneAndUpdate(
@@ -152,6 +367,27 @@ export const updateWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
 
 export const deleteWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "dropshipper") {
+    await assertDropshipperWarehousePermission(req);
+    const vendorIds = await accessibleVendorIdsForDropshipper(req.user._id);
+    const w = await Warehouse.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        $or: [{ ownerUserId: req.user._id }, { assignedUserIds: req.user._id }, { vendorId: { $in: vendorIds } }],
+      },
+      { $set: { isActive: false } },
+      { new: true }
+    );
+    if (!w) throw new AppError(404, "Not found");
+    res.json({ ok: true, message: "Warehouse deactivated" });
+    return;
+  }
+  if (req.user.role === "admin") {
+    const w = await Warehouse.findByIdAndUpdate(req.params.id, { $set: { isActive: false } }, { new: true });
+    if (!w) throw new AppError(404, "Not found");
+    res.json({ ok: true, message: "Warehouse deactivated" });
+    return;
+  }
   const vendor = await Vendor.findOne({ userId: req.user._id });
   if (!vendor) throw new AppError(403, "Forbidden");
   const w = await Warehouse.findOneAndUpdate(

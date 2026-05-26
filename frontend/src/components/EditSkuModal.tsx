@@ -70,7 +70,7 @@ export function EditSkuModal({ open, onClose, order, lineIndex, onSaved }: EditS
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md bg-card">
         <DialogHeader>
-          <DialogTitle>Edit SKU</DialogTitle>
+          <DialogTitle>Change SKU</DialogTitle>
           <DialogDescription>
             Order {order?.id} · Line {lineIndex + 1}
           </DialogDescription>
@@ -87,7 +87,16 @@ export function EditSkuModal({ open, onClose, order, lineIndex, onSaved }: EditS
               showQty
             />
             <div>
-              <Label htmlFor="edit-sku">SKU *</Label>
+              <Label htmlFor="old-sku">Old SKU</Label>
+              <Input
+                id="old-sku"
+                className="mt-1 font-mono"
+                value={String(line.sku ?? "").trim() || "—"}
+                disabled
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-sku">New SKU *</Label>
               <Input
                 id="edit-sku"
                 className="mt-1 font-mono"
@@ -105,7 +114,7 @@ export function EditSkuModal({ open, onClose, order, lineIndex, onSaved }: EditS
           </Button>
           <Button onClick={() => void save()} disabled={loading || !order}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Save SKU
+            Change SKU
           </Button>
         </DialogFooter>
       </DialogContent>

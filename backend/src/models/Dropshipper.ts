@@ -6,6 +6,8 @@ export interface IDropshipper extends Document {
   userId: Types.ObjectId;
   /** FULL = vendors/warehouses/order processing; RESTRICTED = limited operational access */
   accessType: DropshipperAccessType;
+  /** New business toggle: when false, warehouse/vendor management APIs are blocked. */
+  allowWarehouseAccess: boolean;
   totalOrders: number;
   activeOrders: number;
   kycVerified: boolean;
@@ -20,6 +22,7 @@ const dropshipperSchema = new Schema<IDropshipper>(
       enum: ["FULL", "RESTRICTED"],
       default: "FULL",
     },
+    allowWarehouseAccess: { type: Boolean, default: true },
     totalOrders: { type: Number, default: 0 },
     activeOrders: { type: Number, default: 0 },
     kycVerified: { type: Boolean, default: false },

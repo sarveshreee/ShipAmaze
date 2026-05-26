@@ -405,6 +405,10 @@ export const adminListDropshippers = asyncHandler(async (req: AuthRequest, res: 
         phone: u?.phone ?? "",
         companyName: u?.companyName,
         accessType: d.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL",
+        allowWarehouseAccess:
+          typeof d.allowWarehouseAccess === "boolean"
+            ? d.allowWarehouseAccess
+            : d.accessType !== "RESTRICTED",
         accountStatus: u?.status,
         totalOrders: d.totalOrders,
         activeOrders: d.activeOrders,
@@ -448,6 +452,10 @@ export const adminGetDropshipper = asyncHandler(async (req: AuthRequest, res: Re
     id: String(d._id),
     userId: String(d.userId),
     accessType: d.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL",
+    allowWarehouseAccess:
+      typeof d.allowWarehouseAccess === "boolean"
+        ? d.allowWarehouseAccess
+        : d.accessType !== "RESTRICTED",
     totalOrders: d.totalOrders,
     activeOrders: d.activeOrders,
     kycVerified: d.kycVerified,
@@ -479,7 +487,7 @@ export const adminPatchDropshipper = asyncHandler(async (req: AuthRequest, res: 
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const d = await Dropshipper.findById(id);
   if (!d) throw new AppError(404, "Dropshipper not found");
-  const body = req.body as { userStatus?: string; accessType?: string };
+  const body = req.body as { userStatus?: string; accessType?: string; allowWarehouseAccess?: boolean };
 
   if (body.userStatus === "active" || body.userStatus === "inactive" || body.userStatus === "blocked") {
     const u = await User.findById(d.userId);
@@ -491,8 +499,13 @@ export const adminPatchDropshipper = asyncHandler(async (req: AuthRequest, res: 
 
   if (body.accessType === "FULL" || body.accessType === "RESTRICTED") {
     d.accessType = body.accessType;
-    await d.save();
   }
+
+  if (typeof body.allowWarehouseAccess === "boolean") {
+    d.allowWarehouseAccess = body.allowWarehouseAccess;
+  }
+
+  await d.save();
 
   res.json({ ok: true });
 });

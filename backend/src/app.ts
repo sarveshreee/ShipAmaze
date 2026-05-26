@@ -29,7 +29,10 @@ import * as reportsController from "./controllers/reportsController.js";
 import * as invoiceController from "./controllers/invoiceController.js";
 import * as labelInvoiceSettingsController from "./controllers/labelInvoiceSettingsController.js";
 import * as courierPriorityController from "./controllers/courierPriorityController.js";
-import { requireFullDropshipper } from "./middleware/dropshipperAccessMiddleware.js";
+import {
+  requireDropshipperWarehouseAccess,
+  requireFullDropshipper,
+} from "./middleware/dropshipperAccessMiddleware.js";
 
 function parseCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN?.trim();
@@ -110,6 +113,7 @@ export function createApp() {
   api.patch(
     "/orders/:orderId/line-items/:lineIndex/sku",
     authMiddleware,
+    requireRoles("admin"),
     orderController.patchOrderLineItemSku
   );
   api.get("/orders/:orderId/sku-audit", authMiddleware, orderController.listOrderSkuAudit);
@@ -133,7 +137,10 @@ export function createApp() {
   api.get("/products/:id/variants", authMiddleware, productDetailController.getProductVariants);
   api.get("/products/detail/:id", authMiddleware, productDetailController.getProductById);
 
-  api.get("/vendors", authMiddleware, resourceController.listVendors);
+  api.get("/vendors", authMiddleware, requireDropshipperWarehouseAccess, resourceController.listVendors);
+  api.post("/vendors", authMiddleware, requireDropshipperWarehouseAccess, resourceController.createVendor);
+  api.patch("/vendors/:id", authMiddleware, requireDropshipperWarehouseAccess, resourceController.updateVendorSelfService);
+  api.delete("/vendors/:id", authMiddleware, requireDropshipperWarehouseAccess, resourceController.deleteVendorSelfService);
   api.get("/vendors/accounts", authMiddleware, resourceController.listVendorAccounts);
   api.get("/dropshippers", authMiddleware, resourceController.listDropshippers);
   api.get("/users/by-role", authMiddleware, resourceController.listUsersByRole);
@@ -222,10 +229,10 @@ export function createApp() {
     adminWorkflowController.adminAddSupportComment
   );
 
-  api.get("/warehouses", authMiddleware, resourceController.listWarehouses);
-  api.post("/warehouses", authMiddleware, resourceController.createWarehouse);
-  api.patch("/warehouses/:id", authMiddleware, resourceController.updateWarehouse);
-  api.delete("/warehouses/:id", authMiddleware, resourceController.deleteWarehouse);
+  api.get("/warehouses", authMiddleware, requireDropshipperWarehouseAccess, resourceController.listWarehouses);
+  api.post("/warehouses", authMiddleware, requireDropshipperWarehouseAccess, resourceController.createWarehouse);
+  api.patch("/warehouses/:id", authMiddleware, requireDropshipperWarehouseAccess, resourceController.updateWarehouse);
+  api.delete("/warehouses/:id", authMiddleware, requireDropshipperWarehouseAccess, resourceController.deleteWarehouse);
 
   api.get("/couriers", authMiddleware, resourceController.listCouriers);
   api.post("/couriers", authMiddleware, resourceController.upsertCourier);

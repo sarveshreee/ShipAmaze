@@ -2,6 +2,9 @@ import mongoose, { Schema, type Document, type Model, type Types } from "mongoos
 
 export interface IWarehouse extends Document {
   vendorId: Types.ObjectId;
+  ownerUserId?: Types.ObjectId;
+  assignedUserIds?: Types.ObjectId[];
+  createdByRole?: "admin" | "vendor" | "dropshipper";
   name: string;
   addressLine1: string;
   addressLine2?: string;
@@ -19,6 +22,9 @@ export interface IWarehouse extends Document {
 const warehouseSchema = new Schema<IWarehouse>(
   {
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor", required: true },
+    ownerUserId: { type: Schema.Types.ObjectId, ref: "User" },
+    assignedUserIds: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    createdByRole: { type: String, enum: ["admin", "vendor", "dropshipper"] },
     name: { type: String, required: true },
     addressLine1: { type: String, required: true },
     addressLine2: String,

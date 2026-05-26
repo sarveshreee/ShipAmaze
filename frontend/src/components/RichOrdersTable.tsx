@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User, Trash2, Truck, Calendar, IndianRupee, Tag } from "lucide-react";
-import { ProductLineDisplay } from "@/components/ProductLineDisplay";
+import { ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
 import { EditSkuModal } from "@/components/EditSkuModal";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 
@@ -490,6 +490,13 @@ export function RichOrdersTable({
     }
     return true;
   });
+  const hasCourierDetailsColumn =
+    activeTab === "pending-pickup" ||
+    activeTab === "in-transit" ||
+    activeTab === "out-for-delivery" ||
+    activeTab === "delivered" ||
+    activeTab === "failed";
+  const columnCount = hasCourierDetailsColumn ? 12 : 11;
 
   const isValidPincode = (pin: string | undefined) => pin != null && /^\d{6}$/.test(pin);
   const channelLabel = (o: Order) =>
@@ -713,10 +720,10 @@ export function RichOrdersTable({
                   </div>
                 </FilterPopover>
               </th>
-              {/* Products Details header with filter */}
+              {/* Product Name header with filter */}
               <th ref={productRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[200px] relative">
                 <div className="flex items-center gap-2">
-                  <span>Products Details</span>
+                  <span>Product Name</span>
                   <button onClick={() => setProductFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
                     <FilterIcon active={productFilter.selectedNames.size > 0} />
@@ -751,6 +758,9 @@ export function RichOrdersTable({
                     </div>
                   </div>
                 </FilterPopover>
+              </th>
+              <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[170px]">
+                SKU
               </th>
               {/* Customer Details header with filter */}
               <th ref={customerRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[180px] relative">
@@ -855,7 +865,7 @@ export function RichOrdersTable({
                   </div>
                 </FilterPopover>
               </th>
-              {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
+              {hasCourierDetailsColumn && (
                 <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[160px]">Courier Details</th>
               )}
               <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[120px]">Remarks</th>
@@ -866,13 +876,13 @@ export function RichOrdersTable({
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} className="border-b border-border">
-                  {Array.from({ length: 10 }).map((_, j) => (
+                  {Array.from({ length: columnCount }).map((_, j) => (
                     <td key={j} className="p-4"><div className="h-4 bg-surface-2 rounded animate-pulse" /></td>
                   ))}
                 </tr>
               ))
             ) : filteredOrders.length === 0 ? (
-              <tr><td colSpan={10} className="p-12 text-center text-text-muted">
+              <tr><td colSpan={columnCount} className="p-12 text-center text-text-muted">
                 <Package className="h-10 w-10 mx-auto mb-2 opacity-40" />
                 <p className="font-medium text-text-primary">{emptyDescription}</p>
                 <p className="text-xs mt-1">Try clearing filters or changing your search.</p>
@@ -913,7 +923,7 @@ export function RichOrdersTable({
                     </div>
                   </td>
 
-                  {/* Products Details */}
+                  {/* Product Name */}
                   <td className="p-3">
                     <div className="relative min-w-[140px] max-w-[220px]">
                       <div className="absolute -top-1 -right-1 flex gap-0.5 z-10">
@@ -929,28 +939,31 @@ export function RichOrdersTable({
                       <div className="pr-8 space-y-2">
                         {products.length > 0 ? products.map((p, pi) => (
                           <div key={pi} className={cn(pi > 0 && "pt-2 border-t border-border/50")}>
-                            <div className="flex items-start gap-1">
-                              <div className="flex-1 min-w-0">
-                                <ProductLineDisplay
-                                  product={{ name: p.name, sku: (p as { sku?: string }).sku, qty: p.qty }}
-                                  index={pi}
-                                  compact
-                                />
-                              </div>
-                              {canEditSku ? (
-                                <button
-                                  type="button"
-                                  className="shrink-0 p-1 rounded hover:bg-surface-2 text-text-muted hover:text-primary"
-                                  title="Edit SKU"
-                                  onClick={(e) => { e.stopPropagation(); setEditSku({ order: o, lineIndex: pi }); }}
-                                >
-                                  <Tag className="h-3 w-3" />
-                                </button>
-                              ) : null}
-                            </div>
+                            <ProductNameText product={{ name: p.name, productName: (p as any).productName }} compact />
                           </div>
                         )) : <p className="text-xs text-text-muted">No products</p>}
                       </div>
+                    </div>
+                  </td>
+
+                  {/* SKU */}
+                  <td className="p-3">
+                    <div className="space-y-2 min-w-[150px]">
+                      {products.length > 0 ? products.map((p, pi) => (
+                        <div key={pi} className={cn("flex items-start gap-1", pi > 0 && "pt-2 border-t border-border/50")}>
+                          <SkuBadge product={{ sku: (p as { sku?: string }).sku }} index={pi} compact />
+                          {canEditSku ? (
+                            <button
+                              type="button"
+                              className="shrink-0 p-1 rounded hover:bg-surface-2 text-text-muted hover:text-primary"
+                              title="Change SKU"
+                              onClick={(e) => { e.stopPropagation(); setEditSku({ order: o, lineIndex: pi }); }}
+                            >
+                              <Tag className="h-3 w-3" />
+                            </button>
+                          ) : null}
+                        </div>
+                      )) : <p className="text-xs text-text-muted">No SKU</p>}
                     </div>
                   </td>
 

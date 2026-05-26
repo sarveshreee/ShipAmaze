@@ -1,18 +1,22 @@
 import { useAuth } from "@/contexts/AuthContext";
 
-/** FULL dropshippers have vendors/warehouses/order-processing access; RESTRICTED do not. */
+/** Centralized business permissions for dropshipper-specific UX and route guards. */
 export function useDropshipperAccess() {
   const { user, role } = useAuth();
   const isDropshipper = role === "dropshipper";
   const accessType = user?.dropshipperAccessType ?? "FULL";
   const isRestricted = isDropshipper && accessType === "RESTRICTED";
-  const isFull = !isDropshipper || accessType === "FULL";
+  const allowWarehouseAccess =
+    !isDropshipper ? true : (user?.allowWarehouseAccess ?? true) && accessType !== "RESTRICTED";
+
   return {
     isDropshipper,
     accessType: isDropshipper ? accessType : undefined,
     isRestricted,
-    isFull,
-    canProcessOrders: isFull || role === "admin" || role === "vendor",
-    canEditSku: (role === "admin" || role === "vendor" || isFull) && role !== undefined,
+    isFull: !isDropshipper || accessType === "FULL",
+    allowWarehouseAccess,
+    hasWarehouseAccess: role === "admin" || role === "vendor" || allowWarehouseAccess,
+    canProcessOrders: role === "admin" || role === "vendor" || (isDropshipper && !isRestricted),
+    canEditSku: role === "admin",
   };
 }

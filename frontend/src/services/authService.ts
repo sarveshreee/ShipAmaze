@@ -34,6 +34,8 @@ export interface AuthUser {
   emailVerified?: boolean;
   /** Present for dropshipper accounts — RESTRICTED limits vendors/warehouses/processing. */
   dropshipperAccessType?: DropshipperAccessType;
+  /** New business toggle for vendor/warehouse management. */
+  allowWarehouseAccess?: boolean;
 }
 
 export type RegisterResult =
