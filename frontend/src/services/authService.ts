@@ -2,6 +2,9 @@ import { apiClient, setStoredToken } from "@/lib/apiClient";
 
 export type UserRole = "admin" | "vendor" | "dropshipper";
 
+/** Roles allowed on public signup (admin is provisioned separately). */
+export type SignupRole = "vendor" | "dropshipper";
+
 /** Post-login dashboard/analytics path for each role. */
 export function roleDashboardPath(role: UserRole): string {
   return `/${role}/dashboard`;
@@ -52,7 +55,7 @@ export async function register(payload: {
   email: string;
   password: string;
   name: string;
-  role: UserRole;
+  role: SignupRole;
   companyName?: string;
   phone?: string;
 }): Promise<RegisterResult> {

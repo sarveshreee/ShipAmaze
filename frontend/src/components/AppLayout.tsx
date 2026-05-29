@@ -10,6 +10,7 @@ import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X,
   Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, ChevronRight,
   PanelLeftClose, PanelLeftOpen,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -32,7 +33,7 @@ import * as notificationService from "@/services/notificationService";
 
 interface NavItem {
   label: string;
-  icon: any;
+  icon: LucideIcon;
   path: string;
   tabKey?: string;
   shortcut?: string;
@@ -255,9 +256,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }, [notifOpen, user, fetchNotifications]);
 
   const toggleMenu = (label: string) => {
-    setExpandedMenus(prev => {
+    setExpandedMenus((prev) => {
       const n = new Set(prev);
-      n.has(label) ? n.delete(label) : n.add(label);
+      if (n.has(label)) n.delete(label);
+      else n.add(label);
       return n;
     });
   };
@@ -864,16 +866,18 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <p className="text-sm font-medium tabular-nums text-text-primary">{formatInrTop(pendingCod)}</p>
               </div>
               <div className="flex flex-col gap-0.5 p-2">
-                <Button
-                  variant="ghost"
-                  className="justify-start h-9 px-2"
-                  onClick={() => {
-                    setWalletPopoverOpen(false);
-                    setAddFundsOpen(true);
-                  }}
-                >
-                  Add balance
-                </Button>
+                {!import.meta.env.PROD && (role === "vendor" || role === "dropshipper") && (
+                  <Button
+                    variant="ghost"
+                    className="justify-start h-9 px-2"
+                    onClick={() => {
+                      setWalletPopoverOpen(false);
+                      setAddFundsOpen(true);
+                    }}
+                  >
+                    Add balance (test)
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   className="justify-start h-9 px-2"
@@ -927,7 +931,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-20 sm:px-5 lg:px-8 lg:py-6 lg:pb-6">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-5 lg:px-8 lg:py-6 lg:pb-6">
           {children}
         </main>
       </div>

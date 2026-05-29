@@ -584,7 +584,10 @@ export function RichOrdersTable({
   };
 
   const toggleCommSet = (set: Set<string>, item: string) => {
-    const n = new Set(set); n.has(item) ? n.delete(item) : n.add(item); return n;
+    const n = new Set(set);
+    if (n.has(item)) n.delete(item);
+    else n.add(item);
+    return n;
   };
 
   const FilterIcon = ({ active }: { active: boolean }) => (
@@ -745,8 +748,11 @@ export function RichOrdersTable({
                       {allProductNames.filter(n => n.toLowerCase().includes(productFilter.search.toLowerCase())).map(name => (
                         <label key={name} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
                           <input type="checkbox" className="rounded accent-primary" checked={productFilter.selectedNames.has(name)}
-                            onChange={() => setProductFilter(f => {
-                              const n = new Set(f.selectedNames); n.has(name) ? n.delete(name) : n.add(name); return { ...f, selectedNames: n };
+                            onChange={() => setProductFilter((f) => {
+                              const n = new Set(f.selectedNames);
+                              if (n.has(name)) n.delete(name);
+                              else n.add(name);
+                              return { ...f, selectedNames: n };
                             })} />
                           {name}
                         </label>
@@ -852,7 +858,10 @@ export function RichOrdersTable({
                         <label key={state} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
                           <input type="checkbox" className="rounded accent-primary" checked={addressFilter.selectedStates.has(state)}
                             onChange={() => setAddressFilter(f => {
-                              const n = new Set(f.selectedStates); n.has(state) ? n.delete(state) : n.add(state); return { ...f, selectedStates: n };
+                              const n = new Set(f.selectedStates);
+                              if (n.has(state)) n.delete(state);
+                              else n.add(state);
+                              return { ...f, selectedStates: n };
                             })} />
                           {state}
                         </label>

@@ -32,6 +32,7 @@ import {
 } from "../utils/orderLineItems.js";
 import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddleware.js";
 import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
+import { mapToPublicTracking } from "../utils/publicTracking.js";
 
 function normalizePickupAddressForClient(pickup: unknown): unknown {
   if (pickup == null) return pickup;
@@ -848,6 +849,13 @@ export const listOrderSkuAudit = asyncHandler(async (req: AuthRequest, res: Resp
 export const createShipment = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+
+  if (process.env.NODE_ENV === "production") {
+    throw new AppError(
+      503,
+      "Legacy test shipment creation is disabled in production. Use Velocity forward shipment (/api/velocity/forward/create)."
+    );
+  }
   const { orderId, courierId, warehouseId } = req.body as {
     orderId?: string;
     courierId?: string;
@@ -1170,17 +1178,17 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
 
 export const trackOrderByAwb = asyncHandler(async (req: Request, res: Response) => {
   const { awb } = req.params;
-  const o = await Order.findOne({ awb });
+  const o = await Order.findOne({ awb }).lean();
   if (!o) throw new AppError(404, "Order not found");
-  res.json(mapOrder(o));
+  res.json(mapToPublicTracking(o));
 });
 
 /** Public tracking by business order id */
 export const publicOrderByOrderId = asyncHandler(async (req: Request, res: Response) => {
   const { orderId } = req.params;
-  const o = await Order.findOne({ orderId });
+  const o = await Order.findOne({ orderId }).lean();
   if (!o) throw new AppError(404, "Order not found");
-  res.json(mapOrder(o));
+  res.json(mapToPublicTracking(o));
 });
 
 export const getOrderById = asyncHandler(async (req: AuthRequest, res: Response) => {

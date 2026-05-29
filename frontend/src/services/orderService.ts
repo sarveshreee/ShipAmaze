@@ -1,5 +1,6 @@
 import { apiClient } from "@/lib/apiClient";
 import type { Order } from "@/types/logistics";
+import type { PublicTrackingOrder } from "@/types/publicTracking";
 
 export type OrdersListMeta = {
   orders: Order[];
@@ -128,12 +129,14 @@ export async function listOrderSkuAudit(orderId: string) {
 }
 
 export async function trackByAwb(awb: string) {
-  return apiClient.get<Order>(`/orders/track/${encodeURIComponent(awb)}`);
+  return apiClient.get<PublicTrackingOrder>(`/orders/track/${encodeURIComponent(awb)}`);
 }
 
 export async function getPublicOrder(orderId: string) {
-  return apiClient.get<Order>(`/orders/public/${encodeURIComponent(orderId)}`);
+  return apiClient.get<PublicTrackingOrder>(`/orders/public/${encodeURIComponent(orderId)}`);
 }
+
+export type { PublicTrackingOrder } from "@/types/publicTracking";
 
 export async function createShipment(body: {
   orderId: string;

@@ -278,7 +278,14 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     [tabCounts, orders]
   );
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
-  const toggleSelect = (id: string) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
   const handleMarkJunk = async (id: string) => {
     try {
       await orderService.moveOrderToJunk(id);

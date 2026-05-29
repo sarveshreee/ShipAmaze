@@ -174,26 +174,24 @@ export default function PublicOrderDetail() {
         }
 
         try {
-          const data = (await orderService.getPublicOrder(orderId)) as unknown as Record<string, unknown>;
-          if (data && (data as { id?: string }).id) {
+          const data = await orderService.getPublicOrder(orderId);
+          if (data?.id) {
+            const location = [data.city, data.state].filter(Boolean).join(", ") || "—";
             setOrder(
               normalizeOrderRecord({
                 id: data.id ?? orderId,
-                customer: data.customer,
-                phone: data.phone || "N/A",
-                address: data.address || "N/A",
-                city: data.city || "N/A",
-                pincode: data.pincode || "N/A",
-                weight: data.weight || "N/A",
-                courier: data.courier || "N/A",
-                payment: data.payment,
+                customer: "Recipient",
+                phone: data.customerPhoneMasked || "—",
+                address: location,
+                city: data.city || "—",
+                pincode: data.pincodeMasked || "—",
+                weight: "—",
+                courier: data.courier || data.courierName || "—",
+                payment: data.payment ?? "—",
                 status: data.status,
                 date: data.date,
                 awb: data.awb || "N/A",
-                amount: data.amount,
-                dimensions: data.dimensions,
-                zone: data.zone,
-                products: data.products || [],
+                products: [],
               })
             );
             return;
@@ -202,26 +200,24 @@ export default function PublicOrderDetail() {
           /* try AWB */
         }
         try {
-          const data = (await orderService.trackByAwb(orderId)) as unknown as Record<string, unknown>;
-          if (data && (data as { id?: string }).id) {
+          const data = await orderService.trackByAwb(orderId);
+          if (data?.id) {
+            const location = [data.city, data.state].filter(Boolean).join(", ") || "—";
             setOrder(
               normalizeOrderRecord({
                 id: data.id,
-                customer: data.customer,
-                phone: data.phone,
-                address: data.address,
-                city: data.city,
-                pincode: data.pincode,
-                weight: data.weight,
-                courier: data.courier,
-                payment: data.payment,
+                customer: "Recipient",
+                phone: data.customerPhoneMasked || "—",
+                address: location,
+                city: data.city || "—",
+                pincode: data.pincodeMasked || "—",
+                weight: "—",
+                courier: data.courier || data.courierName || "—",
+                payment: data.payment ?? "—",
                 status: data.status,
                 date: data.date,
                 awb: data.awb,
-                amount: data.amount,
-                dimensions: data.dimensions,
-                zone: data.zone,
-                products: data.products,
+                products: [],
               })
             );
             return;

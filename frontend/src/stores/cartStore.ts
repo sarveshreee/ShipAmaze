@@ -95,7 +95,8 @@ export const useCartStore = create<CartStore>()(
           const result = await removeLineFromShopifyCart(cartId, item.lineId);
           if (result.success) {
             const newItems = get().items.filter(i => i.variantId !== variantId);
-            newItems.length === 0 ? clearCart() : set({ items: newItems });
+            if (newItems.length === 0) clearCart();
+            else set({ items: newItems });
           } else if (result.cartNotFound) clearCart();
         } finally { set({ isLoading: false }); }
       },

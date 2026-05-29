@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -28,13 +29,13 @@ import AdminFinance from "@/pages/admin/AdminFinance";
 import AdminAnalytics from "@/pages/admin/AdminAnalytics";
 import AdminSupport from "@/pages/admin/AdminSupport";
 import AdminCatalogue from "@/pages/admin/AdminCatalogue";
-import AdminSettings from "@/pages/admin/AdminSettings";
+const AdminSettings = lazy(() => import("@/pages/admin/AdminSettings"));
 import AdminReturns from "@/pages/admin/AdminReturns";
 import AdminManifests from "@/pages/admin/AdminManifests";
 import AdminBilling from "@/pages/admin/AdminBilling";
 import AdminWeightDisputes from "@/pages/admin/AdminWeightDisputes";
 import AdminPincode from "@/pages/admin/AdminPincode";
-import AdminReports from "@/pages/admin/AdminReports";
+const AdminReports = lazy(() => import("@/pages/admin/AdminReports"));
 
 // Vendor
 import VendorDashboard from "@/pages/vendor/VendorDashboard";
@@ -51,7 +52,7 @@ import DropshipperDashboard from "@/pages/dropshipper/DropshipperDashboard";
 import DropshipperOrders from "@/pages/dropshipper/DropshipperOrders";
 import CreateOrder from "@/pages/dropshipper/CreateOrder";
 import AddOrder from "@/pages/dropshipper/AddOrder";
-import BulkUpload from "@/pages/dropshipper/BulkUpload";
+const BulkUpload = lazy(() => import("@/pages/dropshipper/BulkUpload"));
 import ChannelConnect from "@/pages/dropshipper/ChannelConnect";
 import DropshipperWallet from "@/pages/dropshipper/DropshipperWallet";
 import DropshipperRates from "@/pages/dropshipper/DropshipperRates";
@@ -62,7 +63,7 @@ import DropshipperWeightDisputes from "@/pages/dropshipper/DropshipperWeightDisp
 import DropshipperPickupAddresses from "@/pages/dropshipper/DropshipperPickupAddresses";
 import DropshipperVendors from "@/pages/dropshipper/DropshipperVendors";
 // Supplier (shared across all roles)
-import SourceProduct from "@/pages/supplier/SourceProduct";
+const SourceProduct = lazy(() => import("@/pages/supplier/SourceProduct"));
 import ProductsPage from "@/pages/supplier/ProductsPage";
 import VendorProducts from "@/pages/vendor/VendorProducts";
 import NewProductRequest from "@/pages/supplier/NewProductRequest";
@@ -238,15 +239,21 @@ function AppRoutes() {
   );
 }
 
+function LazyFallback() {
+  return <AuthLoadingScreen />;
+}
+
 const App = () => (
   <TooltipProvider>
     <Toaster />
-    <Sonner />
     <BrowserRouter>
       <ThemeProvider>
+        <Sonner />
         <BrandingProvider>
           <AuthProvider>
-            <AppRoutes />
+            <Suspense fallback={<LazyFallback />}>
+              <AppRoutes />
+            </Suspense>
           </AuthProvider>
         </BrandingProvider>
       </ThemeProvider>

@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 import { connectDb, disconnectDb } from "./config/db.js";
 import { isVelocityEnabledFlag, redactMongoUri, validateEnv } from "./config/env.js";
 import { getMailTransportStatus } from "./services/mail.js";
+import { devLog } from "./utils/devLog.js";
 
 validateEnv();
 
@@ -17,31 +18,36 @@ async function main() {
 
   server.listen(PORT, () => {
     const mongoSafe = redactMongoUri(MONGODB_URI);
-    console.log(`[server] listening on port ${PORT}`);
-    console.log(`[server] MongoDB: ${mongoSafe}`);
-    console.log(`[server] CORS origins: ${process.env.CORS_ORIGIN ?? "(dev: permissive if unset)"}`);
-    console.log(`[server] JWT: ${process.env.JWT_SECRET?.trim() ? "configured" : "missing (dev fallback may apply)"}`);
-    console.log(`[server] ENCRYPTION_SECRET: ${process.env.ENCRYPTION_SECRET?.trim() ? "configured" : "missing (dev may use JWT for key derivation)"}`);
+    devLog.info(`[server] listening on port ${PORT}`);
+    devLog.info(`[server] MongoDB: ${mongoSafe}`);
+    devLog.info(`[server] CORS origins: ${process.env.CORS_ORIGIN ?? "(dev: permissive if unset)"}`);
+    devLog.info(`[server] JWT: ${process.env.JWT_SECRET?.trim() ? "configured" : "missing (dev fallback may apply)"}`);
+    devLog.info(
+      `[server] ENCRYPTION_SECRET: ${process.env.ENCRYPTION_SECRET?.trim() ? "configured" : "missing (dev may use JWT for key derivation)"}`
+    );
     const mailMode = getMailTransportStatus();
     if (mailMode === "gmail") {
-      console.log("[server] Transactional email: Gmail (App Password) transport configured");
+      devLog.info("[server] Transactional email: Gmail (App Password) transport configured");
     } else if (mailMode === "smtp") {
-      console.log("[server] Transactional email: custom SMTP transport configured");
+      devLog.info("[server] Transactional email: custom SMTP transport configured");
     } else {
-      console.warn(
+      devLog.warn(
         "[server] Transactional email: not configured. Set EMAIL_FROM + EMAIL_PASS (Gmail App Password), or GMAIL_USER + GMAIL_APP_PASSWORD, or SMTP_* + MAIL_FROM_EMAIL. Outbound mail will be skipped."
       );
     }
-    console.log(`[server] Shopify API: ${process.env.SHOPIFY_API_KEY?.trim() ? "configured" : "(not set)"}`);
+    devLog.info(`[server] Shopify API: ${process.env.SHOPIFY_API_KEY?.trim() ? "configured" : "(not set)"}`);
     if (isVelocityEnabledFlag()) {
-      console.log(`[server] Velocity: enabled (credentials ${process.env.VELOCITY_USERNAME?.trim() ? "set" : "missing"})`);
+      devLog.info(`[server] Velocity: enabled (credentials ${process.env.VELOCITY_USERNAME?.trim() ? "set" : "missing"})`);
     } else {
-      console.log(`[server] Velocity: not enabled (set VELOCITY_ENABLED=true to require credentials in production)`);
+      devLog.info(`[server] Velocity: not enabled (set VELOCITY_ENABLED=true to require credentials in production)`);
+    }
+    if (process.env.NODE_ENV === "production") {
+      console.info(`[server] ShipAmaze API ready on port ${PORT}`);
     }
   });
 
   const shutdown = (signal: string) => {
-    console.info(`[server] ${signal} received, shutting down…`);
+    devLog.info(`[server] ${signal} received, shutting down…`);
     server.close((closeErr) => {
       if (closeErr) console.error("[server] HTTP close error", closeErr);
       void disconnectDb()

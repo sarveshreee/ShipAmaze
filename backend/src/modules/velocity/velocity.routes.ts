@@ -45,20 +45,20 @@ router.post("/forward/create-order-only", requireFullDropshipper, vc.createForwa
 // Assign AWB to existing order – admin, vendor, dropshipper (full access)
 router.post("/forward/create-shipment", requireFullDropshipper, vc.createForwardShipmentLater);
 
-// Reverse / Return (full orchestration) – admin, vendor, dropshipper
-router.post("/reverse/create", vc.createReverseShipment);
+// Reverse / Return (full orchestration) – admin, vendor, dropshipper (full access)
+router.post("/reverse/create", requireFullDropshipper, vc.createReverseShipment);
 
-// Reverse order only – admin, vendor, dropshipper
-router.post("/reverse/create-order-only", vc.createReverseOrderOnly);
+// Reverse order only – admin, vendor, dropshipper (full access)
+router.post("/reverse/create-order-only", requireFullDropshipper, vc.createReverseOrderOnly);
 
-// Assign AWB to existing reverse order – admin, vendor, dropshipper
-router.post("/reverse/create-shipment", vc.createReverseShipmentLater);
+// Assign AWB to existing reverse order – admin, vendor, dropshipper (full access)
+router.post("/reverse/create-shipment", requireFullDropshipper, vc.createReverseShipmentLater);
 
-// Cancel – admin, vendor, dropshipper
-router.post("/cancel", vc.cancelShipment);
+// Cancel – admin, vendor, dropshipper (full access)
+router.post("/cancel", requireFullDropshipper, vc.cancelShipment);
 
-// Track – admin, vendor, dropshipper (authenticated)
-router.post("/track", vc.trackShipment);
+// Track – admin, vendor, dropshipper (authenticated, full access)
+router.post("/track", requireFullDropshipper, vc.trackShipment);
 
 // Admin-only: reports and provider-level lists
 router.post("/shipments", requireRoles("admin"), vc.listVelocityShipments);

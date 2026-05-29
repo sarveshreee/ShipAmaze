@@ -307,31 +307,21 @@ export default function PublicTracking() {
             activities: orderLookup.trackingActivities ?? [],
             order: { id: orderLookup.id },
             orderDetails: {
-              customerName: orderLookup.customer,
-              phone: orderLookup.customerPhone ?? orderLookup.phone,
+              phone: orderLookup.customerPhoneMasked,
               paymentType: orderLookup.payment,
-              amount: orderLookup.amount,
               destination: {
-                city: orderLookup.shippingCity ?? orderLookup.city,
-                state: orderLookup.shippingState ?? orderLookup.state,
-                pincode: orderLookup.shippingPincode ?? orderLookup.pincode,
-                address: [orderLookup.shippingAddress1, orderLookup.shippingAddress2, orderLookup.address]
-                  .filter(Boolean)
-                  .join(", "),
+                city: orderLookup.city,
+                state: orderLookup.state,
+                pincode: orderLookup.pincodeMasked,
               },
               dates: {
                 orderDate: orderLookup.date,
-                assignedAt: orderLookup.assignedDateTime,
-                movedToReadyAt: orderLookup.movedToReadyAt,
               },
               shipment: {
-                shipmentId: orderLookup.shipmentId ?? orderLookup.velocityShipmentId,
-                velocityOrderId: orderLookup.velocityOrderId,
                 channel: orderLookup.channel,
-                weight: orderLookup.weight,
               },
             },
-            pendingShipment: true,
+            pendingShipment: orderLookup.pendingShipment ?? true,
           }),
         );
         pushRecent(trimmed);
@@ -409,7 +399,7 @@ export default function PublicTracking() {
 
   if (isEmbedded) {
     return (
-      <div className="animate-fade-in-up mx-auto max-w-3xl space-y-6 overflow-x-hidden">
+      <div className="animate-fade-in-up mx-auto max-w-3xl space-y-6 overflow-x-hidden min-w-0">
         <PageHeader title="Track Shipment" breadcrumb={["Dropshipper", "Track Shipment"]} />
 
         <div className="rounded-2xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 p-6 text-white shadow-lg sm:p-8">
@@ -467,7 +457,7 @@ export default function PublicTracking() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background" style={{ backgroundColor: branding.bgColor }}>
+    <div className="min-h-screen flex flex-col bg-background text-text-primary dark:bg-background" style={{ backgroundColor: branding.bgColor }}>
       <header
         className="flex items-center gap-2 px-6 py-4 border-b border-border"
         style={{ backgroundColor: branding.primaryColor }}

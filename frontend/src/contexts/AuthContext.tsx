@@ -1,7 +1,7 @@
 import { useState, createContext, useContext, ReactNode, useEffect } from "react";
 import { getStoredToken, ApiError } from "@/lib/apiClient";
 import * as authService from "@/services/authService";
-import type { AuthUser, UserRole } from "@/services/authService";
+import type { AuthUser, SignupRole, UserRole } from "@/services/authService";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -17,7 +17,7 @@ interface AuthContextType {
     fullName: string,
     businessName: string,
     phone: string,
-    role: UserRole
+    role: SignupRole
   ) => Promise<{ error?: string; user?: AuthUser; needsVerification?: boolean; verifyEmail?: string }>;
   logout: () => void;
   /** Replace session user from API (e.g. after profile save). */
@@ -95,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fullName: string,
     businessName: string,
     phone: string,
-    role: UserRole
+    role: SignupRole
   ) => {
     try {
       const res = await authService.register({

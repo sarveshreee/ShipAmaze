@@ -57,10 +57,19 @@ export function createApp() {
         if (!isProd && corsAllowed.length === 0) {
           return callback(null, origin || true);
         }
+        if (isProd) {
+          if (!origin) {
+            return callback(null, false);
+          }
+          if (corsAllowed.includes(origin)) {
+            return callback(null, true);
+          }
+          return callback(null, false);
+        }
         if (!origin) {
           return callback(null, true);
         }
-        if (corsAllowed.includes(origin)) {
+        if (corsAllowed.length === 0 || corsAllowed.includes(origin)) {
           return callback(null, true);
         }
         return callback(null, false);
@@ -77,7 +86,8 @@ export function createApp() {
       void shopifyController.handleWebhook(req, res).catch(next);
     }
   );
-  app.use(express.json({ limit: "10mb" }));
+  const jsonLimit = process.env.JSON_BODY_LIMIT?.trim() || (isProd ? "1mb" : "10mb");
+  app.use(express.json({ limit: jsonLimit }));
 
   const api = express.Router();
 

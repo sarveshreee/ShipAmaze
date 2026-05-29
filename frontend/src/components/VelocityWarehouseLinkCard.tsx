@@ -63,12 +63,6 @@ export function VelocityWarehouseLinkCard({
     if (err) return;
     setSaving(true);
     try {
-      if (import.meta.env.DEV) {
-        console.log("[velocity link request]", {
-          warehouseId: mongoId,
-          velocityWarehouseId: value.trim(),
-        });
-      }
       await velocityService.linkVelocityWarehouse({
         linkOnly: true,
         warehouseId: mongoId,

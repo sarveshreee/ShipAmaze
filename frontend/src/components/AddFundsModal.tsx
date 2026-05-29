@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/lib/apiClient";
 
 const MIN_AMOUNT = 1;
+const isProduction = import.meta.env.PROD;
 
 interface Props {
   open: boolean;
@@ -31,6 +32,10 @@ export function AddFundsModal({ open, onOpenChange, onSuccess }: Props) {
   }, [open]);
 
   const submit = async () => {
+    if (isProduction) {
+      toast.error("Wallet top-up is not available yet. Contact support or your account manager.");
+      return;
+    }
     const n = Number(String(amount).replace(/,/g, ""));
     if (!Number.isFinite(n) || n < MIN_AMOUNT) {
       toast.error(`Enter an amount of at least ₹${MIN_AMOUNT}`);
@@ -56,10 +61,16 @@ export function AddFundsModal({ open, onOpenChange, onSuccess }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add balance (manual / test)</DialogTitle>
+          <DialogTitle>{isProduction ? "Add balance" : "Add balance (manual / test)"}</DialogTitle>
           <DialogDescription>
-            No payment gateway is connected. This applies a <span className="font-medium">manual / test recharge</span>{" "}
-            immediately to your wallet and records it in your transaction history (minimum ₹{MIN_AMOUNT}).
+            {isProduction ? (
+              <>Online wallet top-up is coming soon. Until then, ask an admin to credit your wallet after payment.</>
+            ) : (
+              <>
+                No payment gateway is connected. This applies a <span className="font-medium">manual / test recharge</span>{" "}
+                immediately to your wallet and records it in your transaction history (minimum ₹{MIN_AMOUNT}).
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2 py-2">
@@ -73,14 +84,20 @@ export function AddFundsModal({ open, onOpenChange, onSuccess }: Props) {
             placeholder={`e.g. ${MIN_AMOUNT}`}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
+            disabled={isProduction}
           />
         </div>
         <DialogFooter className="gap-2 sm:gap-2">
           <Button type="button" variant="secondary" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
-          <Button type="button" className="bg-primary text-primary-foreground hover:bg-primary-dark" disabled={submitting} onClick={() => void submit()}>
-            {submitting ? "Adding…" : "Add balance"}
+          <Button
+            type="button"
+            className="bg-primary text-primary-foreground hover:bg-primary-dark"
+            disabled={submitting || isProduction}
+            onClick={() => void submit()}
+          >
+            {isProduction ? "Coming soon" : submitting ? "Adding…" : "Add balance"}
           </Button>
         </DialogFooter>
       </DialogContent>

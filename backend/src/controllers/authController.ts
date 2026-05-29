@@ -24,11 +24,15 @@ function isEmailVerifiedForLogin(user: { emailVerified?: boolean }): boolean {
   return user.emailVerified !== false;
 }
 
+/** Roles allowed on the public signup endpoint (admin is seed / internal only). */
+export const PUBLIC_REGISTER_ROLES = ["vendor", "dropshipper"] as const;
+export type PublicRegisterRole = (typeof PUBLIC_REGISTER_ROLES)[number];
+
 const registerSchema = z.object({
   email: z.string().min(1, "Email is required").email("Invalid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().min(1, "Name is required"),
-  role: z.enum(["admin", "vendor", "dropshipper"]),
+  role: z.enum(PUBLIC_REGISTER_ROLES),
   companyName: z.string().optional(),
   phone: z.string().optional(),
 });
@@ -76,6 +80,11 @@ async function toPublicUser(user: {
 }
 
 export const register = asyncHandler(async (req: Request, res: Response) => {
+  const rawRole = (req.body as { role?: unknown })?.role;
+  if (rawRole === "admin" || rawRole === "Admin") {
+    throw new AppError(403, "Admin accounts cannot be created via public registration");
+  }
+
   const body = registerSchema.parse(req.body);
   const exists = await User.findOne({ email: body.email });
   if (exists) throw new AppError(409, "This email is already registered");

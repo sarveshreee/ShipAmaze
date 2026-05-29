@@ -146,9 +146,13 @@ export default function SourceProduct() {
   const [uploading, setUploading] = useState(false);
   const onPickImages = async (files: FileList | null) => {
     if (!files) return;
-    const arr = Array.from(files).filter((f) => /image\/(jpeg|png|webp|jpg)/.test(f.type) && f.size < 5 * 1024 * 1024);
+    const arr = Array.from(files).filter((f) => /image\/(jpeg|png|webp|jpg)/i.test(f.type) && f.size < 5 * 1024 * 1024);
     if (arr.length === 0) {
       toast.error("Only JPG/PNG/WEBP under 5MB");
+      return;
+    }
+    if (form.images.length + arr.length > 12) {
+      toast.error("Maximum 12 images per product");
       return;
     }
     setUploading(true);

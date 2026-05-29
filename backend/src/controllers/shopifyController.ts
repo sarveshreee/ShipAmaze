@@ -24,6 +24,7 @@ import {
   findDefaultOrFirstActivePickupForShopifyOwner,
   type ShopifyPickupApplyTarget,
 } from "../services/shopifyOrderPickup.js";
+import { devLog } from "../utils/devLog.js";
 
 /* ------------------------------------------------------------------ */
 /*  Env helpers                                                          */
@@ -149,7 +150,7 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
     `&state=${state}`;
 
   if (process.env.NODE_ENV === "development") {
-    console.info("[shopify] oauth initiate", { shop: shopDomain });
+    devLog.info("[shopify] oauth initiate", { shop: shopDomain });
   }
 
   res.json({ url: oauthUrl });
@@ -169,7 +170,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
 
   if (!verifyShopifyHmac(query, apiSecret)) {
     if (process.env.NODE_ENV === "development") {
-      console.warn("[shopify] oauth callback HMAC verification failed");
+      devLog.warn("[shopify] oauth callback HMAC verification failed");
     }
     res.redirect(buildFrontendRedirect("error", "Could not verify OAuth callback (invalid signature)."));
     return;
@@ -177,19 +178,19 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
 
   const { code, shop, state } = query;
   if (!code || !shop) {
-    console.warn("[shopify:oauth] callback missing code/shop");
+    devLog.warn("[shopify:oauth] callback missing code/shop");
     res.redirect(buildFrontendRedirect("error", "OAuth callback was missing code or shop."));
     return;
   }
 
   if (!isValidShopDomain(shop)) {
-    console.warn("[shopify:oauth] callback invalid shop domain=", shop);
+    devLog.warn("[shopify:oauth] callback invalid shop domain=", shop);
     res.redirect(buildFrontendRedirect("error", "Invalid shop domain in callback."));
     return;
   }
 
   if (!state) {
-    console.warn("[shopify:oauth] callback missing state");
+    devLog.warn("[shopify:oauth] callback missing state");
     res.redirect(buildFrontendRedirect("error", "Missing OAuth state. Start connect again from ShipAmaze."));
     return;
   }
@@ -198,7 +199,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   try {
     ownerUserId = (await consumeOAuthState(state)).ownerUserId;
   } catch {
-    console.warn("[shopify:oauth] callback invalid/expired state");
+    devLog.warn("[shopify:oauth] callback invalid/expired state");
     res.redirect(buildFrontendRedirect("error", "Session expired or invalid. Start connect again from ShipAmaze."));
     return;
   }
@@ -211,7 +212,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   });
 
   if (!tokenRes.ok) {
-    console.warn("[shopify:oauth] token exchange failed status=", tokenRes.status);
+    devLog.warn("[shopify:oauth] token exchange failed status=", tokenRes.status);
     res.redirect(buildFrontendRedirect("error", "Token exchange with Shopify failed. Try again or reinstall the app."));
     return;
   }
@@ -219,7 +220,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   const tokenData = (await tokenRes.json()) as { access_token: string; scope: string };
   const { access_token, scope } = tokenData;
   if (process.env.NODE_ENV === "development") {
-    console.info("[shopify] oauth token exchanged", { scope });
+    devLog.info("[shopify] oauth token exchanged", { scope });
   }
 
   // Get shop details to verify
@@ -229,7 +230,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   const { User } = await import("../models/User.js");
   const user = await User.findById(ownerUserId);
   if (!user) {
-    console.warn("[shopify:oauth] owner user not found ownerUserId=", ownerUserId);
+    devLog.warn("[shopify:oauth] owner user not found ownerUserId=", ownerUserId);
     res.redirect(buildFrontendRedirect("error", "User session no longer valid. Log in and connect again."));
     return;
   }
@@ -256,7 +257,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   try {
     const wh = await ensureShopifyWebhooksRegistered(access_token, shopDetails.myshopify_domain);
     if (process.env.NODE_ENV === "development") {
-      console.info("[shopify] webhooks ensured", {
+      devLog.info("[shopify] webhooks ensured", {
         shop: shopDetails.myshopify_domain,
         address: wh.address,
         registered: wh.registered,
@@ -265,7 +266,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     }
   } catch (whErr: unknown) {
     const msg = whErr instanceof Error ? whErr.message : "Webhook registration failed";
-    console.warn("[shopify:oauth] webhook registration failed", {
+    devLog.warn("[shopify:oauth] webhook registration failed", {
       shop: shopDetails.myshopify_domain,
       message: msg,
     });

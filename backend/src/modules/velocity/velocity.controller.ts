@@ -16,6 +16,7 @@ import { Pickup } from "../../models/Pickup.js";
 import * as velocityService from "./velocity.service.js";
 import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.mapper.js";
 import { normalizePincode, sanitizeForVelocityLog } from "./velocity.payload.js";
+import { devLog } from "../../utils/devLog.js";
 import type {
   VelocityCustomer,
   VelocityForwardOrderRequest,
@@ -38,7 +39,7 @@ async function applyCourierPriorityRules(
   if (!courierName) return;
   localOrder.courier = courierName;
   localOrder.courierName = courierName;
-  console.info(
+  devLog.info(
     "[velocity:courier-priority]",
     JSON.stringify({
       orderId: localOrder.orderId,
@@ -334,7 +335,7 @@ async function devLogVelocityLinkPickup(
   if (process.env.NODE_ENV !== "development") return;
   const raw = await Pickup.findById(oid).select("userId dropshipperId").lean();
   const uid = String(req.user!._id);
-  console.log(
+  devLog.info(
     "[velocity link pickup debug]",
     JSON.stringify({
       currentUserId: uid,
@@ -524,7 +525,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       localOrder.shipmentCreated = true;
       if (later.awb_code) localOrder.trackingId = later.awb_code;
       await localOrder.save();
-      console.info(
+      devLog.info(
         "[velocity:forward] create_shipment_success",
         JSON.stringify({
           orderId: requestOrderId,
@@ -574,7 +575,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
   validateForwardPayload(payload, localOrder);
   await enforceServiceabilityLaneIfRequested(merged as PickupPinMerged, payload, body);
   await precheckForwardShipmentWallet(localOrder);
-  console.info(
+  devLog.info(
     "[velocity:forward] payload_summary",
     JSON.stringify({
       order_id: payload.order_id,
@@ -662,7 +663,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           const retryOrderIdBase = localOrder?.orderId || payload.order_id;
           const retryOrderId = `${retryOrderIdBase}-${Date.now()}`;
           const retryPayload: VelocityForwardOrderRequest = { ...payload, order_id: retryOrderId };
-          console.info(
+          devLog.info(
             "[velocity:forward] duplicate_order_retry",
             JSON.stringify({
               original_order_id: payload.order_id,
@@ -729,7 +730,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
 
   const walletExtraMain = await forwardShipmentWalletPayload(localOrder, result?.shipping_charges);
 
-  console.info(
+  devLog.info(
     "[velocity:forward] create_success",
     JSON.stringify({
       orderId: requestOrderId,

@@ -7,16 +7,15 @@ import { Label } from "@/components/ui/label";
 import { Truck, Package, MapPin, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { roleDashboardPath } from "@/services/authService";
+import { roleDashboardPath, type SignupRole } from "@/services/authService";
 
-type Role = "admin" | "vendor" | "dropshipper";
-const roles: { value: Role; label: string; icon: React.ReactNode }[] = [
+const roles: { value: SignupRole; label: string; icon: React.ReactNode }[] = [
   { value: "vendor", label: "Vendor", icon: <Package className="h-4 w-4" /> },
   { value: "dropshipper", label: "Dropshipper", icon: <Truck className="h-4 w-4" /> },
 ];
 
 export default function SignupPage() {
-  const [role, setRole] = useState<Role>("dropshipper");
+  const [role, setRole] = useState<SignupRole>("dropshipper");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [fullName, setFullName] = useState("");

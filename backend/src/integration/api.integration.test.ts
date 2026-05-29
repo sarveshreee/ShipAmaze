@@ -206,13 +206,17 @@ describe.skipIf(!hasMongo())("API integration (MONGODB_URI_TEST)", () => {
   it("admin adjust wallet + tab permissions me", async () => {
     const adminEmail = `adm-${suffix}@example.test`;
     const adminPass = "adminpass12!";
-    await request(app).post("/api/auth/register").send({
-      email: adminEmail,
-      password: adminPass,
+    const bcrypt = await import("bcryptjs");
+    const passwordHash = await bcrypt.hash(adminPass, 10);
+    await User.create({
       name: "Admin Test",
+      email: adminEmail.toLowerCase(),
+      passwordHash,
       role: "admin",
+      companyName: "Test",
+      permissions: [],
+      emailVerified: true,
     });
-    await User.updateOne({ email: adminEmail.toLowerCase() }, { $set: { emailVerified: true } });
     const aLogin = await request(app).post("/api/auth/login").send({ email: adminEmail, password: adminPass });
     expect(aLogin.status).toBe(200);
     const adminToken = aLogin.body.token as string;

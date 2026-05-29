@@ -514,7 +514,7 @@ export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) =>
   });
 });
 
-/** Manual / test recharge — credits wallet immediately (no payment gateway). */
+/** Manual / test recharge — credits wallet immediately (no payment gateway). Disabled in production. */
 export const addWalletBalance = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   if (req.user.role !== "vendor" && req.user.role !== "dropshipper") {
@@ -523,6 +523,20 @@ export const addWalletBalance = asyncHandler(async (req: AuthRequest, res: Respo
 
   const body = req.body as { amount?: unknown; mode?: unknown };
   const mode = String(body.mode ?? "manual_test").toLowerCase();
+
+  if (process.env.NODE_ENV === "production") {
+    const { auditLog } = await import("../utils/devLog.js");
+    auditLog("wallet_self_credit_blocked", {
+      userId: String(req.user._id),
+      role: req.user.role,
+      mode,
+      ip: req.ip,
+    });
+    throw new AppError(
+      403,
+      "Wallet top-up is not available in production. Contact support for a payment-gateway recharge or ask an admin to adjust your balance."
+    );
+  }
   if (mode !== "manual_test" && mode !== "manual") {
     throw new AppError(
       400,
@@ -1284,14 +1298,24 @@ export const createProductRequest = asyncHandler(async (req: AuthRequest, res: R
 });
 
 export const updateProductRequest = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
   const pr = await ProductRequest.findById(req.params.id);
   if (!pr) throw new AppError(404, "Not found");
-  Object.assign(pr, req.body);
+  const { assertProductRequestAccess } = await import("../utils/productRequestAccess.js");
+  assertProductRequestAccess(req.user, pr);
+  const body = req.body as Record<string, unknown>;
+  if (body.payload !== undefined) pr.payload = body.payload as Record<string, unknown>;
+  if (body.status !== undefined) pr.status = String(body.status);
   await pr.save();
   res.json(pr);
 });
 
 export const deleteProductRequest = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const pr = await ProductRequest.findById(req.params.id);
+  if (!pr) throw new AppError(404, "Not found");
+  const { assertProductRequestAccess } = await import("../utils/productRequestAccess.js");
+  assertProductRequestAccess(req.user, pr);
   await ProductRequest.findByIdAndDelete(req.params.id);
   res.json({ ok: true });
 });

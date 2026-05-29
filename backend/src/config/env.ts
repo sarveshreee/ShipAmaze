@@ -24,6 +24,12 @@ export function validateEnv(): void {
     if (!process.env.CORS_ORIGIN?.trim()) missing.push("CORS_ORIGIN");
     if (!process.env.ENCRYPTION_SECRET?.trim()) missing.push("ENCRYPTION_SECRET");
 
+    const frontendUrl = process.env.FRONTEND_URL?.trim();
+    const corsFirst = process.env.CORS_ORIGIN?.split(",")[0]?.trim();
+    if (!frontendUrl && !corsFirst) {
+      missing.push("FRONTEND_URL (or set CORS_ORIGIN to your frontend HTTPS origin)");
+    }
+
     for (const k of ["SHOPIFY_API_KEY", "SHOPIFY_API_SECRET", "SHOPIFY_REDIRECT_URI"] as const) {
       if (!process.env[k]?.trim()) missing.push(k);
     }
