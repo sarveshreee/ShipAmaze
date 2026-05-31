@@ -368,8 +368,9 @@ export function createApp() {
   api.delete("/account/team/:id", authMiddleware, accountController.deleteTeam);
   api.post("/account/team/:id/resend", authMiddleware, accountController.resendTeam);
 
-  // Shopify OAuth — connect redirects browser, callback is hit by Shopify (no Bearer token)
-  api.get("/shopify/connect", authMiddleware, shopifyConnectLimiter, shopifyController.initiateConnect);
+  // Shopify OAuth — install/callback are public (Shopify redirects the browser)
+  api.get("/shopify/install", shopifyCallbackLimiter, shopifyController.handleInstall);
+  api.post("/shopify/connect", authMiddleware, shopifyConnectLimiter, shopifyController.initiateConnect);
   api.get("/shopify/callback", shopifyCallbackLimiter, shopifyController.handleCallback);
   api.get("/shopify/status", authMiddleware, shopifyController.getStatus);
   api.post("/shopify/disconnect", authMiddleware, shopifyController.disconnect);

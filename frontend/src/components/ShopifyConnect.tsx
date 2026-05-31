@@ -51,6 +51,8 @@ export default function ShopifyConnect() {
   const [status, setStatus] = useState<ShopifyStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [shop, setShop] = useState("");
+  const [shopifyApiKey, setShopifyApiKey] = useState("");
+  const [shopifyApiSecret, setShopifyApiSecret] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -71,6 +73,16 @@ export default function ShopifyConnect() {
     void loadStatus();
 
     const params = new URLSearchParams(window.location.search);
+    const installShop = params.get("shop")?.trim();
+    if (params.get("shopify_install") === "1" && installShop) {
+      setShop(installShop);
+      toast.message("Enter your custom app API Key and Secret, then click Connect Shopify.");
+      const next = new URLSearchParams(params);
+      next.delete("shopify_install");
+      const qs = next.toString();
+      window.history.replaceState({}, document.title, `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+    }
+
     const shopifyParam = params.get("shopify");
     if (shopifyParam === "connected") {
       toast.success("Shopify store connected successfully.");
@@ -81,7 +93,7 @@ export default function ShopifyConnect() {
       toast.error(
         reason
           ? `Shopify connection failed: ${reason}`
-          : "Shopify connection failed. Check the shop domain, approve the app, or try again."
+          : "Shopify connection failed. Check credentials, redirect URL, or try again."
       );
       window.history.replaceState({}, document.title, window.location.pathname);
     }
@@ -93,16 +105,30 @@ export default function ShopifyConnect() {
       toast.error("Shop domain is required");
       return;
     }
-    const normalised = raw.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    if (!shopifyApiKey.trim()) {
+      toast.error("API Key (Client ID) is required");
+      return;
+    }
+    if (!shopifyApiSecret.trim()) {
+      toast.error("API Secret is required");
+      return;
+    }
 
-    if (!normalised.toLowerCase().endsWith(".myshopify.com")) {
+    let normalised = raw.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\/$/, "").toLowerCase();
+    if (!normalised.includes(".")) normalised = `${normalised}.myshopify.com`;
+
+    if (!normalised.endsWith(".myshopify.com")) {
       toast.error("Invalid shop domain. It must end with .myshopify.com");
       return;
     }
 
     setConnecting(true);
     try {
-      const { url } = await shopifyService.initiateShopifyConnect(normalised);
+      const { url } = await shopifyService.initiateShopifyConnect(
+        normalised,
+        shopifyApiKey.trim(),
+        shopifyApiSecret.trim()
+      );
       window.location.href = url;
     } catch (e: unknown) {
       toast.error(errMsg(e));
@@ -142,6 +168,8 @@ export default function ShopifyConnect() {
       toast.success("Shopify disconnected. Historical orders are unchanged.");
       setDisconnectOpen(false);
       setStatus({ connected: false });
+      setShopifyApiKey("");
+      setShopifyApiSecret("");
     } catch (e: unknown) {
       toast.error(errMsg(e));
     } finally {
@@ -192,7 +220,7 @@ export default function ShopifyConnect() {
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-text-primary">Shopify Integration</h3>
             <p className="text-sm text-text-muted mt-0.5">
-              Connect your Shopify store to import orders into ShipAmaze.
+              Connect with your store&apos;s custom app credentials (same flow as Importerr).
             </p>
           </div>
           {status?.connected && (
@@ -267,39 +295,64 @@ export default function ShopifyConnect() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="shopify-domain">Your Shopify store URL</Label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <div className="flex-1 min-w-0">
-                  <Input
-                    id="shopify-domain"
-                    placeholder="mystore.myshopify.com"
-                    value={shop}
-                    onChange={(e) => setShop(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && void handleConnect()}
-                  />
-                </div>
-                <Button
-                  onClick={() => void handleConnect()}
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="shopify-domain">Store domain</Label>
+                <Input
+                  id="shopify-domain"
+                  placeholder="mystore.myshopify.com"
+                  value={shop}
+                  onChange={(e) => setShop(e.target.value)}
                   disabled={connecting}
-                  className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2 shrink-0 w-full sm:w-auto"
-                >
-                  <Link2 className="h-4 w-4" />
-                  {connecting ? "Redirecting…" : "Connect Shopify"}
-                </Button>
+                />
               </div>
-              <p className="text-xs text-text-muted">
-                Use your <span className="font-mono">.myshopify.com</span> admin domain (not a custom storefront URL).
-              </p>
+              <div className="space-y-2">
+                <Label htmlFor="shopify-api-key">API Key (Client ID)</Label>
+                <Input
+                  id="shopify-api-key"
+                  placeholder="From Shopify Admin → Develop apps"
+                  value={shopifyApiKey}
+                  onChange={(e) => setShopifyApiKey(e.target.value)}
+                  disabled={connecting}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="shopify-api-secret">API Secret (Client secret)</Label>
+                <Input
+                  id="shopify-api-secret"
+                  type="password"
+                  placeholder="From your custom app credentials"
+                  value={shopifyApiSecret}
+                  onChange={(e) => setShopifyApiSecret(e.target.value)}
+                  disabled={connecting}
+                  autoComplete="off"
+                />
+              </div>
+              <Button
+                onClick={() => void handleConnect()}
+                disabled={connecting}
+                className="w-full bg-primary text-primary-foreground hover:bg-primary-dark gap-2"
+              >
+                <Link2 className="h-4 w-4" />
+                {connecting ? "Redirecting to Shopify…" : "Connect Shopify"}
+              </Button>
             </div>
 
             <div className="rounded-lg border border-border bg-surface-2/40 p-4 space-y-2 text-sm text-text-muted">
-              <p className="font-medium text-text-secondary">What this does</p>
-              <ul className="list-disc list-inside space-y-1 text-xs">
-                <li>OAuth — no Shopify password stored in ShipAmaze</li>
-                <li>Access token is encrypted server-side and never sent to the browser</li>
-                <li>Import or refresh orders with sync; webhooks update existing rows when configured</li>
-              </ul>
+              <p className="font-medium text-text-secondary">Setup (each merchant)</p>
+              <ol className="list-decimal list-inside space-y-1 text-xs">
+                <li>Shopify Admin → Settings → Apps → Develop apps → Create an app</li>
+                <li>
+                  Under <span className="font-medium">Allowed redirection URL(s)</span>, add:{" "}
+                  <span className="font-mono text-text-primary break-all">
+                    {import.meta.env.DEV
+                      ? "http://localhost:5000/api/shopify/callback"
+                      : "your ShipAmaze API /api/shopify/callback URL"}
+                  </span>
+                </li>
+                <li>Copy Client ID and Client secret here, then connect</li>
+              </ol>
             </div>
           </div>
         )}

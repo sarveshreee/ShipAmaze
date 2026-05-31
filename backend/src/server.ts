@@ -35,7 +35,7 @@ async function main() {
         "[server] Transactional email: not configured. Set EMAIL_FROM + EMAIL_PASS (Gmail App Password), or GMAIL_USER + GMAIL_APP_PASSWORD, or SMTP_* + MAIL_FROM_EMAIL. Outbound mail will be skipped."
       );
     }
-    devLog.info(`[server] Shopify API: ${process.env.SHOPIFY_API_KEY?.trim() ? "configured" : "(not set)"}`);
+    devLog.info(`[server] Shopify OAuth redirect: ${process.env.SHOPIFY_REDIRECT_URI?.trim() ? "configured" : "(set SHOPIFY_REDIRECT_URI)"} (merchants use their own app Client ID/Secret)`);
     if (isVelocityEnabledFlag()) {
       devLog.info(`[server] Velocity: enabled (credentials ${process.env.VELOCITY_USERNAME?.trim() ? "set" : "missing"})`);
     } else {

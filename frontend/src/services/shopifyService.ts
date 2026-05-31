@@ -39,11 +39,16 @@ export async function getShopifyStatus(): Promise<ShopifyStatus> {
   return apiClient.get<ShopifyStatus>("/shopify/status");
 }
 
-/**
- * Fetches the Shopify OAuth URL from the backend.
- */
-export async function initiateShopifyConnect(shop: string): Promise<{ url: string }> {
-  return apiClient.get<{ url: string }>(`/shopify/connect?shop=${encodeURIComponent(shop)}`);
+/** OAuth URL using merchant's custom app Client ID + Secret (importerr-style). */
+export async function initiateShopifyConnect(
+  shop: string,
+  shopifyApiKey: string,
+  shopifyApiSecret: string
+): Promise<{ url: string }> {
+  return apiClient.post<{ url: string }>(
+    `/shopify/connect?shop=${encodeURIComponent(shop)}`,
+    { shopifyApiKey, shopifyApiSecret }
+  );
 }
 
 export async function syncOrders(): Promise<ShopifySyncResult> {

@@ -361,10 +361,12 @@ describe.skipIf(!hasMongo())("API integration (MONGODB_URI_TEST)", () => {
     expect(st.body.connected).toBe(false);
 
     const conn = await request(app)
-      .get("/api/shopify/connect")
+      .post("/api/shopify/connect")
       .set("Authorization", `Bearer ${token}`)
-      .query({ shop: "test-store.myshopify.com" });
+      .query({ shop: "test-store.myshopify.com" })
+      .send({ shopifyApiKey: "test-client-id", shopifyApiSecret: "test-client-secret" });
     expect(conn.status).toBe(200);
     expect(String(conn.body.url)).toContain("myshopify.com/admin/oauth/authorize");
+    expect(String(conn.body.url)).toContain("client_id=test-client-id");
   });
 });

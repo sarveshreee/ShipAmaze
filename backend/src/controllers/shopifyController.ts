@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { Types } from "mongoose";
 import type { AuthRequest } from "../middleware/authMiddleware.js";
 import { OAuthState, defaultOAuthStateExpiry } from "../models/OAuthState.js";
 import { ShopifyStoreConnection } from "../models/ShopifyStoreConnection.js";
@@ -8,36 +9,38 @@ import { Order } from "../models/Order.js";
 import { Vendor } from "../models/Vendor.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { AppError } from "../middleware/errorMiddleware.js";
-import { encrypt, decrypt } from "../utils/crypto.js";
+import { decrypt, encrypt } from "../utils/crypto.js";
 import * as shopifyService from "../services/shopify.service.js";
 import { ensureShopifyWebhooksRegistered } from "../services/shopifyWebhooks.js";
-import {
-  buildShopifyOrderPayload,
-  mergeShopifyPayloadIntoOrder,
-  shopifyExternalOrderId,
-} from "../services/shopifyOrderSync.js";
+import { buildShopifyOrderPayload, mergeShopifyPayloadIntoOrder } from "../services/shopifyOrderSync.js";
 import type { ShopifyOrder } from "../services/shopify.service.js";
 import type { ShopifySyncUserContext } from "../services/shopifyOrderSync.js";
 import {
-  applyCachedDefaultPickupIfMissingForShopify,
   applyDefaultPickupIfMissingForShopify,
-  findDefaultOrFirstActivePickupForShopifyOwner,
   type ShopifyPickupApplyTarget,
 } from "../services/shopifyOrderPickup.js";
+import { performShopifyOrderSyncForUser } from "../services/shopifySyncRunner.js";
 import { devLog } from "../utils/devLog.js";
 
 /* ------------------------------------------------------------------ */
-/*  Env helpers                                                          */
+/*  Env helpers (server URL + scopes; credentials come from each user)    */
 /* ------------------------------------------------------------------ */
-function cfg() {
-  const apiKey = process.env.SHOPIFY_API_KEY;
-  const apiSecret = process.env.SHOPIFY_API_SECRET;
-  const scopes = process.env.SHOPIFY_SCOPES || "read_orders,read_products";
-  const redirectUri = process.env.SHOPIFY_REDIRECT_URI;
-  if (!apiKey || !apiSecret || !redirectUri) {
-    throw new AppError(500, "Shopify is not configured. Set SHOPIFY_API_KEY, SHOPIFY_API_SECRET, SHOPIFY_REDIRECT_URI in .env");
+function oauthRedirectUri(): string {
+  const redirectUri = process.env.SHOPIFY_REDIRECT_URI?.trim();
+  if (!redirectUri) {
+    throw new AppError(
+      500,
+      "Shopify redirect URL is not configured. Set SHOPIFY_REDIRECT_URI in .env (e.g. http://localhost:5000/api/shopify/callback)."
+    );
   }
-  return { apiKey, apiSecret, scopes, redirectUri };
+  return redirectUri;
+}
+
+function oauthScopes(): string {
+  return (
+    process.env.SHOPIFY_SCOPES?.trim() ||
+    "read_orders,write_orders,read_products,write_products,read_locations,write_locations,read_customers,write_customers"
+  );
 }
 
 function resolveFrontendBaseUrl(): string {
@@ -92,29 +95,117 @@ function isMongoDuplicateKey(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === 11000;
 }
 
-async function createOAuthState(ownerUserId: string): Promise<string> {
+async function createOAuthState(
+  ownerUserId: string,
+  shopDomain: string,
+  shopifyApiKey: string,
+  shopifyApiSecret: string
+): Promise<string> {
   const state = randomBytes(16).toString("hex");
   await OAuthState.create({
     state,
     ownerUserId,
+    shopDomain,
+    shopifyApiKey: shopifyApiKey.trim(),
+    shopifyApiSecretEncrypted: encrypt(shopifyApiSecret.trim()),
     expiresAt: defaultOAuthStateExpiry(),
   });
   return state;
 }
 
+type ConsumedOAuthState = {
+  ownerUserId: string;
+  shopDomain: string;
+  shopifyApiKey: string;
+  shopifyApiSecret: string;
+};
+
 /** Atomically consume state (one-time use) — safe across horizontal scaling. */
-async function consumeOAuthState(state: string): Promise<{ ownerUserId: string }> {
+async function consumeOAuthState(state: string): Promise<ConsumedOAuthState> {
   const rec = await OAuthState.findOneAndDelete({
     state,
     expiresAt: { $gt: new Date() },
   }).lean();
   if (!rec) throw new AppError(400, "Invalid OAuth state");
-  return { ownerUserId: String(rec.ownerUserId) };
+  let shopifyApiSecret: string;
+  try {
+    shopifyApiSecret = decrypt(rec.shopifyApiSecretEncrypted);
+  } catch {
+    throw new AppError(400, "Invalid OAuth state");
+  }
+  return {
+    ownerUserId: String(rec.ownerUserId),
+    shopDomain: rec.shopDomain,
+    shopifyApiKey: rec.shopifyApiKey,
+    shopifyApiSecret,
+  };
+}
+
+function readConnectCredentials(body: unknown): { shopifyApiKey: string; shopifyApiSecret: string } {
+  const b = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const shopifyApiKey = String(b.shopifyApiKey ?? "").trim();
+  const shopifyApiSecret = String(b.shopifyApiSecret ?? "").trim();
+  if (!shopifyApiKey || !shopifyApiSecret) {
+    throw new AppError(400, "shopifyApiKey and shopifyApiSecret are required (from your Shopify custom app).");
+  }
+  return { shopifyApiKey, shopifyApiSecret };
 }
 
 function isValidShopDomain(shop: string): boolean {
   const s = shop.trim().toLowerCase();
   return /^(?!-)[a-z0-9-]+(?<!-)\.myshopify\.com$/.test(s);
+}
+
+/** Accept "mystore", "mystore.myshopify.com", or full admin URLs. */
+function normalizeShopInput(shop: string): string {
+  let s = shop.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\/$/, "");
+  if (!s.includes(".")) s = `${s}.myshopify.com`;
+  return s;
+}
+
+function buildOAuthAuthorizeUrl(shopDomain: string, state: string, shopifyApiKey: string): string {
+  const redirectUri = oauthRedirectUri();
+  const scopes = oauthScopes();
+  return (
+    `https://${shopDomain}/admin/oauth/authorize` +
+    `?client_id=${encodeURIComponent(shopifyApiKey)}` +
+    `&scope=${encodeURIComponent(scopes)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&state=${encodeURIComponent(state)}`
+  );
+}
+
+async function resolveWebhookApiSecret(shopDomain: string): Promise<string | null> {
+  const legacy = process.env.SHOPIFY_API_SECRET?.trim();
+  const dbReady = ShopifyStoreConnection.db.readyState === 1;
+  if (!shopDomain || !dbReady) {
+    return legacy || null;
+  }
+  try {
+    const conn = await ShopifyStoreConnection.findOne({ shopDomain, isActive: true })
+      .select("shopifyApiSecretEncrypted")
+      .lean();
+    if (conn?.shopifyApiSecretEncrypted) {
+      try {
+        return decrypt(conn.shopifyApiSecretEncrypted);
+      } catch {
+        /* fall through */
+      }
+    }
+  } catch {
+    return legacy || null;
+  }
+  return legacy || null;
+}
+
+function parseQueryRecord(req: Request): Record<string, string> {
+  const qraw = req.query as Record<string, unknown>;
+  const query: Record<string, string> = {};
+  for (const [k, v] of Object.entries(qraw)) {
+    const fv = firstQueryValue(v);
+    if (fv !== undefined) query[k] = fv;
+  }
+  return query;
 }
 
 function firstQueryValue(v: unknown): string | undefined {
@@ -123,34 +214,92 @@ function firstQueryValue(v: unknown): string | undefined {
   return undefined;
 }
 
-/* ------------------------------------------------------------------ */
-/*  GET /api/shopify/connect?shop=mystore                              */
-/*  Returns the Shopify OAuth URL as JSON — frontend navigates there.  */
-/* ------------------------------------------------------------------ */
+/**
+ * GET /api/shopify/install — optional entry from Shopify (redirects to Channels form).
+ * Verifies Shopify's signed query, then sends the merchant to your web app to log in and connect.
+ */
+export const handleInstall = asyncHandler(async (req: Request, res: Response) => {
+  const query = parseQueryRecord(req);
+  const shopRaw = query.shop?.trim();
+  if (!shopRaw) {
+    res.redirect(buildFrontendRedirect("error", "Missing shop parameter from Shopify."));
+    return;
+  }
+
+  const shopDomain = normalizeShopInput(shopRaw);
+  if (!isValidShopDomain(shopDomain)) {
+    res.redirect(buildFrontendRedirect("error", "Invalid shop domain from Shopify."));
+    return;
+  }
+
+  const legacySecret = process.env.SHOPIFY_API_SECRET?.trim();
+  if (query.hmac && legacySecret && !verifyShopifyHmac(query, legacySecret)) {
+    res.redirect(buildFrontendRedirect("error", "Could not verify request from Shopify."));
+    return;
+  }
+
+  const frontendBaseUrl = resolveFrontendBaseUrl();
+  const postConnectPath = process.env.SHOPIFY_POST_CONNECT_PATH || "/dropshipper/channels";
+  const normalisedPath = postConnectPath.startsWith("/") ? postConnectPath : `/${postConnectPath}`;
+  const u = new URL(`${frontendBaseUrl}${normalisedPath}`);
+  u.searchParams.set("shop", shopDomain);
+  u.searchParams.set("shopify_install", "1");
+  res.redirect(u.toString());
+});
+
+/**
+ * POST /api/shopify/connect?shop=xxx.myshopify.com
+ * Body: { shopifyApiKey, shopifyApiSecret } — merchant's custom app credentials (importerr-style).
+ */
 export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const { apiKey, scopes, redirectUri } = cfg();
 
-  const shop = firstQueryValue((req.query as Record<string, unknown>).shop)?.trim();
-  if (!shop) throw new AppError(400, "shop query param is required (e.g. ?shop=mystore.myshopify.com)");
+  const body =
+    req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
+  const shopRaw =
+    firstQueryValue((req.query as Record<string, unknown>).shop)?.trim() ||
+    String(body.shop ?? body.storeDomain ?? "").trim();
+  if (!shopRaw) {
+    throw new AppError(400, "shop is required (query ?shop= or body.shop / storeDomain).");
+  }
 
-  if (!isValidShopDomain(shop)) {
+  const shopDomain = normalizeShopInput(shopRaw);
+  if (!isValidShopDomain(shopDomain)) {
     throw new AppError(400, "Invalid shop domain. It must end with .myshopify.com (e.g. mystore.myshopify.com)");
   }
 
-  const shopDomain = shop.toLowerCase();
-  const state = await createOAuthState(String(req.user._id));
+  const { shopifyApiKey, shopifyApiSecret } = readConnectCredentials(req.body);
 
-  // Omit grant_options — Shopify issues a non-expiring offline access token (standard SaaS pattern).
-  const oauthUrl =
-    `https://${shopDomain}/admin/oauth/authorize` +
-    `?client_id=${apiKey}` +
-    `&scope=${encodeURIComponent(scopes)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&state=${state}`;
+  const existing = await ShopifyStoreConnection.findOne({
+    ownerUserId: req.user._id,
+    shopDomain,
+    isActive: true,
+  }).lean();
+  if (existing?.accessTokenEncrypted) {
+    try {
+      const tok = decrypt(existing.accessTokenEncrypted);
+      if (tok) {
+        throw new AppError(
+          400,
+          "This Shopify store is already connected. Disconnect first to reconnect with new credentials."
+        );
+      }
+    } catch (e: unknown) {
+      if (e instanceof AppError) throw e;
+      /* stale token — allow reconnect */
+    }
+  }
+
+  const state = await createOAuthState(
+    String(req.user._id),
+    shopDomain,
+    shopifyApiKey,
+    shopifyApiSecret
+  );
+  const oauthUrl = buildOAuthAuthorizeUrl(shopDomain, state, shopifyApiKey);
 
   if (process.env.NODE_ENV === "development") {
-    devLog.info("[shopify] oauth initiate", { shop: shopDomain });
+    devLog.info("[shopify] oauth initiate (per-merchant app)", { shop: shopDomain });
   }
 
   res.json({ url: oauthUrl });
@@ -160,15 +309,27 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
 /*  GET /api/shopify/callback (called by Shopify after OAuth)           */
 /* ------------------------------------------------------------------ */
 export const handleCallback = asyncHandler(async (req: Request, res: Response) => {
-  const { apiKey, apiSecret } = cfg();
-  const qraw = req.query as Record<string, unknown>;
-  const query: Record<string, string> = {};
-  for (const [k, v] of Object.entries(qraw)) {
-    const fv = firstQueryValue(v);
-    if (fv !== undefined) query[k] = fv;
+  const query = parseQueryRecord(req);
+  const { code, shop, state } = query;
+
+  if (!state) {
+    devLog.warn("[shopify:oauth] callback missing state");
+    res.redirect(buildFrontendRedirect("error", "Missing OAuth state. Start connect again from ShipAmaze."));
+    return;
   }
 
-  if (!verifyShopifyHmac(query, apiSecret)) {
+  let oauthCtx: ConsumedOAuthState;
+  try {
+    oauthCtx = await consumeOAuthState(state);
+  } catch {
+    devLog.warn("[shopify:oauth] callback invalid/expired state");
+    res.redirect(buildFrontendRedirect("error", "Session expired or invalid. Start connect again from ShipAmaze."));
+    return;
+  }
+
+  const { ownerUserId, shopifyApiKey, shopifyApiSecret } = oauthCtx;
+
+  if (!verifyShopifyHmac(query, shopifyApiSecret)) {
     if (process.env.NODE_ENV === "development") {
       devLog.warn("[shopify] oauth callback HMAC verification failed");
     }
@@ -176,7 +337,6 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     return;
   }
 
-  const { code, shop, state } = query;
   if (!code || !shop) {
     devLog.warn("[shopify:oauth] callback missing code/shop");
     res.redirect(buildFrontendRedirect("error", "OAuth callback was missing code or shop."));
@@ -189,26 +349,18 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     return;
   }
 
-  if (!state) {
-    devLog.warn("[shopify:oauth] callback missing state");
-    res.redirect(buildFrontendRedirect("error", "Missing OAuth state. Start connect again from ShipAmaze."));
-    return;
-  }
+  const redirectUri = oauthRedirectUri();
 
-  let ownerUserId: string;
-  try {
-    ownerUserId = (await consumeOAuthState(state)).ownerUserId;
-  } catch {
-    devLog.warn("[shopify:oauth] callback invalid/expired state");
-    res.redirect(buildFrontendRedirect("error", "Session expired or invalid. Start connect again from ShipAmaze."));
-    return;
-  }
-
-  // Exchange code for access token
+  // Exchange code for access token (redirect_uri must match authorize request)
   const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ client_id: apiKey, client_secret: apiSecret, code }),
+    body: JSON.stringify({
+      client_id: shopifyApiKey,
+      client_secret: shopifyApiSecret,
+      code,
+      redirect_uri: redirectUri,
+    }),
   });
 
   if (!tokenRes.ok) {
@@ -236,6 +388,7 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   }
 
   const accessTokenEncrypted = encrypt(access_token);
+  const apiSecretEncrypted = encrypt(shopifyApiSecret);
 
   // Upsert — one record per user+shop
   await ShopifyStoreConnection.findOneAndUpdate(
@@ -243,6 +396,8 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     {
       ownerUserId,
       shopDomain: shopDetails.myshopify_domain,
+      shopifyApiKey,
+      shopifyApiSecretEncrypted: apiSecretEncrypted,
       accessTokenEncrypted,
       scope,
       installedAt: new Date(),
@@ -256,7 +411,12 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
 
   try {
     const wh = await ensureShopifyWebhooksRegistered(access_token, shopDetails.myshopify_domain);
-    if (process.env.NODE_ENV === "development") {
+    if (wh.deferredNonHttps) {
+      devLog.info("[shopify] webhooks skipped (HTTPS required by Shopify; use Sync orders locally or set SHOPIFY_WEBHOOK_URL to https:// on Render)", {
+        shop: shopDetails.myshopify_domain,
+        address: wh.address,
+      });
+    } else if (process.env.NODE_ENV === "development") {
       devLog.info("[shopify] webhooks ensured", {
         shop: shopDetails.myshopify_domain,
         address: wh.address,
@@ -275,6 +435,20 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
       { lastSyncError: `Webhook registration failed: ${msg.slice(0, 240)}` }
     );
   }
+
+  const userRole = user.role as "admin" | "vendor" | "dropshipper";
+  void performShopifyOrderSyncForUser(new Types.ObjectId(ownerUserId), userRole)
+    .then((r) => {
+      devLog.info("[shopify] initial order sync after connect", r);
+    })
+    .catch((syncErr: unknown) => {
+      const msg = syncErr instanceof Error ? syncErr.message : "initial sync failed";
+      devLog.warn("[shopify:oauth] initial order sync failed", { message: msg });
+      void ShopifyStoreConnection.updateOne(
+        { ownerUserId, shopDomain: shopDetails.myshopify_domain },
+        { lastSyncError: `Initial sync failed: ${msg.slice(0, 200)}` }
+      );
+    });
 
   res.redirect(buildFrontendRedirect("connected"));
 });
@@ -353,96 +527,32 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
   syncInFlight.add(lockKey);
 
   try {
+    const { inserted, updated, skipped, synced, shopDomain } = await performShopifyOrderSyncForUser(
+      req.user._id,
+      req.user.role as "admin" | "vendor" | "dropshipper"
+    );
+
     const conn = await ShopifyStoreConnection.findOne({
       ownerUserId: req.user._id,
       isActive: true,
     });
-    if (!conn) {
-      throw new AppError(400, "No active Shopify store connected. Please connect first.");
-    }
-
-    let shopOrders: ShopifyOrder[] = [];
-    try {
-      const accessToken = decrypt(conn.accessTokenEncrypted);
-      shopOrders = await shopifyService.getOrders(accessToken, conn.shopDomain);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Shopify sync failed";
-      conn.lastSyncError = msg;
-      await conn.save();
-      throw e instanceof AppError ? e : new AppError(502, msg);
-    }
-
-    const vendor =
-      req.user.role === "vendor" ? await Vendor.findOne({ userId: req.user._id }).select("_id").lean() : null;
-    const ctx: ShopifySyncUserContext = {
-      ownerUserId: req.user._id,
-      createdBy: req.user._id,
-      dropshipperId: req.user.role === "dropshipper" ? req.user._id : undefined,
-      vendorId: vendor?._id,
-    };
-
-    const defaultPickup = await findDefaultOrFirstActivePickupForShopifyOwner(req.user._id, req.user.role);
-
-    let inserted = 0;
-    let updated = 0;
-    let skipped = 0;
-
-    for (const so of shopOrders) {
-      try {
-        if (!so || typeof so.id !== "number") {
-          skipped++;
-          continue;
-        }
-        const externalId = shopifyExternalOrderId(conn.shopDomain, so.id);
-        const mapped = buildShopifyOrderPayload(conn.shopDomain, so, ctx);
-
-        const existing = await Order.findOne({
-          orderId: externalId,
-          $or: [{ createdBy: req.user!._id }, { ownerUserId: req.user!._id }, { dropshipperId: req.user!._id }],
-        });
-        if (existing) {
-          mergeShopifyPayloadIntoOrder(existing, mapped, Boolean(so.cancelled_at));
-          existing.createdBy = req.user!._id;
-          existing.ownerUserId = req.user!._id;
-          if (ctx.dropshipperId) existing.dropshipperId = ctx.dropshipperId;
-          if (ctx.vendorId) existing.vendorId = ctx.vendorId;
-          if (applyCachedDefaultPickupIfMissingForShopify(existing, defaultPickup)) {
-            existing.markModified("pickupAddress");
-          }
-          await existing.save();
-          updated++;
-        } else {
-          applyCachedDefaultPickupIfMissingForShopify(mapped as ShopifyPickupApplyTarget, defaultPickup);
-          await Order.create(mapped);
-          inserted++;
-        }
-      } catch {
-        skipped++;
-      }
-    }
-
-    conn.lastSyncedAt = new Date();
-    conn.lastSyncError =
-      skipped > 0 ? `${skipped} order(s) skipped due to mapping or save errors` : undefined;
-    conn.syncCount = (conn.syncCount ?? 0) + 1;
-    await conn.save();
 
     const { createInAppNotification } = await import("../services/inAppNotifications.js");
     await createInAppNotification(
       req.user._id,
       "shopify_sync",
       "Shopify orders synced",
-      `${shopOrders.length} orders processed (${inserted} new, ${updated} updated).`,
-      { shopDomain: conn.shopDomain, inserted, updated, skipped }
+      `${synced} orders processed (${inserted} new, ${updated} updated).`,
+      { shopDomain, inserted, updated, skipped }
     );
 
-    if (shopOrders.length > 0) {
+    if (synced > 0) {
       try {
         const { sendShopifySyncEmail } = await import("../services/email/emailService.js");
         await sendShopifySyncEmail({
           userId: req.user._id,
-          shopDomain: conn.shopDomain,
-          synced: shopOrders.length,
+          shopDomain,
+          synced,
           inserted,
           updated,
           skipped,
@@ -454,12 +564,12 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
 
     res.json({
       ok: true,
-      synced: shopOrders.length,
+      synced,
       inserted,
       updated,
       skipped,
-      lastSyncedAt: conn.lastSyncedAt,
-      lastSyncError: conn.lastSyncError ?? null,
+      lastSyncedAt: conn?.lastSyncedAt ?? null,
+      lastSyncError: conn?.lastSyncError ?? null,
     });
   } finally {
     syncInFlight.delete(lockKey);
@@ -530,12 +640,6 @@ async function claimWebhookDelivery(
 
 /** POST raw body — register before express.json in app.ts */
 export async function handleWebhook(req: Request, res: Response): Promise<void> {
-  const apiSecret = process.env.SHOPIFY_API_SECRET;
-  if (!apiSecret) {
-    res.status(503).send("Shopify not configured");
-    return;
-  }
-
   const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
   const topic = (req.get("X-Shopify-Topic") || "").toLowerCase();
   const shopDomain = (req.get("X-Shopify-Shop-Domain") || "").toLowerCase().trim();
@@ -546,6 +650,12 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
     return;
   }
   const raw = req.body;
+
+  const apiSecret = shopDomain ? await resolveWebhookApiSecret(shopDomain) : null;
+  if (!apiSecret) {
+    res.status(503).send("Shopify webhook secret not configured for this store");
+    return;
+  }
 
   if (!verifyShopifyWebhookHmac(raw, hmacHeader, apiSecret)) {
     res.status(401).send("Unauthorized");

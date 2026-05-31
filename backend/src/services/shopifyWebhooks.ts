@@ -16,7 +16,17 @@ export type ShopifyWebhookEnsureResult = {
   address: string;
   registered: string[];
   skipped: string[];
+  /** Local dev: Shopify only accepts https:// webhook URLs — registration is skipped. */
+  deferredNonHttps?: boolean;
 };
+
+function isHttpsWebhookUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 function normalizeWebhookAddress(url: string): string {
   return url.trim().replace(/\/+$/, "").toLowerCase();
@@ -52,6 +62,16 @@ export async function ensureShopifyWebhooksRegistered(
   shop: string
 ): Promise<ShopifyWebhookEnsureResult> {
   const address = resolveShopifyWebhookUrl();
+
+  if (!isHttpsWebhookUrl(address)) {
+    return {
+      address,
+      registered: [],
+      skipped: [...REQUIRED_SHOPIFY_WEBHOOK_TOPICS],
+      deferredNonHttps: true,
+    };
+  }
+
   const targetNorm = normalizeWebhookAddress(address);
   const existing = await shopifyService.listWebhooks(accessToken, shop);
 
