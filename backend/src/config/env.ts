@@ -30,9 +30,7 @@ export function validateEnv(): void {
       missing.push("FRONTEND_URL (or set CORS_ORIGIN to your frontend HTTPS origin)");
     }
 
-    for (const k of ["SHOPIFY_API_KEY", "SHOPIFY_API_SECRET", "SHOPIFY_REDIRECT_URI"] as const) {
-      if (!process.env[k]?.trim()) missing.push(k);
-    }
+    if (!process.env.SHOPIFY_REDIRECT_URI?.trim()) missing.push("SHOPIFY_REDIRECT_URI");
 
     if (truthyVelocityEnabled()) {
       for (const k of ["VELOCITY_USERNAME", "VELOCITY_PASSWORD"] as const) {

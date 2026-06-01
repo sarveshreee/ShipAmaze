@@ -3,6 +3,9 @@ import mongoose, { Schema, type Document, type Model, type Types } from "mongoos
 export interface IShopifyStoreConnection extends Document {
   ownerUserId: Types.ObjectId;
   shopDomain: string;
+  /** Merchant's Shopify app Client ID (from their custom app). */
+  shopifyApiKey: string;
+  shopifyApiSecretEncrypted: string;
   accessTokenEncrypted: string;
   scope: string;
   installedAt: Date;
@@ -19,6 +22,8 @@ const shopifyStoreSchema = new Schema<IShopifyStoreConnection>(
   {
     ownerUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     shopDomain: { type: String, required: true },
+    shopifyApiKey: { type: String, default: "" },
+    shopifyApiSecretEncrypted: { type: String, default: "" },
     accessTokenEncrypted: { type: String, required: true },
     scope: { type: String, default: "" },
     installedAt: { type: Date, default: Date.now },

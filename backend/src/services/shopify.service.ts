@@ -147,16 +147,52 @@ export async function getShopDetails(accessToken: string, shop: string): Promise
   return data.shop;
 }
 
-export async function getOrders(
-  accessToken: string,
-  shop: string,
-  limit = 250
-): Promise<ShopifyOrder[]> {
-  const data = await shopifyFetch<{ orders?: ShopifyOrder[] }>(
-    `${shopifyBaseUrl(shop)}/orders.json?limit=${limit}&status=any`,
-    accessToken
-  );
-  return Array.isArray(data.orders) ? data.orders : [];
+/** Parse Shopify REST `Link` header for rel="next". */
+function parseNextPageUrl(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    const m = part.match(/<([^>]+)>;\s*rel="next"/i);
+    if (m?.[1]) return m[1];
+  }
+  return null;
+}
+
+/** Fetch all pages of orders (paid + unpaid, open + closed). */
+export async function getOrders(accessToken: string, shop: string): Promise<ShopifyOrder[]> {
+  const all: ShopifyOrder[] = [];
+  let url: string | null = `${shopifyBaseUrl(shop)}/orders.json?limit=250&status=any`;
+
+  while (url) {
+    let lastErr: unknown;
+    let res: Response | null = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      res = await fetch(url, { method: "GET", headers: shopifyHeaders(accessToken) });
+      if (res.status === 429) {
+        const retryAfter = parseInt(res.headers.get("retry-after") || "2", 10);
+        await sleep(Math.min(30, Math.max(1, retryAfter)) * 1000 * (attempt + 1));
+        lastErr = new AppError(429, "Shopify rate limit — retrying shortly");
+        continue;
+      }
+      break;
+    }
+    if (!res) {
+      throw lastErr instanceof Error ? lastErr : new AppError(429, "Shopify rate limit exceeded.");
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      const snippet = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+      if (res.status === 401 || res.status === 403) {
+        throw new AppError(401, "Shopify rejected this access token. Reconnect your store in Channels.");
+      }
+      throw new AppError(502, `Shopify API error ${res.status}: ${snippet}`);
+    }
+
+    const data = (await res.json()) as { orders?: ShopifyOrder[] };
+    if (Array.isArray(data.orders)) all.push(...data.orders);
+    url = parseNextPageUrl(res.headers.get("link"));
+  }
+
+  return all;
 }
 
 export async function getProducts(
