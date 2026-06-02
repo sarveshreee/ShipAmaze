@@ -346,10 +346,12 @@ export default function ShopifyConnect() {
                 <li>
                   Under <span className="font-medium">Allowed redirection URL(s)</span>, add:{" "}
                   <span className="font-mono text-text-primary break-all">
-                    {import.meta.env.DEV
-                      ? "http://localhost:5000/api/shopify/callback"
-                      : "your ShipAmaze API /api/shopify/callback URL"}
+                    https://shipamaze-377l.onrender.com/api/shopify/callback
                   </span>
+                </li>
+                <li>
+                  Set <span className="font-medium">App URL</span> to:{" "}
+                  <span className="font-mono text-text-primary break-all">https://ship-amaze.vercel.app</span>
                 </li>
                 <li>Copy Client ID and Client secret here, then connect</li>
               </ol>
