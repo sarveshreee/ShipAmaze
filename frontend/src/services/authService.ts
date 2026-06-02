@@ -46,7 +46,7 @@ export type RegisterResult =
   | { user: AuthUser; token: string };
 
 export async function login(email: string, password: string) {
-  const res = await apiClient.post<{ user: AuthUser; token: string }>("/api/auth/login", { email, password });
+  const res = await apiClient.post<{ user: AuthUser; token: string }>("/auth/login", { email, password });
   setStoredToken(res.token);
   return res;
 }
@@ -59,24 +59,24 @@ export async function register(payload: {
   companyName?: string;
   phone?: string;
 }): Promise<RegisterResult> {
-  const res = await apiClient.post<RegisterResult>("/api/auth/register", payload);
+  const res = await apiClient.post<RegisterResult>("/auth/register", payload);
   if ("token" in res && res.token) setStoredToken(res.token);
   return res;
 }
 
 export async function verifyEmailOtp(email: string, otp: string) {
-  const res = await apiClient.post<{ user: AuthUser; token: string }>("/api/auth/verify-email-otp", { email, otp });
+  const res = await apiClient.post<{ user: AuthUser; token: string }>("/auth/verify-email-otp", { email, otp });
   setStoredToken(res.token);
   return res;
 }
 
 export async function resendEmailVerificationOtp(email: string) {
-  return apiClient.post<{ ok: boolean; message: string }>("/api/auth/resend-email-otp", { email });
+  return apiClient.post<{ ok: boolean; message: string }>("/auth/resend-email-otp", { email });
 }
 
 export async function logout() {
   try {
-    await apiClient.post("/api/auth/logout");
+    await apiClient.post("/auth/logout");
   } catch {
     /* offline */
   }
@@ -84,7 +84,7 @@ export async function logout() {
 }
 
 export async function getCurrentUser() {
-  return apiClient.get<{ user: AuthUser }>("/api/auth/profile");
+  return apiClient.get<{ user: AuthUser }>("/auth/profile");
 }
 
 export async function updateProfile(payload: {
@@ -94,7 +94,7 @@ export async function updateProfile(payload: {
   address?: string;
   avatarUrl?: string | null;
 }) {
-  return apiClient.patch<{ user: AuthUser }>("/api/auth/profile", payload);
+  return apiClient.patch<{ user: AuthUser }>("/auth/profile", payload);
 }
 
 export async function changePassword(payload: {
@@ -102,11 +102,11 @@ export async function changePassword(payload: {
   newPassword: string;
   confirmPassword: string;
 }) {
-  return apiClient.patch<{ ok: boolean }>("/api/auth/change-password", payload);
+  return apiClient.patch<{ ok: boolean }>("/auth/change-password", payload);
 }
 
 export async function requestPasswordReset(email: string) {
-  return apiClient.post<{ ok: boolean; message: string }>("/api/auth/forgot-password", { email });
+  return apiClient.post<{ ok: boolean; message: string }>("/auth/forgot-password", { email });
 }
 
 export async function resetPasswordWithOtp(payload: {
@@ -115,5 +115,5 @@ export async function resetPasswordWithOtp(payload: {
   newPassword: string;
   confirmPassword: string;
 }) {
-  return apiClient.post<{ ok: boolean }>("/api/auth/reset-password", payload);
+  return apiClient.post<{ ok: boolean }>("/auth/reset-password", payload);
 }

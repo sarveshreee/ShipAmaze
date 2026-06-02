@@ -386,6 +386,8 @@ export function createApp() {
   api.use("/velocity", velocityRouter);
 
   app.use("/api", api);
+  // Backward compatibility for older clients still using /api/v1/*.
+  app.use("/api/v1", api);
   app.use(notFoundHandler);
   app.use(errorMiddleware);
 

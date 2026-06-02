@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "seed:users": "tsx src/scripts/seedUsers.ts",
+    "seed:single-user": "tsx src/scripts/seedSingleUser.ts",
     "clear:test-orders": "tsx src/scripts/clearTestOrders.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
