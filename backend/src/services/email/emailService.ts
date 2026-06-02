@@ -67,7 +67,7 @@ export async function safeSend(to: string, subject: string, html: string, text: 
 
 export async function sendSignupVerificationOtp(to: string, name: string, otp: string, expiresMinutes: number): Promise<void> {
   const { subject, html, text } = templateEmailVerificationOtp({ name, otp, expiresMinutes });
-  await safeSend(to, subject, html, text);
+  await sendMailWithSmtp({ to, subject, html, text }, { throwOnFailure: true });
 }
 
 export async function sendWelcomeEmail(to: string, name: string, role: UserRole): Promise<void> {
@@ -78,7 +78,7 @@ export async function sendWelcomeEmail(to: string, name: string, role: UserRole)
 
 export async function sendPasswordResetBranded(to: string, otp: string, expiresMinutes: number): Promise<void> {
   const { subject, html, text } = templatePasswordResetOtp({ otp, expiresMinutes });
-  await safeSend(to, subject, html, text);
+  await sendMailWithSmtp({ to, subject, html, text }, { throwOnFailure: true });
 }
 
 export async function sendOrderCreatedEmail(order: {

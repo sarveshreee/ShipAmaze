@@ -1,3 +1,5 @@
+import { safeErrorMessage } from "../../utils/logRedact.js";
+
 /** Trim and strip optional surrounding quotes from .env values. */
 export function envTrim(key: string): string {
   const v = process.env[key];
@@ -143,13 +145,7 @@ export type SendMailPayload = {
 };
 
 function logSendFailure(err: unknown): void {
-  const isProd = process.env.NODE_ENV === "production";
-  if (isProd) {
-    console.warn("[email] Email send failed: transport error");
-  } else {
-    const msg = err instanceof Error ? err.message : "unknown_error";
-    console.warn("[email] Email send failed:", msg);
-  }
+  console.warn("[email] Email send failed:", safeErrorMessage(err));
 }
 
 /**

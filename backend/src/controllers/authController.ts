@@ -137,6 +137,10 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     await sendSignupVerificationOtp(user.email, user.name, code, EMAIL_OTP_MINUTES);
   } catch (err) {
     console.error("[auth] Failed to send verification email:", safeErrorMessage(err));
+    throw new AppError(
+      502,
+      "Account created, but OTP email could not be delivered. Please use Resend code after checking email settings."
+    );
   }
 
   const publicUser = await toPublicUser(user);
@@ -394,6 +398,7 @@ export const resendEmailVerificationOtp = asyncHandler(async (req: Request, res:
       await sendSignupVerificationOtp(email, user.name, code, EMAIL_OTP_MINUTES);
     } catch (err) {
       console.error("[auth] resend verification email:", safeErrorMessage(err));
+      throw new AppError(502, "Could not send verification code right now. Please try again in a moment.");
     }
   }
   res.json({ ok: true, message: "If this account exists and is awaiting verification, a new code has been sent." });
