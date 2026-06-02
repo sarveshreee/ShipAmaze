@@ -22,7 +22,12 @@ export class ApiError extends Error {
 
 function baseUrl(): string {
   const u = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
-  if (u) return u.replace(/\/$/, "");
+  if (u) {
+    const normalized = u.replace(/\/$/, "");
+    // Guardrail: if env is set to host-only URL, append /api automatically.
+    if (/\/api$/i.test(normalized)) return normalized;
+    return `${normalized}/api`;
+  }
   if (import.meta.env.DEV) return "http://localhost:5000/api";
   if (typeof console !== "undefined") {
     console.error(
