@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "seed:users": "tsx src/scripts/seedUsers.ts",
     "seed:single-user": "tsx src/scripts/seedSingleUser.ts",
+    "seed:admin-vendor": "tsx src/scripts/seedAdminVendor.ts",
     "clear:test-orders": "tsx src/scripts/clearTestOrders.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
