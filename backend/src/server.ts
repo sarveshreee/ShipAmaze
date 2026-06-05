@@ -26,13 +26,17 @@ async function main() {
       `[server] ENCRYPTION_SECRET: ${process.env.ENCRYPTION_SECRET?.trim() ? "configured" : "missing (dev may use JWT for key derivation)"}`
     );
     const mailMode = getMailTransportStatus();
-    if (mailMode === "gmail") {
-      devLog.info("[server] Transactional email: Gmail (App Password) transport configured");
+    if (mailMode === "brevo") {
+      devLog.info("[server] Transactional email: Brevo HTTP API (Render-compatible)");
+    } else if (mailMode === "resend") {
+      devLog.info("[server] Transactional email: Resend HTTP API (Render-compatible)");
+    } else if (mailMode === "gmail") {
+      devLog.info("[server] Transactional email: Gmail SMTP (works locally; blocked on Render free tier)");
     } else if (mailMode === "smtp") {
-      devLog.info("[server] Transactional email: custom SMTP transport configured");
+      devLog.info("[server] Transactional email: custom SMTP (blocked on Render free tier)");
     } else {
       devLog.warn(
-        "[server] Transactional email: not configured. Set EMAIL_FROM + EMAIL_PASS (Gmail App Password), or GMAIL_USER + GMAIL_APP_PASSWORD, or SMTP_* + MAIL_FROM_EMAIL. Outbound mail will be skipped."
+        "[server] Transactional email: not configured. For Render production set BREVO_API_KEY or RESEND_API_KEY. For local dev use EMAIL_FROM + EMAIL_PASS."
       );
     }
     devLog.info(`[server] Shopify OAuth redirect: ${process.env.SHOPIFY_REDIRECT_URI?.trim() ? "configured" : "(set SHOPIFY_REDIRECT_URI)"} (merchants use their own app Client ID/Secret)`);

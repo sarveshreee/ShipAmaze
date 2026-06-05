@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildNodemailerTransportOptions, resolveSmtp } from "./emailClient.js";
+import { buildNodemailerTransportOptions, getMailTransportStatus, resolveSmtp } from "./emailClient.js";
 
 describe("emailClient", () => {
   const envBackup = { ...process.env };
@@ -21,6 +21,14 @@ describe("emailClient", () => {
     expect(opts.family).toBe(4);
     expect(opts.connectionTimeout).toBe(30_000);
     expect(opts.requireTLS).toBe(true);
+  });
+
+  it("getMailTransportStatus prefers Brevo API over Gmail SMTP", () => {
+    process.env.BREVO_API_KEY = "xkeysib-test";
+    process.env.MAIL_FROM_EMAIL = "sender@gmail.com";
+    process.env.EMAIL_FROM = "sender@gmail.com";
+    process.env.EMAIL_PASS = "secret";
+    expect(getMailTransportStatus()).toBe("brevo");
   });
 
   it("buildNodemailerTransportOptions supports Gmail SSL port 465", () => {

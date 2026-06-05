@@ -1,4 +1,7 @@
 import { safeErrorMessage } from "../../utils/logRedact.js";
+import { resolveApiMail, sendMailViaApi, type SendMailPayload } from "./emailApiTransport.js";
+
+export type { SendMailPayload };
 
 /** Trim and strip optional surrounding quotes from .env values. */
 export function envTrim(key: string): string {
@@ -127,22 +130,27 @@ export function resolveSmtp(): ResolvedSmtp | null {
   };
 }
 
-export function getMailTransportStatus(): "gmail" | "smtp" | "none" {
+export function getMailTransportStatus(): "brevo" | "resend" | "gmail" | "smtp" | "none" {
+  const api = resolveApiMail();
+  if (api?.provider === "brevo") return "brevo";
+  if (api?.provider === "resend") return "resend";
   const r = resolveSmtp();
   if (!r) return "none";
   return r.kind;
 }
 
 export function isSmtpReady(): boolean {
-  return resolveSmtp() !== null;
+  return resolveApiMail() !== null || resolveSmtp() !== null;
 }
 
-export type SendMailPayload = {
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-};
+function warnRenderSmtpBlocked(): void {
+  if (process.env.NODE_ENV !== "production" || resolveApiMail()) return;
+  if (!resolveSmtp()) return;
+  console.warn(
+    "[email] SMTP/Gmail is configured but Render free tier blocks outbound ports 25/465/587. " +
+      "Set BREVO_API_KEY or RESEND_API_KEY for production email delivery."
+  );
+}
 
 function logSendFailure(err: unknown): void {
   console.warn("[email] Email send failed:", safeErrorMessage(err));
@@ -206,13 +214,28 @@ export async function sendMailWithSmtp(
   payload: SendMailPayload,
   opts?: { throwOnFailure?: boolean }
 ): Promise<{ ok: true; messageId?: string } | { ok: false; reason: string }> {
-  const cfg = resolveSmtp();
   const isProd = process.env.NODE_ENV === "production";
+  const apiCfg = resolveApiMail();
 
+  if (apiCfg) {
+    try {
+      const result = await sendMailViaApi(apiCfg, payload);
+      console.info(`[email] Email sent successfully via ${apiCfg.provider}`);
+      return { ok: true, messageId: result.id };
+    } catch (e: unknown) {
+      logSendFailure(e);
+      if (opts?.throwOnFailure) throw e;
+      return { ok: false, reason: "api_send_failed" };
+    }
+  }
+
+  warnRenderSmtpBlocked();
+
+  const cfg = resolveSmtp();
   if (!cfg) {
     if (!isProd) {
       console.info(
-        "[email] Transactional email skipped: set EMAIL_FROM+EMAIL_PASS, GMAIL_USER+GMAIL_APP_PASSWORD, or SMTP_*."
+        "[email] Transactional email skipped: set BREVO_API_KEY, RESEND_API_KEY, EMAIL_FROM+EMAIL_PASS, or SMTP_*."
       );
     }
     if (opts?.throwOnFailure) {
