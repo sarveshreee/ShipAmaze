@@ -148,8 +148,59 @@ function logSendFailure(err: unknown): void {
   console.warn("[email] Email send failed:", safeErrorMessage(err));
 }
 
+function smtpTimeoutMs(key: string, fallback: number): number {
+  const n = Number(envTrim(key));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Nodemailer transport options tuned for cloud hosts (Render, etc.) where `service: "gmail"` often times out. */
+export function buildNodemailerTransportOptions(cfg: ResolvedSmtp) {
+  const connectionTimeout = smtpTimeoutMs("SMTP_CONNECTION_TIMEOUT_MS", 30_000);
+  const greetingTimeout = smtpTimeoutMs("SMTP_GREETING_TIMEOUT_MS", 30_000);
+  const socketTimeout = smtpTimeoutMs("SMTP_SOCKET_TIMEOUT_MS", 60_000);
+  const forceIpv4 = envTrim("SMTP_FORCE_IPV4") !== "false";
+
+  const common = {
+    auth: cfg.auth,
+    connectionTimeout,
+    greetingTimeout,
+    socketTimeout,
+    ...(forceIpv4 ? { family: 4 as const } : {}),
+  };
+
+  if (cfg.kind === "gmail") {
+    const port = Number(envTrim("GMAIL_SMTP_PORT") || "587") || 587;
+    const secure = port === 465;
+    return {
+      host: envTrim("GMAIL_SMTP_HOST") || "smtp.gmail.com",
+      port,
+      secure,
+      ...common,
+      ...(port === 587 && !secure
+        ? {
+            requireTLS: true,
+            tls: { minVersion: "TLSv1.2" as const },
+          }
+        : {}),
+    };
+  }
+
+  return {
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.secure,
+    ...common,
+    ...(cfg.port === 587 && !cfg.secure
+      ? {
+          requireTLS: true,
+          tls: { minVersion: "TLSv1.2" as const },
+        }
+      : {}),
+  };
+}
+
 /**
- * Sends email via Nodemailer (Gmail service or SMTP). Never logs app passwords or message bodies.
+ * Sends email via Nodemailer (Gmail SMTP or custom SMTP). Never logs app passwords or message bodies.
  */
 export async function sendMailWithSmtp(
   payload: SendMailPayload,
@@ -171,24 +222,7 @@ export async function sendMailWithSmtp(
   }
 
   const nodemailer = (await import("nodemailer")).default;
-  const transporter =
-    cfg.kind === "gmail"
-      ? nodemailer.createTransport({
-          service: "gmail",
-          auth: cfg.auth,
-        })
-      : nodemailer.createTransport({
-          host: cfg.host,
-          port: cfg.port,
-          secure: cfg.secure,
-          auth: cfg.auth,
-          ...(cfg.port === 587 && !cfg.secure
-            ? {
-                requireTLS: true,
-                tls: { minVersion: "TLSv1.2" as const },
-              }
-            : {}),
-        });
+  const transporter = nodemailer.createTransport(buildNodemailerTransportOptions(cfg));
 
   if (envTrim("SMTP_VERIFY") === "true") {
     try {
