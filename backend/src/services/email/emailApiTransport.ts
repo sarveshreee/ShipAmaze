@@ -45,10 +45,27 @@ function buildReplyTo(): string | undefined {
   return r || undefined;
 }
 
+/** Brevo v3 API keys start with `xkeysib-`. SMTP passwords and MCP keys are not valid here. */
+export function isLikelyBrevoV3ApiKey(key: string): boolean {
+  return /^xkeysib-[a-zA-Z0-9_-]{20,}$/.test(key);
+}
+
+export function brevoApiKeyHint(key: string): string | null {
+  if (!key) return null;
+  if (key.includes(" ")) return "BREVO_API_KEY contains spaces — paste the key without spaces.";
+  if (/^xsmtpsib-/i.test(key)) return "This looks like a Brevo SMTP key. Create a v3 API key (starts with xkeysib-) under SMTP & API → API Keys.";
+  if (!isLikelyBrevoV3ApiKey(key)) {
+    return "BREVO_API_KEY should start with xkeysib-. Regenerate under Brevo → SMTP & API → API Keys → Generate new API key.";
+  }
+  return null;
+}
+
 /** Brevo (Sendinblue) HTTP API — works on Render free tier; verify sender email in Brevo dashboard. */
 export function resolveBrevoApi(): ResolvedApiMail | null {
   const apiKey = envTrim("BREVO_API_KEY");
   if (!apiKey) return null;
+  const hint = brevoApiKeyHint(apiKey);
+  if (hint) console.warn(`[email] Brevo config issue: ${hint}`);
   const sender = buildSenderAddress();
   if (!sender.email) {
     console.warn("[email] BREVO_API_KEY is set but no sender email (MAIL_FROM_EMAIL / EMAIL_FROM).");
@@ -95,7 +112,13 @@ export async function sendMailViaApi(cfg: ResolvedApiMail, payload: SendMailPayl
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(`Brevo API ${res.status}: ${safeErrorMessage(body).slice(0, 200)}`);
+      const snippet = safeErrorMessage(body).slice(0, 200);
+      if (res.status === 401) {
+        throw new Error(
+          `Brevo API 401 unauthorized (${snippet}). Regenerate BREVO_API_KEY in Brevo → SMTP & API → API Keys (v3 key starting with xkeysib-).`
+        );
+      }
+      throw new Error(`Brevo API ${res.status}: ${snippet}`);
     }
     const data = (await res.json().catch(() => ({}))) as { messageId?: string };
     return { id: data.messageId };

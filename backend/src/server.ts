@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 import { connectDb, disconnectDb } from "./config/db.js";
 import { isVelocityEnabledFlag, redactMongoUri, validateEnv } from "./config/env.js";
 import { getMailTransportStatus } from "./services/mail.js";
+import { brevoApiKeyHint, isLikelyBrevoV3ApiKey } from "./services/email/emailApiTransport.js";
 import { devLog } from "./utils/devLog.js";
 
 validateEnv();
@@ -27,7 +28,15 @@ async function main() {
     );
     const mailMode = getMailTransportStatus();
     if (mailMode === "brevo") {
-      devLog.info("[server] Transactional email: Brevo HTTP API (Render-compatible)");
+      const key = process.env.BREVO_API_KEY?.trim() ?? "";
+      const hint = brevoApiKeyHint(key);
+      if (hint) {
+        devLog.warn(`[server] Brevo email: ${hint}`);
+      } else if (!isLikelyBrevoV3ApiKey(key)) {
+        devLog.warn("[server] Brevo email: API key format could not be validated.");
+      } else {
+        devLog.info("[server] Transactional email: Brevo HTTP API (Render-compatible)");
+      }
     } else if (mailMode === "resend") {
       devLog.info("[server] Transactional email: Resend HTTP API (Render-compatible)");
     } else if (mailMode === "gmail") {

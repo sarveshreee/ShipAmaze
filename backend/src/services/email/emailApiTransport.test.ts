@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveApiMail, resolveBrevoApi, resolveResendApi } from "./emailApiTransport.js";
+import {
+  brevoApiKeyHint,
+  isLikelyBrevoV3ApiKey,
+  resolveApiMail,
+  resolveBrevoApi,
+  resolveResendApi,
+} from "./emailApiTransport.js";
 
 describe("emailApiTransport", () => {
   const envBackup = { ...process.env };
@@ -19,6 +25,12 @@ describe("emailApiTransport", () => {
     process.env.RESEND_API_KEY = "re_test";
     expect(resolveResendApi()?.provider).toBe("resend");
     expect(resolveApiMail()?.provider).toBe("resend");
+  });
+
+  it("detects invalid Brevo key formats", () => {
+    expect(isLikelyBrevoV3ApiKey("xkeysib-abc123def456ghi789jkl012")).toBe(true);
+    expect(brevoApiKeyHint("xsmtpsib-bad")).toContain("SMTP key");
+    expect(brevoApiKeyHint("wrong-key")).toContain("xkeysib-");
   });
 
   it("returns null when no API keys configured", () => {
