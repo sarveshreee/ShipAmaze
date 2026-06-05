@@ -112,22 +112,48 @@ export function templateEmailVerificationOtp(params: {
   expiresMinutes: number;
 }): { subject: string; html: string; text: string } {
   const brand = getBrandEmailConfig();
+  const digits = params.otp.split("");
+  const digitCells = digits
+    .map(
+      (d) =>
+        `<td style="width:44px;height:52px;text-align:center;vertical-align:middle;border-radius:8px;background:#ffffff;border:1px solid #cbd5e1;font-size:24px;font-weight:700;color:#1e3a8a;letter-spacing:0;">${escapeHtml(d)}</td>`
+    )
+    .join(`<td style="width:8px;"></td>`);
+
   const inner = `
-    <p style="margin:0 0 12px;">Use this one-time code to verify your email address:</p>
-    <div style="text-align:center;margin:20px 0;">
-      <div style="display:inline-block;padding:16px 32px;border-radius:10px;background:#eff6ff;border:2px dashed ${brand.primaryColor};font-size:28px;font-weight:700;letter-spacing:0.25em;color:#1e3a8a;">${escapeHtml(params.otp)}</div>
-    </div>
-    <p style="margin:0;font-size:14px;color:#475569;">This code expires in <strong>${params.expiresMinutes} minutes</strong>.</p>
-    <p style="margin:12px 0 0;font-size:13px;color:#64748b;">Never share this code with anyone. ShipAmaze staff will never ask for your OTP.</p>`;
+    <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#334155;">Use this one-time verification code to activate your ShipAmaze account:</p>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:8px auto 20px;">
+      <tr>${digitCells}</tr>
+    </table>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 16px;">
+      <tr>
+        <td style="padding:12px 14px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;font-size:13px;color:#9a3412;line-height:1.5;">
+          <strong>Expires in ${params.expiresMinutes} minutes.</strong> After that, request a new code from the verification screen.
+        </td>
+      </tr>
+    </table>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+      <tr>
+        <td style="padding:12px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #bbf7d0;font-size:13px;color:#166534;line-height:1.5;">
+          <strong>Security:</strong> ShipAmaze will never ask for this code by phone or chat. Do not share it with anyone.
+        </td>
+      </tr>
+    </table>`;
   const { html, text } = wrapLayout({
     brand,
     title: "Email verification",
     badge: { label: "Verify email", tone: "info" },
-    greeting: `Hi ${escapeHtml(params.name)},`,
+    greeting: `Hi ${escapeHtml(params.name)}, welcome to ShipAmaze!`,
     innerHtml: inner,
-    footerNote: "If you did not create an account, you can ignore this email.",
+    footerNote: "If you did not create an account, you can safely ignore this email.",
   });
-  return { subject: "Verify your ShipAmaze email", html, text: text + `\n\nCode: ${params.otp}\nExpires in ${params.expiresMinutes} minutes.` };
+  return {
+    subject: `${params.otp} is your ShipAmaze verification code`,
+    html,
+    text:
+      text +
+      `\n\nVerification code: ${params.otp}\nExpires in ${params.expiresMinutes} minutes.\nNever share this code.`,
+  };
 }
 
 export function templateWelcome(params: { name: string; role: string; dashboardUrl: string }): {

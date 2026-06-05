@@ -52,6 +52,9 @@ function shouldAttachAuthToken(path: string): boolean {
   if (
     p === "/auth/login" ||
     p === "/auth/register" ||
+    p === "/auth/send-otp" ||
+    p === "/auth/verify-otp" ||
+    p === "/auth/resend-otp" ||
     p === "/auth/verify-email-otp" ||
     p === "/auth/resend-email-otp" ||
     p === "/auth/forgot-password" ||

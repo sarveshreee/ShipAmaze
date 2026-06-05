@@ -61,10 +61,10 @@ describe.skipIf(!hasMongo())("API integration (MONGODB_URI_TEST)", () => {
     expect(reg.body.needsEmailVerification).toBe(true);
 
     await forceVerifyEmail(email, "424242");
-    const verifyBad = await request(app).post("/api/auth/verify-email-otp").send({ email, otp: "000000" });
+    const verifyBad = await request(app).post("/api/auth/verify-otp").send({ email, otp: "000000" });
     expect(verifyBad.status).toBeGreaterThanOrEqual(400);
 
-    const verifyOk = await request(app).post("/api/auth/verify-email-otp").send({ email, otp: "424242" });
+    const verifyOk = await request(app).post("/api/auth/verify-otp").send({ email, otp: "424242" });
     expect(verifyOk.status).toBe(200);
     expect(verifyOk.body.token).toBeTruthy();
 

@@ -3,13 +3,16 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Truck, ArrowLeft } from "lucide-react";
+import { Loader2, Truck, ArrowLeft, MailCheck, ShieldCheck, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import * as authService from "@/services/authService";
 import { ApiError } from "@/lib/apiClient";
 import { useAuth } from "@/contexts/AuthContext";
+import { OtpInputBoxes } from "@/components/auth/OtpInputBoxes";
 
 const RESEND_COOLDOWN_SEC = 60;
+
+type VerifyState = "idle" | "success" | "error";
 
 export default function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
@@ -18,7 +21,9 @@ export default function VerifyEmailPage() {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
-  const [resendLeft, setResendLeft] = useState(0);
+  const [resendLeft, setResendLeft] = useState(RESEND_COOLDOWN_SEC);
+  const [verifyState, setVerifyState] = useState<VerifyState>("idle");
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     const q = searchParams.get("email")?.trim().toLowerCase() ?? "";
@@ -40,17 +45,25 @@ export default function VerifyEmailPage() {
       return;
     }
     if (!/^\d{6}$/.test(code)) {
-      toast.error("Enter the 6-digit code from your email");
+      toast.error("Enter the complete 6-digit code");
       return;
     }
     setLoading(true);
+    setVerifyState("idle");
+    setErrorMessage("");
     try {
-      const { user } = await authService.verifyEmailOtp(em, code);
+      const { user } = await authService.verifyOtp(em, code);
+      setVerifyState("success");
       applyUser(user);
       toast.success("Email verified. Welcome to ShipAmaze!");
-      navigate(authService.roleDashboardPath(user.role), { replace: true });
+      setTimeout(() => {
+        navigate(authService.roleDashboardPath(user.role), { replace: true });
+      }, 600);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Verification failed");
+      const msg = err instanceof ApiError ? err.message : "Verification failed";
+      setVerifyState("error");
+      setErrorMessage(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -64,12 +77,20 @@ export default function VerifyEmailPage() {
     }
     if (resendLeft > 0) return;
     setLoading(true);
+    setVerifyState("idle");
+    setErrorMessage("");
     try {
-      await authService.resendEmailVerificationOtp(em);
+      await authService.resendOtp(em);
       toast.success("If this account is awaiting verification, a new code was sent.");
       setResendLeft(RESEND_COOLDOWN_SEC);
+      setOtp("");
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not resend code");
+      const msg = err instanceof ApiError ? err.message : "Could not resend code";
+      toast.error(msg);
+      if (err instanceof ApiError && err.status === 429) {
+        const match = msg.match(/(\d+)\s+seconds/);
+        if (match) setResendLeft(Number(match[1]));
+      }
     } finally {
       setLoading(false);
     }
@@ -86,10 +107,20 @@ export default function VerifyEmailPage() {
         <Truck className="h-12 w-12 text-white mb-4" />
         <h1 className="text-2xl font-bold text-white">ShipAmaze</h1>
         <p className="text-white/70 text-sm mt-2 text-center max-w-xs">Verify your email to activate your account</p>
+        <div className="mt-8 space-y-3 text-white/80 text-sm max-w-xs">
+          <p className="flex items-center gap-2">
+            <MailCheck className="h-4 w-4 shrink-0" />
+            Check your inbox and spam folder
+          </p>
+          <p className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 shrink-0" />
+            Codes expire in 5 minutes
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-1 items-center justify-center p-6 bg-background">
-        <div className="w-full max-w-[420px]">
+        <div className="w-full max-w-[440px]">
           <Link
             to="/login"
             className="inline-flex items-center gap-1 text-sm text-primary font-medium hover:underline mb-6"
@@ -98,11 +129,31 @@ export default function VerifyEmailPage() {
             Back to sign in
           </Link>
 
-          <form onSubmit={submit} className="space-y-4">
+          <form onSubmit={submit} className="space-y-5">
             <div>
               <h2 className="text-2xl font-bold text-text-primary">Verify your email</h2>
-              <p className="text-sm text-text-muted mt-1">We sent a 6-digit code to your inbox (check spam).</p>
+              <p className="text-sm text-text-muted mt-1">
+                Enter the 6-digit code we sent to your email. Your account stays inactive until verified.
+              </p>
             </div>
+
+            {verifyState === "success" && (
+              <div className="flex items-start gap-3 rounded-lg border border-success/30 bg-success/10 p-4 text-sm text-success">
+                <MailCheck className="h-5 w-5 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium">Email verified</p>
+                  <p className="text-success/80 mt-0.5">Redirecting to your dashboard…</p>
+                </div>
+              </div>
+            )}
+
+            {verifyState === "error" && errorMessage && (
+              <div className="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger/10 p-4 text-sm text-danger">
+                <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                <p>{errorMessage}</p>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="ve-email">Email</Label>
               <Input
@@ -112,32 +163,42 @@ export default function VerifyEmailPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
+                disabled={loading || verifyState === "success"}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="ve-otp">One-time code</Label>
-              <Input
+
+            <div className="space-y-3">
+              <Label htmlFor="ve-otp">Verification code</Label>
+              <OtpInputBoxes
                 id="ve-otp"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
                 value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="000000"
-                className="tracking-widest text-lg font-mono"
+                onChange={setOtp}
+                disabled={loading || verifyState === "success"}
               />
+              <p className="text-xs text-text-muted text-center">Enter all 6 digits from your email</p>
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify & continue"}
+
+            <Button type="submit" className="w-full" disabled={loading || verifyState === "success" || otp.length < 6}>
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Verifying…
+                </>
+              ) : verifyState === "success" ? (
+                "Verified"
+              ) : (
+                "Verify & continue"
+              )}
             </Button>
+
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
               <button
                 type="button"
                 className="text-primary font-medium hover:underline disabled:opacity-50 disabled:pointer-events-none text-left"
-                disabled={loading || resendLeft > 0}
+                disabled={loading || resendLeft > 0 || verifyState === "success"}
                 onClick={() => void resend()}
               >
-                {resendLeft > 0 ? `Resend code (${resendLeft}s)` : "Resend code"}
+                {resendLeft > 0 ? `Resend code in ${resendLeft}s` : "Resend code"}
               </button>
               <Link to="/signup" className="text-text-muted hover:text-primary hover:underline">
                 Wrong email? Sign up again

@@ -47,14 +47,17 @@ export const emailOtpVerifyLimiter = rateLimit({
   message: jsonMessage,
 });
 
-/** Resend signup verification OTP (per IP). */
-export const emailOtpResendLimiter = rateLimit({
+/** Send / resend signup verification OTP (per IP). */
+export const emailOtpSendLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_EMAIL_OTP_RESEND_MAX ?? 8),
+  max: Number(process.env.RATE_LIMIT_EMAIL_OTP_SEND_MAX ?? process.env.RATE_LIMIT_EMAIL_OTP_RESEND_MAX ?? 8),
   standardHeaders: true,
   legacyHeaders: false,
   message: jsonMessage,
 });
+
+/** Resend signup verification OTP (per IP). */
+export const emailOtpResendLimiter = emailOtpSendLimiter;
 
 /** Public AWB / order tracking. */
 export const publicTrackingLimiter = rateLimit({

@@ -64,14 +64,28 @@ export async function register(payload: {
   return res;
 }
 
-export async function verifyEmailOtp(email: string, otp: string) {
-  const res = await apiClient.post<{ user: AuthUser; token: string }>("/auth/verify-email-otp", { email, otp });
+export async function sendOtp(email: string) {
+  return apiClient.post<{ ok: boolean; message: string; expiresInMinutes?: number }>("/auth/send-otp", { email });
+}
+
+export async function verifyOtp(email: string, otp: string) {
+  const res = await apiClient.post<{ user: AuthUser; token: string }>("/auth/verify-otp", { email, otp });
   setStoredToken(res.token);
   return res;
 }
 
+export async function resendOtp(email: string) {
+  return apiClient.post<{ ok: boolean; message: string; expiresInMinutes?: number }>("/auth/resend-otp", { email });
+}
+
+/** @deprecated Use verifyOtp — kept for backward compatibility */
+export async function verifyEmailOtp(email: string, otp: string) {
+  return verifyOtp(email, otp);
+}
+
+/** @deprecated Use resendOtp — kept for backward compatibility */
 export async function resendEmailVerificationOtp(email: string) {
-  return apiClient.post<{ ok: boolean; message: string }>("/auth/resend-email-otp", { email });
+  return resendOtp(email);
 }
 
 export async function logout() {

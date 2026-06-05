@@ -7,6 +7,7 @@ import {
   authRouteLimiter,
   passwordResetLimiter,
   emailOtpVerifyLimiter,
+  emailOtpSendLimiter,
   emailOtpResendLimiter,
   publicTrackingLimiter,
   shopifyCallbackLimiter,
@@ -93,6 +94,9 @@ export function createApp() {
 
   api.post("/auth/register", authRouteLimiter, authController.register);
   api.post("/auth/login", authRouteLimiter, authController.login);
+  api.post("/auth/send-otp", emailOtpSendLimiter, authController.sendOtp);
+  api.post("/auth/verify-otp", emailOtpVerifyLimiter, authController.verifyOtp);
+  api.post("/auth/resend-otp", emailOtpResendLimiter, authController.resendOtp);
   api.post("/auth/verify-email-otp", emailOtpVerifyLimiter, authController.verifyEmailOtp);
   api.post("/auth/resend-email-otp", emailOtpResendLimiter, authController.resendEmailVerificationOtp);
   api.post("/auth/forgot-password", passwordResetLimiter, authController.forgotPassword);
