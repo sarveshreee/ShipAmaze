@@ -25,6 +25,7 @@ import {
   Search,
   User,
   MapPin,
+  Shield,
 } from "lucide-react";
 
 const pages = [

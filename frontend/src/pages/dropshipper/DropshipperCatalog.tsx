@@ -52,7 +52,7 @@ export default function DropshipperCatalog() {
           <SelectContent>
             <SelectItem value="all">All categories</SelectItem>
             {categories.map((c) => (
-              <SelectItem key={c} value={c}>{c}</SelectItem>
+              <SelectItem key={c.slug} value={c.name}>{c.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
