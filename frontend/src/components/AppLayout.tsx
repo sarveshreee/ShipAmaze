@@ -55,6 +55,7 @@ const adminNav: NavGroup[] = [
     { label: "Couriers", icon: Truck, path: "/admin/couriers" },
     { label: "Dropshippers", icon: Users, path: "/admin/dropshippers" },
     { label: "Vendors", icon: Warehouse, path: "/admin/vendors" },
+    { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue" },
     { label: "Pincode Check", icon: MapPin, path: "/admin/pincode" },
     { label: "Tab Permissions", icon: Shield, path: "/admin/permissions" },
   ]},
@@ -117,6 +118,7 @@ const dropshipperNav: NavGroup[] = [
   ]},
   { title: "FINANCE", items: [
     { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet", tabKey: "wallet" },
+    { label: "Payouts", icon: IndianRupee, path: "/dropshipper/payouts", tabKey: "payouts" },
     { label: "Rate Calculator", icon: Calculator, path: "/dropshipper/rates", tabKey: "rates" },
     { label: "Weight Disputes", icon: Scale, path: "/dropshipper/weight-disputes", tabKey: "weight-disputes" },
     { label: "Pickup Addresses", icon: MapPin, path: "/dropshipper/pickup-addresses", tabKey: "addresses" },

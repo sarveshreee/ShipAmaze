@@ -18,6 +18,7 @@ const dropshipperTabs = [
   { key: "ndr", label: "NDR" },
   { key: "channels", label: "Channels" },
   { key: "wallet", label: "Wallet" },
+  { key: "payouts", label: "Payouts" },
   { key: "rates", label: "Rate Calculator" },
   { key: "weight-disputes", label: "Weight Disputes" },
   { key: "addresses", label: "Pickup Addresses" },
@@ -30,6 +31,8 @@ const vendorTabs = [
   { key: "orders", label: "Orders" },
   { key: "catalogue", label: "Catalogue" },
   { key: "team", label: "Team" },
+  { key: "wallet", label: "Wallet" },
+  { key: "payouts", label: "Payouts" },
   { key: "settings", label: "Settings" },
 ];
 

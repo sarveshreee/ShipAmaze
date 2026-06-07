@@ -24,9 +24,9 @@ const defaultPerms: Record<string, PermissionConfig> = {
   },
   dropshipper: {
     canSelfProcessOrders: false,
-    canViewPayouts: false,
-    canViewGST: false,
-    canViewRemittance: false,
+    canViewPayouts: true,
+    canViewGST: true,
+    canViewRemittance: true,
   },
 };
 

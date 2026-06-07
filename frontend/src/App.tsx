@@ -185,6 +185,7 @@ function AppRoutes() {
       <Route path="/dropshipper/vendors" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><DropshipperVendors /></WarehouseAccessRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/warehouses" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><VendorWarehouse /></WarehouseAccessRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/wallet" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWallet /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/payouts" element={<RoleProtectedRoute allow={["dropshipper"]}><VendorPayouts /></RoleProtectedRoute>} />
       <Route path="/vendor/wallet" element={<RoleProtectedRoute allow={["vendor"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/dropshipper/rates" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperRates /></RoleProtectedRoute>} />
       <Route path="/dropshipper/returns" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperReturns /></RoleProtectedRoute>} />
