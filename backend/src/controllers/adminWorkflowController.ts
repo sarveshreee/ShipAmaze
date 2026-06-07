@@ -13,6 +13,7 @@ import { SupportTicket, type SupportTicketPriority, type SupportTicketStatus } f
 import mongoose from "mongoose";
 import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotifications.js";
 import { randomBytes } from "crypto";
+import { getFinalProductPrice, resolveShippingCharge } from "../utils/productPricing.js";
 
 function assertAdmin(req: AuthRequest): void {
   if (!req.user) throw new AppError(401, "Unauthorized");
@@ -121,14 +122,18 @@ function escapeRegex(s: string): string {
 }
 
 function mapProductLean(p: Record<string, unknown>) {
+  const price = Number(p.price ?? 0);
+  const shippingCharge = resolveShippingCharge(p);
   return {
     _id: String(p._id),
     id: String(p._id),
     name: p.name,
     sku: p.sku,
     category: p.category,
-    price: p.price,
+    price,
     sellingPrice: p.sellingPrice,
+    shippingCharge,
+    finalPrice: getFinalProductPrice(p),
     stock: p.stock,
     status: p.status,
     vendorId: p.vendorId ? String(p.vendorId) : null,
@@ -146,7 +151,7 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
   const id = req.params.id;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const body = req.body as Record<string, unknown>;
-  const allowed = ["status", "name", "sku", "category", "price", "sellingPrice", "stock"];
+  const allowed = ["status", "name", "sku", "category", "price", "sellingPrice", "shippingCharge", "stock"];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) {
     if (body[k] !== undefined) patch[k] = body[k];

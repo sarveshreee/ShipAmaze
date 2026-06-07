@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import * as productService from "@/services/productService";
 import { downloadCSV } from "@/lib/exportUtils";
+import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 interface ProductForm {
   name: string; sku: string; category: string; weight: string;
@@ -117,7 +118,7 @@ export default function VendorCatalogue() {
               <h3 className="font-semibold text-text-primary truncate">{p.name}</h3>
               <p className="text-xs font-mono text-text-muted mt-0.5">{p.sku}</p>
               <div className="flex items-center justify-between mt-2">
-                <p className="text-lg font-bold text-primary">₹{p.sellingPrice}</p>
+                <p className="text-lg font-bold text-primary">{formatProductPriceInr(getFinalProductPrice(p))}</p>
                 <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", p.stock > 0 ? "bg-success-light text-success-dark" : "bg-danger-light text-danger-dark")}>
                   {p.stock > 0 ? `${p.stock} in stock` : "Out of stock"}
                 </span>

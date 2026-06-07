@@ -11,6 +11,7 @@ export type SupplierProduct = {
   status: "draft" | "active" | "inactive" | "pending";
   price: number;
   selling_price: number;
+  shipping_charge: number;
   stock: number;
   weight: string;
   dimensions: string;
@@ -57,6 +58,7 @@ export function mapApiToSupplierProduct(r: Record<string, unknown>): SupplierPro
     status: (r.status as SupplierProduct["status"]) || "draft",
     price: Number(r.price ?? 0),
     selling_price: Number(r.selling_price ?? r.sellingPrice ?? 0),
+    shipping_charge: Number(r.shipping_charge ?? r.shippingCharge ?? r.shippingCharges ?? 0),
     stock: Number(r.stock ?? 0),
     weight: String(r.weight ?? ""),
     dimensions: String(r.dimensions ?? ""),

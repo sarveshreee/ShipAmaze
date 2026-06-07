@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
+import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 interface Props {
   open: boolean;
@@ -22,9 +23,10 @@ export function ShopifyPushDrawer({ open, onOpenChange, product }: Props) {
   const margin = useMemo(() => {
     const sp = Number(sellingPrice) || 0;
     if (!product || !sp) return null;
-    const profit = sp - product.price;
-    const pct = product.price > 0 ? (profit / product.price) * 100 : 0;
-    return { profit, pct };
+    const cost = getFinalProductPrice(product);
+    const profit = sp - cost;
+    const pct = cost > 0 ? (profit / cost) * 100 : 0;
+    return { profit, pct, cost };
   }, [sellingPrice, product]);
 
   const handlePush = async () => {
@@ -67,7 +69,7 @@ export function ShopifyPushDrawer({ open, onOpenChange, product }: Props) {
             <div className="min-w-0">
               <p className="font-medium truncate">{product.name}</p>
               <p className="text-xs text-muted-foreground">{product.sku}</p>
-              <p className="text-sm font-semibold mt-1">₹{product.price}</p>
+              <p className="text-sm font-semibold mt-1">{formatProductPriceInr(getFinalProductPrice(product))}</p>
             </div>
           </div>
 
@@ -88,7 +90,7 @@ export function ShopifyPushDrawer({ open, onOpenChange, product }: Props) {
                 <div className="rounded-xl bg-primary/5 border border-primary/20 p-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Cost</span>
-                    <span>₹{product.price}</span>
+                    <span>{formatProductPriceInr(margin.cost)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Profit / order</span>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ShieldCheck, Truck, RefreshCw, Star, Minus, Plus, ShoppingCart } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 interface PreviewVariant {
   option1_name?: string; option1_value?: string;
@@ -21,6 +22,7 @@ interface PreviewProduct {
   long_description?: string;
   price?: number;
   selling_price?: number;
+  shipping_charge?: number;
   stock?: number;
   tags?: string[];
   images: string[];
@@ -66,6 +68,7 @@ export default function ProductPreview() {
               long_description: (p.longDescription ?? p.long_description) as string | undefined,
               price: mrp,
               selling_price: selling || mrp,
+              shipping_charge: Number(p.shippingCharge ?? p.shipping_charge ?? p.shippingCharges ?? 0),
               stock: Number(p.stock ?? 0),
               tags: (Array.isArray(p.tags) ? p.tags : []) as string[],
               images: Array.isArray(p.images) ? (p.images as string[]) : [],
@@ -123,9 +126,9 @@ export default function ProductPreview() {
     );
   }
 
-  const price = product.selling_price || product.price || 0;
-  const mrp = product.price && product.selling_price && product.price > product.selling_price ? product.price : null;
-  const discount = mrp ? Math.round(((mrp - price) / mrp) * 100) : 0;
+  const displayPrice = getFinalProductPrice(product);
+  const listMrp = product.selling_price && product.selling_price > displayPrice ? product.selling_price : null;
+  const discount = listMrp ? Math.round(((listMrp - displayPrice) / listMrp) * 100) : 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -177,10 +180,10 @@ export default function ProductPreview() {
             </div>
 
             <div className="flex items-baseline gap-3">
-              <span className="text-3xl font-bold text-text-primary">₹{price.toLocaleString("en-IN")}</span>
-              {mrp && (
+              <span className="text-3xl font-bold text-text-primary">{formatProductPriceInr(displayPrice)}</span>
+              {listMrp && (
                 <>
-                  <span className="text-base text-text-muted line-through">₹{mrp.toLocaleString("en-IN")}</span>
+                  <span className="text-base text-text-muted line-through">{formatProductPriceInr(listMrp)}</span>
                   <Badge className="bg-success-light text-success-dark hover:bg-success-light">{discount}% OFF</Badge>
                 </>
               )}

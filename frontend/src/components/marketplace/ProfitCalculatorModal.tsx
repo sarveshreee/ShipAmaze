@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Calculator, RotateCcw } from "lucide-react";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
+import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 interface Props {
   open: boolean;
@@ -42,7 +43,8 @@ export function ProfitCalculatorModal({ open, onOpenChange, product, onPushToSho
     const delivered = Math.round(confirmed * dp);
     const rto = confirmed - delivered;
     const earnings = delivered * sp;
-    const productCost = confirmed * product.price;
+    const unitCost = getFinalProductPrice(product);
+    const productCost = confirmed * unitCost;
     const rtoCharges = rto * RTO_PER_KG;
     const adCost = eo * ad;
     const totalSpend = productCost + rtoCharges + adCost + m;
@@ -65,7 +67,7 @@ export function ProfitCalculatorModal({ open, onOpenChange, product, onPushToSho
           <img src={product.images[0] || "/placeholder.svg"} alt="" className="h-16 w-16 rounded-lg object-cover" />
           <div className="text-sm">
             <p className="text-muted-foreground text-xs">App Price</p>
-            <p className="font-bold">₹ {product.price}</p>
+            <p className="font-bold">{formatProductPriceInr(getFinalProductPrice(product))}</p>
           </div>
           <div className="text-sm">
             <p className="text-muted-foreground text-xs">RTO Charges</p>

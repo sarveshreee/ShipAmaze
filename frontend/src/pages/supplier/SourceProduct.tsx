@@ -37,7 +37,7 @@ const emptyForm = {
   price: 0, selling_price: 0, stock: 0, hsn: "",
   images: [] as string[], primary_image_index: 0,
   weight: "", length_cm: "", width_cm: "", height_cm: "",
-  shipping_class: "standard", pickup_location_id: "",
+  shipping_class: "standard", shipping_charge: 0, pickup_location_id: "",
   cod_available: true, returnable: true, fragile: false,
   gst_percent: 18, country_of_origin: "India",
   warranty: "", manufacturer: "", care_instructions: "",
@@ -125,6 +125,8 @@ export default function SourceProduct() {
       length_cm: p.length_cm ?? p.lengthCm ?? "",
       width_cm: p.width_cm ?? p.widthCm ?? "",
       height_cm: p.height_cm ?? p.heightCm ?? "",
+      shipping_charge: Number(p.shippingCharge ?? p.shipping_charge ?? p.shippingCharges ?? 0),
+      shipping_class: p.shipping_class ?? p.shippingClass ?? "standard",
     });
   };
 
@@ -269,6 +271,7 @@ export default function SourceProduct() {
         width_cm: form.width_cm ? Number(form.width_cm) : undefined,
         height_cm: form.height_cm ? Number(form.height_cm) : undefined,
         shippingClass: form.shipping_class,
+        shippingCharge: form.shipping_charge,
         pickupLocationId: form.pickup_location_id || undefined,
         codAvailable: form.cod_available,
         returnable: form.returnable,
@@ -501,6 +504,7 @@ export default function SourceProduct() {
               <div><Label>Length (cm)</Label><Input type="number" value={form.length_cm} onChange={e => update({ length_cm: e.target.value as any })} /></div>
               <div><Label>Width (cm)</Label><Input type="number" value={form.width_cm} onChange={e => update({ width_cm: e.target.value as any })} /></div>
               <div><Label>Height (cm)</Label><Input type="number" value={form.height_cm} onChange={e => update({ height_cm: e.target.value as any })} /></div>
+              <div><Label>Shipping Charge (₹)</Label><Input type="number" min={0} value={form.shipping_charge} onChange={e => update({ shipping_charge: Number(e.target.value) || 0 })} placeholder="0" /></div>
               <div>
                 <Label>Shipping Class</Label>
                 <Select value={form.shipping_class} onValueChange={v => update({ shipping_class: v })}>

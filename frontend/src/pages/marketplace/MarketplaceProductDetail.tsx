@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useAuth } from "@/contexts/AuthContext";
 import { useMarketplaceProduct } from "@/hooks/useMarketplace";
 import { ProfitCalculatorModal } from "@/components/marketplace/ProfitCalculatorModal";
-import { ShopifyPushDrawer } from "@/components/marketplace/ShopifyPushDrawer";
+import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 export default function MarketplaceProductDetail() {
   const { id } = useParams();
@@ -56,7 +56,7 @@ export default function MarketplaceProductDetail() {
           <h1 className="text-xl md:text-2xl font-bold leading-tight">{product.name}</h1>
 
           <div className="flex items-center gap-3">
-            <p className="text-3xl font-bold">₹ {product.price}</p>
+            <p className="text-3xl font-bold">{formatProductPriceInr(getFinalProductPrice(product))}</p>
             <Button variant="outline" size="sm" className="ml-auto" onClick={() => setCalc(true)}>
               Calculator <Calculator className="ml-2 h-4 w-4" />
             </Button>

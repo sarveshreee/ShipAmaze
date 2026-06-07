@@ -3,6 +3,7 @@ import { Calculator, Star, Package, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
+import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 interface Props {
   product: SupplierProduct;
@@ -23,7 +24,7 @@ export function MarketplaceProductCard({ product, onCalculator, onPush }: Props)
         </button>
       </Link>
       <div className="pt-2 px-1">
-        <p className="font-bold text-sm">₹{product.price}</p>
+        <p className="font-bold text-sm">{formatProductPriceInr(getFinalProductPrice(product))}</p>
         <p className="text-xs text-foreground line-clamp-1 mt-0.5">{product.name}</p>
         <div className="flex items-center gap-2 mt-2">
           <span className="text-[10px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded border"><Package className="h-2.5 w-2.5" />{product.stock}</span>

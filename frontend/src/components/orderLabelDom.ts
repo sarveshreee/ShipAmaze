@@ -1,6 +1,7 @@
 import JsBarcode from "jsbarcode";
 import type { Order } from "@/types/logistics";
 import type { LabelInvoiceSettings, LabelSizePreset } from "@/types/labelInvoice";
+import { getFinalLineItemUnitPrice, getFinalLineItemRowTotal } from "@/lib/pricing";
 
 type Line = Record<string, unknown>;
 
@@ -28,7 +29,7 @@ function lineQty(line: Line): string {
 }
 
 function lineUnitPrice(line: Line): string {
-  const p = Number(line.price ?? line.sellingPrice ?? line.amount ?? 0);
+  const p = getFinalLineItemUnitPrice(line);
   if (!Number.isFinite(p)) return "—";
   return String(p);
 }
@@ -42,10 +43,8 @@ function lineSku(line: Line): string {
 }
 
 function lineRowTotal(line: Line): string {
-  const q = Number(line.qty ?? line.quantity ?? line.units ?? 1) || 1;
-  const p = Number(line.price ?? line.sellingPrice ?? line.amount ?? 0) || 0;
-  if (!Number.isFinite(q * p)) return "—";
-  const t = Math.round(q * p * 100) / 100;
+  const t = getFinalLineItemRowTotal(line);
+  if (!Number.isFinite(t)) return "—";
   return String(t);
 }
 

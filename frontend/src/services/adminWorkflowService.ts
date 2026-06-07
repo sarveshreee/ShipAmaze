@@ -8,6 +8,8 @@ export type CatalogueProductRow = {
   category?: string;
   price?: number;
   sellingPrice?: number;
+  shippingCharge?: number;
+  finalPrice?: number;
   stock?: number;
   status?: string;
   vendorId?: string | null;

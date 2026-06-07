@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { EmptyState } from "@/components/EmptyState";
 import { Layers, Loader2, RefreshCw } from "lucide-react";
 import { ApiError } from "@/lib/apiClient";
+import { getFinalProductPrice } from "@/lib/pricing";
 
 export default function AdminCatalogue() {
   const [items, setItems] = useState<CatalogueProductRow[]>([]);
@@ -426,8 +427,11 @@ export default function AdminCatalogue() {
                   )}
                 </p>
                 <p>
-                  <span className="text-text-muted">Price / Selling:</span> ₹{detail.price ?? 0} / ₹
-                  {detail.sellingPrice ?? 0}
+                  <span className="text-text-muted">Cost / Shipping / Final:</span> ₹{detail.price ?? 0} + ₹
+                  {detail.shippingCharge ?? 0} = <span className="font-semibold">₹{getFinalProductPrice(detail)}</span>
+                </p>
+                <p>
+                  <span className="text-text-muted">Selling price:</span> ₹{detail.sellingPrice ?? 0}
                 </p>
                 <p>
                   <span className="text-text-muted">Stock:</span> {detail.stock ?? 0}

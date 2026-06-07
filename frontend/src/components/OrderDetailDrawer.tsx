@@ -25,6 +25,7 @@ import { ApiError } from "@/lib/apiClient";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { useAuth } from "@/contexts/AuthContext";
 import { ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
+import { getFinalLineItemUnitPrice, formatProductPriceInr } from "@/lib/pricing";
 
 /** Local warehouses (Mongo) that may carry a linked Velocity pickup id after linkOnly. */
 export interface OrderDetailWarehouseOption {
@@ -686,7 +687,7 @@ export function OrderDetailDrawer({
                         <SkuBadge product={{ sku: p.sku }} index={i} />
                       </div>
                       <p className="text-xs text-text-muted mt-1">
-                        {p.weight || "—"} · ₹{p.price} · Qty {p.qty}
+                        {p.weight || "—"} · {formatProductPriceInr(getFinalLineItemUnitPrice(p))} · Qty {p.qty}
                       </p>
                     </div>
                   </div>

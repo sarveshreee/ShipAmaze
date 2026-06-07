@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSupplierProducts, type SupplierProduct } from "@/hooks/useSupplierProducts";
 import * as productService from "@/services/productService";
 import { downloadCSV } from "@/lib/exportUtils";
+import { getFinalVariantPrice, formatProductPriceInr } from "@/lib/pricing";
 
 const fmtDate = (s?: string | null) => {
   if (!s) return "—";
@@ -593,7 +594,7 @@ export default function VendorProducts() {
           <DialogHeader>
             <DialogTitle>Variants — {variantsFor?.name}</DialogTitle>
           </DialogHeader>
-          <VariantList productId={variantsFor?.id} />
+          <VariantList productId={variantsFor?.id} parentProduct={variantsFor ?? undefined} />
         </DialogContent>
       </Dialog>
 
@@ -606,7 +607,7 @@ export default function VendorProducts() {
   );
 }
 
-function VariantList({ productId }: { productId?: string }) {
+function VariantList({ productId, parentProduct }: { productId?: string; parentProduct?: SupplierProduct }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -644,7 +645,7 @@ function VariantList({ productId }: { productId?: string }) {
               {[v.option1_value, v.option2_value].filter(Boolean).join(" / ") || "—"}
             </td>
             <td className="px-2 py-1 font-mono">{v.sku}</td>
-            <td className="px-2 py-1">₹{v.price}</td>
+            <td className="px-2 py-1">{formatProductPriceInr(getFinalVariantPrice(v, parentProduct ?? undefined))}</td>
             <td className="px-2 py-1">{v.stock}</td>
             <td className="px-2 py-1 capitalize">{v.status}</td>
           </tr>

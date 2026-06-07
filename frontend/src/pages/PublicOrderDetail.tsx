@@ -36,6 +36,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
+import { getFinalLineItemUnitPrice, formatProductPriceInr } from "@/lib/pricing";
 
 const statusColors: Record<string, string> = {
   delivered: "bg-success-light text-success-dark",
@@ -379,7 +380,7 @@ export default function PublicOrderDetail() {
                     </div>
                     <p className="text-xs text-text-muted mt-2">Qty: {p.qty} · {p.weight}</p>
                   </div>
-                  <span className="font-medium text-text-primary">₹{Number(p.price).toLocaleString()}</span>
+                  <span className="font-medium text-text-primary">{formatProductPriceInr(getFinalLineItemUnitPrice(p))}</span>
                 </div>
               ))}
             </div>

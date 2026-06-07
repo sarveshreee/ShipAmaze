@@ -16,6 +16,7 @@ import * as productService from "@/services/productService";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import { downloadCSV } from "@/lib/exportUtils";
+import { getFinalProductPrice, getFinalVariantPrice, formatProductPriceInr } from "@/lib/pricing";
 
 export default function ProductsPage() {
   const navigate = useNavigate();
@@ -367,7 +368,7 @@ export default function ProductsPage() {
                   </div>
                   <div className="p-3 flex flex-col flex-1">
                     <h3 className="font-semibold text-sm text-warning-dark truncate">{p.name}</h3>
-                    <p className="font-bold text-text-primary mt-1">₹{p.selling_price}</p>
+                    <p className="font-bold text-text-primary mt-1">{formatProductPriceInr(getFinalProductPrice(p))}</p>
                     <div className="flex items-center justify-between text-xs text-text-muted mt-1">
                       <span className="font-mono">{p.sku || "—"}</span>
                       <span>{p.brand || "Self"}</span>
@@ -429,7 +430,7 @@ export default function ProductsPage() {
       <Dialog open={!!variantsFor} onOpenChange={o => !o && setVariantsFor(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>Variants — {variantsFor?.name}</DialogTitle></DialogHeader>
-          <VariantList productId={variantsFor?.id} />
+          <VariantList productId={variantsFor?.id} parentProduct={variantsFor ?? undefined} />
         </DialogContent>
       </Dialog>
 
@@ -440,8 +441,10 @@ export default function ProductsPage() {
           {detailsFor && (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <Stat label="SKU" value={detailsFor.sku || "—"} />
-              <Stat label="Price" value={`₹${detailsFor.price}`} />
-              <Stat label="Selling Price" value={`₹${detailsFor.selling_price}`} />
+              <Stat label="Product Cost" value={formatProductPriceInr(detailsFor.price)} />
+              <Stat label="Shipping" value={formatProductPriceInr(detailsFor.shipping_charge)} />
+              <Stat label="Final Price" value={formatProductPriceInr(getFinalProductPrice(detailsFor))} />
+              <Stat label="Selling Price" value={formatProductPriceInr(detailsFor.selling_price)} />
               <Stat label="Stock" value={detailsFor.stock} />
               <Stat label="Weight" value={detailsFor.weight || "—"} />
               <Stat label="HSN" value={detailsFor.hsn || "—"} />
@@ -508,7 +511,7 @@ function Stat({ label, value }: { label: string; value: any }) {
   );
 }
 
-function VariantList({ productId }: { productId?: string }) {
+function VariantList({ productId, parentProduct }: { productId?: string; parentProduct?: SupplierProduct }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -538,7 +541,7 @@ function VariantList({ productId }: { productId?: string }) {
           <tr key={v.id ?? i} className="border-t border-border">
             <td className="px-2 py-1">{[v.option1_value, v.option2_value].filter(Boolean).join(" / ") || "—"}</td>
             <td className="px-2 py-1 font-mono">{v.sku}</td>
-            <td className="px-2 py-1">₹{v.price}</td><td className="px-2 py-1">{v.stock}</td>
+            <td className="px-2 py-1">{formatProductPriceInr(getFinalVariantPrice(v, parentProduct ?? undefined))}</td><td className="px-2 py-1">{v.stock}</td>
             <td className="px-2 py-1 capitalize">{v.status}</td>
           </tr>
         ))}
