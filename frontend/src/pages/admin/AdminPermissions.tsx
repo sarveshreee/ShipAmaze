@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 const dropshipperTabs = [
+  { key: "home", label: "Home" },
+  { key: "catalog", label: "Catalog" },
   { key: "dashboard", label: "Dashboard" },
   { key: "orders", label: "Orders" },
   { key: "create-order", label: "Create Order" },

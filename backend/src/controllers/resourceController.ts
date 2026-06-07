@@ -1215,7 +1215,7 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (!req.user) throw new AppError(401, "Unauthorized");
   const p = await Product.findById(req.params.id);
   if (!p) throw new AppError(404, "Product not found");
-  const body = req.body as Record<string, unknown>;
+  const body = { ...req.body } as Record<string, unknown>;
   if (Object.prototype.hasOwnProperty.call(body, "sku")) {
     const sku = String(body.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");
@@ -1229,19 +1229,40 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (req.user.role === "vendor") {
     const v = await Vendor.findOne({ userId: req.user._id });
     if (!v || String(p.vendorId) !== String(v._id)) throw new AppError(403, "Forbidden");
-    Object.assign(p, body);
-    await p.save();
-    res.json(p);
-    return;
-  }
-  if (req.user.role === "dropshipper") {
+  } else if (req.user.role === "dropshipper") {
     if (String(p.uploadedBy) !== String(req.user._id)) throw new AppError(403, "Forbidden");
-    Object.assign(p, body);
-    await p.save();
-    res.json(p);
+  } else {
+    throw new AppError(403, "Forbidden");
+  }
+
+  const {
+    createProductPriceChangeRequest,
+    extractPendingPriceFields,
+    stripPriceFieldsFromBody,
+  } = await import("../controllers/approvalController.js");
+
+  const { pending, hasChange } = extractPendingPriceFields(body, p);
+  if (hasChange) {
+    const reason = typeof body.priceChangeReason === "string" ? body.priceChangeReason : undefined;
+    stripPriceFieldsFromBody(body);
+    delete body.priceChangeReason;
+    const approval = await createProductPriceChangeRequest(req, p, pending, reason);
+    if (Object.keys(body).length > 0) {
+      Object.assign(p, body);
+      await p.save();
+    }
+    res.json({
+      ...p.toObject(),
+      priceChangePending: true,
+      pendingApprovalId: String(approval._id),
+      message: "Price change submitted for admin approval. Live prices unchanged until approved.",
+    });
     return;
   }
-  throw new AppError(403, "Forbidden");
+
+  Object.assign(p, body);
+  await p.save();
+  res.json(p);
 });
 
 export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response) => {

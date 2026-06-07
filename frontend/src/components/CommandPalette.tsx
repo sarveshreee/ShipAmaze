@@ -36,6 +36,7 @@ const pages = [
   { label: "Dropshippers", path: "/admin/dropshippers", icon: Users },
   { label: "Vendors", path: "/admin/vendors", icon: Warehouse },
   { label: "Catalogue", path: "/admin/catalogue", icon: ShoppingBag },
+  { label: "Approvals", path: "/admin/approvals", icon: Shield },
   { label: "Finance", path: "/admin/finance", icon: IndianRupee },
   { label: "Analytics", path: "/admin/analytics", icon: BarChart3 },
   { label: "Support", path: "/admin/support", icon: Headphones },

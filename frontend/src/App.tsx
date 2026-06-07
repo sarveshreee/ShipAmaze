@@ -29,6 +29,7 @@ import AdminFinance from "@/pages/admin/AdminFinance";
 import AdminAnalytics from "@/pages/admin/AdminAnalytics";
 import AdminSupport from "@/pages/admin/AdminSupport";
 import AdminCatalogue from "@/pages/admin/AdminCatalogue";
+import AdminApprovals from "@/pages/admin/AdminApprovals";
 const AdminSettings = lazy(() => import("@/pages/admin/AdminSettings"));
 import AdminReturns from "@/pages/admin/AdminReturns";
 import AdminManifests from "@/pages/admin/AdminManifests";
@@ -56,6 +57,7 @@ const BulkUpload = lazy(() => import("@/pages/dropshipper/BulkUpload"));
 import ChannelConnect from "@/pages/dropshipper/ChannelConnect";
 import DropshipperWallet from "@/pages/dropshipper/DropshipperWallet";
 import DropshipperRates from "@/pages/dropshipper/DropshipperRates";
+import DropshipperCatalog from "@/pages/dropshipper/DropshipperCatalog";
 import DropshipperSettings from "@/pages/dropshipper/DropshipperSettings";
 import DropshipperReturns from "@/pages/dropshipper/DropshipperReturns";
 import DropshipperNDR from "@/pages/dropshipper/DropshipperNDR";
@@ -148,6 +150,7 @@ function AppRoutes() {
       <Route path="/admin/returns" element={<RoleProtectedRoute allow={["admin"]}><AdminReturns /></RoleProtectedRoute>} />
       <Route path="/admin/manifests" element={<RoleProtectedRoute allow={["admin"]}><AdminManifests /></RoleProtectedRoute>} />
       <Route path="/admin/catalogue" element={<RoleProtectedRoute allow={["admin"]}><AdminCatalogue /></RoleProtectedRoute>} />
+      <Route path="/admin/approvals" element={<RoleProtectedRoute allow={["admin"]}><AdminApprovals /></RoleProtectedRoute>} />
       <Route path="/admin/rates" element={<RoleProtectedRoute allow={["admin"]}><AdminRates /></RoleProtectedRoute>} />
       <Route path="/admin/couriers" element={<RoleProtectedRoute allow={["admin"]}><AdminCouriers /></RoleProtectedRoute>} />
       <Route path="/admin/dropshippers" element={<RoleProtectedRoute allow={["admin"]}><AdminDropshippers /></RoleProtectedRoute>} />
@@ -188,6 +191,7 @@ function AppRoutes() {
       <Route path="/dropshipper/payouts" element={<RoleProtectedRoute allow={["dropshipper"]}><VendorPayouts /></RoleProtectedRoute>} />
       <Route path="/vendor/wallet" element={<RoleProtectedRoute allow={["vendor"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/dropshipper/rates" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperRates /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/catalog" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperCatalog /></RoleProtectedRoute>} />
       <Route path="/dropshipper/returns" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperReturns /></RoleProtectedRoute>} />
       <Route path="/dropshipper/ndr" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperNDR /></RoleProtectedRoute>} />
       <Route path="/dropshipper/weight-disputes" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWeightDisputes /></RoleProtectedRoute>} />

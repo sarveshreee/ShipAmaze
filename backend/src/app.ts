@@ -26,6 +26,7 @@ import * as debugController from "./controllers/debugController.js";
 import * as walletController from "./controllers/walletController.js";
 import * as notificationController from "./controllers/notificationController.js";
 import * as adminWorkflowController from "./controllers/adminWorkflowController.js";
+import * as approvalController from "./controllers/approvalController.js";
 import * as reportsController from "./controllers/reportsController.js";
 import * as invoiceController from "./controllers/invoiceController.js";
 import * as labelInvoiceSettingsController from "./controllers/labelInvoiceSettingsController.js";
@@ -186,6 +187,47 @@ export function createApp() {
     authMiddleware,
     requireRoles("admin"),
     adminWorkflowController.adminBulkCatalogueProducts
+  );
+
+  api.get("/shipping-rate-card", authMiddleware, approvalController.getShippingRateCard);
+  api.post(
+    "/admin/shipping-rate-card",
+    authMiddleware,
+    requireRoles("admin"),
+    approvalController.adminSaveShippingRateCard
+  );
+  api.post(
+    "/admin/couriers/direct",
+    authMiddleware,
+    requireRoles("admin"),
+    approvalController.adminUpsertCourier
+  );
+  api.post("/shipping-rate-change-requests", authMiddleware, approvalController.submitShippingRateChange);
+  api.get("/shipping-rate-approvals", authMiddleware, approvalController.listShippingRateApprovals);
+  api.get("/product-price-approvals", authMiddleware, approvalController.listProductPriceApprovals);
+  api.patch(
+    "/admin/shipping-rate-approvals/:id/approve",
+    authMiddleware,
+    requireRoles("admin"),
+    approvalController.approveShippingRateApproval
+  );
+  api.patch(
+    "/admin/shipping-rate-approvals/:id/reject",
+    authMiddleware,
+    requireRoles("admin"),
+    approvalController.rejectShippingRateApproval
+  );
+  api.patch(
+    "/admin/product-price-approvals/:id/approve",
+    authMiddleware,
+    requireRoles("admin"),
+    approvalController.approveProductPriceApproval
+  );
+  api.patch(
+    "/admin/product-price-approvals/:id/reject",
+    authMiddleware,
+    requireRoles("admin"),
+    approvalController.rejectProductPriceApproval
   );
 
   api.get(

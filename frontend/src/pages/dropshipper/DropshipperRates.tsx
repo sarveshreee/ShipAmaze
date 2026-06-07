@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -8,10 +8,27 @@ import { cn } from "@/lib/utils";
 import { Calculator, MapPin, Truck, CheckCircle2, XCircle, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import * as velocityService from "@/services/velocityService";
+import * as approvalService from "@/services/approvalService";
 import type { VelocityRate, VelocityCarrier } from "@/services/velocityService";
 
 export default function DropshipperRates() {
   const [tab, setTab] = useState<"calculator" | "rateCard" | "pincheck">("calculator");
+  const [liveRateCard, setLiveRateCard] = useState<{
+    zones: string[];
+    weights: string[];
+    rates: number[][];
+  } | null>(null);
+  const [rateCardLoading, setRateCardLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "rateCard") return;
+    setRateCardLoading(true);
+    void approvalService
+      .getShippingRateCard("Prepaid")
+      .then((card) => setLiveRateCard({ zones: card.zones, weights: card.weights, rates: card.rates }))
+      .catch(() => setLiveRateCard(null))
+      .finally(() => setRateCardLoading(false));
+  }, [tab]);
 
   // Rate calculator state
   const [fromPin, setFromPin] = useState("");
@@ -203,13 +220,16 @@ export default function DropshipperRates() {
         <div className="rounded-lg bg-card shadow-card overflow-x-auto">
           <div className="p-4 border-b border-border">
             <h3 className="font-semibold text-text-primary">Zone-wise Rate Card</h3>
-            <p className="text-xs text-text-muted">Rates in ₹ per shipment (excluding GST)</p>
+            <p className="text-xs text-text-muted">Approved live rates (view only). Contact admin to request changes.</p>
           </div>
+          {rateCardLoading ? (
+            <div className="flex items-center gap-2 p-8 text-text-muted"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div>
+          ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-surface-2/50">
                 <th className="p-3 text-left font-medium text-text-secondary">Zone</th>
-                {rateCardData.weightSlabs.map((w) => (
+                {(liveRateCard?.weights ?? rateCardData.weightSlabs).map((w) => (
                   <th key={w} className="p-3 text-center font-medium text-text-secondary">
                     {w}
                   </th>
@@ -217,10 +237,13 @@ export default function DropshipperRates() {
               </tr>
             </thead>
             <tbody>
-              {rateCardData.zones.map((z, i) => (
+              {(liveRateCard?.zones ?? rateCardData.zones).map((z, i) => (
                 <tr key={z} className={cn("border-b border-border", i % 2 === 0 && "bg-surface-2/30")}>
                   <td className="p-3 font-medium text-text-primary">Zone {z}</td>
-                  {rateCardData.rates[z].map((rate, j) => (
+                  {(liveRateCard
+                    ? liveRateCard.rates[i] ?? []
+                    : rateCardData.rates[z as keyof typeof rateCardData.rates] ?? []
+                  ).map((rate, j) => (
                     <td key={j} className="p-3 text-center text-text-primary">
                       ₹{rate}
                     </td>
@@ -229,6 +252,7 @@ export default function DropshipperRates() {
               ))}
             </tbody>
           </table>
+          )}
         </div>
       )}
 

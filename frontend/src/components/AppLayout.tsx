@@ -56,6 +56,7 @@ const adminNav: NavGroup[] = [
     { label: "Dropshippers", icon: Users, path: "/admin/dropshippers" },
     { label: "Vendors", icon: Warehouse, path: "/admin/vendors" },
     { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue" },
+    { label: "Approvals", icon: ClipboardList, path: "/admin/approvals" },
     { label: "Pincode Check", icon: MapPin, path: "/admin/pincode" },
     { label: "Tab Permissions", icon: Shield, path: "/admin/permissions" },
   ]},
@@ -98,7 +99,10 @@ const vendorNav: NavGroup[] = [
 ];
 
 const dropshipperNav: NavGroup[] = [
-  { title: "MARKETPLACE", items: [{ label: "Home", icon: Home, path: "/dropshipper/home", tabKey: "home" }] },
+  { title: "MARKETPLACE", items: [
+    { label: "Home", icon: Home, path: "/dropshipper/home", tabKey: "home" },
+    { label: "Catalog", icon: ShoppingBag, path: "/dropshipper/catalog", tabKey: "catalog" },
+  ]},
   { title: "OVERVIEW", items: [{ label: "Analytics", icon: LayoutDashboard, path: "/dropshipper/dashboard", tabKey: "dashboard" }] },
   { title: "ORDERS", items: [
     { label: "Orders", icon: Package, path: "/dropshipper/orders", tabKey: "orders", children: [

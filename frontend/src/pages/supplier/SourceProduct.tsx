@@ -294,11 +294,16 @@ export default function SourceProduct() {
       }
 
       if (editId) {
-        await productService.updateProduct(editId, payload);
+        const res = await productService.updateProduct(editId, payload) as Record<string, unknown>;
+        if (res.priceChangePending) {
+          toast.info(String(res.message ?? "Price change submitted for admin approval"));
+        } else {
+          toast.success(status === "active" ? "Product published" : "Saved as draft");
+        }
       } else {
         await productService.createProduct(payload);
+        toast.success(status === "active" ? "Product published" : "Saved as draft");
       }
-      toast.success(status === "active" ? "Product published" : "Saved as draft");
       setDirty(false);
       navigate(productsPath(role));
     } catch (err: unknown) {
