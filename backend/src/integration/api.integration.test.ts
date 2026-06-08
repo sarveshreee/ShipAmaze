@@ -369,4 +369,111 @@ describe.skipIf(!hasMongo())("API integration (MONGODB_URI_TEST)", () => {
     expect(String(conn.body.url)).toContain("myshopify.com/admin/oauth/authorize");
     expect(String(conn.body.url)).toContain("client_id=test-client-id");
   });
+
+  it("admin user management: create, list, login, unauthorized blocked", async () => {
+    const adminEmail = `adm-users-${suffix}@example.test`;
+    const adminPass = "adminpass12!";
+    const passwordHash = await bcrypt.hash(adminPass, 10);
+    await User.create({
+      name: "Admin Users Test",
+      email: adminEmail.toLowerCase(),
+      passwordHash,
+      role: "admin",
+      companyName: "Test",
+      permissions: [],
+      emailVerified: true,
+    });
+    const aLogin = await request(app).post("/api/auth/login").send({ email: adminEmail, password: adminPass });
+    expect(aLogin.status).toBe(200);
+    const adminToken = aLogin.body.token as string;
+    const adminAuth = { Authorization: `Bearer ${adminToken}` };
+
+    const vendorEmail = `vendor-created-${suffix}@example.test`;
+    const vendorPass = "vendorpass12!";
+    const createVendor = await request(app)
+      .post("/api/admin/users/create")
+      .set(adminAuth)
+      .send({
+        name: "Created Vendor",
+        email: vendorEmail,
+        password: vendorPass,
+        role: "vendor",
+        companyName: "Vendor Co",
+        phone: "9876543210",
+        status: "active",
+        sendWelcomeEmail: false,
+      });
+    expect(createVendor.status).toBe(201);
+    expect(createVendor.body.user.email).toBe(vendorEmail.toLowerCase());
+    expect(createVendor.body.user.role).toBe("vendor");
+
+    const duplicate = await request(app)
+      .post("/api/admin/users/create")
+      .set(adminAuth)
+      .send({
+        name: "Dup",
+        email: vendorEmail,
+        password: vendorPass,
+        role: "vendor",
+      });
+    expect(duplicate.status).toBe(409);
+
+    const dropshipperEmail = `ds-created-${suffix}@example.test`;
+    const createDs = await request(app)
+      .post("/api/admin/users/create")
+      .set(adminAuth)
+      .send({
+        name: "Created Dropshipper",
+        email: dropshipperEmail,
+        password: "dropspass12!",
+        role: "dropshipper",
+        accessType: "RESTRICTED",
+        allowWarehouseAccess: false,
+        sendWelcomeEmail: false,
+      });
+    expect(createDs.status).toBe(201);
+    expect(createDs.body.user.role).toBe("dropshipper");
+
+    const list = await request(app).get("/api/admin/users?role=vendor").set(adminAuth);
+    expect(list.status).toBe(200);
+    expect(list.body.items.some((u: { email: string }) => u.email === vendorEmail.toLowerCase())).toBe(true);
+
+    const vendorLogin = await request(app).post("/api/auth/login").send({ email: vendorEmail, password: vendorPass });
+    expect(vendorLogin.status).toBe(200);
+    expect(vendorLogin.body.user.role).toBe("vendor");
+
+    const dsLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: dropshipperEmail, password: "dropspass12!" });
+    expect(dsLogin.status).toBe(200);
+    expect(dsLogin.body.user.role).toBe("dropshipper");
+    expect(dsLogin.body.user.dropshipperAccessType).toBe("RESTRICTED");
+
+    const vendorToken = vendorLogin.body.token as string;
+    const forbidden = await request(app)
+      .post("/api/admin/users/create")
+      .set({ Authorization: `Bearer ${vendorToken}` })
+      .send({
+        name: "Hacker",
+        email: `hack-${suffix}@example.test`,
+        password: "hackpass12!",
+        role: "admin",
+      });
+    expect(forbidden.status).toBe(403);
+
+    const userId = createVendor.body.user.id as string;
+    const reset = await request(app)
+      .post(`/api/admin/users/${userId}/reset-password`)
+      .set(adminAuth)
+      .send({ newPassword: "newvendor12!" });
+    expect(reset.status).toBe(200);
+
+    const oldLogin = await request(app).post("/api/auth/login").send({ email: vendorEmail, password: vendorPass });
+    expect(oldLogin.status).toBe(401);
+
+    const newLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: vendorEmail, password: "newvendor12!" });
+    expect(newLogin.status).toBe(200);
+  });
 });

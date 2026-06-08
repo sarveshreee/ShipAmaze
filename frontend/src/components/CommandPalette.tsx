@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Search,
   User,
+  UserCog,
   MapPin,
   Shield,
 } from "lucide-react";
@@ -36,6 +37,7 @@ const pages = [
   { label: "Couriers", path: "/admin/couriers", icon: Truck },
   { label: "Dropshippers", path: "/admin/dropshippers", icon: Users },
   { label: "Vendors", path: "/admin/vendors", icon: Warehouse },
+  { label: "Users", path: "/admin/users", icon: UserCog },
   { label: "Catalogue", path: "/admin/catalogue", icon: ShoppingBag },
   { label: "Approvals", path: "/admin/approvals", icon: Shield },
   { label: "Finance", path: "/admin/finance", icon: IndianRupee },

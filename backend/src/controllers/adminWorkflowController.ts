@@ -1,12 +1,16 @@
 import type { Response } from "express";
+import bcrypt from "bcryptjs";
+import { z } from "zod";
 import type { AuthRequest } from "../middleware/authMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { Product } from "../models/Product.js";
+import { Profile } from "../models/Profile.js";
 import { Vendor } from "../models/Vendor.js";
 import { Dropshipper } from "../models/Dropshipper.js";
-import { User } from "../models/User.js";
+import { User, type UserRole } from "../models/User.js";
 import { Wallet } from "../models/Wallet.js";
+import { sendWelcomeEmail } from "../services/email/emailService.js";
 import { Order } from "../models/Order.js";
 import { ShopifyStoreConnection } from "../models/ShopifyStoreConnection.js";
 import { SupportTicket, type SupportTicketPriority, type SupportTicketStatus } from "../models/SupportTicket.js";
@@ -31,6 +35,242 @@ export const adminListAdminUsers = asyncHandler(async (req: AuthRequest, res: Re
       email: u.email,
     }))
   );
+});
+
+const ADMIN_USER_ROLES = ["admin", "vendor", "dropshipper"] as const;
+
+const adminCreateUserSchema = z.object({
+  name: z.string().min(1, "Full name is required").max(120),
+  email: z.string().min(1, "Email is required").email("Invalid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  role: z.enum(ADMIN_USER_ROLES),
+  companyName: z.string().max(200).optional(),
+  phone: z.string().max(30).optional(),
+  status: z.enum(["active", "inactive"]).optional(),
+  permissions: z.array(z.string().max(80)).max(50).optional(),
+  sendWelcomeEmail: z.boolean().optional(),
+  accessType: z.enum(["FULL", "RESTRICTED"]).optional(),
+  allowWarehouseAccess: z.boolean().optional(),
+});
+
+const adminPatchUserSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  phone: z.string().max(30).optional(),
+  companyName: z.string().max(200).optional(),
+  status: z.enum(["active", "inactive", "blocked"]).optional(),
+  permissions: z.array(z.string().max(80)).max(50).optional(),
+  accessType: z.enum(["FULL", "RESTRICTED"]).optional(),
+  allowWarehouseAccess: z.boolean().optional(),
+});
+
+const adminResetPasswordSchema = z.object({
+  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+function mapAdminUserRow(u: {
+  _id: unknown;
+  name: string;
+  email: string;
+  role: string;
+  companyName?: string;
+  phone?: string;
+  status: string;
+  permissions?: string[];
+  emailVerified?: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+}) {
+  return {
+    id: String(u._id),
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    companyName: u.companyName ?? "",
+    phone: u.phone ?? "",
+    status: u.status,
+    permissions: u.permissions ?? [],
+    emailVerified: u.emailVerified !== false,
+    createdAt: u.createdAt,
+    updatedAt: u.updatedAt,
+  };
+}
+
+async function createRoleSideRecords(
+  user: { _id: unknown; role: UserRole; name: string; companyName?: string },
+  opts?: { accessType?: "FULL" | "RESTRICTED"; allowWarehouseAccess?: boolean }
+) {
+  await Profile.create({ userId: user._id });
+  await Wallet.create({ userId: user._id, balance: 0, currency: "INR" });
+
+  if (user.role === "vendor") {
+    await Vendor.create({
+      userId: user._id,
+      name: user.companyName || user.name,
+      city: "",
+      pin: "",
+      assignedVendors: 0,
+      ordersToday: 0,
+      status: "Active",
+    });
+  } else if (user.role === "dropshipper") {
+    const accessType = opts?.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL";
+    const allowWarehouseAccess =
+      typeof opts?.allowWarehouseAccess === "boolean"
+        ? opts.allowWarehouseAccess
+        : accessType !== "RESTRICTED";
+    await Dropshipper.create({
+      userId: user._id,
+      totalOrders: 0,
+      activeOrders: 0,
+      kycVerified: false,
+      joinDate: new Date(),
+      accessType,
+      allowWarehouseAccess,
+    });
+  }
+}
+
+/** Admin: create user with any role (admin, vendor, dropshipper). */
+export const adminCreateUser = asyncHandler(async (req: AuthRequest, res: Response) => {
+  assertAdmin(req);
+  const body = adminCreateUserSchema.parse(req.body);
+  const email = body.email.trim().toLowerCase();
+
+  const exists = await User.findOne({ email });
+  if (exists) throw new AppError(409, "This email is already registered");
+
+  const passwordHash = await bcrypt.hash(body.password, 10);
+  const user = await User.create({
+    name: body.name.trim(),
+    email,
+    passwordHash,
+    role: body.role,
+    companyName: body.companyName?.trim() ?? "",
+    phone: body.phone?.trim() ?? "",
+    permissions: body.permissions ?? [],
+    status: body.status ?? "active",
+    emailVerified: true,
+  });
+
+  await createRoleSideRecords(user, {
+    accessType: body.accessType,
+    allowWarehouseAccess: body.allowWarehouseAccess,
+  });
+
+  if (body.sendWelcomeEmail !== false) {
+    void sendWelcomeEmail(user.email, user.name, user.role);
+  }
+
+  res.status(201).json({ user: mapAdminUserRow(user) });
+});
+
+/** Admin: list all users with search, role/status filters, pagination. */
+export const adminListUsers = asyncHandler(async (req: AuthRequest, res: Response) => {
+  assertAdmin(req);
+  const { page, limit, skip } = parsePagination(req);
+  const search = String(req.query.search ?? "").trim();
+  const role = String(req.query.role ?? "").trim();
+  const status = String(req.query.status ?? "").trim();
+
+  const q: Record<string, unknown> = {};
+  if (role && ADMIN_USER_ROLES.includes(role as (typeof ADMIN_USER_ROLES)[number])) {
+    q.role = role;
+  }
+  if (status === "active" || status === "inactive" || status === "blocked") {
+    q.status = status;
+  }
+  if (search) {
+    const rx = escapeRegex(search);
+    q.$or = [
+      { name: { $regex: rx, $options: "i" } },
+      { email: { $regex: rx, $options: "i" } },
+      { companyName: { $regex: rx, $options: "i" } },
+      { phone: { $regex: rx, $options: "i" } },
+    ];
+  }
+
+  const [rows, total] = await Promise.all([
+    User.find(q).select("-passwordHash").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    User.countDocuments(q),
+  ]);
+
+  res.json({
+    items: rows.map((u) => mapAdminUserRow(u)),
+    total,
+    page,
+    limit,
+  });
+});
+
+/** Admin: get single user by id. */
+export const adminGetUser = asyncHandler(async (req: AuthRequest, res: Response) => {
+  assertAdmin(req);
+  const id = req.params.id;
+  if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
+  const u = await User.findById(id).select("-passwordHash").lean();
+  if (!u) throw new AppError(404, "User not found");
+
+  let dropshipperMeta: { accessType: string; allowWarehouseAccess: boolean } | null = null;
+  if (u.role === "dropshipper") {
+    const d = await Dropshipper.findOne({ userId: u._id }).select("accessType allowWarehouseAccess").lean();
+    if (d) {
+      dropshipperMeta = {
+        accessType: d.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL",
+        allowWarehouseAccess:
+          typeof d.allowWarehouseAccess === "boolean"
+            ? d.allowWarehouseAccess
+            : d.accessType !== "RESTRICTED",
+      };
+    }
+  }
+
+  res.json({ user: { ...mapAdminUserRow(u), dropshipper: dropshipperMeta } });
+});
+
+/** Admin: update user fields (name, status, permissions, etc.). */
+export const adminPatchUser = asyncHandler(async (req: AuthRequest, res: Response) => {
+  assertAdmin(req);
+  const id = req.params.id;
+  if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
+  const body = adminPatchUserSchema.parse(req.body);
+
+  const user = await User.findById(id);
+  if (!user) throw new AppError(404, "User not found");
+
+  if (body.name !== undefined) user.name = body.name.trim();
+  if (body.phone !== undefined) user.phone = body.phone.trim();
+  if (body.companyName !== undefined) user.companyName = body.companyName.trim();
+  if (body.status !== undefined) user.status = body.status;
+  if (body.permissions !== undefined) user.permissions = body.permissions;
+
+  await user.save();
+
+  if (user.role === "dropshipper" && (body.accessType !== undefined || body.allowWarehouseAccess !== undefined)) {
+    const d = await Dropshipper.findOne({ userId: user._id });
+    if (d) {
+      if (body.accessType === "FULL" || body.accessType === "RESTRICTED") d.accessType = body.accessType;
+      if (typeof body.allowWarehouseAccess === "boolean") d.allowWarehouseAccess = body.allowWarehouseAccess;
+      await d.save();
+    }
+  }
+
+  res.json({ user: mapAdminUserRow(user) });
+});
+
+/** Admin: reset a user's password. */
+export const adminResetUserPassword = asyncHandler(async (req: AuthRequest, res: Response) => {
+  assertAdmin(req);
+  const id = req.params.id;
+  if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
+  const body = adminResetPasswordSchema.parse(req.body);
+
+  const user = await User.findById(id);
+  if (!user) throw new AppError(404, "User not found");
+
+  user.passwordHash = await bcrypt.hash(body.newPassword, 10);
+  await user.save();
+
+  res.json({ ok: true, message: "Password updated successfully" });
 });
 
 function parsePagination(req: { query: Record<string, unknown> }) {

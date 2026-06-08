@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, ChevronRight,
+  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, UserCog, ChevronRight,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from "lucide-react";
@@ -55,6 +55,7 @@ const adminNav: NavGroup[] = [
     { label: "Couriers", icon: Truck, path: "/admin/couriers" },
     { label: "Dropshippers", icon: Users, path: "/admin/dropshippers" },
     { label: "Vendors", icon: Warehouse, path: "/admin/vendors" },
+    { label: "Users", icon: UserCog, path: "/admin/users" },
     { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue" },
     { label: "Approvals", icon: ClipboardList, path: "/admin/approvals" },
     { label: "Pincode Check", icon: MapPin, path: "/admin/pincode" },

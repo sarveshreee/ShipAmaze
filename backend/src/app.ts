@@ -237,6 +237,22 @@ export function createApp() {
     adminWorkflowController.adminListAdminUsers
   );
 
+  api.post(
+    "/admin/users/create",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminCreateUser
+  );
+  api.get("/admin/users", authMiddleware, requireRoles("admin"), adminWorkflowController.adminListUsers);
+  api.get("/admin/users/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminGetUser);
+  api.patch("/admin/users/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminPatchUser);
+  api.post(
+    "/admin/users/:id/reset-password",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminResetUserPassword
+  );
+
   api.get("/admin/vendors", authMiddleware, requireRoles("admin"), adminWorkflowController.adminListVendors);
   api.get("/admin/vendors/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminGetVendor);
   api.patch("/admin/vendors/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminPatchVendor);

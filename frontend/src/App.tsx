@@ -47,6 +47,7 @@ import VendorCatalogue from "@/pages/vendor/VendorCatalogue";
 import VendorPayouts from "@/pages/vendor/VendorPayouts";
 import VendorWarehouse from "@/pages/vendor/VendorWarehouse";
 import AdminPermissions from "@/pages/admin/AdminPermissions";
+import AdminUsers from "@/pages/admin/AdminUsers";
 
 // Dropshipper
 import DropshipperDashboard from "@/pages/dropshipper/DropshipperDashboard";
@@ -164,6 +165,7 @@ function AppRoutes() {
       <Route path="/admin/support" element={<RoleProtectedRoute allow={["admin"]}><AdminSupport /></RoleProtectedRoute>} />
       <Route path="/admin/settings" element={<RoleProtectedRoute allow={["admin"]}><AdminSettings /></RoleProtectedRoute>} />
       <Route path="/admin/permissions" element={<RoleProtectedRoute allow={["admin"]}><AdminPermissions /></RoleProtectedRoute>} />
+      <Route path="/admin/users" element={<RoleProtectedRoute allow={["admin"]}><AdminUsers /></RoleProtectedRoute>} />
       <Route path="/admin/profile" element={<RoleProtectedRoute allow={["admin"]}><ProfilePage /></RoleProtectedRoute>} />
       <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
 
