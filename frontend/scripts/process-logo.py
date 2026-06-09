@@ -9,11 +9,6 @@ original = Image.open(source).convert("RGBA")
 original.save(root / "logo-card.png", optimize=True)
 original.save(root / "shipamaze-logo-with-bg.png", optimize=True)
 
-# Sidebar icon — square crop from top-left, cream/white background intact
-ow, oh = original.size
-side = int(min(ow, oh) * 0.32)
-original.crop((0, 0, side, side)).save(root / "logo-sidebar-mark.png", optimize=True)
-
 # Transparent purple logo for light-mode headers
 src = original.copy()
 pixels = list(src.getdata())

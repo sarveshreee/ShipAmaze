@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/contexts/ThemeContext";
-import { LOGO_DARK, LOGO_LIGHT, LOGO_SIDEBAR_MARK } from "@/lib/brandAssets";
+import { LOGO_CARD, LOGO_DARK, LOGO_LIGHT } from "@/lib/brandAssets";
 
 /** Where the logo is rendered — controls asset + sizing. */
 export type LogoPlacement = "sidebar" | "header" | "marketplace" | "auth-hero" | "auth-form" | "loading";
@@ -30,20 +30,13 @@ export function ShipAmazeLogo({
 
   if (placement === "sidebar") {
     return (
-      <div
-        className={cn(
-          "flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#faf8f5]",
-          className,
-        )}
-      >
-        <img
-          src={LOGO_SIDEBAR_MARK}
-          alt={alt}
-          className="h-full w-full object-contain object-center"
-          decoding="async"
-          draggable={false}
-        />
-      </div>
+      <img
+        src={LOGO_CARD}
+        alt={alt}
+        className={cn("h-10 w-10 shrink-0 rounded-md object-contain", className)}
+        decoding="async"
+        draggable={false}
+      />
     );
   }
 
