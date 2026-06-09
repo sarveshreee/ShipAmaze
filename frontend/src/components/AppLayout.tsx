@@ -12,7 +12,7 @@ import {
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from "lucide-react";
-import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
+import { ShipAmazeLogo, SidebarBrand } from "@/components/brand/ShipAmazeLogo";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
@@ -404,20 +404,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         >
           <div
             className={cn(
-              "relative flex shrink-0 items-center border-b border-sidebar-border/80",
-              isDesktopCollapsed ? "h-[60px] justify-center px-2" : "h-[60px] gap-2 px-3",
+              "relative flex shrink-0 items-center gap-2 border-b border-sidebar-border/80",
+              isDesktopCollapsed ? "h-[60px] justify-center px-2" : "h-[60px] px-3",
             )}
           >
             <Link
               to={homePath}
               onClick={() => setSidebarOpen(false)}
               className={cn(
-                "flex min-w-0 items-center justify-center transition-opacity hover:opacity-90",
-                isDesktopCollapsed ? "w-full" : "flex-1",
+                "flex min-w-0 items-center transition-opacity hover:opacity-90",
+                isDesktopCollapsed ? "justify-center" : "flex-1 overflow-hidden",
               )}
               title="ShipAmaze"
             >
-              <ShipAmazeLogo placement="sidebar" />
+              <SidebarBrand showText={!isDesktopCollapsed} />
             </Link>
 
             <button

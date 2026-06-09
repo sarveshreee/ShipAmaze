@@ -6,8 +6,6 @@ import { LOGO_CARD, LOGO_DARK, LOGO_LIGHT } from "@/lib/brandAssets";
 export type LogoPlacement = "sidebar" | "header" | "marketplace" | "auth-hero" | "auth-form" | "loading";
 
 const placementClasses: Record<LogoPlacement, string> = {
-  /** Location #1 — sidebar brand card, background preserved */
-  sidebar: "h-12 w-auto max-w-[210px] object-contain",
   /** Location #2 — top navbar beside hamburger */
   header: "h-8 w-auto max-w-[260px] sm:h-9 sm:max-w-[300px] md:max-w-[340px] object-contain object-left",
   /** Location #3 — marketplace sub-header */
@@ -32,20 +30,13 @@ export function ShipAmazeLogo({
 
   if (placement === "sidebar") {
     return (
-      <div
-        className={cn(
-          "flex shrink-0 items-center justify-center overflow-hidden rounded-lg",
-          className,
-        )}
-      >
-        <img
-          src={LOGO_CARD}
-          alt={alt}
-          className={placementClasses.sidebar}
-          decoding="async"
-          draggable={false}
-        />
-      </div>
+      <img
+        src={LOGO_CARD}
+        alt={alt}
+        className={cn("h-10 w-10 shrink-0 rounded-md object-contain", className)}
+        decoding="async"
+        draggable={false}
+      />
     );
   }
 
@@ -64,5 +55,19 @@ export function ShipAmazeLogo({
       decoding="async"
       draggable={false}
     />
+  );
+}
+
+/** Sidebar header: [Logo] ShipAmaze — logo with background + brand text when expanded. */
+export function SidebarBrand({ showText = true, className }: { showText?: boolean; className?: string }) {
+  return (
+    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
+      <ShipAmazeLogo placement="sidebar" />
+      {showText && (
+        <span className="truncate text-[15px] font-semibold tracking-tight text-slate-50 dark:text-white">
+          ShipAmaze
+        </span>
+      )}
+    </div>
   );
 }
