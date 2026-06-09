@@ -4,20 +4,36 @@ from pathlib import Path
 root = Path(__file__).resolve().parent.parent / "public" / "brand"
 source = Path(__file__).resolve().parent / "assets" / "shipamaze-logo-source.png"
 original = Image.open(source).convert("RGBA")
+
+# Location #1 — sidebar card logo (original background preserved)
+original.save(root / "logo-card.png", optimize=True)
 original.save(root / "shipamaze-logo-with-bg.png", optimize=True)
 
+# Transparent purple logo for light-mode headers
 src = original.copy()
-data = src.getdata()
-new = []
-for r, g, b, a in data:
+pixels = list(src.getdata())
+transparent = []
+for r, g, b, a in pixels:
     if r > 210 and g > 205 and b > 195:
-        new.append((r, g, b, 0))
+        transparent.append((r, g, b, 0))
     elif r > 235 and g > 235 and b > 235:
-        new.append((r, g, b, 0))
+        transparent.append((r, g, b, 0))
     else:
-        new.append((r, g, b, 255))
-src.putdata(new)
+        transparent.append((r, g, b, 255))
+src.putdata(transparent)
+src.save(root / "logo-light.png", optimize=True)
 src.save(root / "shipamaze-logo.png", optimize=True)
+
+# White logo for dark-mode headers (transparent background)
+dark_pixels = []
+for r, g, b, a in transparent:
+    if a > 0:
+        dark_pixels.append((255, 255, 255, a))
+    else:
+        dark_pixels.append((0, 0, 0, 0))
+logo_dark = Image.new("RGBA", src.size)
+logo_dark.putdata(dark_pixels)
+logo_dark.save(root / "logo-dark.png", optimize=True)
 
 icon_base = src.copy()
 icon_base.thumbnail((512, 512), Image.Resampling.LANCZOS)
@@ -36,7 +52,7 @@ for size, name in [
     canvas.save(root / name, optimize=True)
 
 og = Image.new("RGBA", (1200, 630), (248, 246, 242, 255))
-logo_og = Image.open(root / "shipamaze-logo.png").convert("RGBA")
+logo_og = Image.open(root / "logo-light.png").convert("RGBA")
 logo_og.thumbnail((900, 380), Image.Resampling.LANCZOS)
 x = (1200 - logo_og.width) // 2
 y = (630 - logo_og.height) // 2

@@ -92,7 +92,7 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10 text-center max-w-md animate-fade-in-up">
-          <ShipAmazeLogo size="hero" variant="onDark" className="mx-auto mb-6" />
+          <ShipAmazeLogo placement="auth-hero" className="mx-auto mb-6" />
           <p className="text-lg text-white/70 mb-8">Logistics and marketplace operations</p>
         </div>
       </div>
@@ -100,7 +100,7 @@ export default function LoginPage() {
       <div className="flex w-full lg:w-1/2 items-center justify-center p-6 bg-background">
         <div className="w-full max-w-[420px] animate-fade-in-up">
           <div className="mb-8 flex flex-col items-center text-center lg:hidden">
-            <ShipAmazeLogo size="large" className="mb-3" />
+            <ShipAmazeLogo placement="auth-form" className="mb-3" />
             <p className="text-sm text-text-muted">Sign in with your account</p>
           </div>
 

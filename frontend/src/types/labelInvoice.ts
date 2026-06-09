@@ -1,4 +1,4 @@
-import { BRAND_LOGO } from "@/lib/brandAssets";
+import { LOGO_LIGHT } from "@/lib/brandAssets";
 
 export type LabelSizePreset = "4x6" | "A6" | "A5";
 
@@ -34,7 +34,7 @@ export type LabelInvoiceSettings = {
 export const DEFAULT_LABEL_INVOICE_SETTINGS: LabelInvoiceSettings = {
   companyName: "",
   address: "",
-  logoUrl: BRAND_LOGO,
+  logoUrl: LOGO_LIGHT,
   gstAddress: "",
   returnAddress: "",
   returnMobile: "",

@@ -78,7 +78,7 @@ export default function ForgotPasswordPage() {
           background: "linear-gradient(135deg, hsl(var(--color-primary-dark)), hsl(var(--color-tertiary-dark)))",
         }}
       >
-        <ShipAmazeLogo size="large" variant="onDark" className="mb-4" />
+        <ShipAmazeLogo placement="auth-hero" className="mb-4" />
         <p className="text-white/70 text-sm mt-2 text-center max-w-xs">Reset your password with a one-time email code</p>
       </div>
 

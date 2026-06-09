@@ -105,7 +105,7 @@ export default function VerifyEmailPage() {
           background: "linear-gradient(135deg, hsl(var(--color-primary-dark)), hsl(var(--color-tertiary-dark)))",
         }}
       >
-        <ShipAmazeLogo size="large" variant="onDark" className="mb-4" />
+        <ShipAmazeLogo placement="auth-hero" className="mb-4" />
         <p className="text-white/70 text-sm mt-2 text-center max-w-xs">Verify your email to activate your account</p>
         <div className="mt-8 space-y-3 text-white/80 text-sm max-w-xs">
           <p className="flex items-center gap-2">

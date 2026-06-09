@@ -48,7 +48,7 @@ export default function MarketplaceHome() {
       {/* Marketplace top bar */}
       <div className="flex flex-wrap items-center gap-3 bg-card rounded-xl border p-3">
         <Link to={`/${role}/home`} className="flex items-center gap-2 shrink-0">
-          <ShipAmazeLogo size="compact" className="max-w-[120px] sm:max-w-[140px]" />
+          <ShipAmazeLogo placement="marketplace" />
           <span className="hidden sm:inline text-xs font-normal text-muted-foreground border-l pl-2 ml-1">B2B Marketplace</span>
         </Link>
         <div className="flex-1 min-w-[200px] relative">

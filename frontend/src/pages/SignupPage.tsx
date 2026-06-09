@@ -92,7 +92,7 @@ export default function SignupPage() {
           </svg>
         </div>
         <div className="relative z-10 text-center max-w-md animate-fade-in-up">
-          <ShipAmazeLogo size="hero" variant="onDark" className="mx-auto mb-6" />
+          <ShipAmazeLogo placement="auth-hero" className="mx-auto mb-6" />
           <p className="text-lg text-white/70 mb-8">Start shipping smarter today</p>
           <div className="space-y-3 text-left text-white/60 text-sm">
             {[
@@ -112,7 +112,7 @@ export default function SignupPage() {
       <div className="flex w-full lg:w-1/2 items-center justify-center p-6 bg-background">
         <div className="w-full max-w-[420px] animate-fade-in-up">
           <div className="mb-6 flex flex-col items-center text-center lg:hidden">
-            <ShipAmazeLogo size="large" className="mb-3" />
+            <ShipAmazeLogo placement="auth-form" className="mb-3" />
           </div>
 
           <div className="mb-6">

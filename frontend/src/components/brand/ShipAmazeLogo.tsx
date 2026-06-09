@@ -1,51 +1,66 @@
 import { cn } from "@/lib/utils";
-import { BRAND_LOGO, BRAND_LOGO_MARK, BRAND_LOGO_WITH_BG } from "@/lib/brandAssets";
+import { useTheme } from "@/contexts/ThemeContext";
+import { LOGO_CARD, LOGO_DARK, LOGO_LIGHT } from "@/lib/brandAssets";
 
-type LogoSize = "mark" | "compact" | "sidebar" | "default" | "large" | "hero";
-type LogoVariant = "default" | "onDark" | "withBackground";
+/** Where the logo is rendered — controls asset + sizing. */
+export type LogoPlacement = "sidebar" | "header" | "marketplace" | "auth-hero" | "auth-form" | "loading";
 
-const sizeClasses: Record<LogoSize, string> = {
-  mark: "h-8 w-8",
-  /** Navbar / mobile header — wide enough to show full ShipAmaze wordmark */
-  compact: "h-9 w-auto max-w-[200px] sm:h-10 sm:max-w-[240px]",
-  /** Sidebar — full wordmark + tagline visible, cream background preserved */
-  sidebar: "h-11 w-auto max-w-[220px]",
-  default: "h-10 w-auto max-w-[240px]",
-  large: "h-14 w-auto max-w-[280px]",
-  hero: "h-20 w-auto max-w-[360px] sm:h-24 sm:max-w-[420px]",
+const placementClasses: Record<LogoPlacement, string> = {
+  /** Location #1 — sidebar brand card, background preserved */
+  sidebar: "h-12 w-auto max-w-[210px] object-contain",
+  /** Location #2 — top navbar beside hamburger */
+  header: "h-8 w-auto max-w-[260px] sm:h-9 sm:max-w-[300px] md:max-w-[340px] object-contain object-left",
+  /** Location #3 — marketplace sub-header */
+  marketplace: "h-7 w-auto max-w-[220px] sm:h-8 sm:max-w-[280px] md:max-w-[320px] object-contain object-left",
+  "auth-hero": "h-20 w-auto max-w-[360px] sm:h-24 sm:max-w-[420px] object-contain",
+  "auth-form": "h-14 w-auto max-w-[280px] object-contain",
+  loading: "h-14 w-auto max-w-[280px] object-contain",
 };
 
 interface ShipAmazeLogoProps {
-  size?: LogoSize;
-  variant?: LogoVariant;
+  placement?: LogoPlacement;
   className?: string;
   alt?: string;
 }
 
 export function ShipAmazeLogo({
-  size = "default",
-  variant = "default",
+  placement = "header",
   className,
   alt = "ShipAmaze",
 }: ShipAmazeLogoProps) {
-  const src =
-    size === "mark"
-      ? BRAND_LOGO_MARK
-      : variant === "withBackground"
-        ? BRAND_LOGO_WITH_BG
-        : BRAND_LOGO;
+  const { theme } = useTheme();
+
+  if (placement === "sidebar") {
+    return (
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-center overflow-hidden rounded-lg",
+          className,
+        )}
+      >
+        <img
+          src={LOGO_CARD}
+          alt={alt}
+          className={placementClasses.sidebar}
+          decoding="async"
+          draggable={false}
+        />
+      </div>
+    );
+  }
+
+  const useDarkLogo =
+    placement === "auth-hero" ||
+    (theme === "dark" && (placement === "header" || placement === "marketplace"));
+
+  const src = useDarkLogo ? LOGO_DARK : LOGO_LIGHT;
+  const imgClass = placementClasses[placement];
 
   return (
     <img
       src={src}
       alt={alt}
-      className={cn(
-        "object-contain object-left select-none",
-        sizeClasses[size],
-        variant === "onDark" && "brightness-0 invert",
-        variant === "withBackground" && "rounded-md",
-        className,
-      )}
+      className={cn("select-none", imgClass, className)}
       decoding="async"
       draggable={false}
     />

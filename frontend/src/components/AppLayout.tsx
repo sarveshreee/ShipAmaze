@@ -412,16 +412,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               to={homePath}
               onClick={() => setSidebarOpen(false)}
               className={cn(
-                "flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-90",
-                isDesktopCollapsed ? "justify-center" : "flex-1",
+                "flex min-w-0 items-center justify-center transition-opacity hover:opacity-90",
+                isDesktopCollapsed ? "w-full" : "flex-1",
               )}
-              title={isDesktopCollapsed ? "ShipAmaze" : undefined}
+              title="ShipAmaze"
             >
-              <ShipAmazeLogo
-                size={isDesktopCollapsed ? "compact" : "sidebar"}
-                variant="withBackground"
-                className={isDesktopCollapsed ? "max-w-[180px]" : "max-w-[220px]"}
-              />
+              <ShipAmazeLogo placement="sidebar" />
             </Link>
 
             <button
@@ -698,9 +694,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <Link
               to={homePath}
               onClick={() => setSidebarOpen(false)}
-              className="flex min-w-0 items-center transition-opacity hover:opacity-90"
+              className="flex min-w-0 max-w-[min(100%,340px)] shrink items-center transition-opacity hover:opacity-90"
             >
-              <ShipAmazeLogo size="compact" variant="withBackground" />
+              <ShipAmazeLogo placement="header" />
             </Link>
           </div>
 
@@ -714,8 +710,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               >
                 <Menu className="h-5 w-5" />
               </button>
-              <Link to={homePath} className="flex min-w-0 items-center transition-opacity hover:opacity-90">
-                <ShipAmazeLogo size="compact" variant="withBackground" />
+              <Link
+                to={homePath}
+                className="flex min-w-0 max-w-[min(100%,340px)] shrink items-center transition-opacity hover:opacity-90"
+              >
+                <ShipAmazeLogo placement="header" />
               </Link>
             </div>
           )}
