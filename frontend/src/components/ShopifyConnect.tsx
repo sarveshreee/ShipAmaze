@@ -13,7 +13,9 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
+  Check,
   CheckCircle2,
+  Copy,
   Link2,
   Link2Off,
   RefreshCw,
@@ -45,6 +47,55 @@ function errMsg(err: unknown): string {
   }
   if (err instanceof Error) return err.message;
   return "Something went wrong";
+}
+
+const SHOPIFY_REDIRECT_URI = "https://api.shipamaze.com/api/shopify/callback";
+const SHOPIFY_APP_URL = "https://shipamaze.com";
+
+function SetupUrlCopyRow({ label, url }: { label: string; url: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      toast.success("Copied!");
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Could not copy");
+    }
+  };
+
+  return (
+    <div className="flex-1 min-w-0 space-y-1.5">
+      <span className="block font-medium text-text-secondary">{label}</span>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+        <code className="flex-1 min-w-0 rounded-md border border-border bg-muted/60 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-text-primary break-all dark:bg-muted/30">
+          {url}
+        </code>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void handleCopy()}
+          className="shrink-0 gap-1.5 self-start sm:self-stretch sm:px-3"
+          aria-label={`Copy ${label}`}
+        >
+          {copied ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-success" />
+              <span className="text-xs">Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              <span className="text-xs">Copy</span>
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export default function ShopifyConnect() {
@@ -339,21 +390,25 @@ export default function ShopifyConnect() {
               </Button>
             </div>
 
-            <div className="rounded-lg border border-border bg-surface-2/40 p-4 space-y-2 text-sm text-text-muted">
+            <div className="rounded-lg border border-border bg-surface-2/40 p-4 space-y-3 text-sm text-text-muted">
               <p className="font-medium text-text-secondary">Setup (each merchant)</p>
-              <ol className="list-decimal list-inside space-y-1 text-xs">
-                <li>Shopify Admin → Settings → Apps → Develop apps → Create an app</li>
-                <li>
-                  Under <span className="font-medium">Allowed redirection URL(s)</span>, add:{" "}
-                  <span className="font-mono text-text-primary break-all">
-                    https://shipamaze-377l.onrender.com/api/shopify/callback
-                  </span>
+              <ol className="space-y-3 text-xs">
+                <li className="flex gap-2">
+                  <span className="font-medium text-text-secondary shrink-0">1.</span>
+                  <span>Shopify Admin → Settings → Apps → Develop apps → Create an app</span>
                 </li>
-                <li>
-                  Set <span className="font-medium">App URL</span> to:{" "}
-                  <span className="font-mono text-text-primary break-all">https://ship-amaze.vercel.app</span>
+                <li className="flex gap-2">
+                  <span className="font-medium text-text-secondary shrink-0">2.</span>
+                  <SetupUrlCopyRow label="Redirect URI" url={SHOPIFY_REDIRECT_URI} />
                 </li>
-                <li>Copy Client ID and Client secret here, then connect</li>
+                <li className="flex gap-2">
+                  <span className="font-medium text-text-secondary shrink-0">3.</span>
+                  <SetupUrlCopyRow label="App URL" url={SHOPIFY_APP_URL} />
+                </li>
+                <li className="flex gap-2">
+                  <span className="font-medium text-text-secondary shrink-0">4.</span>
+                  <span>Copy Client ID and Client Secret, then connect</span>
+                </li>
               </ol>
             </div>
           </div>
