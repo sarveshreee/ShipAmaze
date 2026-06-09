@@ -3,6 +3,9 @@
 /** Sidebar card — original logo with cream/white background (Location #1). */
 export const LOGO_CARD = "/brand/logo-card.png";
 
+/** Sidebar icon — left mark from original, white/cream background preserved. */
+export const LOGO_SIDEBAR_MARK = "/brand/logo-sidebar-mark.png";
+
 /** Transparent purple logo for light-mode headers (Locations #2, #3). */
 export const LOGO_LIGHT = "/brand/logo-light.png";
 
