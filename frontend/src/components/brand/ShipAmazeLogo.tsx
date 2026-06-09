@@ -1,9 +1,9 @@
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/contexts/ThemeContext";
-import { LOGO_CARD, LOGO_DARK, LOGO_LIGHT } from "@/lib/brandAssets";
+import { LOGO_DARK, LOGO_LIGHT } from "@/lib/brandAssets";
 
 /** Where the logo is rendered — controls asset + sizing. */
-export type LogoPlacement = "sidebar" | "header" | "marketplace" | "auth-hero" | "auth-form" | "loading";
+export type LogoPlacement = "header" | "marketplace" | "auth-hero" | "auth-form" | "loading";
 
 const placementClasses: Record<LogoPlacement, string> = {
   /** Location #2 — top navbar beside hamburger */
@@ -28,18 +28,6 @@ export function ShipAmazeLogo({
 }: ShipAmazeLogoProps) {
   const { theme } = useTheme();
 
-  if (placement === "sidebar") {
-    return (
-      <img
-        src={LOGO_CARD}
-        alt={alt}
-        className={cn("h-10 w-10 shrink-0 rounded-md object-contain", className)}
-        decoding="async"
-        draggable={false}
-      />
-    );
-  }
-
   const useDarkLogo =
     placement === "auth-hero" ||
     (theme === "dark" && (placement === "header" || placement === "marketplace"));
@@ -55,19 +43,5 @@ export function ShipAmazeLogo({
       decoding="async"
       draggable={false}
     />
-  );
-}
-
-/** Sidebar header: [Logo] ShipAmaze — logo with background + brand text when expanded. */
-export function SidebarBrand({ showText = true, className }: { showText?: boolean; className?: string }) {
-  return (
-    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
-      <ShipAmazeLogo placement="sidebar" />
-      {showText && (
-        <span className="truncate text-[15px] font-semibold tracking-tight text-slate-50 dark:text-white">
-          ShipAmaze
-        </span>
-      )}
-    </div>
   );
 }
