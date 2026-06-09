@@ -284,7 +284,7 @@ export default function AdminSettings() {
               previewDevice === 'mobile' ? "max-w-[375px]" : "w-full")}>
               <div className="flex items-center gap-2 px-4 py-3 border-b" style={{ backgroundColor: branding.primaryColor }}>
                 {branding.logoUrl ? (
-                  <img src={branding.logoUrl} alt="Logo" className="h-6 w-6 rounded object-cover" />
+                  <img src={branding.logoUrl} alt="Logo" className="h-8 w-auto max-w-[120px] object-contain brightness-0 invert" />
                 ) : (
                   <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20">
                     <Package className="h-4 w-4 text-white" />
@@ -384,7 +384,7 @@ export default function AdminSettings() {
                 />
                 {liForm.logoUrl.startsWith("data:") || liForm.logoUrl.startsWith("http") ? (
                   <div className="mt-2 flex items-center gap-2">
-                    <img src={liForm.logoUrl} alt="Logo preview" className="h-10 w-auto max-w-[160px] object-contain border border-border rounded" />
+                    <img src={liForm.logoUrl} alt="Logo preview" className="h-10 w-auto max-w-[160px] object-contain" />
                   </div>
                 ) : null}
               </div>

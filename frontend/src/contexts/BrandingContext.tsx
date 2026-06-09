@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode } from "react";
+import { BRAND_LOGO } from "@/lib/brandAssets";
 
 export interface TrackingBranding {
   brandName: string;
@@ -15,7 +16,7 @@ export interface TrackingBranding {
 
 export const defaultBranding: TrackingBranding = {
   brandName: 'ShipAmaze',
-  logoUrl: '',
+  logoUrl: BRAND_LOGO,
   primaryColor: '#4F46E5',
   bgColor: '#F8FAFC',
   accentColor: '#10B981',

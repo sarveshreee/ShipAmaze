@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Truck, Package, MapPin, ArrowRight, Loader2 } from "lucide-react";
+import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
 import { toast } from "sonner";
 import { roleDashboardPath, resendEmailVerificationOtp } from "@/services/authService";
 import { ApiError } from "@/lib/apiClient";
@@ -91,10 +92,7 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10 text-center max-w-md animate-fade-in-up">
-          <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white/10 backdrop-blur-sm mx-auto mb-6 border border-white/20">
-            <Truck className="h-10 w-10 text-white" />
-          </div>
-          <h1 className="text-4xl font-bold text-white mb-3">ShipAmaze</h1>
+          <ShipAmazeLogo size="hero" variant="onDark" className="mx-auto mb-6" />
           <p className="text-lg text-white/70 mb-8">Logistics and marketplace operations</p>
         </div>
       </div>
@@ -102,10 +100,7 @@ export default function LoginPage() {
       <div className="flex w-full lg:w-1/2 items-center justify-center p-6 bg-background">
         <div className="w-full max-w-[420px] animate-fade-in-up">
           <div className="mb-8 flex flex-col items-center text-center lg:hidden">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground mb-3">
-              <Truck className="h-7 w-7" />
-            </div>
-            <h1 className="text-2xl font-bold text-text-primary">ShipAmaze</h1>
+            <ShipAmazeLogo size="large" className="mb-3" />
             <p className="text-sm text-text-muted">Sign in with your account</p>
           </div>
 

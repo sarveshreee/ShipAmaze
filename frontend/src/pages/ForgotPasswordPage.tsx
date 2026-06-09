@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, Loader2, Truck, ArrowLeft } from "lucide-react";
+import { Eye, EyeOff, Loader2, ArrowLeft } from "lucide-react";
+import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
 import { toast } from "sonner";
 import * as authService from "@/services/authService";
 import { ApiError } from "@/lib/apiClient";
@@ -77,8 +78,7 @@ export default function ForgotPasswordPage() {
           background: "linear-gradient(135deg, hsl(var(--color-primary-dark)), hsl(var(--color-tertiary-dark)))",
         }}
       >
-        <Truck className="h-12 w-12 text-white mb-4" />
-        <h1 className="text-2xl font-bold text-white">ShipAmaze</h1>
+        <ShipAmazeLogo size="large" variant="onDark" className="mb-4" />
         <p className="text-white/70 text-sm mt-2 text-center max-w-xs">Reset your password with a one-time email code</p>
       </div>
 

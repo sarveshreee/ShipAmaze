@@ -3,7 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Truck, ArrowLeft, MailCheck, ShieldCheck, AlertCircle } from "lucide-react";
+import { Loader2, ArrowLeft, MailCheck, ShieldCheck, AlertCircle } from "lucide-react";
+import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
 import { toast } from "sonner";
 import * as authService from "@/services/authService";
 import { ApiError } from "@/lib/apiClient";
@@ -104,8 +105,7 @@ export default function VerifyEmailPage() {
           background: "linear-gradient(135deg, hsl(var(--color-primary-dark)), hsl(var(--color-tertiary-dark)))",
         }}
       >
-        <Truck className="h-12 w-12 text-white mb-4" />
-        <h1 className="text-2xl font-bold text-white">ShipAmaze</h1>
+        <ShipAmazeLogo size="large" variant="onDark" className="mb-4" />
         <p className="text-white/70 text-sm mt-2 text-center max-w-xs">Verify your email to activate your account</p>
         <div className="mt-8 space-y-3 text-white/80 text-sm max-w-xs">
           <p className="flex items-center gap-2">

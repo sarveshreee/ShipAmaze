@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, ChevronLeft, ChevronRight, Truck, Wallet, Users } from "lucide-react";
+import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,9 +47,8 @@ export default function MarketplaceHome() {
     <div className="space-y-6 -mt-4 lg:-mt-6 -mx-4 lg:-mx-6 p-4 lg:p-6 bg-gradient-to-b from-primary/5 to-background min-h-full">
       {/* Marketplace top bar */}
       <div className="flex flex-wrap items-center gap-3 bg-card rounded-xl border p-3">
-        <Link to={`/${role}/home`} className="flex items-center gap-2 font-bold text-primary text-lg shrink-0">
-          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">S</div>
-          ShipAmaze
+        <Link to={`/${role}/home`} className="flex items-center gap-2 shrink-0">
+          <ShipAmazeLogo size="compact" className="max-w-[120px] sm:max-w-[140px]" />
           <span className="hidden sm:inline text-xs font-normal text-muted-foreground border-l pl-2 ml-1">B2B Marketplace</span>
         </Link>
         <div className="flex-1 min-w-[200px] relative">

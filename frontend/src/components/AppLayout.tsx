@@ -12,6 +12,7 @@ import {
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from "lucide-react";
+import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
@@ -416,14 +417,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               )}
               title={isDesktopCollapsed ? "ShipAmaze" : undefined}
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500 shadow-md shadow-indigo-900/30 dark:bg-indigo-600">
-                <Package className="h-4 w-4 text-white" />
-              </div>
-              {!isDesktopCollapsed && (
-                <span className="truncate text-lg font-bold tracking-tight text-slate-50 dark:text-white">
-                  ShipAmaze
-                </span>
-              )}
+              <ShipAmazeLogo
+                size={isDesktopCollapsed ? "mark" : "compact"}
+                variant="onDark"
+                className={isDesktopCollapsed ? "" : "max-w-[150px]"}
+              />
             </Link>
 
             <button
@@ -700,12 +698,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <Link
               to={homePath}
               onClick={() => setSidebarOpen(false)}
-              className="flex min-w-0 items-center gap-2 transition-opacity hover:opacity-90"
+              className="flex min-w-0 items-center transition-opacity hover:opacity-90"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 shadow-sm dark:bg-indigo-600">
-                <Package className="h-4 w-4 text-white" />
-              </div>
-              <span className="truncate text-base font-bold tracking-tight text-text-primary sm:text-lg">ShipAmaze</span>
+              <ShipAmazeLogo size="compact" className="max-w-[130px] sm:max-w-[150px]" />
             </Link>
           </div>
 
@@ -719,11 +714,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               >
                 <Menu className="h-5 w-5" />
               </button>
-              <Link to={homePath} className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-90">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 shadow-sm dark:bg-indigo-600">
-                  <Package className="h-4 w-4 text-white" />
-                </div>
-                <span className="truncate text-lg font-bold tracking-tight text-text-primary">ShipAmaze</span>
+              <Link to={homePath} className="flex min-w-0 items-center transition-opacity hover:opacity-90">
+                <ShipAmazeLogo size="compact" className="max-w-[150px]" />
               </Link>
             </div>
           )}

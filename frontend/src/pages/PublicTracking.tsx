@@ -463,13 +463,14 @@ export default function PublicTracking() {
         style={{ backgroundColor: branding.primaryColor }}
       >
         {branding.logoUrl ? (
-          <img src={branding.logoUrl} alt="Logo" className="h-7 w-7 rounded object-cover" />
+          <img
+            src={branding.logoUrl}
+            alt={branding.brandName}
+            className="h-8 w-auto max-w-[140px] object-contain brightness-0 invert"
+          />
         ) : (
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20">
-            <Package className="h-4 w-4 text-white" />
-          </div>
+          <span className="text-lg font-bold text-white">{branding.brandName}</span>
         )}
-        <span className="text-lg font-bold text-white">{branding.brandName}</span>
       </header>
 
       <main className="flex-1 flex justify-center p-4 sm:p-6 pt-10 pb-12">

@@ -1,3 +1,5 @@
+import { BRAND_LOGO } from "@/lib/brandAssets";
+
 export type LabelSizePreset = "4x6" | "A6" | "A5";
 
 export type LabelInvoiceSettings = {
@@ -32,7 +34,7 @@ export type LabelInvoiceSettings = {
 export const DEFAULT_LABEL_INVOICE_SETTINGS: LabelInvoiceSettings = {
   companyName: "",
   address: "",
-  logoUrl: "",
+  logoUrl: BRAND_LOGO,
   gstAddress: "",
   returnAddress: "",
   returnMobile: "",
