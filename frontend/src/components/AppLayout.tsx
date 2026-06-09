@@ -418,9 +418,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               title={isDesktopCollapsed ? "ShipAmaze" : undefined}
             >
               <ShipAmazeLogo
-                size={isDesktopCollapsed ? "mark" : "compact"}
-                variant="onDark"
-                className={isDesktopCollapsed ? "" : "max-w-[150px]"}
+                size={isDesktopCollapsed ? "compact" : "sidebar"}
+                variant="withBackground"
+                className={isDesktopCollapsed ? "max-w-[180px]" : "max-w-[220px]"}
               />
             </Link>
 
@@ -700,7 +700,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               onClick={() => setSidebarOpen(false)}
               className="flex min-w-0 items-center transition-opacity hover:opacity-90"
             >
-              <ShipAmazeLogo size="compact" className="max-w-[130px] sm:max-w-[150px]" />
+              <ShipAmazeLogo size="compact" variant="withBackground" />
             </Link>
           </div>
 
@@ -715,7 +715,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <Menu className="h-5 w-5" />
               </button>
               <Link to={homePath} className="flex min-w-0 items-center transition-opacity hover:opacity-90">
-                <ShipAmazeLogo size="compact" className="max-w-[150px]" />
+                <ShipAmazeLogo size="compact" variant="withBackground" />
               </Link>
             </div>
           )}

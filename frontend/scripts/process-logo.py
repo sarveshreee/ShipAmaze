@@ -3,7 +3,10 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent / "public" / "brand"
 source = Path(__file__).resolve().parent / "assets" / "shipamaze-logo-source.png"
-src = Image.open(source).convert("RGBA")
+original = Image.open(source).convert("RGBA")
+original.save(root / "shipamaze-logo-with-bg.png", optimize=True)
+
+src = original.copy()
 data = src.getdata()
 new = []
 for r, g, b, a in data:
