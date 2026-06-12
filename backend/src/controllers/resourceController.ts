@@ -37,6 +37,7 @@ import { Pickup } from "../models/Pickup.js";
 import { CodRemittance } from "../models/CodRemittance.js";
 import { Product } from "../models/Product.js";
 import { ProductRequest } from "../models/ProductRequest.js";
+import { assertProductPermission, PRODUCT_PERMISSIONS } from "../utils/productPermissions.js";
 import { TabPermission } from "../models/TabPermission.js";
 import mongoose, { type Types } from "mongoose";
 import { randomBytes } from "crypto";
@@ -1186,6 +1187,9 @@ export const listMarketplaceProducts = asyncHandler(async (req: AuthRequest, res
 
 export const listProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "admin") {
+    assertProductPermission(req.user, PRODUCT_PERMISSIONS.VIEW);
+  }
   let q: Record<string, unknown> = {};
   if (req.user.role === "admin") {
     q = {};
@@ -1201,9 +1205,17 @@ export const listProducts = asyncHandler(async (req: AuthRequest, res: Response)
 
 export const createProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "admin") {
+    assertProductPermission(req.user, PRODUCT_PERMISSIONS.CREATE);
+  }
   const vendor = await Vendor.findOne({ userId: req.user._id });
   const body = { ...req.body, uploadedBy: req.user._id, uploadedByRole: req.user.role } as Record<string, unknown>;
   if (vendor) Object.assign(body, { vendorId: vendor._id, vendorName: vendor.name });
+  if (req.user.role === "admin" && body.vendorId) {
+    const assignedVendor = await Vendor.findById(String(body.vendorId)).lean();
+    if (!assignedVendor) throw new AppError(400, "Selected vendor not found");
+    body.vendorName = assignedVendor.name;
+  }
   if (Object.prototype.hasOwnProperty.call(body, "sku") && !String(body.sku ?? "").trim()) {
     throw new AppError(400, "SKU cannot be empty");
   }
@@ -1221,6 +1233,7 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     if (!sku) throw new AppError(400, "SKU cannot be empty");
   }
   if (req.user.role === "admin") {
+    assertProductPermission(req.user, PRODUCT_PERMISSIONS.EDIT);
     Object.assign(p, body);
     await p.save();
     res.json(p);
@@ -1270,6 +1283,7 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
   const p = await Product.findById(req.params.id);
   if (!p) throw new AppError(404, "Product not found");
   if (req.user.role === "admin") {
+    assertProductPermission(req.user, PRODUCT_PERMISSIONS.DELETE);
     await p.deleteOne();
     res.json({ ok: true });
     return;

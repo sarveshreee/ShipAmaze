@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import * as productService from "@/services/productService";
 import * as vendorService from "@/services/vendorService";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProductPermissions } from "@/hooks/useProductPermissions";
 import { hsnForCategory } from "@/lib/hsnMap";
 
 type StepKey = "details" | "variants" | "shipping" | "other";
@@ -53,6 +54,7 @@ export default function SourceProduct() {
   const [params] = useSearchParams();
   const editId = params.get("id");
   const { role, userId, userName } = useAuth();
+  const { can: productCan } = useProductPermissions();
   const [step, setStep] = useState<StepKey>("details");
   const [form, setForm] = useState(emptyForm);
   const [variants, setVariants] = useState<Variant[]>([]);
@@ -69,6 +71,15 @@ export default function SourceProduct() {
       navigate(`/${role}/products`, { replace: true });
     }
   }, [role, navigate]);
+
+  useEffect(() => {
+    if (role !== "admin") return;
+    const allowed = editId ? productCan.edit : productCan.create;
+    if (!allowed) {
+      toast.error(editId ? "You do not have permission to edit products" : "You do not have permission to create products");
+      navigate("/admin/catalogue", { replace: true });
+    }
+  }, [role, editId, productCan.edit, productCan.create, navigate]);
 
   // Admin: load vendor list for selection
   useEffect(() => {
@@ -232,8 +243,8 @@ export default function SourceProduct() {
   // Save
   const save = async (status: "draft" | "active") => {
     if (!validate(status === "active")) return;
-    if (role === "admin" && !vendorId) {
-      toast.error("Please select a vendor for this product");
+    if (role === "admin" && status === "active" && !vendorId && vendorList.length > 0) {
+      toast.error("Please select a vendor to publish this product");
       setStep("details");
       return;
     }

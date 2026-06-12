@@ -3,6 +3,7 @@ import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useTabPermissions } from "@/hooks/useTabPermissions";
+import { useProductPermissions, type ProductPermission } from "@/hooks/useProductPermissions";
 import { useWalletSummary } from "@/hooks/useApiData";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -40,6 +41,7 @@ interface NavItem {
   shortcut?: string;
   requiresFullAccess?: boolean;
   requiresWarehouseAccess?: boolean;
+  productPermission?: ProductPermission;
 }
 interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[]; }
 
@@ -51,16 +53,21 @@ const adminNav: NavGroup[] = [
     { label: "Returns & RTO", icon: Undo2, path: "/admin/returns" },
     { label: "Manifests & Pickups", icon: ClipboardList, path: "/admin/manifests" },
   ]},
+  { title: "PRODUCTS", items: [
+    { label: "Add Product", icon: Plus, path: "/admin/source-product", productPermission: "products.create" },
+    { label: "Products", icon: ShoppingBag, path: "/admin/products", productPermission: "products.view" },
+    { label: "Bulk Upload", icon: Upload, path: "/admin/bulk-upload-products", productPermission: "products.import" },
+    { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue", productPermission: "products.view" },
+  ]},
   { title: "MANAGEMENT", items: [
     { label: "Rates & Shipping", icon: Calculator, path: "/admin/rates" },
     { label: "Couriers", icon: Truck, path: "/admin/couriers" },
     { label: "Dropshippers", icon: Users, path: "/admin/dropshippers" },
     { label: "Vendors", icon: Warehouse, path: "/admin/vendors" },
     { label: "Users", icon: UserCog, path: "/admin/users" },
-    { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue" },
     { label: "Approvals", icon: ClipboardList, path: "/admin/approvals" },
     { label: "Pincode Check", icon: MapPin, path: "/admin/pincode" },
-    { label: "Tab Permissions", icon: Shield, path: "/admin/permissions" },
+    { label: "Permission Management", icon: Shield, path: "/admin/permissions" },
   ]},
   { title: "FINANCE", items: [
     { label: "Finance & Wallet", icon: IndianRupee, path: "/admin/finance" },
@@ -189,6 +196,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [walletPopoverOpen, setWalletPopoverOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { isTabEnabled } = useTabPermissions();
+  const { can: productCan } = useProductPermissions();
   const { isRestricted, allowWarehouseAccess } = useDropshipperAccess();
   const location = useLocation();
   const navigate = useNavigate();
@@ -276,17 +284,36 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   // Filter nav items based on permissions
   const nav = useMemo(() => {
+    const productPermAllowed = (perm?: ProductPermission) => {
+      if (!perm) return true;
+      if (perm === "products.view") return productCan.view;
+      if (perm === "products.create") return productCan.create;
+      if (perm === "products.edit") return productCan.edit;
+      if (perm === "products.delete") return productCan.delete;
+      if (perm === "products.import") return productCan.import;
+      if (perm === "products.export") return productCan.export;
+      if (perm === "products.approve") return productCan.approve;
+      return true;
+    };
     const allowItem = (item: NavItem & { children?: NavItem[] }) => {
       if (isRestricted && item.requiresFullAccess) return false;
       if (!allowWarehouseAccess && item.requiresWarehouseAccess) return false;
       if (item.tabKey && !isTabEnabled(item.tabKey)) return false;
+      if (!productPermAllowed(item.productPermission)) return false;
       if (item.children?.length) {
         const kids = item.children.filter(allowItem);
         return kids.length > 0;
       }
       return true;
     };
-    if (role === "admin") return rawNav.filter((group) => group.items.length > 0);
+    if (role === "admin") {
+      return rawNav
+        .map((group) => ({
+          ...group,
+          items: group.items.filter(allowItem),
+        }))
+        .filter((group) => group.items.length > 0);
+    }
     return rawNav
       .map((group) => ({
         ...group,
@@ -299,7 +326,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           ),
       }))
       .filter((group) => group.items.length > 0);
-  }, [rawNav, role, isTabEnabled, isRestricted, allowWarehouseAccess]);
+  }, [rawNav, role, isTabEnabled, isRestricted, allowWarehouseAccess, productCan]);
 
   const unread = notifUnread;
 
@@ -741,17 +768,25 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </Button>
 
-          <div className="relative">
-            <Button variant="ghost" size="icon" className="relative h-9 w-9 shrink-0 text-text-secondary sm:h-10 sm:w-10" onClick={() => setNotifOpen(!notifOpen)}>
-              <Bell className="h-4 w-4" />
-              {unread > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-[10px] font-bold text-white flex items-center justify-center">
-                  {unread > 99 ? "99+" : unread}
-                </span>
-              )}
-            </Button>
-            {notifOpen && (
-              <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg bg-card border border-border shadow-card-lg z-50">
+          <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative h-9 w-9 shrink-0 text-text-secondary sm:h-10 sm:w-10"
+                aria-expanded={notifOpen}
+                aria-haspopup="dialog"
+              >
+                <Bell className="h-4 w-4" />
+                {unread > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-[10px] font-bold text-white flex items-center justify-center">
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-0">
+              <div className="rounded-lg bg-card border-0 shadow-none">
                 <div className="p-3 border-b border-border flex items-center justify-between gap-2">
                   <span className="font-semibold text-sm text-text-primary">Notifications</span>
                   <div className="flex gap-1 shrink-0">
@@ -838,8 +873,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   </div>
                 )}
               </div>
-            )}
-          </div>
+            </PopoverContent>
+          </Popover>
 
           <Popover open={walletPopoverOpen} onOpenChange={setWalletPopoverOpen}>
             <PopoverTrigger asChild>

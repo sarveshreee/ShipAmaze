@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
+import { useProductPermissions } from "@/hooks/useProductPermissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,11 +23,12 @@ import type { CatalogueProductRow } from "@/services/adminWorkflowService";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/EmptyState";
-import { Layers, Loader2, RefreshCw } from "lucide-react";
+import { Layers, Loader2, Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "@/lib/apiClient";
 import { getFinalProductPrice } from "@/lib/pricing";
 
 export default function AdminCatalogue() {
+  const { can } = useProductPermissions();
   const [items, setItems] = useState<CatalogueProductRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -155,7 +158,20 @@ export default function AdminCatalogue() {
 
   return (
     <div className="animate-fade-in-up space-y-4">
-      <PageHeader title="Admin catalogue" breadcrumb={["Admin", "Catalogue"]} />
+      <PageHeader
+        title="Admin catalogue"
+        breadcrumb={["Admin", "Catalogue"]}
+        actions={
+          can.create ? (
+            <Button asChild className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
+              <Link to="/admin/source-product">
+                <Plus className="h-4 w-4" />
+                Add product
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
 
       <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-card">
         <div className="flex flex-col lg:flex-row gap-3 flex-wrap">
@@ -281,7 +297,7 @@ export default function AdminCatalogue() {
           </Button>
         </div>
 
-        {selected.size > 0 && (
+        {selected.size > 0 && can.approve && (
           <div className="flex flex-wrap gap-2 items-center border-t border-border pt-3">
             <span className="text-sm text-text-muted">{selected.size} selected</span>
             <Button size="sm" variant="secondary" disabled={saving} onClick={() => void runBulk("approve")}>

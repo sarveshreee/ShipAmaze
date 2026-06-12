@@ -18,6 +18,13 @@ function safeShopKey(shopDomain: string): string {
   return shopDomain.replace(/[^a-z0-9]/gi, "-").toLowerCase();
 }
 
+/** Shopify REST may return numeric ids as numbers or digit strings. */
+export function normalizeShopifyOrderNumericId(id: unknown): number | null {
+  if (typeof id === "number" && Number.isFinite(id)) return id;
+  if (typeof id === "string" && /^\d+$/.test(id.trim())) return parseInt(id.trim(), 10);
+  return null;
+}
+
 export function shopifyExternalOrderId(shopDomain: string, shopifyNumericId: number): string {
   return `shopify-${safeShopKey(shopDomain)}-${shopifyNumericId}`;
 }

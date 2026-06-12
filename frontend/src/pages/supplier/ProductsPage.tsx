@@ -10,6 +10,7 @@ import { Plus, Search, Trash2, Pencil, Copy, Tag, FileText, IndianRupee, Package
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProductPermissions } from "@/hooks/useProductPermissions";
 import { useSupplierProducts, type SupplierProduct } from "@/hooks/useSupplierProducts";
 import { ProductStatusBadge } from "@/components/supplier/StatusBadge";
 import * as productService from "@/services/productService";
@@ -21,12 +22,18 @@ import { getFinalProductPrice, getFinalVariantPrice, formatProductPriceInr } fro
 export default function ProductsPage() {
   const navigate = useNavigate();
   const { role, userId } = useAuth();
+  const { can: productCan } = useProductPermissions();
   const { data, isLoading, refetch } = useSupplierProducts();
 
   const isAdmin = role === "admin";
   const isVendor = role === "vendor";
   const isDropshipper = role === "dropshipper";
-  const canManage = isAdmin || isVendor; // dropshippers are read-only
+  const canEdit = isVendor || (isAdmin && productCan.edit);
+  const canDelete = isVendor || (isAdmin && productCan.delete);
+  const canManage = canEdit || canDelete;
+  const canCreate = isVendor || (isAdmin && productCan.create);
+  const canExport = isVendor || (isAdmin && productCan.export);
+  const canImport = isVendor || (isAdmin && productCan.import);
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -235,15 +242,19 @@ export default function ProductsPage() {
       <PageHeader title={isAdmin ? "All Products" : isDropshipper ? "Product Catalog" : "My Products"} breadcrumb={[role.charAt(0).toUpperCase() + role.slice(1), "Products"]}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
-            {canManage && (
-              <>
-                <Button variant="outline" onClick={() => navigate(`/${role}/bulk-upload-products`)}><Upload className="h-4 w-4 mr-2" />Bulk Upload</Button>
-                <Button variant="outline" onClick={() => navigate(`/${role}/products?status=trash`)}><Trash2 className="h-4 w-4 mr-2" />Trash</Button>
-                <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}>
-                  <Plus className="h-4 w-4 mr-2" />Add Product
-                </Button>
-              </>
+            {canExport && (
+              <Button variant="outline" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
+            )}
+            {canImport && (
+              <Button variant="outline" onClick={() => navigate(`/${role}/bulk-upload-products`)}><Upload className="h-4 w-4 mr-2" />Bulk Upload</Button>
+            )}
+            {canDelete && (
+              <Button variant="outline" onClick={() => navigate(`/${role}/products?status=trash`)}><Trash2 className="h-4 w-4 mr-2" />Trash</Button>
+            )}
+            {canCreate && (
+              <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}>
+                <Plus className="h-4 w-4 mr-2" />Add Product
+              </Button>
             )}
           </div>
         }
@@ -323,7 +334,7 @@ export default function ProductsPage() {
           <p className="text-sm text-text-muted mt-1">Try adjusting your filters or add a new product.</p>
           <div className="flex gap-2 justify-center mt-4">
             <Button variant="outline" onClick={resetFilters}>Reset Filters</Button>
-            {canManage && (
+            {canCreate && (
               <Button className="bg-warning text-warning-foreground hover:bg-warning/90" onClick={() => navigate(`/${role}/source-product`)}><Plus className="h-4 w-4 mr-1" />Add Product</Button>
             )}
           </div>
@@ -358,11 +369,11 @@ export default function ProductsPage() {
                     </div>
                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => { sessionStorage.setItem("product_preview", JSON.stringify({ ...p, tags: p.tags || [], variants: [] })); window.open("/product-preview", "_blank", "noopener"); }} title="Preview" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Eye className="h-3 w-3" /></button>
-                      {canManage && (
-                        <>
-                          <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
-                          <button onClick={() => setConfirmDelete(p)} title="Delete" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-danger hover:text-white"><Trash2 className="h-3 w-3" /></button>
-                        </>
+                      {canEdit && (
+                        <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
+                      )}
+                      {canDelete && (
+                        <button onClick={() => setConfirmDelete(p)} title="Delete" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-danger hover:text-white"><Trash2 className="h-3 w-3" /></button>
                       )}
                     </div>
                   </div>

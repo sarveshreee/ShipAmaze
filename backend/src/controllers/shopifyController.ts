@@ -527,10 +527,11 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
   syncInFlight.add(lockKey);
 
   try {
-    const { inserted, updated, skipped, synced, shopDomain } = await performShopifyOrderSyncForUser(
-      req.user._id,
-      req.user.role as "admin" | "vendor" | "dropshipper"
-    );
+    const { inserted, updated, skipped, synced, shopDomain, skipReasons } =
+      await performShopifyOrderSyncForUser(
+        req.user._id,
+        req.user.role as "admin" | "vendor" | "dropshipper"
+      );
 
     const conn = await ShopifyStoreConnection.findOne({
       ownerUserId: req.user._id,
@@ -568,6 +569,7 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       inserted,
       updated,
       skipped,
+      skipReasons,
       lastSyncedAt: conn?.lastSyncedAt ?? null,
       lastSyncError: conn?.lastSyncError ?? null,
     });
@@ -719,10 +721,13 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
     }
 
     const so = payload as unknown as ShopifyOrder;
-    if (!so?.id) {
+    const { normalizeShopifyOrderNumericId } = await import("../services/shopifyOrderSync.js");
+    const numericId = normalizeShopifyOrderNumericId(so?.id);
+    if (!so || numericId == null) {
       res.status(200).send("OK");
       return;
     }
+    const soNormalized = { ...so, id: numericId };
 
     const ctx: ShopifySyncUserContext = {
       ownerUserId: conn.ownerUserId,
@@ -733,9 +738,9 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
           ? (await Vendor.findOne({ userId: conn.ownerUserId }).select("_id").lean())?._id
           : undefined,
     };
-    const mapped = buildShopifyOrderPayload(shopDomain || conn.shopDomain, so, ctx);
+    const mapped = buildShopifyOrderPayload(shopDomain || conn.shopDomain, soNormalized, ctx);
     const externalId = String(mapped.orderId);
-    const cancelled = topic === "orders/cancelled" || Boolean(so.cancelled_at);
+    const cancelled = topic === "orders/cancelled" || Boolean(soNormalized.cancelled_at);
 
     const existing = await Order.findOne({ orderId: externalId });
     if (existing) {

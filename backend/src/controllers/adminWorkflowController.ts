@@ -18,6 +18,7 @@ import mongoose from "mongoose";
 import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotifications.js";
 import { randomBytes } from "crypto";
 import { getFinalProductPrice, resolveShippingCharge } from "../utils/productPricing.js";
+import { assertProductPermission, PRODUCT_PERMISSIONS } from "../utils/productPermissions.js";
 
 function assertAdmin(req: AuthRequest): void {
   if (!req.user) throw new AppError(401, "Unauthorized");
@@ -282,6 +283,7 @@ function parsePagination(req: { query: Record<string, unknown> }) {
 /** Admin catalogue: search, filters, sort, pagination */
 export const adminListCatalogueProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
   assertAdmin(req);
+  assertProductPermission(req.user!, PRODUCT_PERMISSIONS.VIEW);
   const { page, limit, skip } = parsePagination(req);
   const q: Record<string, unknown> = {};
   const andClauses: Record<string, unknown>[] = [];
@@ -396,6 +398,11 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
   for (const k of allowed) {
     if (body[k] !== undefined) patch[k] = body[k];
   }
+  if (body.status !== undefined) {
+    assertProductPermission(req.user!, PRODUCT_PERMISSIONS.APPROVE);
+  } else if (Object.keys(patch).length > 0) {
+    assertProductPermission(req.user!, PRODUCT_PERMISSIONS.EDIT);
+  }
   if (Object.prototype.hasOwnProperty.call(patch, "sku")) {
     const sku = String(patch.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");
@@ -409,6 +416,7 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
 
 export const adminBulkCatalogueProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
   assertAdmin(req);
+  assertProductPermission(req.user!, PRODUCT_PERMISSIONS.APPROVE);
   const { ids, action } = req.body as { ids?: unknown; action?: string };
   if (!Array.isArray(ids) || ids.length === 0) throw new AppError(400, "ids required");
   const oid = ids.filter((x) => mongoose.isValidObjectId(String(x))).map((x) => new mongoose.Types.ObjectId(String(x)));

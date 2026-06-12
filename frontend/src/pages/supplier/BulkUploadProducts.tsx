@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Upload, Download, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import * as productService from "@/services/productService";
+import * as vendorService from "@/services/vendorService";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProductPermissions } from "@/hooks/useProductPermissions";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
@@ -58,6 +62,9 @@ interface ParsedRow {
 export default function BulkUploadProducts() {
   const navigate = useNavigate();
   const { role } = useAuth();
+  const { can: productCan } = useProductPermissions();
+  const [vendorId, setVendorId] = useState("");
+  const [vendorList, setVendorList] = useState<{ id: string; name: string }[]>([]);
 
   // Block dropshippers
   useEffect(() => {
@@ -66,6 +73,25 @@ export default function BulkUploadProducts() {
       navigate(`/${role}/products`, { replace: true });
     }
   }, [role, navigate]);
+
+  useEffect(() => {
+    if (role === "admin" && !productCan.import) {
+      toast.error("You do not have permission to import products");
+      navigate("/admin/catalogue", { replace: true });
+    }
+  }, [role, productCan.import, navigate]);
+
+  useEffect(() => {
+    if (role !== "admin") return;
+    void (async () => {
+      try {
+        const list = await vendorService.listVendors();
+        setVendorList(Array.isArray(list) ? list.map((v) => ({ id: v.id, name: v.name })) : []);
+      } catch {
+        setVendorList([]);
+      }
+    })();
+  }, [role]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState("");
@@ -107,7 +133,9 @@ export default function BulkUploadProducts() {
         tags: raw.tags ? raw.tags.split(/[,|]/).map(t => t.trim()).filter(Boolean) : null,
         unit: raw.unit || "pcs",
         min_order_qty: Math.max(1, toNum(raw.min_order_qty) || 1),
-        price: toNum(raw.price), selling_price: sp,
+        price: toNum(raw.price),
+        selling_price: sp,
+        sellingPrice: sp,
         shipping_charge: toNum(raw.shipping_charge),
         shippingCharge: toNum(raw.shipping_charge),
         stock: toNum(raw.stock),
@@ -144,13 +172,23 @@ export default function BulkUploadProducts() {
   const importAll = async () => {
     const valid = rows.filter((r) => r.errors.length === 0);
     if (valid.length === 0) { toast.error("No valid rows to import"); return; }
+    if (role === "admin" && !vendorId && vendorList.length > 0) {
+      toast.error("Select a vendor for imported products");
+      return;
+    }
+    const vendor = vendorList.find((v) => v.id === vendorId);
     setImporting(true);
     let ok = 0, fail = 0;
     try {
       for (const r of valid) {
         if (!r.payload) continue;
         try {
-          await productService.createProduct(r.payload);
+          const payload = { ...r.payload } as Record<string, unknown>;
+          if (role === "admin" && vendorId) {
+            payload.vendorId = vendorId;
+            payload.vendorName = vendor?.name;
+          }
+          await productService.createProduct(payload);
           ok++;
         } catch {
           fail++;
@@ -178,6 +216,22 @@ export default function BulkUploadProducts() {
           </div>
         }
       />
+
+      {role === "admin" && vendorList.length > 0 && (
+        <div className="rounded-xl bg-card shadow-card p-5 mb-4 space-y-2">
+          <Label>Assign to vendor</Label>
+          <Select value={vendorId} onValueChange={setVendorId}>
+            <SelectTrigger className="max-w-md">
+              <SelectValue placeholder="Select vendor for all imported products" />
+            </SelectTrigger>
+            <SelectContent>
+              {vendorList.map((v) => (
+                <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="rounded-xl bg-card shadow-card p-5 mb-4">
         <h3 className="font-semibold text-text-primary mb-2">How it works</h3>

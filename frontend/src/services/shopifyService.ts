@@ -11,12 +11,19 @@ export interface ShopifyStatus {
   syncedOrdersCount?: number;
 }
 
+export type ShopifySkipReason = {
+  shopifyId: string;
+  orderName?: string;
+  reason: string;
+};
+
 export interface ShopifySyncResult {
   ok: boolean;
   synced: number;
   inserted: number;
   updated: number;
   skipped?: number;
+  skipReasons?: ShopifySkipReason[];
   lastSyncedAt: string;
   lastSyncError?: string | null;
 }

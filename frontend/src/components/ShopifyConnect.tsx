@@ -192,11 +192,21 @@ export default function ShopifyConnect() {
     try {
       const r = await shopifyService.syncOrders();
       const parts = [
-        `${r.inserted} new`,
+        `${r.synced} fetched`,
+        `${r.inserted} saved`,
         `${r.updated} updated`,
-        typeof r.skipped === "number" ? `${r.skipped} skipped` : null,
+        typeof r.skipped === "number" && r.skipped > 0 ? `${r.skipped} skipped` : null,
       ].filter(Boolean);
-      toast.success("Orders synced", { description: parts.join(" · ") });
+      const skipDetail =
+        r.skipReasons && r.skipReasons.length > 0
+          ? r.skipReasons
+              .slice(0, 3)
+              .map((s) => `${s.orderName || s.shopifyId}: ${s.reason}`)
+              .join("; ")
+          : undefined;
+      toast.success("Orders synced", {
+        description: skipDetail ? `${parts.join(" · ")} — ${skipDetail}` : parts.join(" · "),
+      });
       void loadStatus();
       window.dispatchEvent(new Event("shipamaze:refetch:orders"));
     } catch (e: unknown) {

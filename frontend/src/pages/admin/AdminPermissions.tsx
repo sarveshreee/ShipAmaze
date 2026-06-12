@@ -4,10 +4,13 @@ import { useAdminTabPermissions, useUserTabPermissions } from "@/hooks/useTabPer
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Shield, Users, ArrowLeft, Search, RotateCcw } from "lucide-react";
+import { Shield, Users, ArrowLeft, Search, RotateCcw, Package } from "lucide-react";
 import * as userService from "@/services/userService";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ALL_PRODUCT_PERMISSIONS } from "@/hooks/useProductPermissions";
+import { ApiError } from "@/lib/apiClient";
 
 const dropshipperTabs = [
   { key: "home", label: "Home" },
@@ -132,10 +135,156 @@ function UserPermissionsPanel({
   );
 }
 
+function AdminStaffProductPermissionsPanel({
+  user,
+  onBack,
+}: {
+  user: UserInfo;
+  onBack: () => void;
+}) {
+  const [perms, setPerms] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      try {
+        const r = await userService.adminGetUser(user.user_id);
+        setPerms(r.user.permissions ?? []);
+      } catch {
+        setPerms([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [user.user_id]);
+
+  const hasStaffRestrictions = perms.some((p) => p.startsWith("products."));
+  const isFullAccess = !hasStaffRestrictions;
+
+  const togglePerm = async (key: string, enabled: boolean) => {
+    setSaving(key);
+    try {
+      const productPerms = perms.filter((p) => p.startsWith("products."));
+      const otherPerms = perms.filter((p) => !p.startsWith("products."));
+      let nextProductPerms = productPerms;
+      if (enabled) {
+        nextProductPerms = [...new Set([...productPerms, key])];
+      } else {
+        nextProductPerms = productPerms.filter((p) => p !== key);
+      }
+      const next = [...otherPerms, ...nextProductPerms];
+      await userService.adminPatchUser(user.user_id, { permissions: next });
+      setPerms(next);
+      toast.success(`${key} ${enabled ? "granted" : "revoked"}`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to update permission");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const enableStaffMode = async () => {
+    setSaving("mode");
+    try {
+      const other = perms.filter((p) => !p.startsWith("products."));
+      const next = [...other, "products.view"];
+      await userService.adminPatchUser(user.user_id, { permissions: next });
+      setPerms(next);
+      toast.success("Staff product permissions enabled");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to update");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const resetFullAccess = async () => {
+    setSaving("reset");
+    try {
+      const next = perms.filter((p) => !p.startsWith("products."));
+      await userService.adminPatchUser(user.user_id, { permissions: next });
+      setPerms(next);
+      toast.success("Full product access restored");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to reset");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  if (loading) {
+    return <div className="animate-pulse p-8 text-text-muted">Loading staff permissions…</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-semibold text-text-primary">{user.full_name || "Unnamed admin"}</h3>
+          <p className="text-xs text-text-muted truncate">{user.business_name || user.user_id}</p>
+        </div>
+        {isFullAccess ? (
+          <Badge variant="secondary">Full product access</Badge>
+        ) : (
+          <Badge className="bg-primary/10 text-primary">Staff — restricted</Badge>
+        )}
+      </div>
+
+      <div className="rounded-lg bg-card shadow-card divide-y divide-border">
+        <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1">
+            <h3 className="font-semibold text-text-primary flex items-center gap-2">
+              <Package className="h-4 w-4 text-primary" />
+              Product permissions
+            </h3>
+            <p className="text-xs text-text-muted mt-1">
+              Admins without any <code className="text-[10px]">products.*</code> entries have full product access.
+              Enable staff mode to assign granular permissions.
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            {isFullAccess ? (
+              <Button variant="outline" size="sm" disabled={saving === "mode"} onClick={() => void enableStaffMode()}>
+                Enable staff mode
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" disabled={saving === "reset"} onClick={() => void resetFullAccess()}>
+                <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                Full access
+              </Button>
+            )}
+          </div>
+        </div>
+        {ALL_PRODUCT_PERMISSIONS.map((perm) => {
+          const enabled = isFullAccess || perms.includes(perm.key);
+          return (
+            <div key={perm.key} className="flex items-center justify-between px-4 py-3 gap-3">
+              <div>
+                <span className="text-sm text-text-primary font-medium">{perm.label}</span>
+                <p className="text-[10px] text-text-muted font-mono">{perm.key}</p>
+              </div>
+              <Switch
+                checked={enabled}
+                disabled={isFullAccess || saving === perm.key}
+                onCheckedChange={(v) => void togglePerm(perm.key, v)}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPermissions() {
   const { defaults, isLoading, toggleDefault } = useAdminTabPermissions();
   const [saving, setSaving] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"dropshipper" | "vendor">("dropshipper");
+  const [activeTab, setActiveTab] = useState<"dropshipper" | "vendor" | "admin-staff">("dropshipper");
   const [view, setView] = useState<"defaults" | "users">("defaults");
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -147,15 +296,27 @@ export default function AdminPermissions() {
     const fetchUsers = async () => {
       setUsersLoading(true);
       try {
-        const roleData = await userService.listUsersByRole(activeTab);
-        setUsers(
-          roleData.map((r) => ({
-            user_id: r.user_id,
-            full_name: r.full_name,
-            business_name: r.business_name,
-            role: r.role,
-          }))
-        );
+        if (activeTab === "admin-staff") {
+          const r = await userService.adminListUsers({ role: "admin", limit: "200" });
+          setUsers(
+            (r.items ?? []).map((u) => ({
+              user_id: u.id,
+              full_name: u.name,
+              business_name: u.companyName,
+              role: "admin",
+            }))
+          );
+        } else {
+          const roleData = await userService.listUsersByRole(activeTab);
+          setUsers(
+            roleData.map((r) => ({
+              user_id: r.user_id,
+              full_name: r.full_name,
+              business_name: r.business_name,
+              role: r.role,
+            }))
+          );
+        }
       } catch {
         setUsers([]);
       } finally {
@@ -163,7 +324,7 @@ export default function AdminPermissions() {
       }
     };
 
-    if (view === "users") {
+    if (view === "users" || activeTab === "admin-staff") {
       void fetchUsers();
     }
   }, [activeTab, view]);
@@ -216,7 +377,15 @@ export default function AdminPermissions() {
   );
 
   const renderUsersTab = () => {
-    if (selectedUser) {
+    if (selectedUser && activeTab === "admin-staff") {
+      return (
+        <AdminStaffProductPermissionsPanel
+          user={selectedUser}
+          onBack={() => setSelectedUser(null)}
+        />
+      );
+    }
+    if (selectedUser && activeTab !== "admin-staff") {
       return (
         <UserPermissionsPanel
           user={selectedUser}
@@ -271,39 +440,45 @@ export default function AdminPermissions() {
 
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="Tab Permissions" breadcrumb={["Admin", "Tab Permissions"]} />
-      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as any); setSelectedUser(null); setSearch(""); }}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="dropshipper">Dropshipper</TabsTrigger>
-          <TabsTrigger value="vendor">Vendor</TabsTrigger>
+      <PageHeader title="Permission Management" breadcrumb={["Admin", "Permissions"]} />
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "dropshipper" | "vendor" | "admin-staff"); setSelectedUser(null); setSearch(""); }}>
+        <TabsList className="mb-4 flex-wrap h-auto">
+          <TabsTrigger value="dropshipper">Dropshipper tabs</TabsTrigger>
+          <TabsTrigger value="vendor">Vendor tabs</TabsTrigger>
+          <TabsTrigger value="admin-staff">Admin staff — products</TabsTrigger>
         </TabsList>
 
-        <div className="flex gap-2 mb-4">
-          <Button
-            variant={view === "defaults" ? "default" : "outline"}
-            size="sm"
-            onClick={() => { setView("defaults"); setSelectedUser(null); }}
-            className="gap-1.5"
-          >
-            <Shield className="h-3.5 w-3.5" />
-            Default Permissions
-          </Button>
-          <Button
-            variant={view === "users" ? "default" : "outline"}
-            size="sm"
-            onClick={() => { setView("users"); setSelectedUser(null); }}
-            className="gap-1.5"
-          >
-            <Users className="h-3.5 w-3.5" />
-            Per-User Overrides
-          </Button>
-        </div>
+        {activeTab !== "admin-staff" && (
+          <div className="flex gap-2 mb-4">
+            <Button
+              variant={view === "defaults" ? "default" : "outline"}
+              size="sm"
+              onClick={() => { setView("defaults"); setSelectedUser(null); }}
+              className="gap-1.5"
+            >
+              <Shield className="h-3.5 w-3.5" />
+              Default Permissions
+            </Button>
+            <Button
+              variant={view === "users" ? "default" : "outline"}
+              size="sm"
+              onClick={() => { setView("users"); setSelectedUser(null); }}
+              className="gap-1.5"
+            >
+              <Users className="h-3.5 w-3.5" />
+              Per-User Overrides
+            </Button>
+          </div>
+        )}
 
         <TabsContent value="dropshipper">
           {view === "defaults" ? renderDefaultsTab("dropshipper", dropshipperTabs) : renderUsersTab()}
         </TabsContent>
         <TabsContent value="vendor">
           {view === "defaults" ? renderDefaultsTab("vendor", vendorTabs) : renderUsersTab()}
+        </TabsContent>
+        <TabsContent value="admin-staff">
+          {renderUsersTab()}
         </TabsContent>
       </Tabs>
     </div>
