@@ -16,10 +16,16 @@ import { User } from "../models/User.js";
 import { DropshipperShippingOverride } from "../models/DropshipperShippingOverride.js";
 import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotifications.js";
 import mongoose from "mongoose";
+import { assertOwnerAdmin, isStaffAdmin } from "../utils/staffPermissions.js";
 
 function assertAdmin(req: AuthRequest): void {
   if (!req.user) throw new AppError(401, "Unauthorized");
   if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+}
+
+function assertOwnerAdminReq(req: AuthRequest): void {
+  assertAdmin(req);
+  assertOwnerAdmin(req.user!);
 }
 
 function num(v: unknown, fallback = 0): number {
@@ -128,6 +134,9 @@ async function applyProductPriceApproval(doc: InstanceType<typeof ProductPriceAp
 /** GET live rate card (read-only for DS/vendor, editable by admin). */
 export const getShippingRateCard = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "admin" && isStaffAdmin(req.user)) {
+    assertOwnerAdmin(req.user);
+  }
   const paymentType = (String(req.query.paymentType ?? "Prepaid") === "COD" ? "COD" : "Prepaid") as
     | "COD"
     | "Prepaid";
@@ -149,7 +158,7 @@ export const getShippingRateCard = asyncHandler(async (req: AuthRequest, res: Re
 
 /** Admin: save rate card immediately (no approval). */
 export const adminSaveShippingRateCard = asyncHandler(async (req: AuthRequest, res: Response) => {
-  assertAdmin(req);
+  assertOwnerAdminReq(req);
   const paymentType = (req.body.paymentType === "COD" ? "COD" : "Prepaid") as "COD" | "Prepaid";
   const card = await ShippingRateCard.findOneAndUpdate(
     { paymentType },
@@ -167,7 +176,7 @@ export const adminSaveShippingRateCard = asyncHandler(async (req: AuthRequest, r
 
 /** Admin: upsert courier immediately. */
 export const adminUpsertCourier = asyncHandler(async (req: AuthRequest, res: Response) => {
-  assertAdmin(req);
+  assertOwnerAdminReq(req);
   const c = await Courier.findOneAndUpdate({ name: req.body.name }, req.body, {
     upsert: true,
     new: true,
@@ -245,6 +254,7 @@ export const submitShippingRateChange = asyncHandler(async (req: AuthRequest, re
 /** List shipping rate approvals (admin: all; others: own submissions). */
 export const listShippingRateApprovals = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "admin" && isStaffAdmin(req.user)) assertOwnerAdmin(req.user);
   const status = String(req.query.status ?? "").trim();
   const q: Record<string, unknown> =
     req.user.role === "admin" ? {} : { submittedBy: req.user._id };
@@ -255,7 +265,7 @@ export const listShippingRateApprovals = asyncHandler(async (req: AuthRequest, r
 });
 
 export const approveShippingRateApproval = asyncHandler(async (req: AuthRequest, res: Response) => {
-  assertAdmin(req);
+  assertOwnerAdminReq(req);
   const doc = await ShippingRateApproval.findById(req.params.id);
   if (!doc) throw new AppError(404, "Approval not found");
   if (doc.status !== "pending") throw new AppError(400, "Already reviewed");
@@ -278,7 +288,7 @@ export const approveShippingRateApproval = asyncHandler(async (req: AuthRequest,
 });
 
 export const rejectShippingRateApproval = asyncHandler(async (req: AuthRequest, res: Response) => {
-  assertAdmin(req);
+  assertOwnerAdminReq(req);
   const doc = await ShippingRateApproval.findById(req.params.id);
   if (!doc) throw new AppError(404, "Approval not found");
   if (doc.status !== "pending") throw new AppError(400, "Already reviewed");
@@ -303,6 +313,7 @@ export const rejectShippingRateApproval = asyncHandler(async (req: AuthRequest, 
 /** List product price approvals. */
 export const listProductPriceApprovals = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "admin" && isStaffAdmin(req.user)) assertOwnerAdmin(req.user);
   const status = String(req.query.status ?? "").trim();
   const q: Record<string, unknown> =
     req.user.role === "admin" ? {} : { submittedBy: req.user._id };
@@ -313,7 +324,7 @@ export const listProductPriceApprovals = asyncHandler(async (req: AuthRequest, r
 });
 
 export const approveProductPriceApproval = asyncHandler(async (req: AuthRequest, res: Response) => {
-  assertAdmin(req);
+  assertOwnerAdminReq(req);
   const doc = await ProductPriceApproval.findById(req.params.id);
   if (!doc) throw new AppError(404, "Approval not found");
   if (doc.status !== "pending") throw new AppError(400, "Already reviewed");
@@ -336,7 +347,7 @@ export const approveProductPriceApproval = asyncHandler(async (req: AuthRequest,
 });
 
 export const rejectProductPriceApproval = asyncHandler(async (req: AuthRequest, res: Response) => {
-  assertAdmin(req);
+  assertOwnerAdminReq(req);
   const doc = await ProductPriceApproval.findById(req.params.id);
   if (!doc) throw new AppError(404, "Approval not found");
   if (doc.status !== "pending") throw new AppError(400, "Already reviewed");

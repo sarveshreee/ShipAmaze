@@ -9,6 +9,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useOrders } from "@/hooks/useApiData";
+import { useAuth } from "@/contexts/AuthContext";
+import { useStaffPermissions } from "@/hooks/useStaffPermissions";
 import {
   Package,
   LayoutDashboard,
@@ -29,25 +31,35 @@ import {
   Shield,
 } from "lucide-react";
 
-const pages = [
-  { label: "Admin Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
-  { label: "Orders", path: "/admin/orders", icon: Package },
-  { label: "NDR Management", path: "/admin/ndr", icon: AlertTriangle },
-  { label: "Rates & Shipping", path: "/admin/rates", icon: Calculator },
-  { label: "Couriers", path: "/admin/couriers", icon: Truck },
-  { label: "Dropshippers", path: "/admin/dropshippers", icon: Users },
-  { label: "Vendors", path: "/admin/vendors", icon: Warehouse },
-  { label: "Users", path: "/admin/users", icon: UserCog },
-  { label: "Catalogue", path: "/admin/catalogue", icon: ShoppingBag },
-  { label: "Add Product", path: "/admin/source-product", icon: Package },
-  { label: "Products", path: "/admin/products", icon: ShoppingBag },
-  { label: "Bulk Upload Products", path: "/admin/bulk-upload-products", icon: Package },
-  { label: "Approvals", path: "/admin/approvals", icon: Shield },
-  { label: "Permission Management", path: "/admin/permissions", icon: Shield },
-  { label: "Finance", path: "/admin/finance", icon: IndianRupee },
-  { label: "Analytics", path: "/admin/analytics", icon: BarChart3 },
-  { label: "Support", path: "/admin/support", icon: Headphones },
-  { label: "Settings", path: "/admin/settings", icon: Settings },
+type PalettePage = {
+  label: string;
+  path: string;
+  icon: typeof LayoutDashboard;
+  ownerOnly?: boolean;
+  staffPermission?: string | string[];
+};
+
+const pages: PalettePage[] = [
+  { label: "Admin Dashboard", path: "/admin/dashboard", icon: LayoutDashboard, staffPermission: ["orders.view", "analytics.view", "products.view"] },
+  { label: "Orders", path: "/admin/orders", icon: Package, staffPermission: "orders.view" },
+  { label: "NDR Management", path: "/admin/ndr", icon: AlertTriangle, staffPermission: "ndr.view" },
+  { label: "Returns", path: "/admin/returns", icon: Package, staffPermission: "returns.view" },
+  { label: "Channels", path: "/admin/channels", icon: Package, staffPermission: "channels.view" },
+  { label: "Rates & Shipping", path: "/admin/rates", icon: Calculator, ownerOnly: true },
+  { label: "Couriers", path: "/admin/couriers", icon: Truck, ownerOnly: true },
+  { label: "Dropshippers", path: "/admin/dropshippers", icon: Users, ownerOnly: true },
+  { label: "Vendors", path: "/admin/vendors", icon: Warehouse, ownerOnly: true },
+  { label: "Users", path: "/admin/users", icon: UserCog, ownerOnly: true },
+  { label: "Catalogue", path: "/admin/catalogue", icon: ShoppingBag, staffPermission: "products.view" },
+  { label: "Add Product", path: "/admin/source-product", icon: Package, staffPermission: "products.create" },
+  { label: "Products", path: "/admin/products", icon: ShoppingBag, staffPermission: "products.view" },
+  { label: "Bulk Upload Products", path: "/admin/bulk-upload-products", icon: Package, staffPermission: "products.import" },
+  { label: "Approvals", path: "/admin/approvals", icon: Shield, ownerOnly: true },
+  { label: "Permission Management", path: "/admin/permissions", icon: Shield, ownerOnly: true },
+  { label: "Finance", path: "/admin/finance", icon: IndianRupee, ownerOnly: true },
+  { label: "Analytics", path: "/admin/analytics", icon: BarChart3, staffPermission: "analytics.view" },
+  { label: "Support", path: "/admin/support", icon: Headphones, ownerOnly: true },
+  { label: "Settings", path: "/admin/settings", icon: Settings, ownerOnly: true },
   { label: "Profile", path: "/admin/profile", icon: User },
   { label: "Create Order", path: "/dropshipper/create-order", icon: Package },
   { label: "Bulk Upload", path: "/dropshipper/bulk-upload", icon: Package },
@@ -59,6 +71,8 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
+  const { role } = useAuth();
+  const { isOwnerAdmin, hasAny } = useStaffPermissions();
   const { data: orders = [] } = useOrders();
 
   useEffect(() => {
@@ -81,8 +95,18 @@ export function CommandPalette() {
   const query = search.toLowerCase().trim();
 
   const filteredPages = useMemo(
-    () => pages.filter((p) => p.label.toLowerCase().includes(query)),
-    [query]
+    () =>
+      pages.filter((p) => {
+        if (!p.label.toLowerCase().includes(query)) return false;
+        if (role !== "admin" || isOwnerAdmin) return true;
+        if (p.ownerOnly) return false;
+        if (p.staffPermission) {
+          const perms = Array.isArray(p.staffPermission) ? p.staffPermission : [p.staffPermission];
+          return hasAny(perms);
+        }
+        return !p.path.startsWith("/admin/");
+      }),
+    [query, role, isOwnerAdmin, hasAny]
   );
 
   const filteredOrders = useMemo(

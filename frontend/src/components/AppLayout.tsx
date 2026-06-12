@@ -3,7 +3,7 @@ import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useTabPermissions } from "@/hooks/useTabPermissions";
-import { useProductPermissions, type ProductPermission } from "@/hooks/useProductPermissions";
+import { useStaffPermissions, type StaffPermission } from "@/hooks/useStaffPermissions";
 import { useWalletSummary } from "@/hooks/useApiData";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -41,48 +41,53 @@ interface NavItem {
   shortcut?: string;
   requiresFullAccess?: boolean;
   requiresWarehouseAccess?: boolean;
-  productPermission?: ProductPermission;
+  staffPermission?: StaffPermission | StaffPermission[];
+  ownerOnly?: boolean;
 }
 interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[]; }
 
 const adminNav: NavGroup[] = [
-  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" }] },
+  { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard", staffPermission: ["orders.view", "analytics.view", "products.view"] }] },
   { title: "ORDERS", items: [
-    { label: "Orders", icon: Package, path: "/admin/orders" },
-    { label: "NDR Management", icon: AlertTriangle, path: "/admin/ndr" },
-    { label: "Returns & RTO", icon: Undo2, path: "/admin/returns" },
-    { label: "Manifests & Pickups", icon: ClipboardList, path: "/admin/manifests" },
+    { label: "Orders", icon: Package, path: "/admin/orders", staffPermission: "orders.view" },
+    { label: "NDR Management", icon: AlertTriangle, path: "/admin/ndr", staffPermission: "ndr.view" },
+    { label: "Returns & RTO", icon: Undo2, path: "/admin/returns", staffPermission: "returns.view" },
+    { label: "Manifests & Pickups", icon: ClipboardList, path: "/admin/manifests", ownerOnly: true },
   ]},
   { title: "PRODUCTS", items: [
-    { label: "Add Product", icon: Plus, path: "/admin/source-product", productPermission: "products.create" },
-    { label: "Products", icon: ShoppingBag, path: "/admin/products", productPermission: "products.view" },
-    { label: "Bulk Upload", icon: Upload, path: "/admin/bulk-upload-products", productPermission: "products.import" },
-    { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue", productPermission: "products.view" },
+    { label: "Add Product", icon: Plus, path: "/admin/source-product", staffPermission: "products.create" },
+    { label: "Products", icon: ShoppingBag, path: "/admin/products", staffPermission: "products.view" },
+    { label: "Bulk Upload", icon: Upload, path: "/admin/bulk-upload-products", staffPermission: "products.import" },
+    { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue", staffPermission: "products.view" },
+    { label: "Marketplace", icon: Home, path: "/admin/home", staffPermission: "products.view" },
+  ]},
+  { title: "CONNECT", items: [
+    { label: "Channels", icon: Link2, path: "/admin/channels", staffPermission: "channels.view" },
   ]},
   { title: "MANAGEMENT", items: [
-    { label: "Rates & Shipping", icon: Calculator, path: "/admin/rates" },
-    { label: "Couriers", icon: Truck, path: "/admin/couriers" },
-    { label: "Dropshippers", icon: Users, path: "/admin/dropshippers" },
-    { label: "Vendors", icon: Warehouse, path: "/admin/vendors" },
-    { label: "Users", icon: UserCog, path: "/admin/users" },
-    { label: "Approvals", icon: ClipboardList, path: "/admin/approvals" },
-    { label: "Pincode Check", icon: MapPin, path: "/admin/pincode" },
-    { label: "Permission Management", icon: Shield, path: "/admin/permissions" },
+    { label: "Rates & Shipping", icon: Calculator, path: "/admin/rates", ownerOnly: true },
+    { label: "Couriers", icon: Truck, path: "/admin/couriers", ownerOnly: true },
+    { label: "Dropshippers", icon: Users, path: "/admin/dropshippers", ownerOnly: true },
+    { label: "Vendors", icon: Warehouse, path: "/admin/vendors", ownerOnly: true },
+    { label: "Users", icon: UserCog, path: "/admin/users", ownerOnly: true },
+    { label: "Approvals", icon: ClipboardList, path: "/admin/approvals", ownerOnly: true },
+    { label: "Pincode Check", icon: MapPin, path: "/admin/pincode", ownerOnly: true },
+    { label: "Permission Management", icon: Shield, path: "/admin/permissions", ownerOnly: true },
   ]},
   { title: "FINANCE", items: [
-    { label: "Finance & Wallet", icon: IndianRupee, path: "/admin/finance" },
-    { label: "Billing & Invoices", icon: Receipt, path: "/admin/billing" },
-    { label: "Weight Disputes", icon: Scale, path: "/admin/weight-disputes" },
+    { label: "Finance & Wallet", icon: IndianRupee, path: "/admin/finance", ownerOnly: true },
+    { label: "Billing & Invoices", icon: Receipt, path: "/admin/billing", ownerOnly: true },
+    { label: "Weight Disputes", icon: Scale, path: "/admin/weight-disputes", ownerOnly: true },
   ]},
   { title: "INSIGHTS", items: [
-    { label: "Analytics", icon: BarChart3, path: "/admin/analytics" },
-    { label: "Reports", icon: FileText, path: "/admin/reports" },
-    { label: "Support", icon: Headphones, path: "/admin/support" },
+    { label: "Analytics", icon: BarChart3, path: "/admin/analytics", staffPermission: "analytics.view" },
+    { label: "Reports", icon: FileText, path: "/admin/reports", ownerOnly: true },
+    { label: "Support", icon: Headphones, path: "/admin/support", ownerOnly: true },
   ]},
   { title: "", items: [
     { label: "Profile", icon: User, path: "/admin/profile" },
     { label: "Change Password", icon: Shield, path: "/admin/change-password" },
-    { label: "Settings", icon: Settings, path: "/admin/settings" },
+    { label: "Settings", icon: Settings, path: "/admin/settings", ownerOnly: true },
   ]},
 ];
 
@@ -196,7 +201,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [walletPopoverOpen, setWalletPopoverOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { isTabEnabled } = useTabPermissions();
-  const { can: productCan } = useProductPermissions();
+  const { isOwnerAdmin, hasAny } = useStaffPermissions();
   const { isRestricted, allowWarehouseAccess } = useDropshipperAccess();
   const location = useLocation();
   const navigate = useNavigate();
@@ -284,22 +289,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   // Filter nav items based on permissions
   const nav = useMemo(() => {
-    const productPermAllowed = (perm?: ProductPermission) => {
-      if (!perm) return true;
-      if (perm === "products.view") return productCan.view;
-      if (perm === "products.create") return productCan.create;
-      if (perm === "products.edit") return productCan.edit;
-      if (perm === "products.delete") return productCan.delete;
-      if (perm === "products.import") return productCan.import;
-      if (perm === "products.export") return productCan.export;
-      if (perm === "products.approve") return productCan.approve;
-      return true;
-    };
     const allowItem = (item: NavItem & { children?: NavItem[] }) => {
       if (isRestricted && item.requiresFullAccess) return false;
       if (!allowWarehouseAccess && item.requiresWarehouseAccess) return false;
       if (item.tabKey && !isTabEnabled(item.tabKey)) return false;
-      if (!productPermAllowed(item.productPermission)) return false;
+      if (role === "admin" && !isOwnerAdmin) {
+        if (item.ownerOnly) return false;
+        if (item.staffPermission) {
+          const perms = Array.isArray(item.staffPermission) ? item.staffPermission : [item.staffPermission];
+          if (!hasAny(perms)) return false;
+        }
+      }
       if (item.children?.length) {
         const kids = item.children.filter(allowItem);
         return kids.length > 0;
@@ -326,7 +326,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           ),
       }))
       .filter((group) => group.items.length > 0);
-  }, [rawNav, role, isTabEnabled, isRestricted, allowWarehouseAccess, productCan]);
+  }, [rawNav, role, isTabEnabled, isRestricted, allowWarehouseAccess, isOwnerAdmin, hasAny]);
 
   const unread = notifUnread;
 
@@ -692,10 +692,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   <User className="mr-2 h-4 w-4" />
                   Profile
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </DropdownMenuItem>
+                {(role !== "admin" || isOwnerAdmin) && (
+                  <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={onLogoutClick} className="text-danger focus:text-danger">
                   <LogOut className="mr-2 h-4 w-4" />
@@ -876,6 +878,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </PopoverContent>
           </Popover>
 
+          {!(role === "admin" && !isOwnerAdmin) && (
           <Popover open={walletPopoverOpen} onOpenChange={setWalletPopoverOpen}>
             <PopoverTrigger asChild>
               <button
@@ -925,6 +928,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               </div>
             </PopoverContent>
           </Popover>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -950,10 +954,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <User className="h-4 w-4 mr-2" />
                 Profile
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
-                <Settings className="h-4 w-4 mr-2" />
-                Settings
-              </DropdownMenuItem>
+              {(role !== "admin" || isOwnerAdmin) && (
+                <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
+                  <Settings className="h-4 w-4 mr-2" />
+                  Settings
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={onLogoutClick} className="text-danger focus:text-danger">
                 <LogOut className="h-4 w-4 mr-2" />

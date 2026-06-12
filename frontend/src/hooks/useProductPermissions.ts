@@ -1,14 +1,13 @@
-import { useMemo } from "react";
-import { useAuth } from "@/contexts/AuthContext";
+import { STAFF_PERMISSIONS, useStaffPermissions } from "@/hooks/useStaffPermissions";
 
 export const PRODUCT_PERMISSIONS = {
-  VIEW: "products.view",
-  CREATE: "products.create",
-  EDIT: "products.edit",
-  DELETE: "products.delete",
-  IMPORT: "products.import",
-  EXPORT: "products.export",
-  APPROVE: "products.approve",
+  VIEW: STAFF_PERMISSIONS.PRODUCTS_VIEW,
+  CREATE: STAFF_PERMISSIONS.PRODUCTS_CREATE,
+  EDIT: STAFF_PERMISSIONS.PRODUCTS_EDIT,
+  DELETE: STAFF_PERMISSIONS.PRODUCTS_DELETE,
+  IMPORT: STAFF_PERMISSIONS.PRODUCTS_IMPORT,
+  EXPORT: STAFF_PERMISSIONS.PRODUCTS_EXPORT,
+  APPROVE: STAFF_PERMISSIONS.PRODUCTS_APPROVE,
 } as const;
 
 export type ProductPermission = (typeof PRODUCT_PERMISSIONS)[keyof typeof PRODUCT_PERMISSIONS];
@@ -23,37 +22,20 @@ export const ALL_PRODUCT_PERMISSIONS: { key: ProductPermission; label: string }[
   { key: PRODUCT_PERMISSIONS.APPROVE, label: "Approve products" },
 ];
 
-function hasProductStaffRestrictions(role: string, permissions: string[]): boolean {
-  if (role !== "admin") return false;
-  return permissions.some((p) => p.startsWith("products."));
-}
-
+/** @deprecated Prefer useStaffPermissions — kept for existing imports */
 export function useProductPermissions() {
-  const { role, user } = useAuth();
-  const permissions = user?.permissions ?? [];
-
-  const isStaffRestricted = useMemo(
-    () => hasProductStaffRestrictions(role, permissions),
-    [role, permissions]
-  );
-
-  const can = useMemo(() => {
-    const check = (perm: ProductPermission): boolean => {
-      if (role === "vendor" || role === "dropshipper") return true;
-      if (role !== "admin") return false;
-      if (!hasProductStaffRestrictions(role, permissions)) return true;
-      return permissions.includes(perm);
-    };
-    return {
-      view: check(PRODUCT_PERMISSIONS.VIEW),
-      create: check(PRODUCT_PERMISSIONS.CREATE),
-      edit: check(PRODUCT_PERMISSIONS.EDIT),
-      delete: check(PRODUCT_PERMISSIONS.DELETE),
-      import: check(PRODUCT_PERMISSIONS.IMPORT),
-      export: check(PRODUCT_PERMISSIONS.EXPORT),
-      approve: check(PRODUCT_PERMISSIONS.APPROVE),
-    };
-  }, [role, permissions]);
-
-  return { can, isStaffRestricted, permissions };
+  const { isStaffAdmin, can, permissions } = useStaffPermissions();
+  return {
+    can: {
+      view: can.productsView,
+      create: can.productsCreate,
+      edit: can.productsEdit,
+      delete: can.productsDelete,
+      import: can.productsImport,
+      export: can.productsExport,
+      approve: can.productsApprove,
+    },
+    isStaffRestricted: isStaffAdmin,
+    permissions,
+  };
 }

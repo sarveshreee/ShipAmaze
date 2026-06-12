@@ -11,9 +11,11 @@ import {
   Home,
   BarChart3,
   Users,
+  Link2,
 } from "lucide-react";
 import type { UserRole } from "@/services/authService";
 import { roleAddOrderPath, roleHomePath } from "@/services/authService";
+import { useStaffPermissions } from "@/hooks/useStaffPermissions";
 
 interface TabItem {
   label: string;
@@ -28,7 +30,7 @@ function isNavTabActive(tabPath: string, pathname: string): boolean {
   return false;
 }
 
-function tabsForRole(role: UserRole): TabItem[] {
+function tabsForRole(role: UserRole, staff: ReturnType<typeof useStaffPermissions>): TabItem[] {
   switch (role) {
     case "dropshipper":
       return [
@@ -45,21 +47,23 @@ function tabsForRole(role: UserRole): TabItem[] {
         { label: "Team", icon: Users, path: "/vendor/team" },
         { label: "Settings", icon: Settings, path: "/vendor/settings" },
       ];
-    case "admin":
-      return [
-        { label: "Home", icon: Home, path: roleHomePath("admin") },
-        { label: "Orders", icon: Package, path: "/admin/orders" },
-        { label: "NDR", icon: AlertTriangle, path: "/admin/ndr" },
-        { label: "Analytics", icon: BarChart3, path: "/admin/analytics" },
-        { label: "Settings", icon: Settings, path: "/admin/settings" },
-      ];
+    case "admin": {
+      const tabs: TabItem[] = [];
+      if (staff.isOwnerAdmin || staff.can.ordersView) tabs.push({ label: "Orders", icon: Package, path: "/admin/orders" });
+      if (staff.isOwnerAdmin || staff.can.ndrView) tabs.push({ label: "NDR", icon: AlertTriangle, path: "/admin/ndr" });
+      if (staff.isOwnerAdmin || staff.can.analyticsView) tabs.push({ label: "Analytics", icon: BarChart3, path: "/admin/analytics" });
+      if (staff.isOwnerAdmin || staff.can.channelsView) tabs.push({ label: "Channels", icon: Link2, path: "/admin/channels" });
+      tabs.push({ label: "Profile", icon: Home, path: "/admin/profile" });
+      return tabs.length > 0 ? tabs : [{ label: "Profile", icon: Home, path: "/admin/profile" }];
+    }
   }
 }
 
 export function MobileBottomNav() {
   const { role } = useAuth();
+  const staff = useStaffPermissions();
   const location = useLocation();
-  const tabs = useMemo(() => tabsForRole(role), [role]);
+  const tabs = useMemo(() => tabsForRole(role, staff), [role, staff]);
 
   return (
     <nav
@@ -79,11 +83,8 @@ export function MobileBottomNav() {
                 active ? "text-primary" : "text-text-muted",
               )}
             >
-              {active && (
-                <div className="absolute top-0 left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full bg-primary" />
-              )}
-              <Icon className={cn("h-5 w-5 shrink-0", active && "scale-110")} />
-              <span className="max-w-full truncate">{tab.label}</span>
+              <Icon className="h-5 w-5 shrink-0" />
+              <span className="truncate">{tab.label}</span>
             </Link>
           );
         })}

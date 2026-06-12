@@ -15,6 +15,8 @@ import {
 } from "./middleware/rateLimits.js";
 import { authMiddleware, type AuthRequest } from "./middleware/authMiddleware.js";
 import { requireRoles } from "./middleware/roleMiddleware.js";
+import { requireOwnerAdmin, requireStaffPermission } from "./middleware/staffPermissionMiddleware.js";
+import { STAFF_PERMISSIONS } from "./utils/staffPermissions.js";
 import * as authController from "./controllers/authController.js";
 import * as orderController from "./controllers/orderController.js";
 import * as resourceController from "./controllers/resourceController.js";
@@ -118,13 +120,13 @@ export function createApp() {
     labelInvoiceSettingsController.getPublicLabelInvoiceSettings
   );
 
-  api.get("/orders", authMiddleware, orderController.listOrders);
-  api.get("/orders/:orderId", authMiddleware, orderController.getOrderById);
-  api.post("/orders", authMiddleware, orderController.createOrder);
-  api.post("/orders/bulk", authMiddleware, orderController.createOrdersBulk);
-  api.post("/orders/bulk-move", authMiddleware, orderController.bulkMoveOrders);
+  api.get("/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.listOrders);
+  api.get("/orders/:orderId", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.getOrderById);
+  api.post("/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_CREATE), orderController.createOrder);
+  api.post("/orders/bulk", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_CREATE), orderController.createOrdersBulk);
+  api.post("/orders/bulk-move", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.bulkMoveOrders);
   api.post("/orders/create-shipment", authMiddleware, requireFullDropshipper, orderController.createShipment);
-  api.post("/orders/process-selected", authMiddleware, orderController.processSelectedOrders);
+  api.post("/orders/process-selected", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.processSelectedOrders);
   api.patch(
     "/orders/:orderId/line-items/:lineIndex/sku",
     authMiddleware,
@@ -133,14 +135,15 @@ export function createApp() {
   );
   api.get("/orders/:orderId/sku-audit", authMiddleware, orderController.listOrderSkuAudit);
   api.post("/orders/:id/junk", authMiddleware, orderController.markOrderJunk);
-  api.patch("/orders/:orderId/status", authMiddleware, orderController.updateOrderStatus);
-  api.put("/orders/:orderId", authMiddleware, orderController.updateOrder);
+  api.patch("/orders/:orderId/status", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.updateOrderStatus);
+  api.put("/orders/:orderId", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.updateOrder);
 
   api.get("/settings/label-invoice", authMiddleware, labelInvoiceSettingsController.getLabelInvoiceSettings);
   api.put(
     "/settings/label-invoice",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     labelInvoiceSettingsController.putLabelInvoiceSettings
   );
 
@@ -194,12 +197,14 @@ export function createApp() {
     "/admin/shipping-rate-card",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     approvalController.adminSaveShippingRateCard
   );
   api.post(
     "/admin/couriers/direct",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     approvalController.adminUpsertCourier
   );
   api.post("/shipping-rate-change-requests", authMiddleware, approvalController.submitShippingRateChange);
@@ -209,24 +214,28 @@ export function createApp() {
     "/admin/shipping-rate-approvals/:id/approve",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     approvalController.approveShippingRateApproval
   );
   api.patch(
     "/admin/shipping-rate-approvals/:id/reject",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     approvalController.rejectShippingRateApproval
   );
   api.patch(
     "/admin/product-price-approvals/:id/approve",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     approvalController.approveProductPriceApproval
   );
   api.patch(
     "/admin/product-price-approvals/:id/reject",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     approvalController.rejectProductPriceApproval
   );
 
@@ -234,6 +243,7 @@ export function createApp() {
     "/admin/staff/admins",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminListAdminUsers
   );
 
@@ -241,38 +251,43 @@ export function createApp() {
     "/admin/users/create",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminCreateUser
   );
-  api.get("/admin/users", authMiddleware, requireRoles("admin"), adminWorkflowController.adminListUsers);
-  api.get("/admin/users/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminGetUser);
-  api.patch("/admin/users/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminPatchUser);
+  api.get("/admin/users", authMiddleware, requireRoles("admin"), requireOwnerAdmin, adminWorkflowController.adminListUsers);
+  api.get("/admin/users/:id", authMiddleware, requireRoles("admin"), requireOwnerAdmin, adminWorkflowController.adminGetUser);
+  api.patch("/admin/users/:id", authMiddleware, requireRoles("admin"), requireOwnerAdmin, adminWorkflowController.adminPatchUser);
   api.post(
     "/admin/users/:id/reset-password",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminResetUserPassword
   );
 
-  api.get("/admin/vendors", authMiddleware, requireRoles("admin"), adminWorkflowController.adminListVendors);
-  api.get("/admin/vendors/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminGetVendor);
-  api.patch("/admin/vendors/:id", authMiddleware, requireRoles("admin"), adminWorkflowController.adminPatchVendor);
+  api.get("/admin/vendors", authMiddleware, requireRoles("admin"), requireOwnerAdmin, adminWorkflowController.adminListVendors);
+  api.get("/admin/vendors/:id", authMiddleware, requireRoles("admin"), requireOwnerAdmin, adminWorkflowController.adminGetVendor);
+  api.patch("/admin/vendors/:id", authMiddleware, requireRoles("admin"), requireOwnerAdmin, adminWorkflowController.adminPatchVendor);
 
   api.get(
     "/admin/dropshippers",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminListDropshippers
   );
   api.get(
     "/admin/dropshippers/:id",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminGetDropshipper
   );
   api.patch(
     "/admin/dropshippers/:id",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminPatchDropshipper
   );
 
@@ -280,24 +295,28 @@ export function createApp() {
     "/admin/support/tickets",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminListSupportTickets
   );
   api.get(
     "/admin/support/tickets/:id",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminGetSupportTicket
   );
   api.patch(
     "/admin/support/tickets/:id",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminPatchSupportTicket
   );
   api.post(
     "/admin/support/tickets/:id/comments",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     adminWorkflowController.adminAddSupportComment
   );
 
@@ -313,36 +332,42 @@ export function createApp() {
     "/admin/courier-priority-rules",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     courierPriorityController.listCourierPriorityRules
   );
   api.post(
     "/admin/courier-priority-rules",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     courierPriorityController.createCourierPriorityRule
   );
   api.patch(
     "/admin/courier-priority-rules/:id",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     courierPriorityController.updateCourierPriorityRule
   );
   api.delete(
     "/admin/courier-priority-rules/:id",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     courierPriorityController.deleteCourierPriorityRule
   );
   api.post(
     "/admin/courier-priority-rules/reorder",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     courierPriorityController.reorderCourierPriorityRules
   );
   api.post(
     "/admin/courier-priority-rules/evaluate",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     courierPriorityController.evaluateCourierPriority
   );
 
@@ -352,13 +377,13 @@ export function createApp() {
   api.get("/wallet", authMiddleware, resourceController.getWallet);
   api.post("/wallet/add-balance", authMiddleware, resourceController.addWalletBalance);
   api.post("/wallet/add-funds", authMiddleware, resourceController.addFunds);
-  api.post("/wallet/deduct", authMiddleware, walletController.adminDeductWallet);
+  api.post("/wallet/deduct", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminDeductWallet);
   api.get("/wallet/transactions", authMiddleware, resourceController.listTransactions);
   api.get("/wallet/cod-remittances", authMiddleware, resourceController.listCodRemittances);
 
-  api.get("/admin/wallets", authMiddleware, walletController.adminListWallets);
-  api.patch("/admin/wallets/:userId/adjust", authMiddleware, walletController.adminAdjustWalletHandler);
-  api.get("/admin/wallet-transactions", authMiddleware, walletController.adminListWalletTransactions);
+  api.get("/admin/wallets", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminListWallets);
+  api.patch("/admin/wallets/:userId/adjust", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminAdjustWalletHandler);
+  api.get("/admin/wallet-transactions", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminListWalletTransactions);
 
   api.get("/invoices", authMiddleware, resourceController.listInvoices);
   api.get("/invoices/:invoiceId/export.csv", authMiddleware, invoiceController.exportInvoiceCsv);
@@ -367,26 +392,28 @@ export function createApp() {
     "/invoices/:invoiceId/status",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     invoiceController.patchInvoiceStatus
   );
   api.post(
     "/invoices/:invoiceId/generate",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     invoiceController.postInvoiceGenerateStub
   );
 
-  api.get("/reports/summary", authMiddleware, reportsController.getReportsSummary);
-  api.get("/reports/orders", authMiddleware, reportsController.getReportsOrders);
-  api.get("/exports/csv", authMiddleware, reportsController.exportCsv);
+  api.get("/reports/summary", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ANALYTICS_VIEW), reportsController.getReportsSummary);
+  api.get("/reports/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ANALYTICS_VIEW), reportsController.getReportsOrders);
+  api.get("/exports/csv", authMiddleware, requireOwnerAdmin, reportsController.exportCsv);
 
-  api.get("/ndr", authMiddleware, resourceController.listNdr);
-  api.patch("/ndr/:awb", authMiddleware, resourceController.updateNdr);
+  api.get("/ndr", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.NDR_VIEW), resourceController.listNdr);
+  api.patch("/ndr/:awb", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.NDR_MANAGE), resourceController.updateNdr);
 
-  api.get("/returns", authMiddleware, resourceController.listReturns);
-  api.patch("/returns/:returnId", authMiddleware, resourceController.updateReturn);
+  api.get("/returns", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.RETURNS_VIEW), resourceController.listReturns);
+  api.patch("/returns/:returnId", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.RETURNS_MANAGE), resourceController.updateReturn);
 
-  api.get("/manifests", authMiddleware, requireRoles("admin"), resourceController.listManifests);
+  api.get("/manifests", authMiddleware, requireRoles("admin"), requireOwnerAdmin, resourceController.listManifests);
 
   if (process.env.NODE_ENV === "development") {
     api.get("/debug/my-pickups", authMiddleware, debugController.debugMyPickups);
@@ -403,7 +430,7 @@ export function createApp() {
   api.delete("/pickup-addresses/:id", authMiddleware, resourceController.deletePickupAddress);
   api.patch("/pickup-addresses/:id/default", authMiddleware, resourceController.setDefaultPickupAddress);
 
-  api.get("/weight-disputes", authMiddleware, resourceController.listWeightDisputes);
+  api.get("/weight-disputes", authMiddleware, requireOwnerAdmin, resourceController.listWeightDisputes);
 
   api.get("/product-requests", authMiddleware, resourceController.listProductRequests);
   api.post("/product-requests", authMiddleware, resourceController.createProductRequest);
@@ -411,11 +438,11 @@ export function createApp() {
   api.delete("/product-requests/:id", authMiddleware, resourceController.deleteProductRequest);
 
   api.get("/tab-permissions/me", authMiddleware, resourceController.getMyTabPermissions);
-  api.get("/tab-permissions/defaults", authMiddleware, resourceController.listTabDefaults);
-  api.post("/tab-permissions/defaults", authMiddleware, resourceController.upsertTabDefault);
-  api.get("/tab-permissions/user", authMiddleware, resourceController.listUserTabOverrides);
-  api.post("/tab-permissions/user", authMiddleware, resourceController.upsertUserTabOverride);
-  api.delete("/tab-permissions/user", authMiddleware, resourceController.resetUserTabOverrides);
+  api.get("/tab-permissions/defaults", authMiddleware, requireOwnerAdmin, resourceController.listTabDefaults);
+  api.post("/tab-permissions/defaults", authMiddleware, requireOwnerAdmin, resourceController.upsertTabDefault);
+  api.get("/tab-permissions/user", authMiddleware, requireOwnerAdmin, resourceController.listUserTabOverrides);
+  api.post("/tab-permissions/user", authMiddleware, requireOwnerAdmin, resourceController.upsertUserTabOverride);
+  api.delete("/tab-permissions/user", authMiddleware, requireOwnerAdmin, resourceController.resetUserTabOverrides);
 
   api.get("/account/kyc", authMiddleware, accountController.getKyc);
   api.put("/account/kyc", authMiddleware, accountController.putKyc);
@@ -432,15 +459,16 @@ export function createApp() {
 
   // Shopify OAuth — install/callback are public (Shopify redirects the browser)
   api.get("/shopify/install", shopifyCallbackLimiter, shopifyController.handleInstall);
-  api.post("/shopify/connect", authMiddleware, shopifyConnectLimiter, shopifyController.initiateConnect);
+  api.post("/shopify/connect", authMiddleware, shopifyConnectLimiter, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.initiateConnect);
   api.get("/shopify/callback", shopifyCallbackLimiter, shopifyController.handleCallback);
-  api.get("/shopify/status", authMiddleware, shopifyController.getStatus);
-  api.post("/shopify/disconnect", authMiddleware, shopifyController.disconnect);
-  api.post("/shopify/sync-orders", authMiddleware, shopifyController.syncOrders);
+  api.get("/shopify/status", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_VIEW), shopifyController.getStatus);
+  api.post("/shopify/disconnect", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.disconnect);
+  api.post("/shopify/sync-orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.syncOrders);
   api.get(
     "/shopify/admin/connections",
     authMiddleware,
     requireRoles("admin"),
+    requireOwnerAdmin,
     shopifyController.listConnectionsAdmin
   );
 

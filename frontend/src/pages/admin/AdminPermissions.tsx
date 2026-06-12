@@ -9,7 +9,7 @@ import * as userService from "@/services/userService";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ALL_PRODUCT_PERMISSIONS } from "@/hooks/useProductPermissions";
+import { STAFF_PERMISSION_GROUPS } from "@/hooks/useStaffPermissions";
 import { ApiError } from "@/lib/apiClient";
 
 const dropshipperTabs = [
@@ -135,7 +135,7 @@ function UserPermissionsPanel({
   );
 }
 
-function AdminStaffProductPermissionsPanel({
+function AdminStaffPermissionsPanel({
   user,
   onBack,
 }: {
@@ -160,21 +160,12 @@ function AdminStaffProductPermissionsPanel({
     })();
   }, [user.user_id]);
 
-  const hasStaffRestrictions = perms.some((p) => p.startsWith("products."));
-  const isFullAccess = !hasStaffRestrictions;
+  const isOwnerAccess = perms.length === 0;
 
   const togglePerm = async (key: string, enabled: boolean) => {
     setSaving(key);
     try {
-      const productPerms = perms.filter((p) => p.startsWith("products."));
-      const otherPerms = perms.filter((p) => !p.startsWith("products."));
-      let nextProductPerms = productPerms;
-      if (enabled) {
-        nextProductPerms = [...new Set([...productPerms, key])];
-      } else {
-        nextProductPerms = productPerms.filter((p) => p !== key);
-      }
-      const next = [...otherPerms, ...nextProductPerms];
+      const next = enabled ? [...new Set([...perms, key])] : perms.filter((p) => p !== key);
       await userService.adminPatchUser(user.user_id, { permissions: next });
       setPerms(next);
       toast.success(`${key} ${enabled ? "granted" : "revoked"}`);
@@ -188,11 +179,10 @@ function AdminStaffProductPermissionsPanel({
   const enableStaffMode = async () => {
     setSaving("mode");
     try {
-      const other = perms.filter((p) => !p.startsWith("products."));
-      const next = [...other, "products.view"];
+      const next = ["orders.view", "products.view"];
       await userService.adminPatchUser(user.user_id, { permissions: next });
       setPerms(next);
-      toast.success("Staff product permissions enabled");
+      toast.success("Staff mode enabled with default operational access");
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to update");
     } finally {
@@ -200,13 +190,12 @@ function AdminStaffProductPermissionsPanel({
     }
   };
 
-  const resetFullAccess = async () => {
+  const resetOwnerAccess = async () => {
     setSaving("reset");
     try {
-      const next = perms.filter((p) => !p.startsWith("products."));
-      await userService.adminPatchUser(user.user_id, { permissions: next });
-      setPerms(next);
-      toast.success("Full product access restored");
+      await userService.adminPatchUser(user.user_id, { permissions: [] });
+      setPerms([]);
+      toast.success("Owner-level full access restored");
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to reset");
     } finally {
@@ -228,55 +217,56 @@ function AdminStaffProductPermissionsPanel({
           <h3 className="font-semibold text-text-primary">{user.full_name || "Unnamed admin"}</h3>
           <p className="text-xs text-text-muted truncate">{user.business_name || user.user_id}</p>
         </div>
-        {isFullAccess ? (
-          <Badge variant="secondary">Full product access</Badge>
+        {isOwnerAccess ? (
+          <Badge variant="secondary">Owner — full access</Badge>
         ) : (
           <Badge className="bg-primary/10 text-primary">Staff — restricted</Badge>
         )}
       </div>
 
-      <div className="rounded-lg bg-card shadow-card divide-y divide-border">
-        <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex-1">
+      <div className="rounded-lg border border-border bg-muted/30 p-4 text-xs text-text-muted space-y-2">
+        <p>Finance, rates, couriers, billing, and platform settings are <strong>owner-only</strong> and cannot be assigned to staff.</p>
+        <p>Empty permissions = owner admin with full platform access. Any assigned permission enables staff mode.</p>
+        <div className="flex flex-wrap gap-2 pt-1">
+          {isOwnerAccess ? (
+            <Button variant="outline" size="sm" disabled={saving === "mode"} onClick={() => void enableStaffMode()}>
+              Enable staff mode
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled={saving === "reset"} onClick={() => void resetOwnerAccess()}>
+              <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+              Restore owner access
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {STAFF_PERMISSION_GROUPS.map((group) => (
+        <div key={group.title} className="rounded-lg bg-card shadow-card divide-y divide-border">
+          <div className="p-4">
             <h3 className="font-semibold text-text-primary flex items-center gap-2">
               <Package className="h-4 w-4 text-primary" />
-              Product permissions
+              {group.title}
             </h3>
-            <p className="text-xs text-text-muted mt-1">
-              Admins without any <code className="text-[10px]">products.*</code> entries have full product access.
-              Enable staff mode to assign granular permissions.
-            </p>
           </div>
-          <div className="flex gap-2 shrink-0">
-            {isFullAccess ? (
-              <Button variant="outline" size="sm" disabled={saving === "mode"} onClick={() => void enableStaffMode()}>
-                Enable staff mode
-              </Button>
-            ) : (
-              <Button variant="outline" size="sm" disabled={saving === "reset"} onClick={() => void resetFullAccess()}>
-                <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-                Full access
-              </Button>
-            )}
-          </div>
-        </div>
-        {ALL_PRODUCT_PERMISSIONS.map((perm) => {
-          const enabled = isFullAccess || perms.includes(perm.key);
-          return (
-            <div key={perm.key} className="flex items-center justify-between px-4 py-3 gap-3">
-              <div>
-                <span className="text-sm text-text-primary font-medium">{perm.label}</span>
-                <p className="text-[10px] text-text-muted font-mono">{perm.key}</p>
+          {group.items.map((perm) => {
+            const enabled = isOwnerAccess || perms.includes(perm.key);
+            return (
+              <div key={perm.key} className="flex items-center justify-between px-4 py-3 gap-3">
+                <div>
+                  <span className="text-sm text-text-primary font-medium">{perm.label}</span>
+                  <p className="text-[10px] text-text-muted font-mono">{perm.key}</p>
+                </div>
+                <Switch
+                  checked={enabled}
+                  disabled={isOwnerAccess || saving === perm.key}
+                  onCheckedChange={(v) => void togglePerm(perm.key, v)}
+                />
               </div>
-              <Switch
-                checked={enabled}
-                disabled={isFullAccess || saving === perm.key}
-                onCheckedChange={(v) => void togglePerm(perm.key, v)}
-              />
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -379,7 +369,7 @@ export default function AdminPermissions() {
   const renderUsersTab = () => {
     if (selectedUser && activeTab === "admin-staff") {
       return (
-        <AdminStaffProductPermissionsPanel
+        <AdminStaffPermissionsPanel
           user={selectedUser}
           onBack={() => setSelectedUser(null)}
         />
@@ -445,7 +435,7 @@ export default function AdminPermissions() {
         <TabsList className="mb-4 flex-wrap h-auto">
           <TabsTrigger value="dropshipper">Dropshipper tabs</TabsTrigger>
           <TabsTrigger value="vendor">Vendor tabs</TabsTrigger>
-          <TabsTrigger value="admin-staff">Admin staff — products</TabsTrigger>
+          <TabsTrigger value="admin-staff">Admin staff</TabsTrigger>
         </TabsList>
 
         {activeTab !== "admin-staff" && (

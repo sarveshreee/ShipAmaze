@@ -16,6 +16,9 @@ import ShopifyStore from "@/pages/ShopifyStore";
 import ProductPreview from "@/pages/ProductPreview";
 import { useCartSync } from "@/hooks/useCartSync";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
+import { useStaffPermissions, type StaffPermission } from "@/hooks/useStaffPermissions";
+import { AccessDenied } from "@/components/AccessDenied";
+import AdminChannels from "@/pages/admin/AdminChannels";
 
 // Admin
 import AdminDashboard from "@/pages/admin/AdminDashboard";
@@ -117,6 +120,27 @@ function WarehouseAccessRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Owner admin or staff with granted operational permission(s). */
+function AdminStaffRoute({
+  children,
+  permission,
+  ownerOnly,
+}: {
+  children: React.ReactNode;
+  permission?: StaffPermission | StaffPermission[];
+  ownerOnly?: boolean;
+}) {
+  const { isOwnerAdmin, hasAny } = useStaffPermissions();
+  if (ownerOnly && !isOwnerAdmin) return <AccessDenied message="This area is restricted to the platform owner." />;
+  if (permission) {
+    const perms = Array.isArray(permission) ? permission : [permission];
+    if (!isOwnerAdmin && !hasAny(perms)) {
+      return <AccessDenied />;
+    }
+  }
+  return <>{children}</>;
+}
+
 function LoginGate() {
   const { isAuthenticated, isLoading, user } = useAuth();
   if (isLoading) return <AuthLoadingScreen />;
@@ -147,27 +171,28 @@ function AppRoutes() {
       <Route path="/product-preview" element={<ProductPreview />} />
 
       {/* Admin */}
-      <Route path="/admin/dashboard" element={<RoleProtectedRoute allow={["admin"]}><AdminDashboard /></RoleProtectedRoute>} />
-      <Route path="/admin/orders" element={<RoleProtectedRoute allow={["admin"]}><AdminOrders /></RoleProtectedRoute>} />
-      <Route path="/admin/ndr" element={<RoleProtectedRoute allow={["admin"]}><AdminNDR /></RoleProtectedRoute>} />
-      <Route path="/admin/returns" element={<RoleProtectedRoute allow={["admin"]}><AdminReturns /></RoleProtectedRoute>} />
-      <Route path="/admin/manifests" element={<RoleProtectedRoute allow={["admin"]}><AdminManifests /></RoleProtectedRoute>} />
-      <Route path="/admin/catalogue" element={<RoleProtectedRoute allow={["admin"]}><AdminCatalogue /></RoleProtectedRoute>} />
-      <Route path="/admin/approvals" element={<RoleProtectedRoute allow={["admin"]}><AdminApprovals /></RoleProtectedRoute>} />
-      <Route path="/admin/rates" element={<RoleProtectedRoute allow={["admin"]}><AdminRates /></RoleProtectedRoute>} />
-      <Route path="/admin/couriers" element={<RoleProtectedRoute allow={["admin"]}><AdminCouriers /></RoleProtectedRoute>} />
-      <Route path="/admin/dropshippers" element={<RoleProtectedRoute allow={["admin"]}><AdminDropshippers /></RoleProtectedRoute>} />
-      <Route path="/admin/vendors" element={<RoleProtectedRoute allow={["admin"]}><AdminVendors /></RoleProtectedRoute>} />
-      <Route path="/admin/pincode" element={<RoleProtectedRoute allow={["admin"]}><AdminPincode /></RoleProtectedRoute>} />
-      <Route path="/admin/finance" element={<RoleProtectedRoute allow={["admin"]}><AdminFinance /></RoleProtectedRoute>} />
-      <Route path="/admin/billing" element={<RoleProtectedRoute allow={["admin"]}><AdminBilling /></RoleProtectedRoute>} />
-      <Route path="/admin/weight-disputes" element={<RoleProtectedRoute allow={["admin"]}><AdminWeightDisputes /></RoleProtectedRoute>} />
-      <Route path="/admin/analytics" element={<RoleProtectedRoute allow={["admin"]}><AdminAnalytics /></RoleProtectedRoute>} />
-      <Route path="/admin/reports" element={<RoleProtectedRoute allow={["admin"]}><AdminReports /></RoleProtectedRoute>} />
-      <Route path="/admin/support" element={<RoleProtectedRoute allow={["admin"]}><AdminSupport /></RoleProtectedRoute>} />
-      <Route path="/admin/settings" element={<RoleProtectedRoute allow={["admin"]}><AdminSettings /></RoleProtectedRoute>} />
-      <Route path="/admin/permissions" element={<RoleProtectedRoute allow={["admin"]}><AdminPermissions /></RoleProtectedRoute>} />
-      <Route path="/admin/users" element={<RoleProtectedRoute allow={["admin"]}><AdminUsers /></RoleProtectedRoute>} />
+      <Route path="/admin/dashboard" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission={["orders.view", "analytics.view", "products.view"]}><AdminDashboard /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/orders" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="orders.view"><AdminOrders /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/ndr" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="ndr.view"><AdminNDR /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/returns" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="returns.view"><AdminReturns /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/manifests" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminManifests /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/catalogue" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><AdminCatalogue /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/approvals" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminApprovals /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/rates" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminRates /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/couriers" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminCouriers /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/dropshippers" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminDropshippers /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/vendors" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminVendors /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/pincode" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminPincode /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/finance" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminFinance /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/billing" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminBilling /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/weight-disputes" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminWeightDisputes /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/analytics" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="analytics.view"><AdminAnalytics /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/reports" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminReports /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/support" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminSupport /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/settings" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminSettings /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/channels" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="channels.view"><AdminChannels /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/permissions" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminPermissions /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/users" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminUsers /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/profile" element={<RoleProtectedRoute allow={["admin"]}><ProfilePage /></RoleProtectedRoute>} />
       <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
 
@@ -213,27 +238,30 @@ function AppRoutes() {
       <Route path="/dropshipper/profile" element={<RoleProtectedRoute allow={["dropshipper"]}><ProfilePage /></RoleProtectedRoute>} />
       <Route path="/dropshipper" element={<Navigate to="/dropshipper/dashboard" replace />} />
 
-      {/* Supplier Product module — available in all role areas */}
-      {(["admin","vendor","dropshipper"] as const).map(r => (
+      {/* Supplier Product module */}
+      <Route path="/admin/source-product" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission={["products.create", "products.edit"]}><SourceProduct /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/products" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><ProductsPage /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/bulk-upload-products" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.import"><BulkUploadProducts /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/product-requests" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><NewProductRequest /></AdminStaffRoute></RoleProtectedRoute>} />
+      {(["vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-supplier`} path={`/${r}/source-product`} element={<RoleProtectedRoute allow={[r]}><SourceProduct /></RoleProtectedRoute>} />
       ))}
-      {/* Vendor uses dedicated table-based My Products view */}
       <Route path="/vendor/products" element={<RoleProtectedRoute allow={["vendor"]}><VendorProducts /></RoleProtectedRoute>} />
-      {(["admin","dropshipper"] as const).map(r => (
-        <Route key={`${r}-products`} path={`/${r}/products`} element={<RoleProtectedRoute allow={[r]}><ProductsPage /></RoleProtectedRoute>} />
-      ))}
-      {(["admin","vendor","dropshipper"] as const).map(r => (
+      <Route path="/dropshipper/products" element={<RoleProtectedRoute allow={["dropshipper"]}><ProductsPage /></RoleProtectedRoute>} />
+      {(["vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-requests`} path={`/${r}/product-requests`} element={<RoleProtectedRoute allow={[r]}><NewProductRequest /></RoleProtectedRoute>} />
       ))}
-      {(["admin","vendor","dropshipper"] as const).map(r => (
+      {(["vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-bulk-products`} path={`/${r}/bulk-upload-products`} element={<RoleProtectedRoute allow={[r]}><BulkUploadProducts /></RoleProtectedRoute>} />
       ))}
 
       {/* Marketplace Home — available across roles */}
-      {(["admin","vendor","dropshipper"] as const).map(r => (
+      <Route path="/admin/home" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><MarketplaceHome /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/home/product/:id" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><MarketplaceProductDetail /></AdminStaffRoute></RoleProtectedRoute>} />
+      {(["vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-home`} path={`/${r}/home`} element={<RoleProtectedRoute allow={[r]}><MarketplaceHome /></RoleProtectedRoute>} />
       ))}
-      {(["admin","vendor","dropshipper"] as const).map(r => (
+      {(["vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-home-pdp`} path={`/${r}/home/product/:id`} element={<RoleProtectedRoute allow={[r]}><MarketplaceProductDetail /></RoleProtectedRoute>} />
       ))}
 
