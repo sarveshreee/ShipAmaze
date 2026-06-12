@@ -15,7 +15,7 @@ import * as productService from "@/services/productService";
 import * as vendorService from "@/services/vendorService";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProductPermissions } from "@/hooks/useProductPermissions";
-import { hsnForCategory } from "@/lib/hsnMap";
+import { useCategories, hsnForCategoryName } from "@/hooks/useCategories";
 
 type StepKey = "details" | "variants" | "shipping" | "other";
 const STEPS: { key: StepKey; label: string }[] = [
@@ -55,6 +55,7 @@ export default function SourceProduct() {
   const editId = params.get("id");
   const { role, userId, userName } = useAuth();
   const { can: productCan } = useProductPermissions();
+  const { categories } = useCategories();
   const [step, setStep] = useState<StepKey>("details");
   const [form, setForm] = useState(emptyForm);
   const [variants, setVariants] = useState<Variant[]>([]);
@@ -398,16 +399,15 @@ export default function SourceProduct() {
               <div>
                 <Label>Product Category *</Label>
                 <Select value={form.category} onValueChange={v => {
-                  const mapped = hsnForCategory(v);
-                  // Auto-fill HSN if empty or if it matched the previous category's default (so changes flow through)
-                  const prevDefault = hsnForCategory(form.category);
+                  const mapped = hsnForCategoryName(categories, v);
+                  const prevDefault = hsnForCategoryName(categories, form.category);
                   const shouldAutoFill = !form.hsn || form.hsn === prevDefault;
                   update({ category: v, ...(shouldAutoFill && mapped ? { hsn: mapped } : {}) });
                 }}>
                   <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
-                    {["Apparel","Electronics","Home & Kitchen","Beauty","Sports","Toys","Books","Automotive","Arts & Entertainment"].map(c => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    {categories.map(c => (
+                      <SelectItem key={c.id} value={c.name}>{c.emoji ? `${c.emoji} ` : ""}{c.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

@@ -28,12 +28,24 @@ import {
   orderWalletUserId,
 } from "../../services/walletLedger.js";
 import { resolvePreferredCourierName } from "../../services/courierPriorityService.js";
+import {
+  applyDropshipperRateOverrides,
+  loadDropshipperShippingOverride,
+  type VelocityRateRow,
+} from "../../services/dropshipperShippingRates.js";
 
 async function applyCourierPriorityRules(
   merged: Record<string, unknown>,
   localOrder: IOrder | null
 ): Promise<void> {
   if (merged.carrier_id != null && String(merged.carrier_id).trim() !== "") return;
+  if (localOrder?.courierCompanyId != null && String(localOrder.courierCompanyId).trim() !== "") {
+    merged.carrier_id = localOrder.courierCompanyId;
+    if (localOrder.courierName) {
+      localOrder.courier = localOrder.courierName;
+    }
+    return;
+  }
   if (!localOrder) return;
   const { courierName, candidates, matchedRules } = await resolvePreferredCourierName(localOrder);
   if (!courierName) return;
@@ -286,7 +298,14 @@ export const rates = asyncHandler(async (req: AuthRequest, res: Response) => {
     qc_applicable,
   });
 
-  res.json({ success: true, data: result.data ?? [] });
+  const baseRates = (result.data ?? []) as VelocityRateRow[];
+  let rates: VelocityRateRow[] = baseRates;
+  if (req.user?.role === "dropshipper") {
+    const override = await loadDropshipperShippingOverride(req.user._id);
+    rates = applyDropshipperRateOverrides(baseRates, override);
+  }
+
+  res.json({ success: true, data: rates });
 });
 
 // ─── Warehouse ───────────────────────────────────────────
@@ -488,6 +507,11 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
   }
 
   const merged = await mergeVelocityWarehouse(req, body, localOrder);
+  const manualCourierName = String(body.courier_name ?? "").trim();
+  if (manualCourierName && localOrder) {
+    localOrder.courierName = manualCourierName;
+    localOrder.courier = manualCourierName;
+  }
   await applyCourierPriorityRules(merged as Record<string, unknown>, localOrder);
   const resolvedVelocityWarehouseId =
     merged.warehouse_id != null && String(merged.warehouse_id).trim() !== ""

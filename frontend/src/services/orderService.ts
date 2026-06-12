@@ -143,6 +143,7 @@ export async function createShipment(body: {
   warehouseId: string;
   /** Empty string = Velocity auto-assign */
   carrier_id?: string | number | "";
+  courier_name?: string;
 }) {
   return apiClient.post<{
     success: boolean;
@@ -165,6 +166,7 @@ export async function createShipment(body: {
     ...(body.carrier_id === "" || body.carrier_id === undefined
       ? {}
       : { carrier_id: body.carrier_id }),
+    ...(body.courier_name ? { courier_name: body.courier_name } : {}),
   });
 }
 

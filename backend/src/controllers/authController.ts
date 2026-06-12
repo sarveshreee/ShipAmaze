@@ -17,6 +17,9 @@ import { Profile } from "../models/Profile.js";
 import { Vendor } from "../models/Vendor.js";
 import { Dropshipper } from "../models/Dropshipper.js";
 import { Wallet } from "../models/Wallet.js";
+import { KycProfile } from "../models/KycProfile.js";
+import { TERMS_VERSION } from "./kycController.js";
+import { getKycState } from "../middleware/kycMiddleware.js";
 import { signToken } from "../utils/jwt.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -39,6 +42,7 @@ const registerSchema = z.object({
   role: z.enum(PUBLIC_REGISTER_ROLES),
   companyName: z.string().optional(),
   phone: z.string().optional(),
+  termsAccepted: z.boolean().optional(),
 });
 
 const loginSchema = z.object({
@@ -61,10 +65,17 @@ async function toPublicUser(user: {
   let allowWarehouseAccess: boolean | undefined;
   if (user.role === "dropshipper") {
     const { Dropshipper } = await import("../models/Dropshipper.js");
-    const d = await Dropshipper.findOne({ userId: user._id }).select("accessType allowWarehouseAccess").lean();
+    const d = await Dropshipper.findOne({ userId: user._id }).select("accessType allowWarehouseAccess kycVerified").lean();
     dropshipperAccessType = d?.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL";
     allowWarehouseAccess =
       typeof d?.allowWarehouseAccess === "boolean" ? d.allowWarehouseAccess : dropshipperAccessType !== "RESTRICTED";
+  }
+  let kycStatus: string | undefined;
+  let kycVerified: boolean | undefined;
+  if (user.role === "dropshipper") {
+    const kyc = await getKycState(user._id);
+    kycStatus = kyc.status;
+    kycVerified = kyc.kycVerified;
   }
   return {
     id: String(user._id),
@@ -80,6 +91,8 @@ async function toPublicUser(user: {
       profile?.avatarUrl && String(profile.avatarUrl).trim() ? String(profile.avatarUrl).trim() : null,
     dropshipperAccessType,
     allowWarehouseAccess,
+    kycStatus,
+    kycVerified,
   };
 }
 
@@ -90,6 +103,9 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
   }
 
   const body = registerSchema.parse(req.body);
+  if (body.role === "dropshipper" && body.termsAccepted !== true) {
+    throw new AppError(400, "You must accept Terms & Conditions to register as a dropshipper");
+  }
   const exists = await User.findOne({ email: body.email });
   if (exists) throw new AppError(409, "This email is already registered");
 
@@ -124,7 +140,18 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
       totalOrders: 0,
       activeOrders: 0,
       kycVerified: false,
+      accessType: "RESTRICTED",
       joinDate: new Date(),
+    });
+    await KycProfile.create({
+      userId: user._id,
+      status: "pending_kyc",
+      accountType: "individual",
+      businessName: body.companyName ?? "",
+      termsAcceptedAt: body.termsAccepted ? new Date() : undefined,
+      termsVersion: body.termsAccepted ? TERMS_VERSION : undefined,
+      documents: {},
+      data: { status: "draft" },
     });
   }
 

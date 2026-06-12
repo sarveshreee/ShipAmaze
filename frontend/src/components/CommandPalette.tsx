@@ -55,6 +55,7 @@ const pages: PalettePage[] = [
   { label: "Products", path: "/admin/products", icon: ShoppingBag, staffPermission: "products.view" },
   { label: "Bulk Upload Products", path: "/admin/bulk-upload-products", icon: Package, staffPermission: "products.import" },
   { label: "Approvals", path: "/admin/approvals", icon: Shield, ownerOnly: true },
+  { label: "KYC Approvals", path: "/admin/kyc", icon: Shield, ownerOnly: true },
   { label: "Permission Management", path: "/admin/permissions", icon: Shield, ownerOnly: true },
   { label: "Finance", path: "/admin/finance", icon: IndianRupee, ownerOnly: true },
   { label: "Analytics", path: "/admin/analytics", icon: BarChart3, staffPermission: "analytics.view" },

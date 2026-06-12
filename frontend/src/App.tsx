@@ -19,6 +19,8 @@ import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import { useStaffPermissions, type StaffPermission } from "@/hooks/useStaffPermissions";
 import { AccessDenied } from "@/components/AccessDenied";
 import AdminChannels from "@/pages/admin/AdminChannels";
+import AdminKyc from "@/pages/admin/AdminKyc";
+import AdminCategories from "@/pages/admin/AdminCategories";
 
 // Admin
 import AdminDashboard from "@/pages/admin/AdminDashboard";
@@ -107,9 +109,18 @@ function RoleProtectedRoute({ children, allow }: { children: React.ReactNode; al
   return <AppLayout>{children}</AppLayout>;
 }
 
-/** Blocks restricted dropshippers from operational pages (add order, bulk upload, etc.). */
+/** Blocks restricted / pending-KYC dropshippers from operational pages. */
 function FullDropshipperRoute({ children }: { children: React.ReactNode }) {
-  const { isRestricted } = useDropshipperAccess();
+  const { isRestricted, isKycPending } = useDropshipperAccess();
+  if (isKycPending) {
+    return (
+      <AccessDenied
+        message="Complete KYC and wait for admin approval before creating orders or connecting channels."
+        actionLabel="Go to KYC Settings"
+        actionPath="/dropshipper/settings"
+      />
+    );
+  }
   if (isRestricted) return <Navigate to="/dropshipper/orders" replace />;
   return <>{children}</>;
 }
@@ -178,6 +189,8 @@ function AppRoutes() {
       <Route path="/admin/manifests" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminManifests /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/catalogue" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><AdminCatalogue /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/approvals" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminApprovals /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/kyc" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminKyc /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/categories" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminCategories /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/rates" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminRates /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/couriers" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminCouriers /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/dropshippers" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminDropshippers /></AdminStaffRoute></RoleProtectedRoute>} />

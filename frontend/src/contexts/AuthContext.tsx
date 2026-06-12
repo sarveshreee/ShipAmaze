@@ -105,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role,
         companyName: businessName,
         phone,
+        termsAccepted: role === "dropshipper" ? true : undefined,
       });
       if ("needsEmailVerification" in res && res.needsEmailVerification) {
         return { needsVerification: true, verifyEmail: res.user.email, user: res.user };

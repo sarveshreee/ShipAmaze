@@ -7,7 +7,8 @@ export type NotificationType =
   | "wallet_recharge"
   | "support_update"
   | "approval_pending"
-  | "approval_decision";
+  | "approval_decision"
+  | "kyc_update";
 
 export interface INotification extends Document {
   userId: Types.ObjectId;

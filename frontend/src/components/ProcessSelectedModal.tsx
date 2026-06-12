@@ -74,7 +74,8 @@ export function ProcessSelectedModal({
       toast.error("Select return address");
       return;
     }
-    if (!courierName.trim()) {
+    const autoCourier = !courierName || courierName.toLowerCase() === "auto";
+    if (!autoCourier && !courierName.trim()) {
       toast.error("Select a courier");
       return;
     }
@@ -94,7 +95,7 @@ export function ProcessSelectedModal({
     const payload: ProcessSelectedPayload = {
       orderIds,
       pickupAddressId: pickupAddr,
-      courierName: courierName.trim(),
+      courierName: autoCourier ? "Auto" : courierName.trim(),
       shipmentMode,
       weight: w,
       length: L,
@@ -186,7 +187,7 @@ export function ProcessSelectedModal({
                 onChange={(e) => setCourierName(e.target.value)}
                 className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
               >
-                <option value="">Select courier…</option>
+                <option value="Auto">Auto — system assigns courier</option>
                 {couriers.map((c) => (
                   <option key={c.id} value={c.name}>
                     {c.name}

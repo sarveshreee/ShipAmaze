@@ -3,17 +3,26 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { useStaffPermissions } from "@/hooks/useStaffPermissions";
 
-export function AccessDenied({ message }: { message?: string }) {
+export function AccessDenied({
+  message,
+  actionLabel,
+  actionPath,
+}: {
+  message?: string;
+  actionLabel?: string;
+  actionPath?: string;
+}) {
   const { isStaffAdmin, can } = useStaffPermissions();
 
   const fallback =
-    isStaffAdmin && can.ordersView
+    actionPath ??
+    (isStaffAdmin && can.ordersView
       ? "/admin/orders"
       : isStaffAdmin && can.productsView
         ? "/admin/products"
         : isStaffAdmin && can.analyticsView
           ? "/admin/analytics"
-          : "/admin/profile";
+          : "/admin/profile");
 
   return (
     <div className="flex min-h-[50vh] flex-col items-center justify-center px-4 text-center animate-fade-in-up">
@@ -25,7 +34,7 @@ export function AccessDenied({ message }: { message?: string }) {
         {message ?? "You do not have permission to view this page. Contact your administrator if you need access."}
       </p>
       <Button asChild className="mt-6" variant="outline">
-        <Link to={fallback}>Go back</Link>
+        <Link to={fallback}>{actionLabel ?? "Go back"}</Link>
       </Button>
     </div>
   );

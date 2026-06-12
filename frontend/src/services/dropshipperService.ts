@@ -13,6 +13,10 @@ export async function saveKyc(data: Record<string, unknown>) {
   return apiClient.put("/account/kyc", data);
 }
 
+export async function submitKyc(data: Record<string, unknown>) {
+  return apiClient.post("/account/kyc/submit", data);
+}
+
 export async function listBankAccounts() {
   return apiClient.get<unknown[]>("/account/banks");
 }

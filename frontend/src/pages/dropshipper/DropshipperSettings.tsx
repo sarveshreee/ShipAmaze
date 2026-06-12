@@ -125,15 +125,20 @@ function StatusPill({ status }: { status: KycStatus }) {
   );
 }
 
-function FileUploadField({ label, value, onChange }: { label: string; value?: string; onChange: (filename: string | undefined) => void; }) {
+function FileUploadField({ label, value, onChange }: { label: string; value?: string; onChange: (dataUrl: string | undefined) => void; }) {
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     if (f.size > 5 * 1024 * 1024) { toast.error("File too large (max 5MB)"); return; }
     if (!/\.(pdf|jpg|jpeg|png)$/i.test(f.name)) { toast.error("Only PDF/JPG/PNG allowed"); return; }
-    onChange(f.name);
-    toast.success(`${f.name} uploaded`);
+    const reader = new FileReader();
+    reader.onload = () => {
+      onChange(String(reader.result ?? ""));
+      toast.success(`${f.name} uploaded`);
+    };
+    reader.readAsDataURL(f);
   };
+  const displayName = value?.startsWith("data:") ? "Document uploaded" : value;
   return (
     <div>
       <Label className="mb-1.5 block">{label}</Label>
@@ -141,7 +146,11 @@ function FileUploadField({ label, value, onChange }: { label: string; value?: st
         <div className="flex items-center justify-between gap-2 rounded-lg border border-success/30 bg-success-light px-3 py-2.5">
           <div className="flex items-center gap-2 min-w-0">
             <FileCheck className="h-4 w-4 text-success-dark shrink-0" />
-            <span className="text-sm text-success-dark truncate">{value}</span>
+            {value.startsWith("data:") ? (
+              <a href={value} target="_blank" rel="noreferrer" className="text-sm text-success-dark truncate">View uploaded file</a>
+            ) : (
+              <span className="text-sm text-success-dark truncate">{displayName}</span>
+            )}
           </div>
           <button type="button" onClick={() => onChange(undefined)} className="text-danger hover:text-danger-dark shrink-0">
             <X className="h-4 w-4" />
@@ -220,10 +229,16 @@ function KycTab({ userId }: { userId: string | null }) {
     if (errs.length) { toast.error(`Missing: ${errs.join(", ")}`); return; }
 
     try {
+      const payload = {
+        ...profile,
+        uploaded_docs: profile.uploaded_docs,
+        documents: profile.uploaded_docs,
+        termsAccepted: true,
+      };
+      await dropshipperService.submitKyc(payload as unknown as Record<string, unknown>);
       const next = { ...profile, status: "pending" as KycStatus };
-      await persist(next);
       setProfile(next);
-      toast.success("Submitted for verification");
+      toast.success("Submitted for admin approval");
     } catch (e: any) { toast.error(e.message); }
   };
 

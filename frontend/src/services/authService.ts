@@ -39,6 +39,8 @@ export interface AuthUser {
   dropshipperAccessType?: DropshipperAccessType;
   /** New business toggle for vendor/warehouse management. */
   allowWarehouseAccess?: boolean;
+  kycStatus?: "pending_kyc" | "pending_approval" | "approved" | "rejected";
+  kycVerified?: boolean;
 }
 
 export type RegisterResult =
@@ -58,6 +60,7 @@ export async function register(payload: {
   role: SignupRole;
   companyName?: string;
   phone?: string;
+  termsAccepted?: boolean;
 }): Promise<RegisterResult> {
   const res = await apiClient.post<RegisterResult>("/auth/register", payload);
   if ("token" in res && res.token) setStoredToken(res.token);

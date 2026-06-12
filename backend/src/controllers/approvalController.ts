@@ -114,6 +114,7 @@ async function applyShippingApproval(doc: InstanceType<typeof ShippingRateApprov
         shippingCharge: num(doc.pendingValues.shippingCharge),
         surfaceRate: doc.pendingValues.surfaceRate != null ? num(doc.pendingValues.surfaceRate) : undefined,
         airRate: doc.pendingValues.airRate != null ? num(doc.pendingValues.airRate) : undefined,
+        courierRates: Array.isArray(doc.pendingValues.courierRates) ? doc.pendingValues.courierRates : [],
         notes: String(doc.pendingValues.notes ?? ""),
         updatedBy: doc.reviewedBy,
       },
@@ -473,3 +474,98 @@ export function stripPriceFieldsFromBody(body: Record<string, unknown>): void {
     delete body[k];
   }
 }
+
+function mapDropshipperShippingOverride(row: Record<string, unknown> | null) {
+  if (!row) {
+    return {
+      dropshipperUserId: "",
+      shippingCharge: 0,
+      surfaceRate: undefined as number | undefined,
+      airRate: undefined as number | undefined,
+      courierRates: [] as Array<Record<string, unknown>>,
+      notes: "",
+      updatedAt: null as Date | null,
+    };
+  }
+  return {
+    dropshipperUserId: row.dropshipperUserId ? String(row.dropshipperUserId) : "",
+    shippingCharge: num(row.shippingCharge),
+    surfaceRate: row.surfaceRate != null ? num(row.surfaceRate) : undefined,
+    airRate: row.airRate != null ? num(row.airRate) : undefined,
+    courierRates: Array.isArray(row.courierRates) ? row.courierRates : [],
+    notes: String(row.notes ?? ""),
+    updatedAt: row.updatedAt as Date | null,
+  };
+}
+
+/** Admin: read per-dropshipper courier pricing overrides. */
+export const getDropshipperShippingRates = asyncHandler(async (req: AuthRequest, res: Response) => {
+  assertOwnerAdminReq(req);
+  const userId = req.params.userId;
+  if (!mongoose.isValidObjectId(userId)) throw new AppError(400, "Invalid userId");
+  const user = await User.findById(userId).select("name email role").lean();
+  if (!user || user.role !== "dropshipper") throw new AppError(404, "Dropshipper not found");
+  const override = await DropshipperShippingOverride.findOne({ dropshipperUserId: userId }).lean();
+  const couriers = await Courier.find({ active: { $ne: false } }).sort({ priority: 1, name: 1 }).lean();
+  res.json({
+    dropshipper: { id: userId, name: user.name, email: user.email },
+    override: mapDropshipperShippingOverride(override as Record<string, unknown> | null),
+    availableCouriers: couriers.map((c) => ({
+      name: c.name,
+      surfaceRate: c.surfaceRate,
+      airRate: c.airRate,
+    })),
+  });
+});
+
+/** Admin: save per-dropshipper courier pricing (affects live rate quotes). */
+export const saveDropshipperShippingRates = asyncHandler(async (req: AuthRequest, res: Response) => {
+  assertOwnerAdminReq(req);
+  const userId = req.params.userId;
+  if (!mongoose.isValidObjectId(userId)) throw new AppError(400, "Invalid userId");
+  const user = await User.findById(userId).select("role name").lean();
+  if (!user || user.role !== "dropshipper") throw new AppError(404, "Dropshipper not found");
+
+  const courierRates = Array.isArray(req.body.courierRates) ? req.body.courierRates : [];
+  const doc = await DropshipperShippingOverride.findOneAndUpdate(
+    { dropshipperUserId: userId },
+    {
+      dropshipperUserId: userId,
+      shippingCharge: num(req.body.shippingCharge),
+      surfaceRate: req.body.surfaceRate != null ? num(req.body.surfaceRate) : undefined,
+      airRate: req.body.airRate != null ? num(req.body.airRate) : undefined,
+      courierRates: courierRates.map((r: Record<string, unknown>) => ({
+        courierName: String(r.courierName ?? "").trim(),
+        carrierId: r.carrierId != null ? String(r.carrierId) : undefined,
+        surfaceRate: r.surfaceRate != null ? num(r.surfaceRate) : undefined,
+        airRate: r.airRate != null ? num(r.airRate) : undefined,
+        codRate: r.codRate != null ? num(r.codRate) : undefined,
+        enabled: r.enabled !== false,
+      })),
+      notes: String(req.body.notes ?? ""),
+      updatedBy: req.user!._id,
+    },
+    { upsert: true, new: true }
+  );
+
+  await ShippingRateApproval.create({
+    type: "dropshipper_override",
+    dropshipperUserId: new mongoose.Types.ObjectId(userId),
+    pendingValues: {
+      shippingCharge: doc.shippingCharge,
+      surfaceRate: doc.surfaceRate,
+      airRate: doc.airRate,
+      courierRates: doc.courierRates,
+      notes: doc.notes,
+    },
+    previousValues: {},
+    status: "approved",
+    submittedBy: req.user!._id,
+    submittedByRole: "admin",
+    submittedByName: req.user!.name,
+    reviewedBy: req.user!._id,
+    reviewedAt: new Date(),
+  });
+
+  res.json(mapDropshipperShippingOverride(doc.toObject() as unknown as Record<string, unknown>));
+});

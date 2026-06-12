@@ -9,7 +9,7 @@ import { ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
 import { EditSkuModal } from "@/components/EditSkuModal";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 
-import { cn } from "@/lib/utils";
+import { getRates, type VelocityRate } from "@/services/velocityService";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { toast } from "sonner";
 import { printShippingLabel } from "@/components/ShippingLabel";
@@ -345,6 +345,7 @@ interface Props {
     orderId: string;
     warehouseId: string;
     carrier_id?: string | number | "";
+    courier_name?: string;
   }) => Promise<{
     success: boolean;
     data: {
@@ -413,6 +414,8 @@ export function RichOrdersTable({
   const [shipmentModalOrder, setShipmentModalOrder] = useState<Order | null>(null);
   const [shipmentItemsMissing, setShipmentItemsMissing] = useState(false);
   const [selectedCourierId, setSelectedCourierId] = useState("");
+  const [velocityCouriers, setVelocityCouriers] = useState<VelocityRate[]>([]);
+  const [couriersLoading, setCouriersLoading] = useState(false);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [shipmentSubmitting, setShipmentSubmitting] = useState(false);
 
@@ -431,7 +434,39 @@ export function RichOrdersTable({
       : undefined;
     setSelectedWarehouseId(matchPickup ?? linkedByWhCode ?? warehouses[0]?.id ?? "");
     setSelectedCourierId("");
+    setVelocityCouriers([]);
   }, [shipmentModalOrder, warehouses]);
+
+  useEffect(() => {
+    if (!shipmentModalOrder) return;
+    const pin = String(shipmentModalOrder.shippingPincode ?? (shipmentModalOrder as any).pincode ?? "").replace(/\D/g, "").slice(0, 6);
+    const fromPin = String((shipmentModalOrder.pickupAddress as any)?.pincode ?? "").replace(/\D/g, "").slice(0, 6);
+    const weight = Number(String(shipmentModalOrder.weight ?? "0.5").replace(/[^\d.]/g, "")) || 0.5;
+    const payment = String(shipmentModalOrder.payment ?? "").toLowerCase().includes("cod") ? "cod" : "prepaid";
+    if (pin.length !== 6 || fromPin.length !== 6) return;
+    let cancelled = false;
+    setCouriersLoading(true);
+    void getRates({
+      from: fromPin,
+      to: pin,
+      weight,
+      payment_mode: payment as "cod" | "prepaid",
+      cod_value: payment === "cod" ? Number(shipmentModalOrder.amount ?? 0) : undefined,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setVelocityCouriers(Array.isArray(res.data) ? res.data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setVelocityCouriers([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCouriersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shipmentModalOrder]);
 
   // Edit modals
   const [editProductOrder, setEditProductOrder] = useState<Order | null>(null);
@@ -1404,10 +1439,20 @@ export function RichOrdersTable({
                 value={selectedCourierId}
                 onChange={(e) => setSelectedCourierId(e.target.value)}
               >
-                <option value="">Auto assign by Velocity</option>
+                <option value="">Auto — Velocity assigns best carrier</option>
+                {_couriers.map((c) => (
+                  <option key={`local-${c.id}`} value={`name:${c.name}`}>
+                    {c.name} (manual)
+                  </option>
+                ))}
+                {velocityCouriers.map((r) => (
+                  <option key={String(r.carrier_id)} value={String(r.carrier_id)}>
+                    {r.carrier_name} — ₹{Number(r.total_charge ?? r.freight_charge ?? 0).toFixed(0)}
+                  </option>
+                ))}
               </select>
               <p className="text-[11px] text-text-muted mt-1">
-                Velocity will assign a carrier unless you add carrier selection from rates elsewhere.
+                {couriersLoading ? "Loading Velocity couriers…" : "Choose Auto or pick a specific courier for this shipment."}
               </p>
             </div>
           </div>
@@ -1443,10 +1488,13 @@ export function RichOrdersTable({
                       ? ((shipmentModalOrder.pickupAddress as any).id as string | undefined)
                       : undefined) ||
                     "";
+                  const courierPick = selectedCourierId || "";
+                  const carrier_id = courierPick.startsWith("name:") ? "" : courierPick;
                   const res = await onCreateShipment({
                     orderId: shipmentModalOrder.id,
                     warehouseId: selectedWarehouseId || fallbackPickupId,
-                    carrier_id: selectedCourierId || "",
+                    carrier_id,
+                    courier_name: courierPick.startsWith("name:") ? courierPick.slice(5) : undefined,
                   });
                   const d = res.data;
                   const lines = [

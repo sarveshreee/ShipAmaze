@@ -37,6 +37,9 @@ import {
   requireDropshipperWarehouseAccess,
   requireFullDropshipper,
 } from "./middleware/dropshipperAccessMiddleware.js";
+import { requireKycApproved } from "./middleware/kycMiddleware.js";
+import * as kycController from "./controllers/kycController.js";
+import * as categoryController from "./controllers/categoryController.js";
 
 function parseCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN?.trim();
@@ -122,10 +125,10 @@ export function createApp() {
 
   api.get("/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.listOrders);
   api.get("/orders/:orderId", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.getOrderById);
-  api.post("/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_CREATE), orderController.createOrder);
-  api.post("/orders/bulk", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_CREATE), orderController.createOrdersBulk);
+  api.post("/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_CREATE), requireKycApproved, orderController.createOrder);
+  api.post("/orders/bulk", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_CREATE), requireKycApproved, orderController.createOrdersBulk);
   api.post("/orders/bulk-move", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.bulkMoveOrders);
-  api.post("/orders/create-shipment", authMiddleware, requireFullDropshipper, orderController.createShipment);
+  api.post("/orders/create-shipment", authMiddleware, requireFullDropshipper, requireKycApproved, orderController.createShipment);
   api.post("/orders/process-selected", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.processSelectedOrders);
   api.patch(
     "/orders/:orderId/line-items/:lineIndex/sku",
@@ -147,7 +150,7 @@ export function createApp() {
     labelInvoiceSettingsController.putLabelInvoiceSettings
   );
 
-  api.get("/products/marketplace", authMiddleware, resourceController.listMarketplaceProducts);
+  api.get("/products/marketplace", authMiddleware, requireKycApproved, resourceController.listMarketplaceProducts);
   api.get("/products", authMiddleware, resourceController.listProducts);
   api.post("/products", authMiddleware, resourceController.createProduct);
   api.put("/products/:id", authMiddleware, resourceController.updateProduct);
@@ -444,8 +447,35 @@ export function createApp() {
   api.post("/tab-permissions/user", authMiddleware, requireOwnerAdmin, resourceController.upsertUserTabOverride);
   api.delete("/tab-permissions/user", authMiddleware, requireOwnerAdmin, resourceController.resetUserTabOverrides);
 
-  api.get("/account/kyc", authMiddleware, accountController.getKyc);
-  api.put("/account/kyc", authMiddleware, accountController.putKyc);
+  api.get("/account/kyc", authMiddleware, kycController.getMyKyc);
+  api.put("/account/kyc", authMiddleware, kycController.saveMyKycDraft);
+  api.post("/account/kyc/submit", authMiddleware, kycController.submitMyKyc);
+
+  api.get("/categories", authMiddleware, categoryController.listCategories);
+  api.post("/admin/categories", authMiddleware, requireRoles("admin"), categoryController.createCategory);
+  api.put("/admin/categories/:id", authMiddleware, requireRoles("admin"), categoryController.updateCategory);
+  api.delete("/admin/categories/:id", authMiddleware, requireRoles("admin"), categoryController.deleteCategory);
+  api.post("/admin/categories/seed", authMiddleware, requireRoles("admin"), requireOwnerAdmin, categoryController.seedCategoriesAdmin);
+
+  api.get("/admin/kyc", authMiddleware, requireRoles("admin"), requireOwnerAdmin, kycController.listKycForAdmin);
+  api.get("/admin/kyc/:userId", authMiddleware, requireRoles("admin"), requireOwnerAdmin, kycController.getKycForAdmin);
+  api.post("/admin/kyc/:userId/approve", authMiddleware, requireRoles("admin"), requireOwnerAdmin, kycController.approveKyc);
+  api.post("/admin/kyc/:userId/reject", authMiddleware, requireRoles("admin"), requireOwnerAdmin, kycController.rejectKyc);
+
+  api.get(
+    "/admin/dropshipper-shipping-rates/:userId",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    approvalController.getDropshipperShippingRates
+  );
+  api.put(
+    "/admin/dropshipper-shipping-rates/:userId",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    approvalController.saveDropshipperShippingRates
+  );
   api.get("/account/banks", authMiddleware, accountController.listBanks);
   api.post("/account/banks", authMiddleware, accountController.createBank);
   api.patch("/account/banks/:id", authMiddleware, accountController.updateBank);
@@ -459,11 +489,11 @@ export function createApp() {
 
   // Shopify OAuth — install/callback are public (Shopify redirects the browser)
   api.get("/shopify/install", shopifyCallbackLimiter, shopifyController.handleInstall);
-  api.post("/shopify/connect", authMiddleware, shopifyConnectLimiter, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.initiateConnect);
+  api.post("/shopify/connect", authMiddleware, shopifyConnectLimiter, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), requireKycApproved, shopifyController.initiateConnect);
   api.get("/shopify/callback", shopifyCallbackLimiter, shopifyController.handleCallback);
   api.get("/shopify/status", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_VIEW), shopifyController.getStatus);
   api.post("/shopify/disconnect", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.disconnect);
-  api.post("/shopify/sync-orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.syncOrders);
+  api.post("/shopify/sync-orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), requireKycApproved, shopifyController.syncOrders);
   api.get(
     "/shopify/admin/connections",
     authMiddleware,

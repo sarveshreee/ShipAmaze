@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import * as productService from "@/services/productService";
-import { MARKETPLACE_CATEGORIES } from "@/constants/marketplace";
+import { useCategories } from "@/hooks/useCategories";
 import { mapApiToSupplierProduct, type SupplierProduct } from "@/hooks/useSupplierProducts";
 
 export function useMarketplaceProducts() {
   const [live, setLive] = useState<SupplierProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { categories: apiCategories, loading: categoriesLoading } = useCategories();
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -37,7 +38,18 @@ export function useMarketplaceProducts() {
 
   const featured = useMemo(() => products.slice(0, 8), [products]);
 
-  return { products, grouped, featured, isLoading, refetch: load, categories: MARKETPLACE_CATEGORIES };
+  const categories = useMemo(
+    () =>
+      apiCategories.map((c) => ({
+        slug: c.slug,
+        name: c.name,
+        emoji: c.emoji || "📦",
+        imageUrl: c.imageUrl,
+      })),
+    [apiCategories]
+  );
+
+  return { products, grouped, featured, isLoading: isLoading || categoriesLoading, refetch: load, categories };
 }
 
 export function useMarketplaceProduct(id: string | undefined) {

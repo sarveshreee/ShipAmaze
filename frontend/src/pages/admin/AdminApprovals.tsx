@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import * as approvalService from "@/services/approvalService";
 import type { ProductPriceApproval, ShippingRateApproval } from "@/services/approvalService";
 import { ApiError } from "@/lib/apiClient";
+import { AdminDropshipperRatesPanel } from "@/pages/admin/AdminDropshipperRatesPanel";
 
 function DiffBadge({ oldVal, newVal }: { oldVal: number; newVal: number }) {
   const diff = newVal - oldVal;
@@ -32,7 +33,7 @@ function DiffBadge({ oldVal, newVal }: { oldVal: number; newVal: number }) {
 }
 
 export default function AdminApprovals() {
-  const [tab, setTab] = useState<"price" | "shipping">("price");
+  const [tab, setTab] = useState<"price" | "shipping" | "dropshipper-rates">("price");
   const [statusFilter, setStatusFilter] = useState("pending");
   const [search, setSearch] = useState("");
   const [priceRows, setPriceRows] = useState<ProductPriceApproval[]>([]);
@@ -171,10 +172,11 @@ export default function AdminApprovals() {
         </Select>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "price" | "shipping")}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "price" | "shipping" | "dropshipper-rates")}>
         <TabsList>
           <TabsTrigger value="price">Product prices ({filteredPrice.length})</TabsTrigger>
           <TabsTrigger value="shipping">Shipping rates ({filteredShip.length})</TabsTrigger>
+          <TabsTrigger value="dropshipper-rates">Dropshipper rates</TabsTrigger>
         </TabsList>
 
         <TabsContent value="price" className="mt-4">
@@ -299,6 +301,10 @@ export default function AdminApprovals() {
               </table>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="dropshipper-rates">
+          <AdminDropshipperRatesPanel />
         </TabsContent>
       </Tabs>
 

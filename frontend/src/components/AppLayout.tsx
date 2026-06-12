@@ -59,6 +59,7 @@ const adminNav: NavGroup[] = [
     { label: "Products", icon: ShoppingBag, path: "/admin/products", staffPermission: "products.view" },
     { label: "Bulk Upload", icon: Upload, path: "/admin/bulk-upload-products", staffPermission: "products.import" },
     { label: "Catalogue", icon: ShoppingBag, path: "/admin/catalogue", staffPermission: "products.view" },
+    { label: "Create Category", icon: Plus, path: "/admin/categories", ownerOnly: true },
     { label: "Marketplace", icon: Home, path: "/admin/home", staffPermission: "products.view" },
   ]},
   { title: "CONNECT", items: [
@@ -71,6 +72,7 @@ const adminNav: NavGroup[] = [
     { label: "Vendors", icon: Warehouse, path: "/admin/vendors", ownerOnly: true },
     { label: "Users", icon: UserCog, path: "/admin/users", ownerOnly: true },
     { label: "Approvals", icon: ClipboardList, path: "/admin/approvals", ownerOnly: true },
+    { label: "KYC Approvals", icon: Shield, path: "/admin/kyc", ownerOnly: true },
     { label: "Pincode Check", icon: MapPin, path: "/admin/pincode", ownerOnly: true },
     { label: "Permission Management", icon: Shield, path: "/admin/permissions", ownerOnly: true },
   ]},
@@ -202,7 +204,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const { isTabEnabled } = useTabPermissions();
   const { isOwnerAdmin, hasAny } = useStaffPermissions();
-  const { isRestricted, allowWarehouseAccess } = useDropshipperAccess();
+  const { isRestricted, allowWarehouseAccess, isKycPending, kycStatus } = useDropshipperAccess();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -971,6 +973,19 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </header>
 
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-5 lg:px-8 lg:py-6 lg:pb-6">
+          {role === "dropshipper" && isKycPending && (
+            <div className="mb-4 rounded-lg border border-warning/40 bg-warning-light/50 px-4 py-3 text-sm text-warning-dark">
+              <strong>
+                {kycStatus === "pending_approval" ? "KYC Pending Approval" : "KYC Required"} —
+              </strong>{" "}
+              {kycStatus === "pending_approval"
+                ? "Your documents are under admin review. Shopify, order creation, and marketplace ordering stay disabled until approved."
+                : kycStatus === "rejected"
+                  ? "Your KYC was rejected. Update documents in Settings and resubmit."
+                  : "Complete KYC verification to activate your account and unlock orders, Shopify, and marketplace."}{" "}
+              <Link to="/dropshipper/settings" className="font-medium underline underline-offset-2">Open KYC Settings</Link>
+            </div>
+          )}
           {children}
         </main>
       </div>

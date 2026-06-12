@@ -1081,6 +1081,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     orderIds?: unknown;
     pickupAddressId?: unknown;
     courierName?: unknown;
+    carrierId?: unknown;
     shipmentMode?: unknown;
     weight?: unknown;
     length?: unknown;
@@ -1098,7 +1099,8 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   if (!mongoose.isValidObjectId(pickupAddressId)) throw new AppError(400, "Invalid pickupAddressId");
 
   const courierName = String(body.courierName ?? "").trim();
-  if (!courierName) throw new AppError(400, "courierName is required");
+  const autoCourier = !courierName || courierName.toLowerCase() === "auto";
+  if (!autoCourier && !courierName) throw new AppError(400, "courierName is required");
 
   const shipmentMode = String(body.shipmentMode ?? "forward").toLowerCase();
   if (!["forward", "reverse"].includes(shipmentMode)) throw new AppError(400, "shipmentMode must be forward or reverse");
@@ -1148,8 +1150,11 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
 
     const awb = generateAwb();
     o.awb = awb;
-    o.courierName = courierName;
-    o.courier = courierName;
+    o.courierName = autoCourier ? "Auto" : courierName;
+    o.courier = autoCourier ? "Auto" : courierName;
+    if (!autoCourier) {
+      o.courierCompanyId = body.carrierId != null ? String(body.carrierId) : undefined;
+    }
     o.pickupAddressId = new mongoose.Types.ObjectId(pickupAddressId);
     o.pickupWarehouseId = pickupAddressId;
     o.pickupAddress = pickupSnapshot;

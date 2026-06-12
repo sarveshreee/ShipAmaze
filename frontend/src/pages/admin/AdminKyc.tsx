@@ -1,0 +1,254 @@
+import { useCallback, useEffect, useState } from "react";
+import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Loader2, CheckCircle2, XCircle, RefreshCw, Search, Eye } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import * as kycService from "@/services/kycService";
+import type { AdminKycRow } from "@/services/kycService";
+import { ApiError } from "@/lib/apiClient";
+
+function statusBadge(status?: string) {
+  const map: Record<string, string> = {
+    pending: "bg-warning-light/60 text-warning-dark border-warning/40",
+    pending_approval: "bg-warning-light/60 text-warning-dark border-warning/40",
+    verified: "bg-success-light/60 text-success-dark border-success/40",
+    approved: "bg-success-light/60 text-success-dark border-success/40",
+    rejected: "bg-danger-light/60 text-danger-dark border-danger/40",
+    draft: "bg-surface-2 text-text-secondary border-border",
+    pending_kyc: "bg-surface-2 text-text-secondary border-border",
+  };
+  const key = status ?? "draft";
+  return (
+    <Badge variant="outline" className={cn(map[key] ?? map.draft)}>
+      {kycService.kycStatusLabel(status as kycService.KycStatus)}
+    </Badge>
+  );
+}
+
+export default function AdminKyc() {
+  const [statusFilter, setStatusFilter] = useState("pending");
+  const [search, setSearch] = useState("");
+  const [rows, setRows] = useState<AdminKycRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState<string | null>(null);
+  const [detail, setDetail] = useState<AdminKycRow | null>(null);
+  const [rejectUserId, setRejectUserId] = useState<string | null>(null);
+  const [rejectRemark, setRejectRemark] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await kycService.listAdminKyc(statusFilter === "all" ? "all" : statusFilter);
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to load KYC queue");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const filtered = rows.filter((r) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      r.name.toLowerCase().includes(q) ||
+      r.email.toLowerCase().includes(q) ||
+      (r.business_name ?? "").toLowerCase().includes(q) ||
+      (r.pan_number ?? "").toLowerCase().includes(q)
+    );
+  });
+
+  const approve = async (userId: string) => {
+    setActing(userId);
+    try {
+      await kycService.approveKyc(userId);
+      toast.success("KYC approved — account activated");
+      setDetail(null);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Approve failed");
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const reject = async () => {
+    if (!rejectUserId || !rejectRemark.trim()) {
+      toast.error("Rejection remark is required");
+      return;
+    }
+    setActing(rejectUserId);
+    try {
+      await kycService.rejectKyc(rejectUserId, rejectRemark.trim());
+      toast.success("KYC rejected");
+      setRejectUserId(null);
+      setRejectRemark("");
+      setDetail(null);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Reject failed");
+    } finally {
+      setActing(null);
+    }
+  };
+
+  return (
+    <div className="animate-fade-in-up space-y-4">
+      <PageHeader
+        title="KYC Approvals"
+        breadcrumb={["Admin", "KYC"]}
+        actions={
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()}>
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </Button>
+        }
+      />
+
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+          <Input placeholder="Search name, email, PAN…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-full sm:w-[180px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pending">Pending Approval</SelectItem>
+            <SelectItem value="pending_kyc">Pending KYC</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
+            <SelectItem value="all">All</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 p-8 text-text-muted"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-8 text-center text-text-muted">No KYC submissions in this queue</div>
+      ) : (
+        <div className="rounded-lg border border-border overflow-x-auto">
+          <table className="w-full text-sm min-w-[900px]">
+            <thead>
+              <tr className="border-b border-border bg-surface-2/50">
+                <th className="p-3 text-left">Dropshipper</th>
+                <th className="p-3 text-left">Business / PAN</th>
+                <th className="p-3 text-left">Type</th>
+                <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-left">Submitted</th>
+                <th className="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => (
+                <tr key={r.userId} className="border-b border-border/60 hover:bg-surface-2/30">
+                  <td className="p-3">
+                    <p className="font-medium text-text-primary">{r.name}</p>
+                    <p className="text-xs text-text-muted">{r.email}</p>
+                  </td>
+                  <td className="p-3">
+                    <p>{r.business_name || r.full_name || "—"}</p>
+                    <p className="text-xs font-mono text-text-muted">{r.pan_number || "—"}</p>
+                  </td>
+                  <td className="p-3 capitalize">{r.account_type}</td>
+                  <td className="p-3">{statusBadge(r.kycStatus ?? r.status)}</td>
+                  <td className="p-3 text-text-muted text-xs">{r.submittedAt ? new Date(r.submittedAt).toLocaleString() : "—"}</td>
+                  <td className="p-3 text-right space-x-1">
+                    <Button size="sm" variant="ghost" onClick={() => setDetail(r)}><Eye className="h-4 w-4" /></Button>
+                    {(r.kycStatus === "pending_approval" || r.status === "pending") && (
+                      <>
+                        <Button size="sm" variant="outline" className="text-success" disabled={acting === r.userId} onClick={() => void approve(r.userId)}>
+                          {acting === r.userId ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-danger" disabled={!!acting} onClick={() => setRejectUserId(r.userId)}>
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>KYC Details</DialogTitle></DialogHeader>
+          {detail && (
+            <div className="space-y-4 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-text-primary">{detail.name}</p>
+                  <p className="text-text-muted">{detail.email}</p>
+                </div>
+                {statusBadge(detail.kycStatus ?? detail.status)}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><span className="text-text-muted">Business:</span> {detail.business_name || "—"}</div>
+                <div><span className="text-text-muted">PAN:</span> {detail.pan_number || "—"}</div>
+                <div><span className="text-text-muted">GST:</span> {detail.gst_number || "—"}</div>
+                <div><span className="text-text-muted">Aadhaar:</span> {detail.aadhaar_number ? "••••" + detail.aadhaar_number.slice(-4) : "—"}</div>
+                <div className="col-span-2"><span className="text-text-muted">Address:</span> {detail.address || "—"}</div>
+              </div>
+              {detail.rejectionRemark && (
+                <div className="rounded-md border border-danger/30 bg-danger-light/40 p-3 text-danger-dark">{detail.rejectionRemark}</div>
+              )}
+              <div className="space-y-2">
+                <p className="font-medium">Documents</p>
+                {(["pan", "aadhaar", "gst", "cin"] as const).map((key) => {
+                  const url = detail.uploaded_docs?.[key] ?? detail.documents?.[key];
+                  if (!url) return null;
+                  const isData = url.startsWith("data:") || url.length > 200;
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-2 rounded border border-border p-2">
+                      <span className="capitalize">{key}</span>
+                      {isData ? (
+                        <a href={url} target="_blank" rel="noreferrer" className="text-primary text-xs">View document</a>
+                      ) : (
+                        <span className="text-xs text-text-muted">{url}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {(detail.kycStatus === "pending_approval" || detail.status === "pending") && (
+                <DialogFooter className="gap-2">
+                  <Button variant="outline" className="text-danger" onClick={() => { setRejectUserId(detail.userId); setDetail(null); }}>Reject</Button>
+                  <Button onClick={() => void approve(detail.userId)} disabled={acting === detail.userId}>Approve & Activate</Button>
+                </DialogFooter>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rejectUserId} onOpenChange={(o) => !o && setRejectUserId(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reject KYC</DialogTitle></DialogHeader>
+          <Input placeholder="Rejection remark (required)" value={rejectRemark} onChange={(e) => setRejectRemark(e.target.value)} />
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setRejectUserId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => void reject()} disabled={!!acting}>Reject</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
