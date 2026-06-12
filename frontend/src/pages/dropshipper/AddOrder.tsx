@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { useCategories, hsnForCategoryName } from "@/hooks/useCategories";
 import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -46,27 +48,14 @@ interface SavedOrder {
   data: any;
 }
 
-const categoryHsnMap: Record<string, string> = {
-  "Electronics": "8542",
-  "Clothing": "6109",
-  "Footwear": "6404",
-  "Books": "4901",
-  "Cosmetics": "3304",
-  "Food & Beverages": "2106",
-  "Toys": "9503",
-  "Furniture": "9403",
-  "Jewelry": "7117",
-  "Sports": "9506",
-  "Health & Wellness": "3004",
-  "Stationery": "4820",
-  "Home Appliances": "8516",
-  "Mobile Accessories": "8544",
-  "Bags & Luggage": "4202",
-};
-const categoryOptions = Object.keys(categoryHsnMap);
-
 export default function AddOrder() {
   const navigate = useNavigate();
+  const { role } = useAuth();
+  const { categories } = useCategories();
+  const categoryOptions = useMemo(() => categories.map((c) => c.name), [categories]);
+  const ordersPath = role === "admin" ? "/admin/orders" : "/dropshipper/orders";
+  const pickupAddressesPath = role === "admin" ? "/admin/orders" : "/dropshipper/pickup-addresses";
+  const roleLabel = role === "admin" ? "Admin" : "Dropshipper";
   const editOrderId = useMemo(() => new URLSearchParams(window.location.search).get("edit"), []);
   const { data: apiPickups = [], isLoading: pickupsLoading, refetch: refetchPickups } = usePickupAddresses();
   const [currentStep, setCurrentStep] = useState(1);
@@ -542,7 +531,7 @@ export default function AddOrder() {
         await orderService.createOrder(payload);
         toast.success("Order submitted successfully!");
       }
-      navigate("/dropshipper/orders");
+      navigate(ordersPath);
     } catch (e: unknown) {
       console.error("[add-order:submit] failed", { editOrderId, error: e });
       toast.error(e instanceof Error ? e.message : "Failed to submit order");
@@ -556,7 +545,7 @@ export default function AddOrder() {
 
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="Add Order" breadcrumb={["Dropshipper", "Add Order"]} />
+      <PageHeader title="Add Order" breadcrumb={[roleLabel, "Add Order"]} />
 
       {/* Loaded notification popup - top-right */}
       {loadedNotification && (
@@ -657,14 +646,14 @@ export default function AddOrder() {
                     <div className="rounded-lg border border-dashed border-border bg-surface-2/30 p-4 text-center">
                       <p className="text-sm text-text-secondary">No pickup address found. Add one first.</p>
                       <Button asChild className="mt-3 w-full bg-primary text-primary-foreground hover:bg-primary-dark" size="sm">
-                        <Link to="/dropshipper/pickup-addresses">Add Pickup Address</Link>
+                        <Link to={pickupAddressesPath}>Add Pickup Address</Link>
                       </Button>
                     </div>
                   ) : selectablePickups.length === 0 ? (
                     <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-center space-y-2">
                       <p className="text-sm text-text-secondary">All pickup addresses are inactive. Activate one or add a new address.</p>
                       <Button asChild variant="outline" size="sm" className="w-full">
-                        <Link to="/dropshipper/pickup-addresses">Manage pickup addresses</Link>
+                        <Link to={pickupAddressesPath}>Manage pickup addresses</Link>
                       </Button>
                     </div>
                   ) : (
@@ -949,7 +938,7 @@ export default function AddOrder() {
                       <select value={prod.category} onChange={e => {
                         const np = [...products];
                         np[i].category = e.target.value;
-                        np[i].hsn = categoryHsnMap[e.target.value] || "";
+                        np[i].hsn = hsnForCategoryName(categories, e.target.value) || "";
                         setProducts(np);
                       }} className="w-full mt-1 rounded-md border border-border bg-background px-3 py-2 text-sm">
                         <option value="">Product category...</option>

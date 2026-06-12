@@ -109,6 +109,21 @@ function RoleProtectedRoute({ children, allow }: { children: React.ReactNode; al
   return <AppLayout>{children}</AppLayout>;
 }
 
+/** Blocks pending-KYC dropshippers from marketplace, channels, and order creation. */
+function KycApprovedDropshipperRoute({ children }: { children: React.ReactNode }) {
+  const { isKycPending } = useDropshipperAccess();
+  if (isKycPending) {
+    return (
+      <AccessDenied
+        message="Complete KYC and wait for admin approval before using marketplace or connecting channels."
+        actionLabel="Go to KYC Settings"
+        actionPath="/dropshipper/settings"
+      />
+    );
+  }
+  return <>{children}</>;
+}
+
 /** Blocks restricted / pending-KYC dropshippers from operational pages. */
 function FullDropshipperRoute({ children }: { children: React.ReactNode }) {
   const { isRestricted, isKycPending } = useDropshipperAccess();
@@ -184,6 +199,7 @@ function AppRoutes() {
       {/* Admin */}
       <Route path="/admin/dashboard" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission={["orders.view", "analytics.view", "products.view"]}><AdminDashboard /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/orders" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="orders.view"><AdminOrders /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/add-order" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="orders.create"><AddOrder /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/ndr" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="ndr.view"><AdminNDR /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/returns" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="returns.view"><AdminReturns /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/manifests" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminManifests /></AdminStaffRoute></RoleProtectedRoute>} />
@@ -226,14 +242,14 @@ function AppRoutes() {
       <Route path="/dropshipper/create-order" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><CreateOrder /></FullDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/add-order" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><AddOrder /></FullDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/bulk-upload" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><BulkUpload /></FullDropshipperRoute></RoleProtectedRoute>} />
-      <Route path="/dropshipper/channels" element={<RoleProtectedRoute allow={["dropshipper"]}><ChannelConnect /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/channels" element={<RoleProtectedRoute allow={["dropshipper"]}><KycApprovedDropshipperRoute><ChannelConnect /></KycApprovedDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/vendors" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><DropshipperVendors /></WarehouseAccessRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/warehouses" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><VendorWarehouse /></WarehouseAccessRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/wallet" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/dropshipper/payouts" element={<RoleProtectedRoute allow={["dropshipper"]}><VendorPayouts /></RoleProtectedRoute>} />
       <Route path="/vendor/wallet" element={<RoleProtectedRoute allow={["vendor"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/dropshipper/rates" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperRates /></RoleProtectedRoute>} />
-      <Route path="/dropshipper/catalog" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperCatalog /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/catalog" element={<RoleProtectedRoute allow={["dropshipper"]}><KycApprovedDropshipperRoute><DropshipperCatalog /></KycApprovedDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/returns" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperReturns /></RoleProtectedRoute>} />
       <Route path="/dropshipper/ndr" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperNDR /></RoleProtectedRoute>} />
       <Route path="/dropshipper/weight-disputes" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWeightDisputes /></RoleProtectedRoute>} />
@@ -272,10 +288,10 @@ function AppRoutes() {
       <Route path="/admin/home" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><MarketplaceHome /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/home/product/:id" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><MarketplaceProductDetail /></AdminStaffRoute></RoleProtectedRoute>} />
       {(["vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-home`} path={`/${r}/home`} element={<RoleProtectedRoute allow={[r]}><MarketplaceHome /></RoleProtectedRoute>} />
+        <Route key={`${r}-home`} path={`/${r}/home`} element={<RoleProtectedRoute allow={[r]}>{r === "dropshipper" ? <KycApprovedDropshipperRoute><MarketplaceHome /></KycApprovedDropshipperRoute> : <MarketplaceHome />}</RoleProtectedRoute>} />
       ))}
       {(["vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-home-pdp`} path={`/${r}/home/product/:id`} element={<RoleProtectedRoute allow={[r]}><MarketplaceProductDetail /></RoleProtectedRoute>} />
+        <Route key={`${r}-home-pdp`} path={`/${r}/home/product/:id`} element={<RoleProtectedRoute allow={[r]}>{r === "dropshipper" ? <KycApprovedDropshipperRoute><MarketplaceProductDetail /></KycApprovedDropshipperRoute> : <MarketplaceProductDetail />}</RoleProtectedRoute>} />
       ))}
 
       {(["admin","vendor","dropshipper"] as const).map(r => (

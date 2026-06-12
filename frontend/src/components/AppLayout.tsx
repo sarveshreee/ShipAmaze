@@ -41,6 +41,7 @@ interface NavItem {
   shortcut?: string;
   requiresFullAccess?: boolean;
   requiresWarehouseAccess?: boolean;
+  requiresKycApproved?: boolean;
   staffPermission?: StaffPermission | StaffPermission[];
   ownerOnly?: boolean;
 }
@@ -49,7 +50,10 @@ interface NavGroup { title: string; items: (NavItem & { children?: NavItem[] })[
 const adminNav: NavGroup[] = [
   { title: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard", staffPermission: ["orders.view", "analytics.view", "products.view"] }] },
   { title: "ORDERS", items: [
-    { label: "Orders", icon: Package, path: "/admin/orders", staffPermission: "orders.view" },
+    { label: "Orders", icon: Package, path: "/admin/orders", staffPermission: "orders.view", children: [
+      { label: "Orders", icon: Package, path: "/admin/orders", staffPermission: "orders.view" },
+      { label: "Add Order", icon: Plus, path: "/admin/add-order", staffPermission: "orders.create" },
+    ]},
     { label: "NDR Management", icon: AlertTriangle, path: "/admin/ndr", staffPermission: "ndr.view" },
     { label: "Returns & RTO", icon: Undo2, path: "/admin/returns", staffPermission: "returns.view" },
     { label: "Manifests & Pickups", icon: ClipboardList, path: "/admin/manifests", ownerOnly: true },
@@ -116,8 +120,8 @@ const vendorNav: NavGroup[] = [
 
 const dropshipperNav: NavGroup[] = [
   { title: "MARKETPLACE", items: [
-    { label: "Home", icon: Home, path: "/dropshipper/home", tabKey: "home" },
-    { label: "Catalog", icon: ShoppingBag, path: "/dropshipper/catalog", tabKey: "catalog" },
+    { label: "Home", icon: Home, path: "/dropshipper/home", tabKey: "home", requiresKycApproved: true },
+    { label: "Catalog", icon: ShoppingBag, path: "/dropshipper/catalog", tabKey: "catalog", requiresKycApproved: true },
   ]},
   { title: "OVERVIEW", items: [{ label: "Analytics", icon: LayoutDashboard, path: "/dropshipper/dashboard", tabKey: "dashboard" }] },
   { title: "ORDERS", items: [
@@ -130,7 +134,7 @@ const dropshipperNav: NavGroup[] = [
     { label: "NDR", icon: AlertTriangle, path: "/dropshipper/ndr", tabKey: "ndr" },
   ]},
   { title: "CONNECT", items: [
-    { label: "Channels", icon: Link2, path: "/dropshipper/channels", tabKey: "channels" },
+    { label: "Channels", icon: Link2, path: "/dropshipper/channels", tabKey: "channels", requiresKycApproved: true },
   ]},
   { title: "OPERATIONS", items: [
     { label: "Vendors", icon: Users, path: "/dropshipper/vendors", requiresWarehouseAccess: true },
@@ -292,6 +296,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // Filter nav items based on permissions
   const nav = useMemo(() => {
     const allowItem = (item: NavItem & { children?: NavItem[] }) => {
+      if (isKycPending && item.requiresKycApproved) return false;
       if (isRestricted && item.requiresFullAccess) return false;
       if (!allowWarehouseAccess && item.requiresWarehouseAccess) return false;
       if (item.tabKey && !isTabEnabled(item.tabKey)) return false;

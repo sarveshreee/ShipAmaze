@@ -42,6 +42,7 @@ type PalettePage = {
 const pages: PalettePage[] = [
   { label: "Admin Dashboard", path: "/admin/dashboard", icon: LayoutDashboard, staffPermission: ["orders.view", "analytics.view", "products.view"] },
   { label: "Orders", path: "/admin/orders", icon: Package, staffPermission: "orders.view" },
+  { label: "Add Order", path: "/admin/add-order", icon: Package, staffPermission: "orders.create" },
   { label: "NDR Management", path: "/admin/ndr", icon: AlertTriangle, staffPermission: "ndr.view" },
   { label: "Returns", path: "/admin/returns", icon: Package, staffPermission: "returns.view" },
   { label: "Channels", path: "/admin/channels", icon: Package, staffPermission: "channels.view" },
