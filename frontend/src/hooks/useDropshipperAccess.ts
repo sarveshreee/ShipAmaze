@@ -7,10 +7,12 @@ export function useDropshipperAccess() {
   const accessType = user?.dropshipperAccessType ?? "FULL";
   const kycVerified = user?.kycVerified ?? (role !== "dropshipper");
   const kycStatus = user?.kycStatus;
+  /** Informational only — does not hide sidebar or block page routes. */
   const isKycPending = isDropshipper && !kycVerified;
-  const isRestricted = isDropshipper && (accessType === "RESTRICTED" || isKycPending);
+  /** RESTRICTED access type only — separate from KYC (staff/admin toggle). */
+  const isRestricted = isDropshipper && accessType === "RESTRICTED";
   const allowWarehouseAccess =
-    !isDropshipper ? true : (user?.allowWarehouseAccess ?? true) && accessType !== "RESTRICTED" && kycVerified;
+    !isDropshipper ? true : (user?.allowWarehouseAccess ?? true) && accessType !== "RESTRICTED";
 
   return {
     isDropshipper,
@@ -19,11 +21,10 @@ export function useDropshipperAccess() {
     isKycPending,
     kycVerified,
     kycStatus,
-    isFull: !isDropshipper || (accessType === "FULL" && kycVerified),
+    isFull: !isDropshipper || accessType === "FULL",
     allowWarehouseAccess,
     hasWarehouseAccess: role === "admin" || role === "vendor" || allowWarehouseAccess,
     canProcessOrders: role === "admin" || role === "vendor" || (isDropshipper && !isRestricted),
-    canUseMarketplace: role === "admin" || role === "vendor" || kycVerified,
     canEditSku: role === "admin",
   };
 }

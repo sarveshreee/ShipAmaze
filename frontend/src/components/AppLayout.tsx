@@ -41,7 +41,6 @@ interface NavItem {
   shortcut?: string;
   requiresFullAccess?: boolean;
   requiresWarehouseAccess?: boolean;
-  requiresKycApproved?: boolean;
   staffPermission?: StaffPermission | StaffPermission[];
   ownerOnly?: boolean;
 }
@@ -120,8 +119,8 @@ const vendorNav: NavGroup[] = [
 
 const dropshipperNav: NavGroup[] = [
   { title: "MARKETPLACE", items: [
-    { label: "Home", icon: Home, path: "/dropshipper/home", tabKey: "home", requiresKycApproved: true },
-    { label: "Catalog", icon: ShoppingBag, path: "/dropshipper/catalog", tabKey: "catalog", requiresKycApproved: true },
+    { label: "Home", icon: Home, path: "/dropshipper/home", tabKey: "home" },
+    { label: "Catalog", icon: ShoppingBag, path: "/dropshipper/catalog", tabKey: "catalog" },
   ]},
   { title: "OVERVIEW", items: [{ label: "Analytics", icon: LayoutDashboard, path: "/dropshipper/dashboard", tabKey: "dashboard" }] },
   { title: "ORDERS", items: [
@@ -134,7 +133,7 @@ const dropshipperNav: NavGroup[] = [
     { label: "NDR", icon: AlertTriangle, path: "/dropshipper/ndr", tabKey: "ndr" },
   ]},
   { title: "CONNECT", items: [
-    { label: "Channels", icon: Link2, path: "/dropshipper/channels", tabKey: "channels", requiresKycApproved: true },
+    { label: "Channels", icon: Link2, path: "/dropshipper/channels", tabKey: "channels" },
   ]},
   { title: "OPERATIONS", items: [
     { label: "Vendors", icon: Users, path: "/dropshipper/vendors", requiresWarehouseAccess: true },
@@ -147,7 +146,7 @@ const dropshipperNav: NavGroup[] = [
     { label: "Weight Disputes", icon: Scale, path: "/dropshipper/weight-disputes", tabKey: "weight-disputes" },
     { label: "Pickup Addresses", icon: MapPin, path: "/dropshipper/pickup-addresses", tabKey: "addresses" },
   ]},
-  { title: "", items: [
+  { title: "ACCOUNT", items: [
     { label: "Profile", icon: User, path: "/dropshipper/profile" },
     { label: "Track Shipment", icon: Truck, path: "/dropshipper/tracking", tabKey: "tracking" },
     { label: "Settings", icon: Settings, path: "/dropshipper/settings", tabKey: "settings" },
@@ -296,7 +295,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // Filter nav items based on permissions
   const nav = useMemo(() => {
     const allowItem = (item: NavItem & { children?: NavItem[] }) => {
-      if (isKycPending && item.requiresKycApproved) return false;
       if (isRestricted && item.requiresFullAccess) return false;
       if (!allowWarehouseAccess && item.requiresWarehouseAccess) return false;
       if (item.tabKey && !isTabEnabled(item.tabKey)) return false;

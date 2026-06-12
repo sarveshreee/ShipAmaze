@@ -17,7 +17,6 @@ import ProductPreview from "@/pages/ProductPreview";
 import { useCartSync } from "@/hooks/useCartSync";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import { useStaffPermissions, type StaffPermission } from "@/hooks/useStaffPermissions";
-import { AccessDenied } from "@/components/AccessDenied";
 import AdminChannels from "@/pages/admin/AdminChannels";
 import AdminKyc from "@/pages/admin/AdminKyc";
 import AdminCategories from "@/pages/admin/AdminCategories";
@@ -109,33 +108,9 @@ function RoleProtectedRoute({ children, allow }: { children: React.ReactNode; al
   return <AppLayout>{children}</AppLayout>;
 }
 
-/** Blocks pending-KYC dropshippers from marketplace, channels, and order creation. */
-function KycApprovedDropshipperRoute({ children }: { children: React.ReactNode }) {
-  const { isKycPending } = useDropshipperAccess();
-  if (isKycPending) {
-    return (
-      <AccessDenied
-        message="Complete KYC and wait for admin approval before using marketplace or connecting channels."
-        actionLabel="Go to KYC Settings"
-        actionPath="/dropshipper/settings"
-      />
-    );
-  }
-  return <>{children}</>;
-}
-
-/** Blocks restricted / pending-KYC dropshippers from operational pages. */
+/** Blocks RESTRICTED dropshippers from add-order / bulk-upload (not KYC). */
 function FullDropshipperRoute({ children }: { children: React.ReactNode }) {
-  const { isRestricted, isKycPending } = useDropshipperAccess();
-  if (isKycPending) {
-    return (
-      <AccessDenied
-        message="Complete KYC and wait for admin approval before creating orders or connecting channels."
-        actionLabel="Go to KYC Settings"
-        actionPath="/dropshipper/settings"
-      />
-    );
-  }
+  const { isRestricted } = useDropshipperAccess();
   if (isRestricted) return <Navigate to="/dropshipper/orders" replace />;
   return <>{children}</>;
 }
@@ -242,14 +217,14 @@ function AppRoutes() {
       <Route path="/dropshipper/create-order" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><CreateOrder /></FullDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/add-order" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><AddOrder /></FullDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/bulk-upload" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><BulkUpload /></FullDropshipperRoute></RoleProtectedRoute>} />
-      <Route path="/dropshipper/channels" element={<RoleProtectedRoute allow={["dropshipper"]}><KycApprovedDropshipperRoute><ChannelConnect /></KycApprovedDropshipperRoute></RoleProtectedRoute>} />
+      <Route path="/dropshipper/channels" element={<RoleProtectedRoute allow={["dropshipper"]}><ChannelConnect /></RoleProtectedRoute>} />
       <Route path="/dropshipper/vendors" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><DropshipperVendors /></WarehouseAccessRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/warehouses" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><VendorWarehouse /></WarehouseAccessRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/wallet" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/dropshipper/payouts" element={<RoleProtectedRoute allow={["dropshipper"]}><VendorPayouts /></RoleProtectedRoute>} />
       <Route path="/vendor/wallet" element={<RoleProtectedRoute allow={["vendor"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/dropshipper/rates" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperRates /></RoleProtectedRoute>} />
-      <Route path="/dropshipper/catalog" element={<RoleProtectedRoute allow={["dropshipper"]}><KycApprovedDropshipperRoute><DropshipperCatalog /></KycApprovedDropshipperRoute></RoleProtectedRoute>} />
+      <Route path="/dropshipper/catalog" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperCatalog /></RoleProtectedRoute>} />
       <Route path="/dropshipper/returns" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperReturns /></RoleProtectedRoute>} />
       <Route path="/dropshipper/ndr" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperNDR /></RoleProtectedRoute>} />
       <Route path="/dropshipper/weight-disputes" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWeightDisputes /></RoleProtectedRoute>} />
@@ -288,10 +263,10 @@ function AppRoutes() {
       <Route path="/admin/home" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><MarketplaceHome /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/home/product/:id" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="products.view"><MarketplaceProductDetail /></AdminStaffRoute></RoleProtectedRoute>} />
       {(["vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-home`} path={`/${r}/home`} element={<RoleProtectedRoute allow={[r]}>{r === "dropshipper" ? <KycApprovedDropshipperRoute><MarketplaceHome /></KycApprovedDropshipperRoute> : <MarketplaceHome />}</RoleProtectedRoute>} />
+        <Route key={`${r}-home`} path={`/${r}/home`} element={<RoleProtectedRoute allow={[r]}><MarketplaceHome /></RoleProtectedRoute>} />
       ))}
       {(["vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-home-pdp`} path={`/${r}/home/product/:id`} element={<RoleProtectedRoute allow={[r]}>{r === "dropshipper" ? <KycApprovedDropshipperRoute><MarketplaceProductDetail /></KycApprovedDropshipperRoute> : <MarketplaceProductDetail />}</RoleProtectedRoute>} />
+        <Route key={`${r}-home-pdp`} path={`/${r}/home/product/:id`} element={<RoleProtectedRoute allow={[r]}><MarketplaceProductDetail /></RoleProtectedRoute>} />
       ))}
 
       {(["admin","vendor","dropshipper"] as const).map(r => (
