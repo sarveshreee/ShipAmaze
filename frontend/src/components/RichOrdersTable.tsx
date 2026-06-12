@@ -8,6 +8,7 @@ import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, P
 import { ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
 import { EditSkuModal } from "@/components/EditSkuModal";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
+import { cn } from "@/lib/utils";
 
 import { getRates, type VelocityRate } from "@/services/velocityService";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";

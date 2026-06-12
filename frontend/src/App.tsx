@@ -40,6 +40,7 @@ import AdminManifests from "@/pages/admin/AdminManifests";
 import AdminBilling from "@/pages/admin/AdminBilling";
 import AdminWeightDisputes from "@/pages/admin/AdminWeightDisputes";
 import AdminPincode from "@/pages/admin/AdminPincode";
+import AdminPickupAddresses from "@/pages/admin/AdminPickupAddresses";
 const AdminReports = lazy(() => import("@/pages/admin/AdminReports"));
 
 // Vendor
@@ -187,6 +188,7 @@ function AppRoutes() {
       <Route path="/admin/dropshippers" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminDropshippers /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/vendors" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminVendors /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/pincode" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminPincode /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/pickup-addresses" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminPickupAddresses /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/finance" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminFinance /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/billing" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminBilling /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/weight-disputes" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminWeightDisputes /></AdminStaffRoute></RoleProtectedRoute>} />

@@ -853,7 +853,14 @@ function mapPickupDoc(a: {
 export const listPickupAddresses = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   assertPickupApiRole(req.user.role);
-  const rows = await Pickup.find(pickupListQuery(req.user, { includeInactive: true }))
+  const scope = String(req.query.scope ?? "").trim().toLowerCase();
+  let findQuery: Record<string, unknown>;
+  if (req.user.role === "admin" && scope === "platform") {
+    findQuery = { $and: [{ userId: req.user._id }, { ...PICKUP_NOT_DELETED }] };
+  } else {
+    findQuery = pickupListQuery(req.user, { includeInactive: true });
+  }
+  const rows = await Pickup.find(findQuery)
     .sort({ createdAt: -1 })
     .lean();
   res.json({
@@ -876,16 +883,18 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
 
   if (req.user.role === "admin") {
     const rawOwner = trimStr(b.userId);
-    if (!rawOwner || !mongoose.isValidObjectId(rawOwner)) {
-      throw new AppError(400, "userId is required when creating a pickup as admin");
+    if (rawOwner && mongoose.isValidObjectId(rawOwner)) {
+      const owner = await User.findById(rawOwner).lean();
+      if (!owner) throw new AppError(400, "userId user not found");
+      if (owner.role !== "dropshipper" && owner.role !== "vendor") {
+        throw new AppError(400, "userId must be a vendor or dropshipper account");
+      }
+      ownerUserId = new mongoose.Types.ObjectId(rawOwner);
+      ownerRole = owner.role;
+    } else {
+      ownerUserId = req.user._id;
+      ownerRole = "admin";
     }
-    const owner = await User.findById(rawOwner).lean();
-    if (!owner) throw new AppError(400, "userId user not found");
-    if (owner.role !== "dropshipper" && owner.role !== "vendor") {
-      throw new AppError(400, "userId must be a vendor or dropshipper account");
-    }
-    ownerUserId = new mongoose.Types.ObjectId(rawOwner);
-    ownerRole = owner.role;
   } else {
     ownerUserId = req.user._id;
     ownerRole = req.user.role;

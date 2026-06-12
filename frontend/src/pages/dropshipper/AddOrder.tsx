@@ -54,10 +54,12 @@ export default function AddOrder() {
   const { categories } = useCategories();
   const categoryOptions = useMemo(() => categories.map((c) => c.name), [categories]);
   const ordersPath = role === "admin" ? "/admin/orders" : "/dropshipper/orders";
-  const pickupAddressesPath = role === "admin" ? "/admin/orders" : "/dropshipper/pickup-addresses";
+  const pickupAddressesPath = role === "admin" ? "/admin/pickup-addresses" : "/dropshipper/pickup-addresses";
   const roleLabel = role === "admin" ? "Admin" : "Dropshipper";
   const editOrderId = useMemo(() => new URLSearchParams(window.location.search).get("edit"), []);
-  const { data: apiPickups = [], isLoading: pickupsLoading, refetch: refetchPickups } = usePickupAddresses();
+  const { data: apiPickups = [], isLoading: pickupsLoading, refetch: refetchPickups } = usePickupAddresses(
+    role === "admin" ? { scope: "platform" } : undefined
+  );
   const [currentStep, setCurrentStep] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -369,6 +371,7 @@ export default function AddOrder() {
         isDefault: false,
       });
       window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses"));
+      window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses_platform"));
       await refetchPickups();
       setSelectedPickup(created.id);
       setShowAddModal(false);

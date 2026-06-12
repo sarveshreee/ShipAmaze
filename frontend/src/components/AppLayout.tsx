@@ -76,6 +76,7 @@ const adminNav: NavGroup[] = [
     { label: "Users", icon: UserCog, path: "/admin/users", ownerOnly: true },
     { label: "Approvals", icon: ClipboardList, path: "/admin/approvals", ownerOnly: true },
     { label: "KYC Approvals", icon: Shield, path: "/admin/kyc", ownerOnly: true },
+    { label: "Pickup Addresses", icon: MapPin, path: "/admin/pickup-addresses", ownerOnly: true },
     { label: "Pincode Check", icon: MapPin, path: "/admin/pincode", ownerOnly: true },
     { label: "Permission Management", icon: Shield, path: "/admin/permissions", ownerOnly: true },
   ]},

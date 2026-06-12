@@ -43,8 +43,9 @@ function unwrapOne(body: unknown): PickupAddress {
   return body as PickupAddress;
 }
 
-export async function listPickupAddresses() {
-  const raw = await apiClient.get<unknown>(BASE);
+export async function listPickupAddresses(scope?: "platform") {
+  const suffix = scope === "platform" ? "?scope=platform" : "";
+  const raw = await apiClient.get<unknown>(`${BASE}${suffix}`);
   return unwrapList(raw);
 }
 

@@ -593,9 +593,11 @@ export function useCodRemittances() {
   return useApiQuery<CODRemittance>("cod_remittances", queryFn);
 }
 
-export function usePickupAddresses() {
-  const queryFn = useCallback(async () => pickupService.listPickupAddresses(), []);
-  return useApiQuery<PickupAddress>("pickup_addresses", queryFn);
+export function usePickupAddresses(opts?: { scope?: "platform" }) {
+  const scope = opts?.scope;
+  const cacheKey = scope === "platform" ? "pickup_addresses_platform" : "pickup_addresses";
+  const queryFn = useCallback(async () => pickupService.listPickupAddresses(scope), [scope]);
+  return useApiQuery<PickupAddress>(cacheKey, queryFn);
 }
 
 export function usePincodes() {
