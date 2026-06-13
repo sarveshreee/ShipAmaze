@@ -12,6 +12,8 @@ export interface ICourier extends Document {
   reversePickup: boolean;
   surfaceRate: number;
   airRate: number;
+  /** Platform pickup address used for this courier's shipments (Pickup._id). */
+  preferredPickupAddressId?: string;
 }
 
 const courierSchema = new Schema<ICourier>(
@@ -27,6 +29,7 @@ const courierSchema = new Schema<ICourier>(
     reversePickup: { type: Boolean, default: false },
     surfaceRate: { type: Number, default: 0 },
     airRate: { type: Number, default: 0 },
+    preferredPickupAddressId: { type: String, default: "" },
   },
   { timestamps: true }
 );

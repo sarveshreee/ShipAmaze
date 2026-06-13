@@ -1,16 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
-import { useCouriers } from "@/hooks/useApiData";
-import { Truck, GripVertical, Plus, X, ArrowRight, Loader2 } from "lucide-react";
+import { useCouriers, usePickupAddresses } from "@/hooks/useApiData";
+import { Truck, GripVertical, Plus, X, ArrowRight, Loader2, MapPin, Star, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import * as courierPriorityService from "@/services/courierPriorityService";
 import type { CourierPriorityRule, CourierPriorityRuleType } from "@/services/courierPriorityService";
+import * as courierService from "@/services/courierService";
+import * as pickupService from "@/services/pickupService";
 import { ApiError } from "@/lib/apiClient";
+import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
+import type { PickupAddress } from "@/types/logistics";
 
 const RULE_TYPES: { value: CourierPriorityRuleType; label: string; placeholder: string }[] = [
   { value: "sku", label: "SKU wise", placeholder: "e.g. SKU-ABC-123" },
@@ -20,12 +26,34 @@ const RULE_TYPES: { value: CourierPriorityRuleType; label: string; placeholder: 
   { value: "vendorId", label: "Vendor ID wise", placeholder: "Vendor document id" },
 ];
 
+const DRAFT_PREFIX = "draft-";
+
+function isDraftRule(id: string) {
+  return id.startsWith(DRAFT_PREFIX);
+}
+
 export default function AdminCouriers() {
   const [rules, setRules] = useState<CourierPriorityRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(true);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  const { data: courierList = [], isLoading } = useCouriers();
+  const [linkingCourier, setLinkingCourier] = useState<string | null>(null);
+  const { data: courierList = [], isLoading, refetch: refetchCouriers } = useCouriers();
+  const {
+    data: pickupAddresses = [],
+    isLoading: pickupsLoading,
+    refetch: refetchPickups,
+  } = usePickupAddresses({ scope: "platform" });
+
+  const activePickups = useMemo(
+    () => pickupAddresses.filter((p) => p.isActive !== false),
+    [pickupAddresses]
+  );
+
+  const defaultPickup = useMemo(
+    () => pickupAddresses.find((p) => p.isDefault) ?? activePickups[0],
+    [pickupAddresses, activePickups]
+  );
 
   const loadRules = useCallback(async () => {
     setRulesLoading(true);
@@ -44,19 +72,17 @@ export default function AdminCouriers() {
     void loadRules();
   }, [loadRules]);
 
-  const addRule = async () => {
-    try {
-      const created = await courierPriorityService.createCourierPriorityRule({
-        ruleType: "sku",
-        matchValue: "",
-        priorities: [{ courierName: courierList[0]?.name ?? "Delhivery", rank: 1 }],
-        enabled: true,
-      });
-      setRules((prev) => [...prev, created]);
-      toast.info("New rule added — fill match value and save");
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Could not add rule");
-    }
+  const addRule = () => {
+    const draft: CourierPriorityRule = {
+      id: `${DRAFT_PREFIX}${Date.now()}`,
+      ruleType: "sku",
+      matchValue: "",
+      priorities: [{ courierName: courierList[0]?.name ?? "Delhivery", rank: 1 }],
+      enabled: true,
+      sortOrder: rules.length,
+    };
+    setRules((prev) => [...prev, draft]);
+    toast.info("Fill in the rule details, then click Save rule");
   };
 
   const saveRule = async (rule: CourierPriorityRule) => {
@@ -70,9 +96,22 @@ export default function AdminCouriers() {
     }
     setSaving(true);
     try {
-      const updated = await courierPriorityService.updateCourierPriorityRule(rule.id, rule);
-      setRules((prev) => prev.map((r) => (r.id === rule.id ? updated : r)));
-      toast.success("Rule saved");
+      if (isDraftRule(rule.id)) {
+        const created = await courierPriorityService.createCourierPriorityRule({
+          ruleType: rule.ruleType,
+          matchValue: rule.matchValue.trim(),
+          priorities: rule.priorities,
+          enabled: rule.enabled,
+          matchValueSecondary: rule.matchValueSecondary,
+          note: rule.note,
+        });
+        setRules((prev) => prev.map((r) => (r.id === rule.id ? created : r)));
+        toast.success("Rule created");
+      } else {
+        const updated = await courierPriorityService.updateCourierPriorityRule(rule.id, rule);
+        setRules((prev) => prev.map((r) => (r.id === rule.id ? updated : r)));
+        toast.success("Rule saved");
+      }
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Save failed");
     } finally {
@@ -81,6 +120,10 @@ export default function AdminCouriers() {
   };
 
   const removeRule = async (id: string) => {
+    if (isDraftRule(id)) {
+      setRules((prev) => prev.filter((r) => r.id !== id));
+      return;
+    }
     try {
       await courierPriorityService.deleteCourierPriorityRule(id);
       setRules((prev) => prev.filter((r) => r.id !== id));
@@ -122,27 +165,69 @@ export default function AdminCouriers() {
   };
   const handleDragEnd = async () => {
     setDragIdx(null);
+    const persistedIds = rules.filter((r) => !isDraftRule(r.id)).map((r) => r.id);
+    if (persistedIds.length === 0) return;
     try {
-      await courierPriorityService.reorderCourierPriorityRules(rules.map((r) => r.id));
+      await courierPriorityService.reorderCourierPriorityRules(persistedIds);
     } catch {
       toast.error("Could not save rule order");
       void loadRules();
     }
   };
 
+  const linkCourierPickup = async (courierName: string, pickupId: string) => {
+    const courier = courierList.find((c) => c.name === courierName);
+    if (!courier) return;
+    setLinkingCourier(courierName);
+    try {
+      await courierService.upsertCourier({
+        name: courier.name,
+        active: courier.active,
+        priority: courier.priority,
+        deliveryRate: courier.deliveryRate,
+        ndrRate: courier.ndrRate,
+        rtoRate: courier.rtoRate,
+        avgDeliveryDays: courier.avgDeliveryDays,
+        codSupport: courier.codSupport,
+        reversePickup: courier.reversePickup,
+        surfaceRate: courier.surfaceRate,
+        airRate: courier.airRate,
+        preferredPickupAddressId: pickupId === "none" ? "" : pickupId,
+      });
+      await refetchCouriers();
+      toast.success(`Pickup linked to ${courierName}`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not link pickup");
+    } finally {
+      setLinkingCourier(null);
+    }
+  };
+
+  const setDefaultPickup = async (pickup: PickupAddress) => {
+    try {
+      await pickupService.setDefaultPickupAddress(pickup.id);
+      window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses_platform"));
+      await refetchPickups();
+      toast.success(`"${pickup.label}" set as default pickup for courier operations`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not set default pickup");
+    }
+  };
+
   if (isLoading) return <div className="animate-pulse p-8 text-text-muted">Loading couriers...</div>;
 
   return (
-    <div className="animate-fade-in-up">
+    <div className="animate-fade-in-up space-y-6">
       <PageHeader title="Courier Management" breadcrumb={["Admin", "Couriers"]} />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {courierList.map((c) => (
-          <div key={c.name} className="rounded-lg bg-card shadow-card p-4">
+          <div key={c.name} className="rounded-lg bg-card shadow-card p-4 space-y-3">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-light">
                 <Truck className="h-5 w-5 text-primary" />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-text-primary">{c.name}</h3>
                 <span className={cn("text-xs font-medium", c.active ? "text-success" : "text-text-muted")}>
                   {c.active ? "Active" : "Inactive"}
@@ -152,8 +237,135 @@ export default function AdminCouriers() {
                 P{c.priority}
               </span>
             </div>
+            <div>
+              <label className="text-xs font-medium text-text-muted block mb-1">Pickup location</label>
+              <Select
+                value={c.preferredPickupAddressId || "none"}
+                disabled={linkingCourier === c.name || activePickups.length === 0}
+                onValueChange={(v) => void linkCourierPickup(c.name, v)}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select pickup…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— No pickup linked —</SelectItem>
+                  {activePickups.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.label} · {p.city}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         ))}
+      </div>
+
+      <div className="rounded-lg bg-card shadow-card p-6">
+        <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+          <div>
+            <h3 className="font-semibold text-text-primary flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-primary" />
+              Pickup locations
+            </h3>
+            <p className="text-xs text-text-muted mt-0.5">
+              Loaded from Admin → Pickup Addresses. Link Velocity warehouses and set the default for courier operations.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+            <Link to="/admin/pickup-addresses">
+              Manage addresses <ExternalLink className="h-3 w-3" />
+            </Link>
+          </Button>
+        </div>
+
+        {pickupsLoading ? (
+          <div className="flex items-center gap-2 text-sm text-text-muted py-6">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading pickup addresses…
+          </div>
+        ) : pickupAddresses.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-text-muted">
+            No pickup addresses yet.{" "}
+            <Link to="/admin/pickup-addresses" className="text-primary underline underline-offset-2">
+              Add one in Pickup Addresses
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {defaultPickup && (
+              <p className="text-xs text-text-secondary">
+                Default for courier operations:{" "}
+                <strong className="text-text-primary">{defaultPickup.label}</strong>
+                {defaultPickup.velocityWarehouseId ? (
+                  <Badge variant="outline" className="ml-2 text-[10px]">
+                    Velocity: {defaultPickup.velocityWarehouseId}
+                  </Badge>
+                ) : null}
+              </p>
+            )}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {pickupAddresses.map((p) => {
+                const linkedCouriers = courierList.filter((c) => c.preferredPickupAddressId === p.id);
+                return (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "rounded-lg border p-4 space-y-3",
+                      p.isDefault ? "border-primary ring-1 ring-primary/20" : "border-border"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-text-primary truncate">{p.label}</p>
+                        <p className="text-xs text-text-muted mt-0.5">
+                          {p.contactName} · {p.phone}
+                        </p>
+                        <p className="text-xs text-text-muted mt-1">
+                          {[p.addressLine1, p.city, p.state, p.pincode].filter(Boolean).join(", ")}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        {p.isDefault ? (
+                          <Badge className="text-[10px] gap-1">
+                            <Star className="h-2.5 w-2.5" /> Default
+                          </Badge>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-[10px]"
+                            disabled={p.isActive === false}
+                            onClick={() => void setDefaultPickup(p)}
+                          >
+                            Set default
+                          </Button>
+                        )}
+                        {p.isActive === false ? (
+                          <span className="text-[10px] text-text-muted">Inactive</span>
+                        ) : null}
+                      </div>
+                    </div>
+                    {linkedCouriers.length > 0 && (
+                      <p className="text-xs text-text-secondary">
+                        Linked couriers: {linkedCouriers.map((c) => c.name).join(", ")}
+                      </p>
+                    )}
+                    <VelocityWarehouseLinkCard
+                      mongoId={p.id}
+                      velocityWarehouseId={p.velocityWarehouseId}
+                      onUpdated={async () => {
+                        window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses_platform"));
+                        await refetchPickups();
+                      }}
+                      forbiddenHint="pickup"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg bg-card shadow-card p-6">
@@ -167,7 +379,7 @@ export default function AdminCouriers() {
           <Button
             size="sm"
             className="gap-1.5 text-xs bg-primary text-primary-foreground hover:bg-primary-dark"
-            onClick={() => void addRule()}
+            onClick={addRule}
           >
             <Plus className="h-3.5 w-3.5" /> Add rule
           </Button>
@@ -181,21 +393,25 @@ export default function AdminCouriers() {
           <div className="space-y-4">
             {rules.map((rule, idx) => {
               const typeMeta = RULE_TYPES.find((t) => t.value === rule.ruleType) ?? RULE_TYPES[0];
+              const draft = isDraftRule(rule.id);
               return (
                 <div
                   key={rule.id}
-                  draggable
+                  draggable={!draft}
                   onDragStart={() => handleDragStart(idx)}
                   onDragOver={(e) => handleDragOver(e, idx)}
                   onDragEnd={() => void handleDragEnd()}
                   className={cn(
                     "rounded-lg border border-border p-4 space-y-3",
                     dragIdx === idx ? "opacity-60 bg-primary-light/30" : "bg-card",
-                    "cursor-grab active:cursor-grabbing"
+                    draft ? "border-dashed border-primary/40" : "cursor-grab active:cursor-grabbing"
                   )}
                 >
+                  {draft && (
+                    <p className="text-xs text-primary font-medium">New rule — fill details and save</p>
+                  )}
                   <div className="flex items-center gap-2 flex-wrap">
-                    <GripVertical className="h-4 w-4 text-text-muted shrink-0" />
+                    <GripVertical className={cn("h-4 w-4 text-text-muted shrink-0", draft && "opacity-30")} />
                     <span className="text-xs font-medium text-text-muted w-6">{idx + 1}.</span>
                     <Select
                       value={rule.ruleType}
@@ -283,7 +499,7 @@ export default function AdminCouriers() {
                       onClick={() => void saveRule(rule)}
                     >
                       {saving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                      Save rule
+                      {draft ? "Create rule" : "Save rule"}
                     </Button>
                   </div>
                 </div>

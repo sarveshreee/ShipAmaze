@@ -415,13 +415,39 @@ export const listCouriers = asyncHandler(async (_req: AuthRequest, res: Response
       reversePickup: c.reversePickup,
       surfaceRate: c.surfaceRate,
       airRate: c.airRate,
+      preferredPickupAddressId: c.preferredPickupAddressId ?? "",
     }))
   );
 });
 
 export const upsertCourier = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user || req.user.role !== "admin") throw new AppError(403, "Forbidden");
-  const c = await Courier.findOneAndUpdate({ name: req.body.name }, req.body, {
+  const name = String(req.body?.name ?? "").trim();
+  if (!name) throw new AppError(400, "name is required");
+  const patch: Record<string, unknown> = { name };
+  const allowed = [
+    "active",
+    "priority",
+    "deliveryRate",
+    "ndrRate",
+    "rtoRate",
+    "avgDeliveryDays",
+    "codSupport",
+    "reversePickup",
+    "surfaceRate",
+    "airRate",
+    "preferredPickupAddressId",
+  ] as const;
+  for (const key of allowed) {
+    if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+      patch[key] = req.body[key];
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "preferredPickupAddressId")) {
+    const raw = String(req.body.preferredPickupAddressId ?? "").trim();
+    patch.preferredPickupAddressId = raw || "";
+  }
+  const c = await Courier.findOneAndUpdate({ name }, { $set: patch }, {
     upsert: true,
     new: true,
     setDefaultsOnInsert: true,

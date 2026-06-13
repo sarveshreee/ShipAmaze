@@ -562,6 +562,7 @@ export type CourierRow = {
   reversePickup: boolean;
   surfaceRate: number;
   airRate: number;
+  preferredPickupAddressId: string;
 };
 
 export function useCouriers() {
@@ -580,6 +581,7 @@ export function useCouriers() {
       reversePickup: Boolean(c.reversePickup ?? false),
       surfaceRate: Number(c.surfaceRate ?? 0),
       airRate: Number(c.airRate ?? 0),
+      preferredPickupAddressId: String(c.preferredPickupAddressId ?? ""),
     }));
   }, []);
   return useApiQuery<CourierRow>("couriers", queryFn);
