@@ -343,6 +343,7 @@ interface Props {
   onCreateShipment?: (payload: {
     orderId: string;
     warehouseId: string;
+    velocityWarehouseId?: string;
     carrier_id?: string | number | "";
     courier_name?: string;
   }) => Promise<{
@@ -1505,6 +1506,7 @@ export function RichOrdersTable({
                   const res = await onCreateShipment({
                     orderId: shipmentModalOrder.id,
                     warehouseId: selectedWarehouseId || fallbackPickupId,
+                    velocityWarehouseId: selectedPickup?.velocityWarehouseId?.trim(),
                     carrier_id,
                     courier_name: courierPick.startsWith("name:") ? courierPick.slice(5) : undefined,
                   });

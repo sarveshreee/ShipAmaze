@@ -141,6 +141,8 @@ export type { PublicTrackingOrder } from "@/types/publicTracking";
 export async function createShipment(body: {
   orderId: string;
   warehouseId: string;
+  /** Linked Velocity warehouse code (e.g. WHBRR) from selected pickup */
+  velocityWarehouseId?: string;
   /** Empty string = Velocity auto-assign */
   carrier_id?: string | number | "";
   courier_name?: string;
@@ -163,6 +165,7 @@ export async function createShipment(body: {
   }>("/velocity/forward/create", {
     orderId: body.orderId,
     warehouseId: body.warehouseId,
+    ...(body.velocityWarehouseId?.trim() ? { warehouse_id: body.velocityWarehouseId.trim() } : {}),
     ...(body.carrier_id === "" || body.carrier_id === undefined
       ? {}
       : { carrier_id: body.carrier_id }),

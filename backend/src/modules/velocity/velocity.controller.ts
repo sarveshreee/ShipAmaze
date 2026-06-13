@@ -1576,6 +1576,25 @@ async function mergeVelocityWarehouse(
     }
     const oid = new mongoose.Types.ObjectId(id);
 
+    /** Admin Create Shipment passes platform pickup Mongo ids — resolve Pickup before Warehouse. */
+    if (req.user!.role === "admin") {
+      const pu =
+        (await Pickup.findOne({ $and: [{ _id: oid }, { ...PICKUP_NOT_DELETED }] }).lean()) ??
+        (await Pickup.findOne(pickupByIdManageQuery(oid, req.user!)).lean());
+      if (pu) {
+        if (!pu.velocityWarehouseId?.trim()) {
+          throw new AppError(400, "No Velocity warehouse linked. Please link warehouse first.");
+        }
+        out.warehouse_id = pu.velocityWarehouseId.trim();
+        const pid = String(pu._id);
+        out.pickupAddressId = pid;
+        out.pickupWarehouseId = pid;
+        out.pickupAddress = toPickupSnapshot(pu);
+        return out;
+      }
+      throw new AppError(404, "Pickup address not found");
+    }
+
     const puOwned = await Pickup.findOne(pickupByIdManageQuery(oid, req.user!)).lean();
 
     if (req.user!.role === "dropshipper") {

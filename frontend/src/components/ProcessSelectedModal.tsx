@@ -5,11 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Save, Loader2 } from "lucide-react";
 import { usePickupAddresses } from "@/hooks/useApiData";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { ProcessSelectedPayload } from "@/services/orderService";
 import { getRates, type VelocityRate } from "@/services/velocityService";
 import { ApiError } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
+import { listCourierRateMasters, type CourierRateMaster } from "@/services/courierRateService";
+import { resolveSlabRate } from "@/lib/courierRateSlab";
 
 export type ProcessSelectedOrderRef = {
   pincode?: string;
@@ -46,7 +49,10 @@ export function ProcessSelectedModal({
   submitting = false,
   onProcess,
 }: Props) {
-  const { data: pickupAddresses = [] } = usePickupAddresses();
+  const { role } = useAuth();
+  const { data: platformPickups = [] } = usePickupAddresses({ scope: "platform" });
+  const { data: userPickups = [] } = usePickupAddresses();
+  const pickupAddresses = role === "admin" ? platformPickups : userPickups;
   const activePickups = useMemo(() => pickupAddresses.filter((a) => a.isActive !== false), [pickupAddresses]);
 
   const [shipmentMode, setShipmentMode] = useState<"" | "forward" | "reverse">("");
@@ -61,6 +67,8 @@ export function ProcessSelectedModal({
   const [velocityCouriers, setVelocityCouriers] = useState<VelocityRate[]>([]);
   const [couriersLoading, setCouriersLoading] = useState(false);
   const [velocityError, setVelocityError] = useState<string | null>(null);
+  const [rateMasters, setRateMasters] = useState<CourierRateMaster[]>([]);
+  const [rateMastersLoading, setRateMastersLoading] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -75,8 +83,38 @@ export function ProcessSelectedModal({
       setWeightPreset("other");
       setVelocityCouriers([]);
       setVelocityError(null);
+      setRateMasters([]);
+      return;
     }
+    let cancelled = false;
+    setRateMastersLoading(true);
+    void listCourierRateMasters()
+      .then((res) => {
+        if (cancelled) return;
+        setRateMasters((res.items ?? []).filter((r) => r.active !== false));
+      })
+      .catch(() => {
+        if (!cancelled) setRateMasters([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRateMastersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const defaultPickup =
+      activePickups.find((a) => a.isDefault && a.velocityWarehouseId?.trim()) ??
+      activePickups.find((a) => a.velocityWarehouseId?.trim()) ??
+      activePickups.find((a) => a.isDefault) ??
+      activePickups[0];
+    if (defaultPickup && !pickupAddr) {
+      setPickupAddr(defaultPickup.id);
+    }
+  }, [open, activePickups, pickupAddr]);
 
   const pickupPincode = useMemo(() => {
     const p = activePickups.find((a) => a.id === pickupAddr);
@@ -115,10 +153,14 @@ export function ProcessSelectedModal({
       msgs.push("Selected pickup address does not contain a valid pincode.");
     }
     if (!hasValidWeight) {
-      msgs.push("Enter shipment weight to load available couriers.");
+      msgs.push(
+        rateMasters.length > 0
+          ? "Enter shipment weight to calculate slab pricing and load Velocity couriers."
+          : "Enter shipment weight to load available couriers."
+      );
     }
     return msgs;
-  }, [open, referenceOrders.length, hasDestPin, pickupAddr, hasPickupPin, hasValidWeight]);
+  }, [open, referenceOrders.length, hasDestPin, pickupAddr, hasPickupPin, hasValidWeight, rateMasters.length]);
 
   const uniqueVelocityCouriers = useMemo(() => {
     const seen = new Set<string>();
@@ -131,6 +173,33 @@ export function ProcessSelectedModal({
     }
     return out;
   }, [velocityCouriers]);
+
+  const manualCourierOptions = useMemo(() => {
+    return rateMasters
+      .slice()
+      .sort(
+        (a, b) =>
+          (a.priority ?? 99) - (b.priority ?? 99) || a.courierName.localeCompare(b.courierName)
+      )
+      .map((r) => ({
+        id: r.id,
+        name: r.courierName,
+        carrierId: r.carrierId?.trim() || undefined,
+        charge: hasValidWeight
+          ? resolveSlabRate(r.weightSlabs, weightNum, referencePayment)
+          : null,
+      }));
+  }, [rateMasters, hasValidWeight, weightNum, referencePayment]);
+
+  const manualCourierNames = useMemo(
+    () => new Set(manualCourierOptions.map((c) => c.name.toLowerCase())),
+    [manualCourierOptions]
+  );
+
+  const legacyDbCouriers = useMemo(
+    () => couriers.filter((c) => !manualCourierNames.has(c.name.toLowerCase())),
+    [couriers, manualCourierNames]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -169,9 +238,7 @@ export function ProcessSelectedModal({
         });
         setVelocityCouriers(rows);
         if (rows.length === 0) {
-          const msg = "Velocity returned no couriers for this lane and weight.";
-          setVelocityError(msg);
-          toast.error(msg);
+          setVelocityError("Velocity returned no couriers for this lane and weight.");
         }
       })
       .catch((err: unknown) => {
@@ -185,7 +252,6 @@ export function ProcessSelectedModal({
         console.error("[ProcessSelectedModal] Velocity rates failed", { payload, error: err });
         setVelocityCouriers([]);
         setVelocityError(msg);
-        toast.error(msg);
       })
       .finally(() => {
         if (!cancelled) setCouriersLoading(false);
@@ -211,7 +277,22 @@ export function ProcessSelectedModal({
     const sel = courierSelect.trim();
     if (!sel || sel.toLowerCase() === "auto") return { courierName: "Auto" };
     if (sel.startsWith("name:")) {
-      return { courierName: sel.slice(5).trim() };
+      const name = sel.slice(5).trim();
+      const manual = manualCourierOptions.find((c) => c.name === name);
+      if (manual?.carrierId) {
+        return { courierName: manual.name, carrierId: manual.carrierId };
+      }
+      return { courierName: name };
+    }
+    if (sel.startsWith("rate:")) {
+      const id = sel.slice(5).trim();
+      const manual = manualCourierOptions.find((c) => c.id === id);
+      if (manual) {
+        return {
+          courierName: manual.name,
+          carrierId: manual.carrierId,
+        };
+      }
     }
     const velocity = velocityById.get(sel);
     if (velocity) {
@@ -363,7 +444,13 @@ export function ProcessSelectedModal({
                 className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
               >
                 <option value="">Auto — system assigns courier</option>
-                {couriers.map((c) => (
+                {manualCourierOptions.map((c) => (
+                  <option key={`rate-${c.id}`} value={`rate:${c.id}`}>
+                    {c.name}
+                    {c.charge != null ? ` — ₹${c.charge.toFixed(0)}` : ""}
+                  </option>
+                ))}
+                {legacyDbCouriers.map((c) => (
                   <option key={`db-${c.id || c.name}`} value={`name:${c.name}`}>
                     {c.name}
                     {c.carrierId ? ` (DB)` : ""}
@@ -371,10 +458,10 @@ export function ProcessSelectedModal({
                 ))}
                 {uniqueVelocityCouriers.map((r) => (
                   <option key={`vel-${r.carrier_id}`} value={String(r.carrier_id)}>
-                    {formatCourierLabel(r)}
+                    {formatCourierLabel(r)} (Velocity)
                   </option>
                 ))}
-                {couriers
+                {legacyDbCouriers
                   .filter(
                     (c) =>
                       c.carrierId &&
@@ -387,6 +474,19 @@ export function ProcessSelectedModal({
                   ))}
               </select>
 
+              {(rateMastersLoading || couriersLoading) && (
+                <p className="text-[11px] text-text-muted mt-1 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {rateMastersLoading ? "Loading courier rate master…" : "Loading Velocity couriers…"}
+                </p>
+              )}
+
+              {!rateMastersLoading && manualCourierOptions.length > 0 && !hasValidWeight && (
+                <p className="text-[11px] text-text-muted mt-1">
+                  Enter weight to see slab pricing for manual couriers.
+                </p>
+              )}
+
               {validationMessages.length > 0 && (
                 <div className="mt-2 space-y-1">
                   {validationMessages.map((msg) => (
@@ -397,14 +497,12 @@ export function ProcessSelectedModal({
                 </div>
               )}
 
-              {velocityError && velocityEligible && (
+              {velocityError && velocityEligible && manualCourierOptions.length === 0 && (
                 <p className="text-xs text-danger mt-1">{velocityError}</p>
               )}
 
-              {couriersLoading && (
-                <p className="text-[11px] text-text-muted mt-1 flex items-center gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading Velocity couriers…
-                </p>
+              {velocityError && velocityEligible && manualCourierOptions.length > 0 && (
+                <p className="text-xs text-text-muted mt-1">{velocityError}</p>
               )}
             </div>
             <div>
@@ -447,6 +545,12 @@ export function ProcessSelectedModal({
                 </dd>
               </div>
               <div className="flex justify-between gap-2 items-center">
+                <dt className="text-text-muted">Manual couriers</dt>
+                <dd className="font-mono text-text-primary">
+                  {rateMastersLoading ? "…" : manualCourierOptions.length}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-2 items-center">
                 <dt className="text-text-muted">Velocity request</dt>
                 <dd>
                   <span
@@ -463,6 +567,22 @@ export function ProcessSelectedModal({
               </div>
             </dl>
           </div>
+
+          {manualCourierOptions.length > 0 && (
+            <div className="rounded-lg border border-border p-3 space-y-2">
+              <p className="text-xs font-semibold text-text-primary">
+                Courier Rate Master ({manualCourierOptions.length})
+              </p>
+              <ul className="space-y-1">
+                {manualCourierOptions.map((c) => (
+                  <li key={c.id} className="text-xs text-text-secondary">
+                    {c.name}
+                    {c.charge != null ? ` — ₹${c.charge.toFixed(0)}` : " — enter weight for pricing"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {uniqueVelocityCouriers.length > 0 && (
             <div className="rounded-lg border border-border p-3 space-y-2">
