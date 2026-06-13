@@ -8,6 +8,8 @@ import { usePickupAddresses } from "@/hooks/useApiData";
 import { toast } from "sonner";
 import type { ProcessSelectedPayload } from "@/services/orderService";
 import { getRates, type VelocityRate } from "@/services/velocityService";
+import { ApiError } from "@/lib/apiClient";
+import { cn } from "@/lib/utils";
 
 export type ProcessSelectedOrderRef = {
   pincode?: string;
@@ -23,6 +25,16 @@ interface Props {
   referenceOrders?: ProcessSelectedOrderRef[];
   submitting?: boolean;
   onProcess: (payload: ProcessSelectedPayload) => Promise<void>;
+}
+
+function formatCourierRate(r: VelocityRate): string {
+  return Number(r.total_charge ?? r.freight_charge ?? 0).toFixed(2);
+}
+
+function formatCourierLabel(r: VelocityRate): string {
+  const rate = formatCourierRate(r);
+  const tat = r.tat?.trim();
+  return tat ? `${r.carrier_name} — ₹${rate} — ${tat}` : `${r.carrier_name} — ₹${rate}`;
 }
 
 export function ProcessSelectedModal({
@@ -48,6 +60,7 @@ export function ProcessSelectedModal({
   const [weightPreset, setWeightPreset] = useState("other");
   const [velocityCouriers, setVelocityCouriers] = useState<VelocityRate[]>([]);
   const [couriersLoading, setCouriersLoading] = useState(false);
+  const [velocityError, setVelocityError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -61,6 +74,7 @@ export function ProcessSelectedModal({
       setDimH("");
       setWeightPreset("other");
       setVelocityCouriers([]);
+      setVelocityError(null);
     }
   }, [open]);
 
@@ -83,42 +97,110 @@ export function ProcessSelectedModal({
     return String(o.payment).toLowerCase().includes("cod") ? ("cod" as const) : ("prepaid" as const);
   }, [referenceOrders]);
 
+  const weightNum = Number(weight);
+  const hasValidWeight = Number.isFinite(weightNum) && weightNum > 0;
+  const hasPickupPin = pickupPincode.length === 6;
+  const hasDestPin = destPincode.length === 6;
+  const velocityEligible = open && hasPickupPin && hasDestPin && hasValidWeight;
+
+  const validationMessages = useMemo(() => {
+    if (!open) return [] as string[];
+    const msgs: string[] = [];
+    if (referenceOrders.length > 0 && !hasDestPin) {
+      msgs.push(
+        "Selected order does not contain a valid destination pincode. Courier options cannot be loaded."
+      );
+    }
+    if (pickupAddr && !hasPickupPin) {
+      msgs.push("Selected pickup address does not contain a valid pincode.");
+    }
+    if (!hasValidWeight) {
+      msgs.push("Enter shipment weight to load available couriers.");
+    }
+    return msgs;
+  }, [open, referenceOrders.length, hasDestPin, pickupAddr, hasPickupPin, hasValidWeight]);
+
+  const uniqueVelocityCouriers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: VelocityRate[] = [];
+    for (const r of velocityCouriers) {
+      const id = String(r.carrier_id ?? "");
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(r);
+    }
+    return out;
+  }, [velocityCouriers]);
+
   useEffect(() => {
     if (!open) return;
-    const w = Number(weight);
-    if (pickupPincode.length !== 6 || destPincode.length !== 6 || !(w > 0)) {
+    if (!velocityEligible) {
       setVelocityCouriers([]);
+      setVelocityError(null);
       return;
     }
     let cancelled = false;
     setCouriersLoading(true);
-    void getRates({
+    setVelocityError(null);
+
+    const payload = {
       from: pickupPincode,
       to: destPincode,
-      weight: w,
+      weight: weightNum,
       payment_mode: referencePayment,
       cod_value:
         referencePayment === "cod" ? Number(referenceOrders[0]?.amount ?? 0) : undefined,
-    })
+    };
+
+    console.info("[ProcessSelectedModal] POST /api/velocity/rates", payload);
+
+    void getRates(payload)
       .then((res) => {
-        if (!cancelled) setVelocityCouriers(Array.isArray(res.data) ? res.data : []);
+        if (cancelled) return;
+        const rows = Array.isArray(res.data) ? res.data : [];
+        console.info("[ProcessSelectedModal] Velocity rates response", {
+          count: rows.length,
+          carriers: rows.map((r) => ({
+            carrier_id: r.carrier_id,
+            carrier_name: r.carrier_name,
+            total_charge: r.total_charge,
+            tat: r.tat,
+          })),
+        });
+        setVelocityCouriers(rows);
+        if (rows.length === 0) {
+          const msg = "Velocity returned no couriers for this lane and weight.";
+          setVelocityError(msg);
+          toast.error(msg);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setVelocityCouriers([]);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Failed to load Velocity couriers";
+        console.error("[ProcessSelectedModal] Velocity rates failed", { payload, error: err });
+        setVelocityCouriers([]);
+        setVelocityError(msg);
+        toast.error(msg);
       })
       .finally(() => {
         if (!cancelled) setCouriersLoading(false);
       });
+
     return () => {
       cancelled = true;
     };
-  }, [open, pickupPincode, destPincode, weight, referencePayment, referenceOrders]);
+  }, [open, velocityEligible, pickupPincode, destPincode, weightNum, referencePayment, referenceOrders]);
 
   const velocityById = useMemo(() => {
     const map = new Map<string, VelocityRate>();
-    for (const r of velocityCouriers) map.set(String(r.carrier_id), r);
+    for (const r of uniqueVelocityCouriers) map.set(String(r.carrier_id), r);
     return map;
-  }, [velocityCouriers]);
+  }, [uniqueVelocityCouriers]);
 
   const handlePreset = (val: string) => {
     setWeightPreset(val);
@@ -202,8 +284,6 @@ export function ProcessSelectedModal({
       /* parent shows toast */
     }
   };
-
-  const seenVelocityIds = new Set<string>();
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -289,31 +369,43 @@ export function ProcessSelectedModal({
                     {c.carrierId ? ` (DB)` : ""}
                   </option>
                 ))}
-                {velocityCouriers.map((r) => {
-                  const id = String(r.carrier_id);
-                  if (seenVelocityIds.has(id)) return null;
-                  seenVelocityIds.add(id);
-                  return (
-                    <option key={`vel-${id}`} value={id}>
-                      {r.carrier_name} — ₹{Number(r.total_charge ?? r.freight_charge ?? 0).toFixed(0)} (Velocity)
-                    </option>
-                  );
-                })}
+                {uniqueVelocityCouriers.map((r) => (
+                  <option key={`vel-${r.carrier_id}`} value={String(r.carrier_id)}>
+                    {formatCourierLabel(r)}
+                  </option>
+                ))}
                 {couriers
-                  .filter((c) => c.carrierId && !seenVelocityIds.has(c.carrierId))
+                  .filter(
+                    (c) =>
+                      c.carrierId &&
+                      !uniqueVelocityCouriers.some((r) => String(r.carrier_id) === c.carrierId)
+                  )
                   .map((c) => (
                     <option key={`db-carrier-${c.carrierId}`} value={c.carrierId!}>
                       {c.name} (carrier {c.carrierId})
                     </option>
                   ))}
               </select>
-              <p className="text-[11px] text-text-muted mt-1">
-                {couriersLoading
-                  ? "Loading Velocity couriers…"
-                  : destPincode && pickupPincode && weight
-                    ? "Live Velocity partners loaded for this lane and weight."
-                    : "Select pickup and weight to load live Velocity couriers, or pick a database courier."}
-              </p>
+
+              {validationMessages.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {validationMessages.map((msg) => (
+                    <p key={msg} className="text-xs text-amber-700 dark:text-amber-400">
+                      {msg}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {velocityError && velocityEligible && (
+                <p className="text-xs text-danger mt-1">{velocityError}</p>
+              )}
+
+              {couriersLoading && (
+                <p className="text-[11px] text-text-muted mt-1 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Loading Velocity couriers…
+                </p>
+              )}
             </div>
             <div>
               <Label className="text-sm font-medium">
@@ -336,6 +428,56 @@ export function ProcessSelectedModal({
               </div>
             </div>
           </div>
+
+          <div className="rounded-lg border border-border bg-surface-2/40 p-3 space-y-2">
+            <p className="text-xs font-semibold text-text-primary">Courier status</p>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <div className="flex justify-between gap-2">
+                <dt className="text-text-muted">Pickup pincode</dt>
+                <dd className="font-mono text-text-primary">{hasPickupPin ? pickupPincode : "—"}</dd>
+              </div>
+              <div className="flex justify-between gap-2">
+                <dt className="text-text-muted">Destination pincode</dt>
+                <dd className="font-mono text-text-primary">{hasDestPin ? destPincode : "—"}</dd>
+              </div>
+              <div className="flex justify-between gap-2">
+                <dt className="text-text-muted">Weight</dt>
+                <dd className="font-mono text-text-primary">
+                  {hasValidWeight ? `${weightNum} kg` : "—"}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-2 items-center">
+                <dt className="text-text-muted">Velocity request</dt>
+                <dd>
+                  <span
+                    className={cn(
+                      "inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium",
+                      velocityEligible
+                        ? "bg-success/15 text-success"
+                        : "bg-muted text-text-muted"
+                    )}
+                  >
+                    {velocityEligible ? "Ready" : "Not Ready"}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          {uniqueVelocityCouriers.length > 0 && (
+            <div className="rounded-lg border border-border p-3 space-y-2">
+              <p className="text-xs font-semibold text-text-primary">
+                Available Velocity couriers ({uniqueVelocityCouriers.length})
+              </p>
+              <ul className="space-y-1">
+                {uniqueVelocityCouriers.map((r) => (
+                  <li key={String(r.carrier_id)} className="text-xs text-text-secondary">
+                    {formatCourierLabel(r)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div>
             <Label className="text-sm font-medium mb-2 block">
