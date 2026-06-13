@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import type { Order } from "@/types/logistics";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -339,9 +339,7 @@ interface Props {
   showBulkMoveToReady?: boolean;
   onBulkMoveToReady?: () => Promise<void>;
   couriers?: Array<{ id: string; name: string }>;
-  warehouses?: Array<{ id: string; warehouseName: string; city?: string; velocityWarehouseId?: string }>;
-  /** Shown when no linked warehouse exists (Create Shipment empty state). */
-  velocityEmptyLink?: string;
+  warehouses?: Array<{ id: string; warehouseName: string; city?: string; velocityWarehouseId?: string; isDefault?: boolean }>;
   onCreateShipment?: (payload: {
     orderId: string;
     warehouseId: string;
@@ -385,7 +383,6 @@ export function RichOrdersTable({
   onBulkMoveToReady,
   couriers: _couriers = [],
   warehouses = [],
-  velocityEmptyLink = "/dropshipper/pickup-addresses",
   onCreateShipment,
   emptyDescription = "No orders found for these filters.",
 }: Props) {
@@ -427,13 +424,18 @@ export function RichOrdersTable({
       ? shipmentModalOrder.pickupAddress
       : undefined;
     const orderVelocityWh = (orderPickup as any)?.velocityWarehouseId || (shipmentModalOrder as any).velocityWarehouseId;
+    const normVel = (v: string | undefined) => String(v || "").trim().toUpperCase();
     const matchPickup = shipmentModalOrder.pickupAddressId
       ? warehouses.find((w) => w.id === shipmentModalOrder.pickupAddressId)?.id
       : undefined;
     const linkedByWhCode = orderVelocityWh
-      ? warehouses.find((w) => String(w.velocityWarehouseId || "").trim() === String(orderVelocityWh).trim())?.id
+      ? warehouses.find((w) => normVel(w.velocityWarehouseId) === normVel(orderVelocityWh))?.id
       : undefined;
-    setSelectedWarehouseId(matchPickup ?? linkedByWhCode ?? warehouses[0]?.id ?? "");
+    const velocityLinked =
+      warehouses.find((w) => w.isDefault && w.velocityWarehouseId?.trim()) ??
+      warehouses.find((w) => w.velocityWarehouseId?.trim());
+    const defaultPickup = warehouses.find((w) => w.isDefault) ?? warehouses[0];
+    setSelectedWarehouseId(matchPickup ?? linkedByWhCode ?? velocityLinked?.id ?? defaultPickup?.id ?? "");
     setSelectedCourierId("");
     setVelocityCouriers([]);
   }, [shipmentModalOrder, warehouses]);
@@ -1396,41 +1398,50 @@ export function RichOrdersTable({
                 ((shipmentModalOrder?.pickupAddress && typeof shipmentModalOrder.pickupAddress === "object")
                   ? (shipmentModalOrder.pickupAddress as any).velocityWarehouseId
                   : "");
-              if (modalOrderWh) {
+              if (warehouses.length === 0) {
+                const emptyHint =
+                  role === "admin"
+                    ? "Add a platform pickup in Admin → Pickup Addresses."
+                    : role === "dropshipper"
+                      ? "Add and link a pickup address in Pickup Addresses."
+                      : "Add and link a warehouse in Warehouse settings.";
                 return (
-                  <div className="rounded-lg border border-success/30 bg-success-light/30 p-3 text-xs text-success-dark">
-                    Using linked pickup warehouse: <span className="font-mono font-semibold">{modalOrderWh}</span>
+                  <div className="rounded-lg border border-dashed border-border bg-surface-2/40 p-4 text-center space-y-1">
+                    <p className="text-sm text-text-secondary">No pickup addresses found.</p>
+                    <p className="text-xs text-text-muted">{emptyHint}</p>
                   </div>
                 );
               }
-              return warehouses.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border bg-surface-2/40 p-4 text-center space-y-3">
-                <p className="text-sm text-text-secondary">No Velocity-linked warehouse found.</p>
-                <Button variant="outline" size="sm" asChild>
-                  <Link to={velocityEmptyLink}>Go to Pickup Addresses</Link>
-                </Button>
-              </div>
-              ) : (
-              <div>
-                <Label className="text-xs font-medium">Pickup warehouse (Velocity linked)</Label>
-                <select
-                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                  value={selectedWarehouseId}
-                  onChange={(e) => setSelectedWarehouseId(e.target.value)}
-                >
-                  <option value="">Select warehouse</option>
-                  {warehouses.map((w) => {
-                    const vid = w.velocityWarehouseId?.trim() || "";
-                    return (
-                      <option key={w.id} value={w.id}>
-                        {w.warehouseName}
-                        {w.city ? ` — ${w.city}` : ""}
-                        {vid ? ` — ${vid}` : ""}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
+              return (
+                <div className="space-y-2">
+                  {modalOrderWh ? (
+                    <div className="rounded-lg border border-success/30 bg-success-light/30 p-3 text-xs text-success-dark">
+                      Order linked to Velocity warehouse:{" "}
+                      <span className="font-mono font-semibold">{modalOrderWh}</span>
+                    </div>
+                  ) : null}
+                  <div>
+                    <Label className="text-xs font-medium">Pickup address</Label>
+                    <select
+                      className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={selectedWarehouseId}
+                      onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                    >
+                      <option value="">Select pickup address</option>
+                      {warehouses.map((w) => {
+                        const vid = w.velocityWarehouseId?.trim() || "";
+                        return (
+                          <option key={w.id} value={w.id}>
+                            {w.warehouseName}
+                            {w.city ? ` — ${w.city}` : ""}
+                            {vid ? ` — ${vid}` : ""}
+                            {!vid ? " (not Velocity-linked)" : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
               );
             })()}
             <div>
@@ -1471,13 +1482,13 @@ export function RichOrdersTable({
                   });
                   return;
                 }
-                const orderVelocityWh =
-                  shipmentModalOrder.velocityWarehouseId ||
-                  ((shipmentModalOrder.pickupAddress && typeof shipmentModalOrder.pickupAddress === "object")
-                    ? (shipmentModalOrder.pickupAddress as any).velocityWarehouseId
-                    : "");
-                if (!orderVelocityWh && (!selectedWarehouseId || warehouses.length === 0)) {
-                  toast.error("Select a Velocity-linked warehouse");
+                if (!selectedWarehouseId || warehouses.length === 0) {
+                  toast.error("Select a pickup address");
+                  return;
+                }
+                const selectedPickup = warehouses.find((w) => w.id === selectedWarehouseId);
+                if (!selectedPickup?.velocityWarehouseId?.trim()) {
+                  toast.error("Selected pickup is not linked to Velocity");
                   return;
                 }
                 setShipmentSubmitting(true);
@@ -1522,7 +1533,8 @@ export function RichOrdersTable({
               }}
               disabled={
                 shipmentSubmitting ||
-                ((!shipmentModalOrder?.velocityWarehouseId && !((shipmentModalOrder?.pickupAddress as any)?.velocityWarehouseId)) && warehouses.length === 0) ||
+                warehouses.length === 0 ||
+                !selectedWarehouseId ||
                 (shipmentModalOrder ? forwardShipmentBlockers(shipmentModalOrder).length > 0 : false)
               }
             >

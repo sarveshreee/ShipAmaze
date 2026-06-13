@@ -112,6 +112,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   });
   const { data: couriers = [] } = useCouriers();
   const { data: pickupAddresses = [] } = usePickupAddresses();
+  const { data: platformPickups = [] } = usePickupAddresses({ scope: "platform" });
   const { warehouses: vendorWarehouses } = useVendorWarehouses();
   const { role } = useAuth();
 
@@ -119,6 +120,17 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     if (role === "dropshipper") {
       return pickupAddresses
         .filter((p) => p.velocityWarehouseId?.trim())
+        .map((p) => ({
+          id: p.id,
+          warehouseName: p.label,
+          city: p.city,
+          velocityWarehouseId: p.velocityWarehouseId,
+          isDefault: p.isDefault,
+        }));
+    }
+    if (role === "admin") {
+      return platformPickups
+        .filter((p) => p.isActive !== false)
         .map((p) => ({
           id: p.id,
           warehouseName: p.label,
@@ -136,7 +148,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         velocityWarehouseId: w.velocityWarehouseId,
         isDefault: w.isDefault,
       }));
-  }, [role, pickupAddresses, vendorWarehouses]);
+  }, [role, pickupAddresses, platformPickups, vendorWarehouses]);
 
   const isAdmin = role === "admin";
   const { canProcessOrders } = useDropshipperAccess();
@@ -528,7 +540,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           showBulkMoveToReady={showBulkMoveToReady}
           couriers={couriers}
           warehouses={linkedWarehouseOptions}
-          velocityEmptyLink={role === "dropshipper" ? "/dropshipper/pickup-addresses" : "/vendor/warehouse"}
           onCreateShipment={
             canProcessOrders
               ? async (payload) => {
