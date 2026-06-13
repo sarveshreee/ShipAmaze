@@ -22,7 +22,7 @@ export type CourierRateMaster = {
 export type AvailableCourier = {
   name: string;
   carrierId: string;
-  source: "courier" | "rate_master" | "both";
+  source: "courier" | "rate_master" | "both" | "suggested";
   priority: number;
 };
 

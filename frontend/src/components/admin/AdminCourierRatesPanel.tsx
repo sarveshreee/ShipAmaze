@@ -44,6 +44,7 @@ export function AdminCourierRatesPanel({ courierNames }: Props) {
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to load courier rates");
       setItems([]);
+      setAvailable([]);
     } finally {
       setLoading(false);
     }
@@ -181,18 +182,32 @@ export function AdminCourierRatesPanel({ courierNames }: Props) {
         <div className="flex flex-wrap gap-2 items-end mb-6 p-4 rounded-lg border border-dashed border-border bg-surface-2/50">
           <div className="flex-1 min-w-[200px]">
             <Label className="text-xs">Add courier</Label>
-            <Select value={newCourierName} onValueChange={setNewCourierName}>
-              <SelectTrigger className="mt-1 h-9 text-sm">
-                <SelectValue placeholder="Select courier…" />
-              </SelectTrigger>
-              <SelectContent>
-                {unconfiguredNames.map((n) => (
-                  <SelectItem key={n} value={n}>
-                    {n}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {unconfiguredNames.length > 0 ? (
+              <Select value={newCourierName} onValueChange={setNewCourierName}>
+                <SelectTrigger className="mt-1 h-9 text-sm">
+                  <SelectValue placeholder="Select courier…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {unconfiguredNames.map((n) => (
+                    <SelectItem key={n} value={n}>
+                      {n}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                className="mt-1 h-9 text-sm"
+                value={newCourierName}
+                onChange={(e) => setNewCourierName(e.target.value)}
+                placeholder="Enter courier name (e.g. Delhivery)"
+              />
+            )}
+            {unconfiguredNames.length > 0 && (
+              <p className="text-[10px] text-text-muted mt-1">
+                Choose a partner to create a new rate master.
+              </p>
+            )}
           </div>
           <Button size="sm" className="gap-1.5" disabled={adding || !newCourierName} onClick={() => void addCourier()}>
             {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}

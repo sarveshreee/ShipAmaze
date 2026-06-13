@@ -9,6 +9,17 @@ import {
 } from "../models/CourierRateMaster.js";
 import { Courier } from "../models/Courier.js";
 
+/** Standard partners for rate-master setup when DB couriers collection is empty. */
+const SUGGESTED_COURIER_PARTNERS = [
+  "Delhivery",
+  "DTDC",
+  "BlueDart",
+  "Ekart",
+  "Amazon",
+  "Shadowfax",
+  "Xpressbees",
+] as const;
+
 function mapRateMaster(doc: {
   _id: unknown;
   courierName: string;
@@ -91,7 +102,12 @@ export const listAvailableCouriers = asyncHandler(async (req: AuthRequest, res: 
   ]);
   const byName = new Map<
     string,
-    { name: string; carrierId: string; source: "courier" | "rate_master" | "both"; priority: number }
+    {
+      name: string;
+      carrierId: string;
+      source: "courier" | "rate_master" | "both" | "suggested";
+      priority: number;
+    }
   >();
   for (const c of couriers) {
     byName.set(c.name, {
@@ -105,13 +121,23 @@ export const listAvailableCouriers = asyncHandler(async (req: AuthRequest, res: 
     const existing = byName.get(r.courierName);
     if (existing) {
       if (!existing.carrierId && r.carrierId) existing.carrierId = r.carrierId;
-      existing.source = "both";
+      existing.source = existing.source === "courier" ? "both" : existing.source;
     } else {
       byName.set(r.courierName, {
         name: r.courierName,
         carrierId: String(r.carrierId ?? ""),
         source: "rate_master",
         priority: r.priority ?? 99,
+      });
+    }
+  }
+  for (const name of SUGGESTED_COURIER_PARTNERS) {
+    if (!byName.has(name)) {
+      byName.set(name, {
+        name,
+        carrierId: "",
+        source: "suggested",
+        priority: 100,
       });
     }
   }
