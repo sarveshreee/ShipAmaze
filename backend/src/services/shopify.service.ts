@@ -72,8 +72,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function formatShopifyErrorBody(text: string): string {
+  let message = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+  try {
+    const parsed = JSON.parse(text) as { errors?: string | string[] | Record<string, unknown> };
+    if (parsed.errors) {
+      if (typeof parsed.errors === "string") message = parsed.errors;
+      else if (Array.isArray(parsed.errors)) message = parsed.errors.join(", ");
+      else message = JSON.stringify(parsed.errors);
+    }
+  } catch {
+    /* keep raw snippet */
+  }
+  return message;
+}
+
 async function shopifyRequest<T>(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT",
   url: string,
   accessToken: string,
   body?: unknown
@@ -93,11 +108,11 @@ async function shopifyRequest<T>(
     }
     if (!res.ok) {
       const text = await res.text();
-      const snippet = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+      const message = formatShopifyErrorBody(text);
       if (res.status === 401 || res.status === 403) {
         throw new AppError(401, "Shopify rejected this access token. Reconnect your store in Channels.");
       }
-      throw new AppError(502, `Shopify API error ${res.status}: ${snippet}`);
+      throw new AppError(502, `Shopify API error ${res.status}: ${message}`);
     }
     return res.json() as Promise<T>;
   }
@@ -205,4 +220,61 @@ export async function getProducts(
     accessToken
   );
   return data.products;
+}
+
+export type ShopifyProductInput = {
+  title: string;
+  body_html?: string;
+  vendor?: string;
+  product_type?: string;
+  tags?: string;
+  status?: "active" | "draft" | "archived";
+  variants: Array<{
+    id?: number;
+    title?: string;
+    price: string;
+    sku?: string;
+    inventory_management?: string;
+    inventory_quantity?: number;
+    weight?: number;
+    weight_unit?: "g" | "kg" | "lb" | "oz";
+  }>;
+  images?: Array<{ src: string }>;
+};
+
+export type ShopifyProductResult = {
+  id: number;
+  title: string;
+  status: string;
+  variants: Array<{ id: number; price: string; sku: string; inventory_quantity: number }>;
+};
+
+export async function createProduct(
+  accessToken: string,
+  shop: string,
+  product: ShopifyProductInput
+): Promise<ShopifyProductResult> {
+  const data = await shopifyRequest<{ product: ShopifyProductResult }>(
+    "POST",
+    `${shopifyBaseUrl(shop)}/products.json`,
+    accessToken,
+    { product }
+  );
+  return data.product;
+}
+
+export async function updateProduct(
+  accessToken: string,
+  shop: string,
+  shopifyProductId: number | string,
+  product: ShopifyProductInput
+): Promise<ShopifyProductResult> {
+  const id = Number(shopifyProductId);
+  const data = await shopifyRequest<{ product: ShopifyProductResult }>(
+    "PUT",
+    `${shopifyBaseUrl(shop)}/products/${id}.json`,
+    accessToken,
+    { product: { ...product, id } }
+  );
+  return data.product;
 }

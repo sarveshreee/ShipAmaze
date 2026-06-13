@@ -7,6 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useAuth } from "@/contexts/AuthContext";
 import { useMarketplaceProduct } from "@/hooks/useMarketplace";
 import { ProfitCalculatorModal } from "@/components/marketplace/ProfitCalculatorModal";
+import { ShopifyPushDrawer } from "@/components/marketplace/ShopifyPushDrawer";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 export default function MarketplaceProductDetail() {

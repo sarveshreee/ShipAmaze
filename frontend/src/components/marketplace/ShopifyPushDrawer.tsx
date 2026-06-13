@@ -1,12 +1,17 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Loader2, ExternalLink } from "lucide-react";
+import { Loader2, ExternalLink, Link2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
+import { useAuth } from "@/contexts/AuthContext";
+import * as shopifyService from "@/services/shopifyService";
+import type { ShopifyProductPushStatus } from "@/services/shopifyService";
+import { ApiError } from "@/lib/apiClient";
 
 interface Props {
   open: boolean;
@@ -14,11 +19,56 @@ interface Props {
   product: SupplierProduct | null;
 }
 
-const isProduction = import.meta.env.PROD;
+function channelsPath(role: string | null | undefined): string {
+  if (role === "admin") return "/admin/channels";
+  return "/dropshipper/channels";
+}
+
+function errMsg(err: unknown): string {
+  if (err instanceof ApiError) {
+    const b = err.body as { message?: string; error?: string } | undefined;
+    if (b?.message?.trim()) return b.message;
+    if (b?.error?.trim()) return b.error;
+    return err.message;
+  }
+  if (err instanceof Error) return err.message;
+  return "Something went wrong";
+}
 
 export function ShopifyPushDrawer({ open, onOpenChange, product }: Props) {
+  const { role } = useAuth();
+  const navigate = useNavigate();
   const [sellingPrice, setSellingPrice] = useState("");
   const [pushing, setPushing] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const [pushStatus, setPushStatus] = useState<ShopifyProductPushStatus | null>(null);
+
+  const defaultSellingPrice = useMemo(() => {
+    if (!product) return "";
+    const sp = Number(product.selling_price);
+    if (Number.isFinite(sp) && sp > 0) return String(sp);
+    return String(Math.ceil(getFinalProductPrice(product)));
+  }, [product]);
+
+  const loadStatus = useCallback(async () => {
+    if (!product?.id) return;
+    setLoadingStatus(true);
+    try {
+      const status = await shopifyService.getProductPushStatus(product.id);
+      setPushStatus(status);
+    } catch (e) {
+      setPushStatus({ connected: false });
+      toast.error(errMsg(e));
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, [product?.id]);
+
+  useEffect(() => {
+    if (!open || !product) return;
+    setSellingPrice(defaultSellingPrice);
+    void loadStatus();
+  }, [open, product, defaultSellingPrice, loadStatus]);
 
   const margin = useMemo(() => {
     const sp = Number(sellingPrice) || 0;
@@ -30,42 +80,107 @@ export function ShopifyPushDrawer({ open, onOpenChange, product }: Props) {
   }, [sellingPrice, product]);
 
   const handlePush = async () => {
-    if (isProduction) {
-      toast.info("Push to Shopify is coming soon. Connect your store under Channels in the meantime.");
-      return;
-    }
-    if (!sellingPrice || Number(sellingPrice) <= 0) {
+    if (!product || !pushStatus?.connected) return;
+    const sp = Number(sellingPrice);
+    if (!Number.isFinite(sp) || sp <= 0) {
       toast.error("Enter a valid selling price");
       return;
     }
     setPushing(true);
-    toast.info("Shopify product push is not available in this build (development preview only).");
-    setPushing(false);
-    onOpenChange(false);
-    setSellingPrice("");
+    try {
+      const result = await shopifyService.pushProductToShopify({
+        productId: product.id,
+        sellingPrice: sp,
+      });
+      toast.success(
+        result.updated
+          ? `Product updated on Shopify (ID: ${result.shopifyProductId})`
+          : `Product published to Shopify (ID: ${result.shopifyProductId})`
+      );
+      await loadStatus();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setPushing(false);
+    }
+  };
+
+  const handleClose = (v: boolean) => {
+    if (!v) {
+      setPushStatus(null);
+      setSellingPrice("");
+    }
+    onOpenChange(v);
   };
 
   if (!product) return null;
 
+  const connected = pushStatus?.connected === true;
+  const published = connected && pushStatus?.published === true;
+  const disabled = !connected || pushing || loadingStatus;
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleClose}>
       <SheetContent className="w-full sm:max-w-md overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Push to Shopify</SheetTitle>
         </SheetHeader>
         <div className="mt-6 space-y-5">
-          {isProduction && (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-100">
-              <p className="font-medium">Coming soon</p>
-              <p className="mt-1 text-text-muted">
-                Product push to your connected Shopify store is not enabled in production yet. Use{" "}
-                <strong>Channels</strong> to connect a store and sync orders.
+          {loadingStatus ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" /> Checking Shopify connection…
+            </div>
+          ) : !connected ? (
+            <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm space-y-3">
+              <p className="text-text-primary">
+                Connect your Shopify store from Channels to publish products.
+              </p>
+              <Button
+                type="button"
+                className="w-full gap-2"
+                onClick={() => {
+                  handleClose(false);
+                  navigate(channelsPath(role));
+                }}
+              >
+                <Link2 className="h-4 w-4" />
+                Go to Channels
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-success/30 bg-success/5 p-4 text-sm space-y-2">
+              <div className="flex items-center gap-2 text-success font-medium">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                {pushStatus.connectionStatus ?? "Connected"}
+              </div>
+              <div className="grid gap-1 text-xs">
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Store name</span>
+                  <span className="font-medium text-right">{pushStatus.shopName ?? "—"}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Shop domain</span>
+                  <span className="font-medium text-right break-all">{pushStatus.shopDomain}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {published && (
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm">
+              <p className="font-medium text-primary">Already published to Shopify</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Shopify Product ID: <span className="font-mono">{pushStatus.shopifyProductId}</span>
               </p>
             </div>
           )}
 
           <div className="flex gap-3 p-3 rounded-xl bg-muted/40">
-            <img src={product.images[0] || "/placeholder.svg"} alt="" className="h-16 w-16 rounded-lg object-cover" />
+            <img
+              src={product.images[0] || "/placeholder.svg"}
+              alt=""
+              className="h-16 w-16 rounded-lg object-cover"
+            />
             <div className="min-w-0">
               <p className="font-medium truncate">{product.name}</p>
               <p className="text-xs text-muted-foreground">{product.sku}</p>
@@ -73,12 +188,14 @@ export function ShopifyPushDrawer({ open, onOpenChange, product }: Props) {
             </div>
           </div>
 
-          {!isProduction && (
+          {connected && (
             <>
               <div className="space-y-1.5">
                 <Label>Your selling price (₹)</Label>
                 <Input
                   type="number"
+                  min="0.01"
+                  step="0.01"
                   value={sellingPrice}
                   onChange={(e) => setSellingPrice(e.target.value)}
                   placeholder="e.g. 599"
@@ -113,14 +230,21 @@ export function ShopifyPushDrawer({ open, onOpenChange, product }: Props) {
             RTO &amp; RVP charges apply based on weight ({product.weight || "500g"}). Final payouts reflect after delivery.
           </div>
 
-          <Button className="w-full" onClick={() => void handlePush()} disabled={pushing || isProduction}>
+          <Button className="w-full gap-2" onClick={() => void handlePush()} disabled={disabled}>
             {pushing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : isProduction ? (
-              "Coming soon"
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {published ? "Updating on Shopify…" : "Publishing to Shopify…"}
+              </>
+            ) : !connected ? (
+              "Connect store to publish"
+            ) : published ? (
+              <>
+                Update on Shopify <ExternalLink className="h-4 w-4" />
+              </>
             ) : (
               <>
-                Preview push <ExternalLink className="ml-2 h-4 w-4" />
+                Push to Shopify <ExternalLink className="h-4 w-4" />
               </>
             )}
           </Button>

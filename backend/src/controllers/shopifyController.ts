@@ -20,6 +20,10 @@ import {
   type ShopifyPickupApplyTarget,
 } from "../services/shopifyOrderPickup.js";
 import { performShopifyOrderSyncForUser } from "../services/shopifySyncRunner.js";
+import {
+  getProductPushContext,
+  pushProductToShopifyStore,
+} from "../services/shopifyProductPush.js";
 import { devLog } from "../utils/devLog.js";
 
 /* ------------------------------------------------------------------ */
@@ -793,3 +797,28 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
     res.status(500).send("Error");
   }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Product push (uses existing Channels connection + token storage)   */
+/* ------------------------------------------------------------------ */
+export const getProductPushStatus = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const ctx = await getProductPushContext(req.user._id, String(req.params.productId ?? ""));
+  res.json(ctx);
+});
+
+export const pushProductToShopify = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const productId = String(req.body.productId ?? req.params.productId ?? "").trim();
+  if (!productId) throw new AppError(400, "productId is required");
+
+  const sellingPriceRaw = req.body.sellingPrice ?? req.body.selling_price;
+  const sellingPrice =
+    sellingPriceRaw != null && sellingPriceRaw !== "" ? Number(sellingPriceRaw) : undefined;
+  if (sellingPrice != null && (!Number.isFinite(sellingPrice) || sellingPrice <= 0)) {
+    throw new AppError(400, "sellingPrice must be a positive number");
+  }
+
+  const result = await pushProductToShopifyStore(req.user._id, productId, sellingPrice);
+  res.json(result);
+});

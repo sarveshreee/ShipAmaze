@@ -538,6 +538,18 @@ export function createApp() {
   api.post("/shopify/disconnect", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.disconnect);
   api.post("/shopify/sync-orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.syncOrders);
   api.get(
+    "/shopify/product-push/:productId",
+    authMiddleware,
+    requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_VIEW),
+    shopifyController.getProductPushStatus
+  );
+  api.post(
+    "/shopify/push-product",
+    authMiddleware,
+    requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE),
+    shopifyController.pushProductToShopify
+  );
+  api.get(
     "/shopify/admin/connections",
     authMiddleware,
     requireRoles("admin"),

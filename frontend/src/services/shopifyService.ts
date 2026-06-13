@@ -69,3 +69,32 @@ export async function disconnectShopify(): Promise<{ ok: boolean }> {
 export async function listShopifyConnectionsAdmin(): Promise<{ connections: ShopifyAdminConnection[] }> {
   return apiClient.get<{ connections: ShopifyAdminConnection[] }>("/shopify/admin/connections");
 }
+
+export type ShopifyProductPushStatus = {
+  connected: boolean;
+  shopDomain?: string;
+  shopName?: string;
+  connectionStatus?: string;
+  published?: boolean;
+  shopifyProductId?: string | null;
+  lastPushedAt?: string | null;
+};
+
+export type ShopifyPushProductResult = {
+  shopifyProductId: string;
+  shopifyVariantId: string | null;
+  shopDomain: string;
+  updated: boolean;
+  sellingPrice: number;
+};
+
+export async function getProductPushStatus(productId: string): Promise<ShopifyProductPushStatus> {
+  return apiClient.get<ShopifyProductPushStatus>(`/shopify/product-push/${encodeURIComponent(productId)}`);
+}
+
+export async function pushProductToShopify(body: {
+  productId: string;
+  sellingPrice?: number;
+}): Promise<ShopifyPushProductResult> {
+  return apiClient.post<ShopifyPushProductResult>("/shopify/push-product", body);
+}
