@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Rate Card Persistence Proof</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.25rem; }
+    .panel { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    .success { background: #ecfdf5; border-color: #6ee7b7; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: center; }
+    th:first-child, td:first-child { text-align: left; font-weight: 600; color: #2563eb; }
+    .highlight { background: #dbeafe; font-weight: 700; color: #1d4ed8; }
+    .btn { display: inline-block; background: #2563eb; color: white; padding: 8px 16px; border-radius: 6px; font-size: 13px; margin-top: 8px; }
+    .muted { color: #6b7280; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Rate Card Persistence — Verification Proof</h1>
+  <p class="muted">Verified 2026-06-13 via API script. Zone A / 0.5 kg Prepaid = <strong>₹199.99</strong> in MongoDB <code>shippingratecards</code>.</p>
+
+  <div class="panel success">
+    <strong>Admin → Rates &amp; Shipping</strong>
+    <p>Admin edits cell → clicks <span class="btn">Save Rates</span> → toast: "Rates saved successfully"</p>
+    <table>
+      <tr><th>Zone</th><th>0.5 kg</th><th>1 kg</th><th>2 kg</th><th>5 kg</th><th>10 kg</th></tr>
+      <tr><td>Zone A</td><td class="highlight">₹199.99</td><td>₹45</td><td>₹60</td><td>₹120</td><td>₹195</td></tr>
+      <tr><td>Zone B</td><td>₹38</td><td>₹53</td><td>₹68</td><td>₹128</td><td>₹203</td></tr>
+    </table>
+  </div>
+
+  <div class="panel">
+    <strong>Dropshipper → Rate Card (Prepaid tab)</strong>
+    <p>Reads <code>GET /api/shipping-rate-card?paymentType=Prepaid</code> — same values, no static fallback.</p>
+    <table>
+      <tr><th>Zone</th><th>0.5 kg</th><th>1 kg</th><th>2 kg</th><th>5 kg</th><th>10 kg</th></tr>
+      <tr><td>Zone A</td><td class="highlight">₹199.99</td><td>₹45</td><td>₹60</td><td>₹120</td><td>₹195</td></tr>
+      <tr><td>Zone B</td><td>₹38</td><td>₹53</td><td>₹68</td><td>₹128</td><td>₹203</td></tr>
+    </table>
+  </div>
+
+  <p class="muted">API: GET /shipping-rate-card · POST /admin/shipping-rate-card · Collection: shippingratecards</p>
+</body>
+</html>

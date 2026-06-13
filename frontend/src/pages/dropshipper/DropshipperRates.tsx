@@ -1,34 +1,75 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { rateCardData } from "@/constants/rateCard";
 import { cn } from "@/lib/utils";
-import { Calculator, MapPin, Truck, CheckCircle2, XCircle, Search, Loader2 } from "lucide-react";
+import { Calculator, MapPin, Truck, CheckCircle2, XCircle, Search, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import * as velocityService from "@/services/velocityService";
 import * as approvalService from "@/services/approvalService";
 import type { VelocityRate, VelocityCarrier } from "@/services/velocityService";
+import {
+  formatRateAmount,
+  SHIPPING_RATE_CARD_REFETCH_EVENT,
+  SHIPPING_RATE_CARD_STORAGE_KEY,
+} from "@/lib/shippingRateCardUtils";
 
 export default function DropshipperRates() {
   const [tab, setTab] = useState<"calculator" | "rateCard" | "pincheck">("calculator");
+  const [rateCardPayment, setRateCardPayment] = useState<"COD" | "Prepaid">("Prepaid");
   const [liveRateCard, setLiveRateCard] = useState<{
     zones: string[];
     weights: string[];
     rates: number[][];
+    paymentType: "COD" | "Prepaid";
+    updatedAt?: string;
   } | null>(null);
   const [rateCardLoading, setRateCardLoading] = useState(false);
+  const [rateCardError, setRateCardError] = useState<string | null>(null);
+
+  const loadRateCard = useCallback(async (payment: "COD" | "Prepaid" = rateCardPayment) => {
+    setRateCardLoading(true);
+    setRateCardError(null);
+    try {
+      const card = await approvalService.getShippingRateCard(payment);
+      setLiveRateCard({
+        zones: card.zones,
+        weights: card.weights,
+        rates: card.rates,
+        paymentType: card.paymentType,
+        updatedAt: (card as { updatedAt?: string }).updatedAt,
+      });
+    } catch (e) {
+      setLiveRateCard(null);
+      setRateCardError(e instanceof Error ? e.message : "Failed to load rate card");
+    } finally {
+      setRateCardLoading(false);
+    }
+  }, [rateCardPayment]);
 
   useEffect(() => {
     if (tab !== "rateCard") return;
-    setRateCardLoading(true);
-    void approvalService
-      .getShippingRateCard("Prepaid")
-      .then((card) => setLiveRateCard({ zones: card.zones, weights: card.weights, rates: card.rates }))
-      .catch(() => setLiveRateCard(null))
-      .finally(() => setRateCardLoading(false));
-  }, [tab]);
+    void loadRateCard(rateCardPayment);
+  }, [tab, rateCardPayment, loadRateCard]);
+
+  useEffect(() => {
+    const handler = () => {
+      if (tab === "rateCard") void loadRateCard(rateCardPayment);
+    };
+    window.addEventListener(SHIPPING_RATE_CARD_REFETCH_EVENT, handler);
+    return () => window.removeEventListener(SHIPPING_RATE_CARD_REFETCH_EVENT, handler);
+  }, [tab, rateCardPayment, loadRateCard]);
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SHIPPING_RATE_CARD_STORAGE_KEY && tab === "rateCard") {
+        void loadRateCard(rateCardPayment);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [tab, rateCardPayment, loadRateCard]);
 
   // Rate calculator state
   const [fromPin, setFromPin] = useState("");
@@ -218,18 +259,56 @@ export default function DropshipperRates() {
 
       {tab === "rateCard" && (
         <div className="rounded-lg bg-card shadow-card overflow-x-auto">
-          <div className="p-4 border-b border-border">
-            <h3 className="font-semibold text-text-primary">Zone-wise Rate Card</h3>
-            <p className="text-xs text-text-muted">Approved live rates (view only). Contact admin to request changes.</p>
+          <div className="p-4 border-b border-border flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-text-primary">Zone-wise Rate Card</h3>
+              <p className="text-xs text-text-muted">
+                Live admin zone rates (view only). Updates appear here after admin saves.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-lg border border-border overflow-hidden">
+                {(["Prepaid", "COD"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setRateCardPayment(t)}
+                    className={cn(
+                      "px-3 py-1.5 text-xs font-medium transition-colors",
+                      rateCardPayment === t
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-surface-2 text-text-secondary hover:bg-surface-2/80"
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={rateCardLoading}
+                onClick={() => void loadRateCard(rateCardPayment)}
+              >
+                <RefreshCw className={cn("h-4 w-4", rateCardLoading && "animate-spin")} />
+              </Button>
+            </div>
           </div>
           {rateCardLoading ? (
-            <div className="flex items-center gap-2 p-8 text-text-muted"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div>
+            <div className="flex items-center gap-2 p-8 text-text-muted">
+              <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+            </div>
+          ) : rateCardError ? (
+            <div className="p-8 text-center text-sm text-danger">{rateCardError}</div>
+          ) : !liveRateCard ? (
+            <div className="p-8 text-center text-sm text-text-muted">No rate card available.</div>
           ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-surface-2/50">
                 <th className="p-3 text-left font-medium text-text-secondary">Zone</th>
-                {(liveRateCard?.weights ?? rateCardData.weightSlabs).map((w) => (
+                {liveRateCard.weights.map((w) => (
                   <th key={w} className="p-3 text-center font-medium text-text-secondary">
                     {w}
                   </th>
@@ -237,15 +316,12 @@ export default function DropshipperRates() {
               </tr>
             </thead>
             <tbody>
-              {(liveRateCard?.zones ?? rateCardData.zones).map((z, i) => (
+              {liveRateCard.zones.map((z, i) => (
                 <tr key={z} className={cn("border-b border-border", i % 2 === 0 && "bg-surface-2/30")}>
                   <td className="p-3 font-medium text-text-primary">Zone {z}</td>
-                  {(liveRateCard
-                    ? liveRateCard.rates[i] ?? []
-                    : rateCardData.rates[z as keyof typeof rateCardData.rates] ?? []
-                  ).map((rate, j) => (
+                  {(liveRateCard.rates[i] ?? []).map((rate, j) => (
                     <td key={j} className="p-3 text-center text-text-primary">
-                      ₹{rate}
+                      ₹{formatRateAmount(rate)}
                     </td>
                   ))}
                 </tr>

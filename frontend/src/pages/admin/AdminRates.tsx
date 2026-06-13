@@ -3,11 +3,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Save } from "lucide-react";
 import * as approvalService from "@/services/approvalService";
 import { ApiError } from "@/lib/apiClient";
+import { usePincodes } from "@/hooks/useApiData";
+import { useUnsavedChangesBlocker } from "@/hooks/useUnsavedChangesBlocker";
+import {
+  formatRateAmount,
+  notifyShippingRateCardUpdated,
+  parseRateCellInput,
+  rateForZoneWeight,
+} from "@/lib/shippingRateCardUtils";
 
 const zones = ["A", "B", "C", "D", "E"];
 const weights = ["0.5 kg", "1 kg", "2 kg", "5 kg", "10 kg"];
@@ -16,7 +24,12 @@ function defaultMatrix() {
   return zones.map((_, zi) => weights.map((_, wi) => 30 + zi * 8 + wi * 15));
 }
 
+function matricesEqual(a: number[][], b: number[][]): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export default function AdminRates() {
+  const { data: pincodeList = [] } = usePincodes();
   const [paymentType, setPaymentType] = useState<"COD" | "Prepaid">("Prepaid");
   const [rates, setRates] = useState<number[][]>(defaultMatrix());
   const [initialRates, setInitialRates] = useState<number[][]>(defaultMatrix());
@@ -24,6 +37,10 @@ export default function AdminRates() {
   const [editValue, setEditValue] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const [calcDestPin, setCalcDestPin] = useState("");
+  const [calcWeight, setCalcWeight] = useState("0.5");
+  const [calcResult, setCalcResult] = useState<{ zone: string; rate: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,7 +63,29 @@ export default function AdminRates() {
     void load();
   }, [load]);
 
-  const hasChanges = JSON.stringify(rates) !== JSON.stringify(initialRates);
+  const hasChanges = !matricesEqual(rates, initialRates);
+
+  useUnsavedChangesBlocker(hasChanges, "You have unsaved rate changes. Leave without saving?");
+
+  const pincodeByCode = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of pincodeList) {
+      const pin = String(p.pincode ?? "").replace(/\D/g, "").slice(0, 6);
+      const zone = String(p.zone ?? "").trim();
+      if (pin.length === 6 && zone) m.set(pin, zone);
+    }
+    return m;
+  }, [pincodeList]);
+
+  const switchPaymentType = (next: "COD" | "Prepaid") => {
+    if (next === paymentType) return;
+    if (hasChanges) {
+      const ok = window.confirm("You have unsaved changes. Switch payment type and discard edits?");
+      if (!ok) return;
+    }
+    setPaymentType(next);
+    setCalcResult(null);
+  };
 
   const startEdit = (zi: number, wi: number) => {
     setEditingCell({ z: zi, w: wi });
@@ -55,14 +94,17 @@ export default function AdminRates() {
 
   const commitEdit = useCallback(() => {
     if (!editingCell) return;
-    const num = parseInt(editValue, 10);
-    if (!isNaN(num) && num >= 0) {
-      setRates((prev) => {
-        const updated = prev.map((row) => [...row]);
-        updated[editingCell.z][editingCell.w] = num;
-        return updated;
-      });
+    const num = parseRateCellInput(editValue);
+    if (num == null) {
+      toast.error("Enter a valid rate ≥ 0 (decimals allowed)");
+      setEditingCell(null);
+      return;
     }
+    setRates((prev) => {
+      const updated = prev.map((row) => [...row]);
+      updated[editingCell.z][editingCell.w] = num;
+      return updated;
+    });
     setEditingCell(null);
   }, [editingCell, editValue]);
 
@@ -72,6 +114,7 @@ export default function AdminRates() {
   };
 
   const saveRates = async () => {
+    if (!hasChanges) return;
     setSaving(true);
     try {
       await approvalService.adminSaveShippingRateCard({
@@ -81,7 +124,8 @@ export default function AdminRates() {
         rates,
       });
       setInitialRates(rates.map((row) => [...row]));
-      toast.success("Rate card saved — live immediately (admin override)");
+      notifyShippingRateCardUpdated();
+      toast.success("Rates saved successfully");
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Save failed");
     } finally {
@@ -89,29 +133,80 @@ export default function AdminRates() {
     }
   };
 
+  const runCalculator = () => {
+    const dest = calcDestPin.replace(/\D/g, "").slice(0, 6);
+    const weightKg = Number(calcWeight);
+    if (dest.length !== 6) {
+      toast.error("Enter a valid 6-digit destination pincode");
+      return;
+    }
+    if (!(weightKg > 0) || !Number.isFinite(weightKg)) {
+      toast.error("Enter a valid weight in kg");
+      return;
+    }
+    const zone = pincodeByCode.get(dest);
+    if (!zone) {
+      toast.error("Destination pincode not in serviceability list — add zone in Pincode Check first");
+      setCalcResult(null);
+      return;
+    }
+    const rate = rateForZoneWeight(rates, zones, zone, weightKg, weights);
+    if (rate == null) {
+      toast.error(`No rate found for zone ${zone}`);
+      setCalcResult(null);
+      return;
+    }
+    setCalcResult({ zone, rate });
+  };
+
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Rates & Shipping" breadcrumb={["Admin", "Rates"]} />
 
       <p className="text-sm text-text-muted mb-4">
-        Admin changes apply immediately. Vendor and team member rate changes require approval under{" "}
-        <a href="/admin/approvals" className="text-primary underline">Pending Approvals</a>.
+        Edit zone rates below and click <strong>Save Rates</strong> to publish. Vendor and team member rate
+        changes still require approval under{" "}
+        <a href="/admin/approvals" className="text-primary underline">
+          Pending Approvals
+        </a>
+        .
       </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="rounded-lg bg-card shadow-card p-6">
           <h3 className="font-semibold text-text-primary mb-4">Rate Calculator</h3>
+          <p className="text-xs text-text-muted mb-3">
+            Uses the current table values ({paymentType}) — save to persist changes for dropshippers.
+          </p>
           <div className="space-y-3">
-            <div><Label>Origin Pincode</Label><Input placeholder="400001" /></div>
-            <div><Label>Destination Pincode</Label><Input placeholder="110001" /></div>
-            <div><Label>Weight (kg)</Label><Input placeholder="0.5" type="number" /></div>
+            <div>
+              <Label>Destination Pincode</Label>
+              <Input
+                placeholder="110001"
+                value={calcDestPin}
+                onChange={(e) => setCalcDestPin(e.target.value)}
+                maxLength={6}
+              />
+            </div>
+            <div>
+              <Label>Weight (kg)</Label>
+              <Input
+                placeholder="0.5"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={calcWeight}
+                onChange={(e) => setCalcWeight(e.target.value)}
+              />
+            </div>
             <div>
               <Label>Payment Type</Label>
               <div className="flex gap-2 mt-1">
                 {(["Prepaid", "COD"] as const).map((t) => (
                   <button
                     key={t}
-                    onClick={() => setPaymentType(t)}
+                    type="button"
+                    onClick={() => switchPaymentType(t)}
                     className={cn(
                       "flex-1 rounded-lg py-2 text-sm font-medium border transition-colors",
                       paymentType === t
@@ -124,24 +219,45 @@ export default function AdminRates() {
                 ))}
               </div>
             </div>
-            <Button className="w-full bg-primary text-primary-foreground hover:bg-primary-dark">Calculate Rates</Button>
+            <Button
+              type="button"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary-dark"
+              onClick={runCalculator}
+            >
+              Calculate Rates
+            </Button>
+            {calcResult && (
+              <div className="rounded-lg border border-primary/30 bg-primary-light/30 p-3 text-sm">
+                Zone {calcResult.zone} · {calcWeight} kg ({paymentType}):{" "}
+                <span className="font-bold text-primary">₹{formatRateAmount(calcResult.rate)}</span>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="rounded-lg bg-card shadow-card p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
               <h3 className="font-semibold text-text-primary">Rate Card ({paymentType})</h3>
-              <p className="text-xs text-text-muted">Click any cell to edit — admin saves go live instantly</p>
+              <p className="text-xs text-text-muted">Click a cell to edit — changes are local until you save</p>
+              {hasChanges && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 font-medium">Unsaved changes</p>
+              )}
             </div>
-            {hasChanges && (
-              <Button size="sm" className="text-xs" disabled={saving} onClick={() => void saveRates()}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
-              </Button>
-            )}
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={!hasChanges || saving || loading}
+              onClick={() => void saveRates()}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save Rates
+            </Button>
           </div>
           {loading ? (
-            <div className="flex items-center gap-2 p-8 text-text-muted"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div>
+            <div className="flex items-center gap-2 p-8 text-text-muted">
+              <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -149,7 +265,9 @@ export default function AdminRates() {
                   <tr className="border-b border-border">
                     <th className="p-2 text-left font-medium text-text-secondary">Zone</th>
                     {weights.map((w) => (
-                      <th key={w} className="p-2 text-center font-medium text-text-secondary">{w}</th>
+                      <th key={w} className="p-2 text-center font-medium text-text-secondary">
+                        {w}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -159,17 +277,20 @@ export default function AdminRates() {
                       <td className="p-2 font-semibold text-primary">Zone {z}</td>
                       {rates[zi]?.map((r, wi) => {
                         const isEditing = editingCell?.z === zi && editingCell?.w === wi;
+                        const changed = r !== initialRates[zi]?.[wi];
                         return (
                           <td key={wi} className="p-1 text-center">
                             {isEditing ? (
                               <input
                                 type="number"
+                                min="0"
+                                step="0.01"
                                 value={editValue}
                                 onChange={(e) => setEditValue(e.target.value)}
                                 onBlur={commitEdit}
                                 onKeyDown={handleKeyDown}
                                 autoFocus
-                                className="w-16 h-8 text-center text-sm font-medium rounded-md border-2 border-primary bg-primary-light text-text-primary outline-none"
+                                className="w-20 h-8 text-center text-sm font-medium rounded-md border-2 border-primary bg-primary-light text-text-primary outline-none"
                               />
                             ) : (
                               <button
@@ -178,10 +299,10 @@ export default function AdminRates() {
                                 className={cn(
                                   "w-full h-8 rounded-md text-sm font-medium transition-colors",
                                   "text-text-primary hover:bg-primary-light hover:text-primary cursor-pointer",
-                                  r !== initialRates[zi]?.[wi] && "bg-primary-light text-primary font-bold"
+                                  changed && "bg-primary-light text-primary font-bold ring-1 ring-primary/40"
                                 )}
                               >
-                                ₹{r}
+                                ₹{formatRateAmount(r)}
                               </button>
                             )}
                           </td>

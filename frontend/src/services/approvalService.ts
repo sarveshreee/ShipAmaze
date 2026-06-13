@@ -45,6 +45,7 @@ export type RateCardData = {
   weights: string[];
   rates: number[][];
   readOnly?: boolean;
+  updatedAt?: string | null;
 };
 
 export async function getShippingRateCard(paymentType: "COD" | "Prepaid" = "Prepaid") {

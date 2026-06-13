@@ -9,6 +9,7 @@ import {
   DEFAULT_ZONES,
   DEFAULT_WEIGHTS,
   defaultRateMatrix,
+  parseAndValidateRateMatrix,
 } from "../models/ShippingRateCard.js";
 import { Courier } from "../models/Courier.js";
 import { Product } from "../models/Product.js";
@@ -154,6 +155,7 @@ export const getShippingRateCard = asyncHandler(async (req: AuthRequest, res: Re
     weights: payload.weights,
     rates: payload.rates,
     readOnly: req.user.role !== "admin",
+    updatedAt: card?.updatedAt ?? null,
   });
 });
 
@@ -161,18 +163,36 @@ export const getShippingRateCard = asyncHandler(async (req: AuthRequest, res: Re
 export const adminSaveShippingRateCard = asyncHandler(async (req: AuthRequest, res: Response) => {
   assertOwnerAdminReq(req);
   const paymentType = (req.body.paymentType === "COD" ? "COD" : "Prepaid") as "COD" | "Prepaid";
+  const zones = Array.isArray(req.body.zones) && req.body.zones.length
+    ? req.body.zones.map((z: unknown) => String(z).trim()).filter(Boolean)
+    : DEFAULT_ZONES;
+  const weights = Array.isArray(req.body.weights) && req.body.weights.length
+    ? req.body.weights.map((w: unknown) => String(w).trim()).filter(Boolean)
+    : DEFAULT_WEIGHTS;
+  let rates: number[][];
+  try {
+    rates = parseAndValidateRateMatrix(req.body.rates, zones, weights);
+  } catch (err: unknown) {
+    throw new AppError(400, err instanceof Error ? err.message : "Invalid rate matrix");
+  }
   const card = await ShippingRateCard.findOneAndUpdate(
     { paymentType },
     {
       paymentType,
-      zones: req.body.zones ?? DEFAULT_ZONES,
-      weights: req.body.weights ?? DEFAULT_WEIGHTS,
-      rates: req.body.rates ?? defaultRateMatrix(),
+      zones,
+      weights,
+      rates,
       updatedBy: req.user!._id,
     },
     { upsert: true, new: true }
   );
-  res.json(card);
+  res.json({
+    paymentType: card.paymentType,
+    zones: card.zones,
+    weights: card.weights,
+    rates: card.rates,
+    updatedAt: card.updatedAt,
+  });
 });
 
 /** Admin: upsert courier immediately. */

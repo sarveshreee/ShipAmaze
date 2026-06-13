@@ -33,3 +33,34 @@ export function defaultRateMatrix(): number[][] {
     DEFAULT_WEIGHTS.map((_, wi) => 30 + zi * 8 + wi * 15)
   );
 }
+
+/** Validate zone rate matrix before persisting. */
+export function parseAndValidateRateMatrix(
+  raw: unknown,
+  zones: string[],
+  weights: string[]
+): number[][] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error("rates must be a non-empty matrix");
+  }
+  if (raw.length !== zones.length) {
+    throw new Error(`rates must have ${zones.length} zone rows`);
+  }
+  const out: number[][] = [];
+  for (let zi = 0; zi < raw.length; zi++) {
+    const row = raw[zi];
+    if (!Array.isArray(row) || row.length !== weights.length) {
+      throw new Error(`Zone row ${zi + 1} must have ${weights.length} weight slabs`);
+    }
+    const parsedRow: number[] = [];
+    for (let wi = 0; wi < row.length; wi++) {
+      const n = Number(row[wi]);
+      if (!Number.isFinite(n) || n < 0) {
+        throw new Error(`Invalid rate at zone ${zones[zi] ?? zi}, slab ${weights[wi] ?? wi}: must be a number ≥ 0`);
+      }
+      parsedRow.push(n);
+    }
+    out.push(parsedRow);
+  }
+  return out;
+}
