@@ -96,7 +96,7 @@ export function mapApiToSupplierProduct(r: Record<string, unknown>): SupplierPro
 }
 
 export function useSupplierProducts() {
-  const { role, userId } = useAuth();
+  const { role } = useAuth();
   const [data, setData] = useState<SupplierProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -105,9 +105,9 @@ export function useSupplierProducts() {
     try {
       const rows = (await productService.listProducts()) as unknown as Record<string, unknown>[];
       let list = rows.map(mapApiToSupplierProduct);
-      if (role === "vendor" && userId) {
-        list = list.filter((p) => !p.vendor_id || p.vendor_id === userId || p.user_id === userId);
-      } else if (role === "dropshipper") {
+      // Vendor scoping is enforced server-side via Product.vendorId → Vendor._id.
+      // Do not re-filter by userId here — vendor_id is the Vendor document id, not the User id.
+      if (role === "dropshipper") {
         list = list.filter((p) => p.status === "active");
       }
       setData(list);
@@ -116,7 +116,7 @@ export function useSupplierProducts() {
     } finally {
       setIsLoading(false);
     }
-  }, [role, userId]);
+  }, [role]);
 
   useEffect(() => {
     void load();
