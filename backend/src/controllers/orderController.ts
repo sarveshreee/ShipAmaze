@@ -1152,8 +1152,10 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     o.awb = awb;
     o.courierName = autoCourier ? "Auto" : courierName;
     o.courier = autoCourier ? "Auto" : courierName;
-    if (!autoCourier) {
-      o.courierCompanyId = body.carrierId != null ? String(body.carrierId) : undefined;
+    if (autoCourier) {
+      o.courierCompanyId = undefined;
+    } else if (body.carrierId != null && String(body.carrierId).trim()) {
+      o.courierCompanyId = String(body.carrierId).trim();
     }
     o.pickupAddressId = new mongoose.Types.ObjectId(pickupAddressId);
     o.pickupWarehouseId = pickupAddressId;

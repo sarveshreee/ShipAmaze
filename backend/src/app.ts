@@ -33,6 +33,7 @@ import * as reportsController from "./controllers/reportsController.js";
 import * as invoiceController from "./controllers/invoiceController.js";
 import * as labelInvoiceSettingsController from "./controllers/labelInvoiceSettingsController.js";
 import * as courierPriorityController from "./controllers/courierPriorityController.js";
+import * as courierRateController from "./controllers/courierRateController.js";
 import {
   requireDropshipperWarehouseAccess,
   requireFullDropshipper,
@@ -371,6 +372,49 @@ export function createApp() {
     requireRoles("admin"),
     requireOwnerAdmin,
     courierPriorityController.evaluateCourierPriority
+  );
+
+  api.get(
+    "/admin/courier-rates",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    courierRateController.listCourierRateMasters
+  );
+  api.get(
+    "/admin/couriers/available",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    courierRateController.listAvailableCouriers
+  );
+  api.get(
+    "/admin/courier-rates/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    courierRateController.getCourierRateMaster
+  );
+  api.post(
+    "/admin/courier-rates",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    courierRateController.createCourierRateMaster
+  );
+  api.patch(
+    "/admin/courier-rates/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    courierRateController.updateCourierRateMaster
+  );
+  api.delete(
+    "/admin/courier-rates/:id",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    courierRateController.deleteCourierRateMaster
   );
 
   api.get("/pincodes", authMiddleware, resourceController.listPincodes);

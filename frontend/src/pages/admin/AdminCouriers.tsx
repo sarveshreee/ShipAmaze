@@ -17,6 +17,8 @@ import * as pickupService from "@/services/pickupService";
 import { ApiError } from "@/lib/apiClient";
 import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
 import type { PickupAddress } from "@/types/logistics";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminCourierRatesPanel } from "@/components/admin/AdminCourierRatesPanel";
 
 const RULE_TYPES: { value: CourierPriorityRuleType; label: string; placeholder: string }[] = [
   { value: "sku", label: "SKU wise", placeholder: "e.g. SKU-ABC-123" },
@@ -220,6 +222,17 @@ export default function AdminCouriers() {
     <div className="animate-fade-in-up space-y-6">
       <PageHeader title="Courier Management" breadcrumb={["Admin", "Couriers"]} />
 
+      <Tabs defaultValue="management" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="management">Management</TabsTrigger>
+          <TabsTrigger value="rates">Courier Rates</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="rates" className="mt-0">
+          <AdminCourierRatesPanel courierNames={courierList.map((c) => c.name)} />
+        </TabsContent>
+
+        <TabsContent value="management" className="mt-0 space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {courierList.map((c) => (
           <div key={c.name} className="rounded-lg bg-card shadow-card p-4 space-y-3">
@@ -513,6 +526,8 @@ export default function AdminCouriers() {
           </div>
         )}
       </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

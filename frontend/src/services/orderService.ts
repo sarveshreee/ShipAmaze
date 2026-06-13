@@ -187,6 +187,7 @@ export type ProcessSelectedPayload = {
   orderIds: string[];
   pickupAddressId: string;
   courierName: string;
+  carrierId?: string;
   shipmentMode: "forward" | "reverse";
   weight?: number;
   length?: number;

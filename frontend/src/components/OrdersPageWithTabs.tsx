@@ -564,7 +564,16 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         open={processModalOpen}
         onClose={() => !processSubmitting && setProcessModalOpen(false)}
         orderIds={Array.from(selected)}
-        couriers={couriers.map((c) => ({ id: c.id, name: c.name }))}
+        couriers={couriers
+          .filter((c) => c.active !== false)
+          .map((c) => ({ id: c.id, name: c.name, carrierId: c.carrierId || undefined }))}
+        referenceOrders={orders
+          .filter((o) => selected.has(o.id))
+          .map((o) => ({
+            pincode: o.shippingPincode || o.pincode,
+            payment: o.payment,
+            amount: o.amount,
+          }))}
         submitting={processSubmitting}
         onProcess={async (payload) => {
           setProcessSubmitting(true);

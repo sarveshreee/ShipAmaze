@@ -404,6 +404,7 @@ export const listCouriers = asyncHandler(async (_req: AuthRequest, res: Response
   const rows = await Courier.find().sort({ priority: 1 }).lean();
   res.json(
     rows.map((c) => ({
+      id: String(c._id),
       name: c.name,
       active: c.active,
       priority: c.priority,
@@ -416,6 +417,7 @@ export const listCouriers = asyncHandler(async (_req: AuthRequest, res: Response
       surfaceRate: c.surfaceRate,
       airRate: c.airRate,
       preferredPickupAddressId: c.preferredPickupAddressId ?? "",
+      carrierId: c.carrierId ?? "",
     }))
   );
 });
@@ -437,6 +439,7 @@ export const upsertCourier = asyncHandler(async (req: AuthRequest, res: Response
     "surfaceRate",
     "airRate",
     "preferredPickupAddressId",
+    "carrierId",
   ] as const;
   for (const key of allowed) {
     if (Object.prototype.hasOwnProperty.call(req.body, key)) {
@@ -446,6 +449,9 @@ export const upsertCourier = asyncHandler(async (req: AuthRequest, res: Response
   if (Object.prototype.hasOwnProperty.call(req.body, "preferredPickupAddressId")) {
     const raw = String(req.body.preferredPickupAddressId ?? "").trim();
     patch.preferredPickupAddressId = raw || "";
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "carrierId")) {
+    patch.carrierId = String(req.body.carrierId ?? "").trim();
   }
   const c = await Courier.findOneAndUpdate({ name }, { $set: patch }, {
     upsert: true,

@@ -563,6 +563,7 @@ export type CourierRow = {
   surfaceRate: number;
   airRate: number;
   preferredPickupAddressId: string;
+  carrierId: string;
 };
 
 export function useCouriers() {
@@ -582,6 +583,7 @@ export function useCouriers() {
       surfaceRate: Number(c.surfaceRate ?? 0),
       airRate: Number(c.airRate ?? 0),
       preferredPickupAddressId: String(c.preferredPickupAddressId ?? ""),
+      carrierId: String(c.carrierId ?? ""),
     }));
   }, []);
   return useApiQuery<CourierRow>("couriers", queryFn);

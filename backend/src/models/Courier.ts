@@ -14,6 +14,8 @@ export interface ICourier extends Document {
   airRate: number;
   /** Platform pickup address used for this courier's shipments (Pickup._id). */
   preferredPickupAddressId?: string;
+  /** Velocity carrier_id when mapped to a Velocity partner */
+  carrierId?: string;
 }
 
 const courierSchema = new Schema<ICourier>(
@@ -30,6 +32,7 @@ const courierSchema = new Schema<ICourier>(
     surfaceRate: { type: Number, default: 0 },
     airRate: { type: Number, default: 0 },
     preferredPickupAddressId: { type: String, default: "" },
+    carrierId: { type: String, default: "" },
   },
   { timestamps: true }
 );
