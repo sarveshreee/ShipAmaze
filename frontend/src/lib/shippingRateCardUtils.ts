@@ -1,5 +1,23 @@
 /** Shared zone rate-card helpers (admin + dropshipper). */
 
+/** Volumetric weight (kg) from cm dimensions — divisor 5000 (standard air/surface). */
+export function computeVolumetricWeightKg(lengthCm: number, widthCm: number, heightCm: number): number | null {
+  if (!(lengthCm > 0 && widthCm > 0 && heightCm > 0)) return null;
+  return (lengthCm * widthCm * heightCm) / 5000;
+}
+
+/** Billing weight is the higher of actual and volumetric. */
+export function computeApplicableWeightKg(actualKg: number, volumetricKg: number | null): number | null {
+  if (!(actualKg > 0)) return null;
+  const vol = volumetricKg != null && volumetricKg > 0 ? volumetricKg : 0;
+  return Math.max(actualKg, vol);
+}
+
+export function chargedWeightSlabLabel(weightLabels: string[], weightKg: number): string {
+  const idx = weightSlabIndex(weightLabels, weightKg);
+  return weightLabels[idx] ?? `${weightKg} kg`;
+}
+
 export function parseWeightKgFromLabel(label: string): number {
   const n = Number(String(label).replace(/[^\d.]/g, ""));
   return Number.isFinite(n) && n > 0 ? n : 0;
