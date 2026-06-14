@@ -347,6 +347,7 @@ export function createApp() {
 
   api.get("/couriers", authMiddleware, resourceController.listCouriers);
   api.post("/couriers", authMiddleware, resourceController.upsertCourier);
+  api.post("/couriers/seed-defaults", authMiddleware, requireRoles("admin"), resourceController.seedDefaultCouriersEndpoint);
 
   api.get(
     "/admin/courier-priority-rules",

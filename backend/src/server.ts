@@ -8,14 +8,34 @@ import { brevoApiKeyHint, isLikelyBrevoV3ApiKey } from "./services/email/emailAp
 import { devLog } from "./utils/devLog.js";
 import { ShopifyStoreConnection } from "./models/ShopifyStoreConnection.js";
 import { performShopifyOrderSyncForUser } from "./services/shopifySyncRunner.js";
+import { Courier } from "./models/Courier.js";
 
 validateEnv();
 
 const PORT = Number(process.env.PORT) || 5000;
 const MONGODB_URI = process.env.MONGODB_URI!.trim();
 
+const DEFAULT_COURIERS = [
+  { name: "Delhivery",   active: true, priority: 1, codSupport: true,  carrierId: "" },
+  { name: "DTDC",        active: true, priority: 2, codSupport: true,  carrierId: "" },
+  { name: "BlueDart",    active: true, priority: 3, codSupport: true,  carrierId: "" },
+  { name: "Amazon",      active: true, priority: 4, codSupport: false, carrierId: "" },
+  { name: "Ekart",       active: true, priority: 5, codSupport: true,  carrierId: "" },
+  { name: "Shadowfax",   active: true, priority: 6, codSupport: false, carrierId: "" },
+  { name: "Xpressbees",  active: true, priority: 7, codSupport: true,  carrierId: "" },
+];
+
+async function seedDefaultCouriers() {
+  const count = await Courier.countDocuments();
+  if (count === 0) {
+    await Courier.insertMany(DEFAULT_COURIERS);
+    devLog.info("[server] Seeded 7 default couriers (Delhivery, DTDC, BlueDart, Amazon, Ekart, Shadowfax, Xpressbees)");
+  }
+}
+
 async function main() {
   await connectDb(MONGODB_URI);
+  await seedDefaultCouriers();
   const app = createApp();
   const server = http.createServer(app);
 

@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Calculator, Loader2, MapPin, Package, Scale } from "lucide-react";
+import { Calculator, Loader2, MapPin, Package, Scale, Truck } from "lucide-react";
 import { toast } from "sonner";
 import type { PincodeService } from "@/types/logistics";
 import {
@@ -13,6 +14,7 @@ import {
   formatRateAmount,
   rateForZoneWeight,
 } from "@/lib/shippingRateCardUtils";
+import { getRates, type VelocityRate } from "@/services/velocityService";
 
 const ZONES = ["A", "B", "C", "D", "E"];
 const WEIGHT_SLABS = ["0.5 kg", "1 kg", "2 kg", "5 kg", "10 kg"];
@@ -61,6 +63,7 @@ export function AdminRateCalculatorPanel({ pincodeByPin, resolveRatesMatrix }: P
   const [shipmentValue, setShipmentValue] = useState("");
   const [calculating, setCalculating] = useState(false);
   const [result, setResult] = useState<AdminCalcResult | null>(null);
+  const [velocityQuotes, setVelocityQuotes] = useState<VelocityRate[] | null>(null);
 
   const pickupNorm = normalizePin(pickupPin);
   const deliveryNorm = normalizePin(deliveryPin);
@@ -124,31 +127,48 @@ export function AdminRateCalculatorPanel({ pincodeByPin, resolveRatesMatrix }: P
 
     const zoneRecord = pincodeByPin.get(delivery);
     const zone = zoneRecord?.zone?.trim();
-    if (!zone) {
-      toast.error("Delivery pincode not in serviceability list — add zone in Pincode Check first");
-      setResult(null);
-      return;
-    }
 
     setCalculating(true);
+    setResult(null);
+    setVelocityQuotes(null);
     try {
-      const matrix = await resolveRatesMatrix(calcPaymentType);
-      const rate = rateForZoneWeight(matrix, ZONES, zone, charged, WEIGHT_SLABS);
-      if (rate == null) {
-        toast.error(`No rate found for zone ${zone}`);
-        setResult(null);
-        return;
+      if (zone) {
+        const matrix = await resolveRatesMatrix(calcPaymentType);
+        const rate = rateForZoneWeight(matrix, ZONES, zone, charged, WEIGHT_SLABS);
+        if (rate == null) {
+          toast.error(`No rate in zone-card for zone ${zone} — falling back to live courier rates`);
+        } else {
+          setResult({
+            zone,
+            chargedWeight: charged,
+            chargedSlab: chargedWeightSlabLabel(WEIGHT_SLABS, charged),
+            paymentType: calcPaymentType,
+            shipmentType,
+            rate,
+            pickupPin: pickup,
+            deliveryPin: delivery,
+          });
+          return;
+        }
       }
-      setResult({
-        zone,
-        chargedWeight: charged,
-        chargedSlab: chargedWeightSlabLabel(WEIGHT_SLABS, charged),
-        paymentType: calcPaymentType,
-        shipmentType,
-        rate,
-        pickupPin: pickup,
-        deliveryPin: delivery,
+      // Velocity live-rate fallback
+      const resp = await getRates({
+        from: pickup,
+        to: delivery,
+        weight: charged,
+        length: Number(dimL) || undefined,
+        width: Number(dimW) || undefined,
+        height: Number(dimH) || undefined,
+        payment_mode: calcPaymentType === "COD" ? "cod" : "prepaid",
+        cod_value: calcPaymentType === "COD" ? Number(shipmentValue) || undefined : undefined,
+        shipment_type: shipmentType,
       });
+      const quotes = (resp.data ?? []).filter((q) => q.total_charge > 0);
+      if (!quotes.length) {
+        toast.info("No courier rates found for this route — pincode may not be serviceable");
+      } else {
+        setVelocityQuotes(quotes);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Calculation failed");
     } finally {
@@ -344,6 +364,40 @@ export function AdminRateCalculatorPanel({ pincodeByPin, resolveRatesMatrix }: P
               <p className="text-xs text-text-muted">Estimated Rate</p>
               <p className="text-lg font-bold text-primary">₹{formatRateAmount(result.rate)}</p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {velocityQuotes && velocityQuotes.length > 0 && (
+        <div className="rounded-xl border border-border overflow-hidden bg-card">
+          <div className="px-4 py-3 border-b border-border bg-surface-2/50 dark:bg-muted/30">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-text-primary">Live Courier Rates</h4>
+              <Badge variant="outline" className="text-[10px]">via Velocity</Badge>
+            </div>
+            <p className="text-xs text-text-muted mt-0.5">
+              {pickupNorm} → {deliveryNorm} · {shipmentType === "forward" ? "Forward" : "Return"} · {calcPaymentType}
+            </p>
+          </div>
+          <div className="divide-y divide-border max-h-[420px] overflow-y-auto">
+            {velocityQuotes.map((q, idx) => (
+              <div key={`${q.carrier_id}-${idx}`} className="p-4 flex items-center gap-4 hover:bg-surface-2/30 transition-colors">
+                <Truck className="h-5 w-5 text-primary shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-text-primary">{q.carrier_name}</p>
+                  <p className="text-xs text-text-muted">
+                    {q.zone ? `Zone ${q.zone}` : "—"}
+                    {q.tat ? ` · ${q.tat}` : ""}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-lg font-bold text-primary">₹{formatRateAmount(q.total_charge)}</p>
+                  {q.cod_charge ? (
+                    <p className="text-[10px] text-text-muted">incl. ₹{formatRateAmount(q.cod_charge)} COD</p>
+                  ) : null}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

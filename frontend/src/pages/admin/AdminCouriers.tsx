@@ -239,6 +239,32 @@ export default function AdminCouriers() {
         </TabsContent>
 
         <TabsContent value="management" className="mt-0 space-y-6">
+      {courierList.length === 0 && (
+        <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <div className="flex-1">
+            <p className="font-semibold text-amber-800 dark:text-amber-300">No couriers found</p>
+            <p className="text-sm text-amber-700 dark:text-amber-400 mt-0.5">
+              Click below to seed the 7 default couriers (Delhivery, DTDC, BlueDart, Amazon, Ekart, Shadowfax, Xpressbees).
+            </p>
+          </div>
+          <Button
+            size="sm"
+            className="shrink-0"
+            onClick={async () => {
+              try {
+                const res = await import("@/lib/apiClient").then(m => m.apiClient.post<{ added: number; total: number }>("/couriers/seed-defaults"));
+                toast.success(`Initialized ${res.total} couriers (${res.added} added)`);
+                await refetchCouriers();
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Failed to initialize couriers");
+              }
+            }}
+          >
+            <Truck className="h-4 w-4 mr-2" />
+            Initialize Default Couriers
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {courierList.map((c) => (
           <div key={c.name} className="rounded-lg bg-card shadow-card p-4 space-y-3">

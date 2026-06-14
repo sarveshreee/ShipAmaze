@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +6,24 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { MapPin, Phone, Calendar, Search, X, ArrowLeft, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { usePincodeValidation } from "@/hooks/usePincodeValidation";
+
+interface NominatimResult {
+  place_id: number;
+  display_name: string;
+  address: {
+    road?: string;
+    suburb?: string;
+    neighbourhood?: string;
+    village?: string;
+    town?: string;
+    city?: string;
+    city_district?: string;
+    county?: string;
+    state?: string;
+    postcode?: string;
+    country?: string;
+  };
+}
 interface AddressData {
   tag: string;
   label: string;
@@ -29,13 +47,37 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
   const [tag, setTag] = useState("Home");
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddressForm, setShowAddressForm] = useState(false);
-  const [showSearchButtons, setShowSearchButtons] = useState(false);
 
   const [address, setAddress] = useState({ addressLine1: "", landmark: "", pincode: "", city: "", state: "", country: "India" });
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { lookupPincode, pincodeData, pincodeError, pincodeLoading, resetPincode } = usePincodeValidation();
+
+  const [searchResults, setSearchResults] = useState<NominatimResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const searchNominatim = useCallback((query: string) => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (query.trim().length < 3) {
+      setSearchResults([]);
+      return;
+    }
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&countrycodes=IN&limit=5`;
+        const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+        const data: NominatimResult[] = await res.json();
+        setSearchResults(data);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 500);
+  }, []);
 
   useEffect(() => {
     if (pincodeData) {
@@ -51,7 +93,7 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
     setTag("Home");
     setSearchQuery("");
     setShowAddressForm(false);
-    setShowSearchButtons(false);
+    setSearchResults([]);
     setAddress({ addressLine1: "", landmark: "", pincode: "", city: "", state: "", country: "India" });
     setContactName("");
     setContactPhone("");
@@ -63,16 +105,29 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
 
   const handleSearchChange = (val: string) => {
     setSearchQuery(val);
-    setShowSearchButtons(val.length > 0);
+    searchNominatim(val);
   };
 
-  const handleSearchCancel = () => {
-    setSearchQuery("");
-    setShowSearchButtons(false);
-  };
+  const handleResultSelect = (result: NominatimResult) => {
+    const a = result.address;
+    const street = [a.road, a.suburb || a.neighbourhood].filter(Boolean).join(", ");
+    const addressLine1 = street || result.display_name.split(",")[0];
+    const city = a.city || a.town || a.city_district || a.county || "";
+    const state = a.state || "";
+    const pincode = a.postcode ? a.postcode.replace(/\D/g, "").slice(0, 6) : "";
 
-  const handleSearchOk = () => {
+    setAddress((p) => ({
+      ...p,
+      addressLine1,
+      city,
+      state,
+      pincode,
+      country: "India",
+    }));
+    setSearchQuery(result.display_name);
+    setSearchResults([]);
     setShowAddressForm(true);
+    if (pincode.length === 6) lookupPincode(pincode);
   };
 
   const validate = () => {
@@ -159,31 +214,56 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
               {!showAddressForm && (
                 <div className="rounded-lg border border-border p-4 bg-muted/20">
                   <p className="text-sm font-medium mb-1">Search for your pickup address location/building name/area/landmark</p>
-                  <p className="text-xs text-muted-foreground mb-3">Please add minimum 5 characters</p>
+                  <p className="text-xs text-muted-foreground mb-2">Type at least 3 characters to see suggestions</p>
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input value={searchQuery} onChange={e => handleSearchChange(e.target.value)}
-                      placeholder="Search Location" className="pl-10" />
-                    {searchQuery && (
-                      <button onClick={() => { setSearchQuery(""); setShowSearchButtons(false); }} className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      value={searchQuery}
+                      onChange={e => handleSearchChange(e.target.value)}
+                      placeholder="e.g. Connaught Place, New Delhi"
+                      className="pl-10 pr-10"
+                    />
+                    {searchLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
+                    {!searchLoading && searchQuery && (
+                      <button onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="absolute right-3 top-1/2 -translate-y-1/2">
                         <X className="h-4 w-4 text-muted-foreground" />
                       </button>
                     )}
                   </div>
-                  {showSearchButtons && (
-                    <div className="flex justify-end gap-2 mt-3">
-                      <Button variant="outline" size="sm" onClick={handleSearchCancel}>Cancel</Button>
-                      <Button size="sm" onClick={handleSearchOk}>OK</Button>
+                  {searchResults.length > 0 && (
+                    <ul className="mt-2 rounded-lg border border-border bg-card shadow-md divide-y divide-border max-h-60 overflow-y-auto">
+                      {searchResults.map((r) => (
+                        <li key={r.place_id}>
+                          <button
+                            type="button"
+                            className="w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors"
+                            onClick={() => handleResultSelect(r)}
+                          >
+                            <div className="flex items-start gap-2">
+                              <MapPin className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                              <p className="text-sm text-text-primary line-clamp-2">{r.display_name}</p>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {searchResults.length === 0 && searchQuery.length >= 3 && !searchLoading && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setShowAddressForm(true)} className="text-xs">
+                        Enter address manually instead
+                      </Button>
                     </div>
                   )}
+                  <p className="text-[10px] text-muted-foreground mt-2">© OpenStreetMap contributors</p>
                 </div>
               )}
 
               {/* Address Form (after search OK) */}
               {showAddressForm && (
                 <div className="space-y-4">
-                  <button onClick={() => setShowAddressForm(false)} className="flex items-center gap-1 text-sm text-foreground font-semibold">
-                    <ArrowLeft className="h-4 w-4" /> Please Type Your Address
+                  <button onClick={() => { setShowAddressForm(false); setSearchResults([]); }} className="flex items-center gap-1 text-sm text-foreground font-semibold">
+                    <ArrowLeft className="h-4 w-4" /> Search again
                   </button>
                   <div>
                     <Label>Complete address<span className="text-destructive">*</span></Label>

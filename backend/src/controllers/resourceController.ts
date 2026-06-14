@@ -437,6 +437,30 @@ export const deleteWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
   res.json({ ok: true, message: "Warehouse deactivated" });
 });
 
+const DEFAULT_COURIER_SEEDS = [
+  { name: "Delhivery",   active: true, priority: 1, codSupport: true,  carrierId: "" },
+  { name: "DTDC",        active: true, priority: 2, codSupport: true,  carrierId: "" },
+  { name: "BlueDart",    active: true, priority: 3, codSupport: true,  carrierId: "" },
+  { name: "Amazon",      active: true, priority: 4, codSupport: false, carrierId: "" },
+  { name: "Ekart",       active: true, priority: 5, codSupport: true,  carrierId: "" },
+  { name: "Shadowfax",   active: true, priority: 6, codSupport: false, carrierId: "" },
+  { name: "Xpressbees",  active: true, priority: 7, codSupport: true,  carrierId: "" },
+];
+
+export const seedDefaultCouriersEndpoint = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user || req.user.role !== "admin") throw new AppError(403, "Forbidden");
+  let added = 0;
+  for (const seed of DEFAULT_COURIER_SEEDS) {
+    const existing = await Courier.findOne({ name: seed.name });
+    if (!existing) {
+      await Courier.create(seed);
+      added++;
+    }
+  }
+  const all = await Courier.find().sort({ priority: 1 }).lean();
+  res.json({ added, total: all.length, couriers: all.map((c) => c.name) });
+});
+
 export const listCouriers = asyncHandler(async (_req: AuthRequest, res: Response) => {
   const rows = await Courier.find().sort({ priority: 1 }).lean();
   res.json(

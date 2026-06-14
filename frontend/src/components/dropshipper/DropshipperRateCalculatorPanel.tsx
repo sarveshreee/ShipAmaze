@@ -121,13 +121,7 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
     }
 
     const zoneRecord = pincodeByPin.get(delivery);
-    const zone = zoneRecord?.zone?.trim();
-    if (!zone) {
-      toast.error("Delivery pincode not in serviceability list — check Pincode Check tab");
-      setQuotes(null);
-      setSummary(null);
-      return;
-    }
+    const zone = zoneRecord?.zone?.trim() ?? "";
 
     setCalculating(true);
     setQuotes(null);
@@ -148,11 +142,11 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
       setSummary({
         pickupPin: pickup,
         deliveryPin: delivery,
-        zone,
+        zone: zone || "—",
         applicableWeight: charged,
         chargedSlab: chargedWeightSlabLabel(DEFAULT_WEIGHTS, charged),
       });
-      if (!results.length) toast.info("No courier rates found for these parameters");
+      if (!results.length) toast.info("No courier rates found for this route — pincode may not be serviceable");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Calculation failed");
     } finally {
