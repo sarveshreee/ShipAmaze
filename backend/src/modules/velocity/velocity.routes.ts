@@ -36,6 +36,13 @@ router.post(
   vc.createWarehouse
 );
 
+// Warehouse sync – auto-create in Velocity from local Pickup / vendor Warehouse doc
+router.post(
+  "/warehouses/sync",
+  requireRoles("admin", "vendor", "dropshipper"),
+  vc.syncWarehouse
+);
+
 // Forward shipment (full orchestration) – admin, vendor, dropshipper (full access)
 router.post("/forward/create", requireFullDropshipper, vc.createForwardShipment);
 

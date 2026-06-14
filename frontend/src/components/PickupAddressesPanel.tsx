@@ -124,6 +124,10 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
       toast.error("Fill warehouse name, contact person, line 1, city, state, and pincode");
       return;
     }
+    if (!form.email.trim()) {
+      toast.error("Email is required for Velocity warehouse registration");
+      return;
+    }
     const pinDigits = form.pincode.replace(/\D/g, "").slice(0, 6);
     if (!/^\d{6}$/.test(pinDigits)) {
       toast.error("Pincode must be exactly 6 digits");
@@ -143,7 +147,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
         contactName: form.contactName.trim(),
         phone: form.phone.trim(),
         alternatePhone: form.alternatePhone.trim() || undefined,
-        email: form.email.trim() || undefined,
+        email: form.email.trim(),
         addressLine1: form.addressLine1.trim(),
         addressLine2: form.addressLine2.trim(),
         landmark: form.landmark.trim() || undefined,
@@ -155,13 +159,26 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
         isDefault: form.isDefault,
         isActive: form.isActive,
       };
+
+      let resp: Awaited<ReturnType<typeof pickupService.createPickupAddress>> | undefined;
       if (editingId) {
-        await pickupService.updatePickupAddress(editingId, payload);
-        toast.success("Address updated");
+        resp = await pickupService.updatePickupAddress(editingId, payload);
       } else {
-        await pickupService.createPickupAddress(payload);
-        toast.success("Address saved");
+        resp = await pickupService.createPickupAddress(payload);
       }
+
+      const vSync = resp?.velocitySync;
+      if (vSync?.linked && vSync.warehouse_id) {
+        toast.success(`Address saved — Velocity warehouse linked: ${vSync.warehouse_id}`);
+      } else if (vSync?.skipped) {
+        toast.success(editingId ? "Address updated" : "Address saved");
+      } else if (vSync?.error) {
+        toast.success(editingId ? "Address updated" : "Address saved");
+        toast.warning(`Velocity sync failed: ${vSync.error}. Use the link card to retry.`);
+      } else {
+        toast.success(editingId ? "Address updated" : "Address saved");
+      }
+
       notifyPickupRefetch();
       await refetch();
       setDialogOpen(false);
@@ -378,8 +395,11 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
               <Input className="mt-1" value={form.alternatePhone} onChange={(e) => setForm((f) => ({ ...f, alternatePhone: e.target.value }))} />
             </div>
             <div className="sm:col-span-2">
-              <Label>Email (optional)</Label>
-              <Input className="mt-1" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+              <Label>
+                Email <span className="text-danger">*</span>
+                <span className="text-[10px] font-normal text-text-muted ml-1">(required for Velocity)</span>
+              </Label>
+              <Input className="mt-1" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="contact@example.com" />
             </div>
             <div className="sm:col-span-2">
               <Label>Address line 1</Label>

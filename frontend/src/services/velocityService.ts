@@ -204,6 +204,14 @@ export async function unlinkVelocityWarehouse(warehouseId: string) {
   return linkVelocityWarehouse({ linkOnly: true, warehouseId, unlink: true });
 }
 
+/** Auto-create warehouse in Velocity from local Pickup or vendor Warehouse doc. */
+export async function syncVelocityWarehouse(params: { pickupId?: string; warehouseId?: string }) {
+  return apiClient.post<{
+    success: boolean;
+    data: { linked: boolean; warehouse_id?: string; skipped?: boolean; reason?: string };
+  }>("/velocity/warehouses/sync", params);
+}
+
 export async function createForwardShipment(params: CreateForwardShipmentParams) {
   return apiClient.post<{
     success: boolean;

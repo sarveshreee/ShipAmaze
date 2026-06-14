@@ -49,14 +49,28 @@ export async function listPickupAddresses(scope?: "platform") {
   return unwrapList(raw);
 }
 
-export async function createPickupAddress(body: PickupAddressPayload) {
+export type PickupSaveResponse = {
+  success?: boolean;
+  data?: PickupAddress;
+  velocitySync?: {
+    linked?: boolean;
+    warehouse_id?: string;
+    skipped?: boolean;
+    reason?: string;
+    error?: string;
+  };
+};
+
+export async function createPickupAddress(body: PickupAddressPayload): Promise<PickupSaveResponse> {
   const raw = await apiClient.post<unknown>(BASE, body);
-  return unwrapOne(raw);
+  if (raw && typeof raw === "object" && "success" in raw) return raw as PickupSaveResponse;
+  return { data: unwrapOne(raw) };
 }
 
-export async function updatePickupAddress(id: string, body: Partial<PickupAddressPayload>) {
+export async function updatePickupAddress(id: string, body: Partial<PickupAddressPayload>): Promise<PickupSaveResponse> {
   const raw = await apiClient.put<unknown>(`${BASE}/${encodeURIComponent(id)}`, body);
-  return unwrapOne(raw);
+  if (raw && typeof raw === "object" && "success" in raw) return raw as PickupSaveResponse;
+  return { data: unwrapOne(raw) };
 }
 
 export async function deletePickupAddress(id: string) {

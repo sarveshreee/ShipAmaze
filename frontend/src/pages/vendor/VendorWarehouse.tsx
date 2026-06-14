@@ -197,6 +197,7 @@ export default function VendorWarehouse() {
                         mongoId={w.id}
                         velocityWarehouseId={w.velocityWarehouseId}
                         onUpdated={() => void refetchWarehouses()}
+                        kind="warehouse"
                         forbiddenHint="warehouse"
                       />
                     </TableCell>

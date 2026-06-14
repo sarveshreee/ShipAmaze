@@ -11,6 +11,9 @@ import {
   normalizeRatesResponse,
   sanitizeForVelocityLog,
   buildVelocityForwardOrchestrationPayload,
+  buildVelocityWarehouseProviderPayload,
+  parseWarehouseCreateResponse,
+  type VelocityPreparedWarehouseInput,
 } from "./velocity.payload.js";
 import type {
   VelocityServiceabilityRequest,
@@ -40,6 +43,14 @@ function unwrapVelocityPayload<T>(raw: unknown): T {
     if (r.payload && typeof r.payload === "object") return r.payload as T;
   }
   return raw as T;
+}
+
+// ─── Warehouse ───────────────────────────────────────────
+
+export async function createWarehouseInVelocity(input: VelocityPreparedWarehouseInput) {
+  const body = buildVelocityWarehouseProviderPayload(input);
+  const raw = await velocityPost<Record<string, unknown>>("/custom/api/v1/warehouse", body);
+  return parseWarehouseCreateResponse(raw);
 }
 
 // ─── Serviceability ──────────────────────────────────────

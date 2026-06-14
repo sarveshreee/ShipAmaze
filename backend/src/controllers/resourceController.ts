@@ -43,6 +43,10 @@ import mongoose, { type Types } from "mongoose";
 import { randomBytes } from "crypto";
 import { creditWallet } from "../services/walletLedger.js";
 import { getDropshipperWarehouseAccess } from "../middleware/dropshipperAccessMiddleware.js";
+import {
+  syncPickupToVelocity,
+  syncVendorWarehouseToVelocity,
+} from "../modules/velocity/velocity.warehouseSync.js";
 
 function transactionDisplayType(ledgerType: string | undefined, type: "Credit" | "Debit"): string {
   const lt = (ledgerType || "general").toLowerCase();
@@ -307,6 +311,9 @@ export const listWarehouses = asyncHandler(async (req: AuthRequest, res: Respons
 
 export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+
+  let w: Awaited<ReturnType<typeof Warehouse.create>>;
+
   if (req.user.role === "dropshipper") {
     await assertDropshipperWarehousePermission(req);
     const vendorIds = await accessibleVendorIdsForDropshipper(req.user._id);
@@ -317,39 +324,48 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     if (!vendorIds.some((id) => String(id) === rawVendorId)) {
       throw new AppError(403, "You can only create warehouses for your own or assigned vendors");
     }
-    const w = await Warehouse.create({
+    w = await Warehouse.create({
       ...req.body,
       vendorId: new mongoose.Types.ObjectId(rawVendorId),
       ownerUserId: req.user._id,
       assignedUserIds: [req.user._id],
       createdByRole: "dropshipper",
     });
-    res.status(201).json(w);
-    return;
-  }
-  if (req.user.role === "admin") {
+  } else if (req.user.role === "admin") {
     const rawVendorId = trimStr((req.body as { vendorId?: string }).vendorId);
     if (!rawVendorId || !mongoose.isValidObjectId(rawVendorId)) throw new AppError(400, "vendorId is required");
-    const w = await Warehouse.create({
+    w = await Warehouse.create({
       ...req.body,
       vendorId: new mongoose.Types.ObjectId(rawVendorId),
       createdByRole: "admin",
     });
-    res.status(201).json(w);
-    return;
+  } else {
+    const vendor = await Vendor.findOne({ userId: req.user._id });
+    if (!vendor) throw new AppError(400, "Vendor profile not found");
+    w = await Warehouse.create({ ...req.body, vendorId: vendor._id });
   }
-  const vendor = await Vendor.findOne({ userId: req.user._id });
-  if (!vendor) throw new AppError(400, "Vendor profile not found");
-  const w = await Warehouse.create({ ...req.body, vendorId: vendor._id });
-  res.status(201).json(w);
+
+  // Auto-sync to Velocity (non-fatal)
+  const velocitySync = await syncVendorWarehouseToVelocity(w._id, req.user._id).catch((e) => ({
+    linked: false as const,
+    error: e instanceof Error ? e.message : String(e),
+  }));
+  const wObj = w.toObject ? w.toObject() : w;
+  if (velocitySync.linked) {
+    (wObj as Record<string, unknown>).velocityWarehouseId = velocitySync.warehouse_id;
+  }
+  res.status(201).json({ ...wObj, _velocitySync: velocitySync });
 });
 
 export const updateWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+
+  let w: Awaited<ReturnType<typeof Warehouse.findOneAndUpdate>>;
+
   if (req.user.role === "dropshipper") {
     await assertDropshipperWarehousePermission(req);
     const vendorIds = await accessibleVendorIdsForDropshipper(req.user._id);
-    const w = await Warehouse.findOneAndUpdate(
+    w = await Warehouse.findOneAndUpdate(
       {
         _id: req.params.id,
         $or: [{ ownerUserId: req.user._id }, { assignedUserIds: req.user._id }, { vendorId: { $in: vendorIds } }],
@@ -357,25 +373,33 @@ export const updateWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
       req.body,
       { new: true }
     );
-    if (!w) throw new AppError(404, "Not found");
-    res.json(w);
-    return;
+  } else if (req.user.role === "admin") {
+    w = await Warehouse.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  } else {
+    const vendor = await Vendor.findOne({ userId: req.user._id });
+    if (!vendor) throw new AppError(403, "Forbidden");
+    w = await Warehouse.findOneAndUpdate(
+      { _id: req.params.id, vendorId: vendor._id },
+      req.body,
+      { new: true }
+    );
   }
-  if (req.user.role === "admin") {
-    const w = await Warehouse.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!w) throw new AppError(404, "Not found");
-    res.json(w);
-    return;
-  }
-  const vendor = await Vendor.findOne({ userId: req.user._id });
-  if (!vendor) throw new AppError(403, "Forbidden");
-  const w = await Warehouse.findOneAndUpdate(
-    { _id: req.params.id, vendorId: vendor._id },
-    req.body,
-    { new: true }
-  );
+
   if (!w) throw new AppError(404, "Not found");
-  res.json(w);
+
+  // Auto-sync only when not yet linked (idempotent, non-fatal)
+  let velocitySync: Awaited<ReturnType<typeof syncVendorWarehouseToVelocity>> | undefined;
+  if (!w.velocityWarehouseId?.trim()) {
+    velocitySync = await syncVendorWarehouseToVelocity(w._id, req.user._id).catch((e) => ({
+      linked: false as const,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+    if (velocitySync?.linked) {
+      (w as Record<string, unknown>).velocityWarehouseId = velocitySync.warehouse_id;
+    }
+  }
+
+  res.json({ ...(w.toObject ? w.toObject() : w), ...(velocitySync ? { _velocitySync: velocitySync } : {}) });
 });
 
 export const deleteWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -1023,7 +1047,19 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     isDefault: makeDefault,
     isActive,
   });
-  res.status(201).json({ success: true, data: mapPickupDoc(doc.toObject()) });
+
+  // Auto-sync to Velocity (non-fatal — do not roll back pickup save on failure)
+  const velocitySync = await syncPickupToVelocity(doc._id).catch((e) => ({
+    linked: false as const,
+    error: e instanceof Error ? e.message : String(e),
+  }));
+  // If linked, refresh velocityWarehouseId on the doc for the response
+  const mappedDoc = doc.toObject();
+  if (velocitySync.linked) {
+    mappedDoc.velocityWarehouseId = velocitySync.warehouse_id;
+  }
+
+  res.status(201).json({ success: true, data: mapPickupDoc(mappedDoc), velocitySync });
 });
 
 /**
@@ -1158,7 +1194,20 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   existing.addressFingerprint = fp;
 
   await existing.save();
-  res.json({ success: true, data: mapPickupDoc(existing.toObject()) });
+
+  // Auto-sync to Velocity only when not yet linked (idempotent, non-fatal)
+  let velocitySync: Awaited<ReturnType<typeof syncPickupToVelocity>> | { linked: false; error: string } | undefined;
+  if (!existing.velocityWarehouseId?.trim()) {
+    velocitySync = await syncPickupToVelocity(existing._id).catch((e) => ({
+      linked: false as const,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+    if (velocitySync?.linked) {
+      existing.velocityWarehouseId = velocitySync.warehouse_id;
+    }
+  }
+
+  res.json({ success: true, data: mapPickupDoc(existing.toObject()), ...(velocitySync ? { velocitySync } : {}) });
 });
 
 export const deletePickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {

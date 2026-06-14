@@ -16,6 +16,10 @@ import { Pickup } from "../../models/Pickup.js";
 import * as velocityService from "./velocity.service.js";
 import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.mapper.js";
 import { normalizePincode, sanitizeForVelocityLog } from "./velocity.payload.js";
+import {
+  syncPickupToVelocity,
+  syncVendorWarehouseToVelocity,
+} from "./velocity.warehouseSync.js";
 import { devLog } from "../../utils/devLog.js";
 import type {
   VelocityCustomer,
@@ -33,6 +37,11 @@ import {
   loadDropshipperShippingOverride,
   type VelocityRateRow,
 } from "../../services/dropshipperShippingRates.js";
+import {
+  mergeVelocityWarehouse,
+  resolvePayloadWarehouseId,
+  type MergedForwardContext,
+} from "./velocity.warehouseMerge.js";
 
 async function applyCourierPriorityRules(
   merged: Record<string, unknown>,
@@ -319,30 +328,6 @@ type VelocityWarehouseRegisterBody = {
   unlink?: boolean | string;
 };
 
-type PickupSnapshot = {
-  id: string;
-  label: string;
-  warehouseName?: string;
-  contactName?: string;
-  phone?: string;
-  alternatePhone?: string;
-  email?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  pincode?: string;
-  country?: string;
-  gstin?: string;
-  velocityWarehouseId?: string;
-};
-
-type MergedForwardContext = Record<string, unknown> & {
-  warehouse_id?: string;
-  pickupAddressId?: string;
-  pickupWarehouseId?: string;
-  pickupAddress?: PickupSnapshot;
-};
-
 /**
  * Development-only: compare raw pickup row vs list filter ownership.
  */
@@ -373,7 +358,7 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
   if (!(body.linkOnly === true || body.linkOnly === "true")) {
     throw new AppError(
       400,
-      'Warehouse creation via API is disabled — create warehouses in the Velocity dashboard. Then link: POST /api/velocity/warehouses with { "linkOnly": true, "warehouseId": "<MongoDB _id>", "velocityWarehouseId": "<Velocity code e.g. WHZBRR>" }'
+      'Use POST /api/velocity/warehouses/sync to auto-create in Velocity, or pass { "linkOnly": true, "warehouseId": "<MongoDB _id>", "velocityWarehouseId": "<WH…>" } to manually link a pre-existing Velocity warehouse.'
     );
   }
 
@@ -476,6 +461,33 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     message: "Velocity warehouse linked successfully",
     data: { warehouse_id: vid, linked: true, manual: true, kind: "warehouse" },
   });
+});
+
+// ─── Warehouse sync (auto-create in Velocity) ────────────
+
+export const syncWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+
+  const body = req.body as Record<string, unknown>;
+  const rawPickupId = body.pickupId != null ? String(body.pickupId).trim() : "";
+  const rawWarehouseId = body.warehouseId != null ? String(body.warehouseId).trim() : "";
+
+  if (!rawPickupId && !rawWarehouseId) {
+    throw new AppError(400, "Provide either pickupId or warehouseId");
+  }
+
+  if (rawPickupId) {
+    if (!mongoose.isValidObjectId(rawPickupId)) throw new AppError(400, "Invalid pickupId");
+    const result = await syncPickupToVelocity(rawPickupId);
+    if ("error" in result) throw new AppError(422, result.error);
+    res.json({ success: true, data: result });
+    return;
+  }
+
+  if (!mongoose.isValidObjectId(rawWarehouseId)) throw new AppError(400, "Invalid warehouseId");
+  const result = await syncVendorWarehouseToVelocity(rawWarehouseId, req.user._id);
+  if ("error" in result) throw new AppError(422, result.error);
+  res.json({ success: true, data: result });
 });
 
 // ─── Forward shipment – full orchestration ───────────────
@@ -1452,9 +1464,7 @@ function buildForwardPayload(
   }
 
   return {
-    warehouse_id:
-      (body.warehouse_id as string) ??
-      (localOrder?.velocityWarehouseId ?? ""),
+    warehouse_id: resolvePayloadWarehouseId(body, localOrder),
     order_id: (body.order_id as string) ?? (localOrder?.orderId ?? ""),
     payment_mode: ((body.payment_mode as string) ??
       (localOrder?.payment?.toLowerCase() === "cod" ? "cod" : "prepaid")) as "cod" | "prepaid",
@@ -1515,9 +1525,7 @@ function buildReversePayload(
   const products = localOrder?.products as Array<Record<string, unknown>> | undefined;
 
   return {
-    warehouse_id:
-      (body.warehouse_id as string) ??
-      (localOrder?.velocityWarehouseId ?? ""),
+    warehouse_id: resolvePayloadWarehouseId(body, localOrder),
     order_id: (body.order_id as string) ?? (localOrder?.orderId ?? ""),
     pickup_customer: (body.pickup_customer as VelocityReverseOrderRequest["pickup_customer"]) ?? {
       name: localOrder?.customer ?? "",
@@ -1539,145 +1547,6 @@ function buildReversePayload(
         price: Number(p.price ?? 0),
       })) ?? [{ name: "Product", qty: 1, price: localOrder?.amount ?? 0 }],
     qc: body.qc as boolean | undefined,
-  };
-}
-
-async function mergeVelocityWarehouse(
-  req: AuthRequest,
-  body: Record<string, unknown>,
-  localOrder: IOrder | null
-): Promise<MergedForwardContext> {
-  if (!req.user) throw new AppError(401, "Unauthorized");
-
-  const out: MergedForwardContext = { ...body };
-
-  const explicit =
-    out.warehouse_id != null && String(out.warehouse_id).trim() !== ""
-      ? String(out.warehouse_id).trim()
-      : "";
-  const fromOrder = localOrder?.velocityWarehouseId?.trim() ?? "";
-
-  if (explicit) {
-    await assertVelocityWarehouseCodeOwned(req.user, explicit);
-    out.warehouse_id = explicit;
-    return out;
-  }
-
-  if (fromOrder) {
-    out.warehouse_id = fromOrder;
-    return out;
-  }
-
-  const mongoWhId = out.warehouseId ?? out.pickupWarehouseId;
-  if (mongoWhId != null && String(mongoWhId).trim() !== "") {
-    const id = String(mongoWhId).trim();
-    if (!mongoose.isValidObjectId(id)) {
-      throw new AppError(400, "Invalid warehouseId");
-    }
-    const oid = new mongoose.Types.ObjectId(id);
-
-    /** Admin Create Shipment passes platform pickup Mongo ids — resolve Pickup before Warehouse. */
-    if (req.user!.role === "admin") {
-      const pu =
-        (await Pickup.findOne({ $and: [{ _id: oid }, { ...PICKUP_NOT_DELETED }] }).lean()) ??
-        (await Pickup.findOne(pickupByIdManageQuery(oid, req.user!)).lean());
-      if (pu) {
-        if (!pu.velocityWarehouseId?.trim()) {
-          throw new AppError(400, "No Velocity warehouse linked. Please link warehouse first.");
-        }
-        out.warehouse_id = pu.velocityWarehouseId.trim();
-        const pid = String(pu._id);
-        out.pickupAddressId = pid;
-        out.pickupWarehouseId = pid;
-        out.pickupAddress = toPickupSnapshot(pu);
-        return out;
-      }
-      throw new AppError(404, "Pickup address not found");
-    }
-
-    const puOwned = await Pickup.findOne(pickupByIdManageQuery(oid, req.user!)).lean();
-
-    if (req.user!.role === "dropshipper") {
-      if (puOwned) {
-        if (!puOwned.velocityWarehouseId?.trim()) {
-          throw new AppError(400, "No Velocity warehouse linked. Please link warehouse first.");
-        }
-        out.warehouse_id = puOwned.velocityWarehouseId.trim();
-        const pid = String(puOwned._id);
-        out.pickupAddressId = pid;
-        out.pickupWarehouseId = pid;
-        out.pickupAddress = toPickupSnapshot(puOwned);
-        return out;
-      }
-      const wh = await Warehouse.findById(oid).lean();
-      if (wh) {
-        throw new AppError(
-          403,
-          "Select your linked pickup address for shipments. A vendor warehouse ID cannot be used as a dropshipper."
-        );
-      }
-      throw new AppError(404, "Local warehouse not found");
-    }
-
-    const wh = await Warehouse.findById(oid).lean();
-    if (wh) {
-      await assertWarehouseAccessForVelocity(req.user!, wh);
-      if (!wh.velocityWarehouseId?.trim()) {
-        throw new AppError(400, "No Velocity warehouse linked. Please link warehouse first.");
-      }
-      out.warehouse_id = wh.velocityWarehouseId.trim();
-      return out;
-    }
-    if (puOwned) {
-      if (!puOwned.velocityWarehouseId?.trim()) {
-        throw new AppError(400, "No Velocity warehouse linked. Please link warehouse first.");
-      }
-      out.warehouse_id = puOwned.velocityWarehouseId.trim();
-      const pid = String(puOwned._id);
-      out.pickupAddressId = pid;
-      out.pickupWarehouseId = pid;
-      out.pickupAddress = toPickupSnapshot(puOwned);
-      return out;
-    }
-    throw new AppError(404, "Local warehouse not found");
-  }
-
-  if (localOrder?.pickupAddressId) {
-    const p = await Pickup.findOne(pickupByIdManageQuery(localOrder.pickupAddressId, req.user!)).lean();
-    if (p?.velocityWarehouseId?.trim()) {
-      out.warehouse_id = p.velocityWarehouseId.trim();
-      const pid = String(p._id);
-      out.pickupAddressId = pid;
-      out.pickupWarehouseId = pid;
-      out.pickupAddress = toPickupSnapshot(p);
-      return out;
-    }
-  }
-
-  return out;
-}
-
-function toPickupSnapshot(pickup: Record<string, unknown>): PickupSnapshot {
-  const label = String(pickup.label ?? "Pickup Address");
-  const address = [pickup.addressLine1, pickup.addressLine2, pickup.landmark]
-    .map((x) => String(x ?? "").trim())
-    .filter(Boolean)
-    .join(", ");
-  return {
-    id: String(pickup._id ?? ""),
-    label,
-    warehouseName: label,
-    contactName: String(pickup.contactName ?? ""),
-    phone: String(pickup.phone ?? ""),
-    alternatePhone: String(pickup.alternatePhone ?? ""),
-    email: String(pickup.email ?? ""),
-    address,
-    city: String(pickup.city ?? ""),
-    state: String(pickup.state ?? ""),
-    pincode: String(pickup.pincode ?? ""),
-    country: String(pickup.country ?? "India"),
-    gstin: String(pickup.gstin ?? ""),
-    velocityWarehouseId: String(pickup.velocityWarehouseId ?? ""),
   };
 }
 
@@ -1713,37 +1582,6 @@ async function assertWarehouseAccessForVelocity(
     }
     return;
   }
-  throw new AppError(403, "Forbidden");
-}
-
-/** Ensures a Velocity warehouse code is linked to this user (vendor Warehouse or dropshipper Pickup). */
-async function assertVelocityWarehouseCodeOwned(
-  user: NonNullable<AuthRequest["user"]>,
-  code: string
-) {
-  const c = code.trim();
-  if (user.role === "admin") return;
-
-  if (user.role === "vendor") {
-    const vendor = await Vendor.findOne({ userId: user._id }).select("_id").lean();
-    if (!vendor) throw new AppError(403, "Forbidden");
-    const w = await Warehouse.findOne({ vendorId: vendor._id, velocityWarehouseId: c }).lean();
-    if (!w) throw new AppError(403, "Forbidden");
-    return;
-  }
-
-  if (user.role === "dropshipper") {
-    const p = await Pickup.findOne({
-      $and: [
-        { velocityWarehouseId: c },
-        { $or: [{ userId: user._id }, { dropshipperId: user._id }] },
-        { ...PICKUP_NOT_DELETED },
-      ],
-    }).lean();
-    if (!p) throw new AppError(403, "Forbidden");
-    return;
-  }
-
   throw new AppError(403, "Forbidden");
 }
 
