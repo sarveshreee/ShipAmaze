@@ -374,6 +374,7 @@ export function createApp() {
     courierPriorityController.evaluateCourierPriority
   );
 
+  api.get("/courier-rate-masters", authMiddleware, courierRateController.listPublicCourierRateMasters);
   api.get(
     "/admin/courier-rates",
     authMiddleware,

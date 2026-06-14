@@ -93,6 +93,15 @@ export const listCourierRateMasters = asyncHandler(async (req: AuthRequest, res:
   res.json({ items: rows.map(mapRateMaster) });
 });
 
+/** Read-only active courier rate masters for authenticated dropshippers/vendors. */
+export const listPublicCourierRateMasters = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const rows = await CourierRateMaster.find({ active: { $ne: false } })
+    .sort({ priority: 1, courierName: 1 })
+    .lean();
+  res.json({ items: rows.map(mapRateMaster) });
+});
+
 /** Active couriers from DB + rate masters for admin UI dropdowns */
 export const listAvailableCouriers = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user || req.user.role !== "admin") throw new AppError(403, "Forbidden");

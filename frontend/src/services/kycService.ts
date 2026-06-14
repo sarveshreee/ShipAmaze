@@ -9,7 +9,6 @@ export interface KycProfileResponse {
   account_type: "individual" | "company";
   business_name?: string;
   full_name?: string;
-  dob?: string;
   gst_number?: string;
   pan_number?: string;
   aadhaar_number?: string;

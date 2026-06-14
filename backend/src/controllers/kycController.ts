@@ -21,6 +21,10 @@ const TERMS_VERSION = "2026-06-01";
 const docSchema = z.object({
   pan: z.string().optional(),
   aadhaar: z.string().optional(),
+  aadhaarFront: z.string().optional(),
+  aadhaarBack: z.string().optional(),
+  aadhaar_front: z.string().optional(),
+  aadhaar_back: z.string().optional(),
   gst: z.string().optional(),
   cin: z.string().optional(),
 });
@@ -58,9 +62,12 @@ function mapKycResponse(k: IKycProfile | null | undefined) {
     };
   }
   const legacyDocs = (k.data?.uploaded_docs as Record<string, string>) ?? {};
+  const legacyAadhaar = k.documents?.aadhaar ?? legacyDocs.aadhaar;
   const docs = {
     pan: k.documents?.pan ?? legacyDocs.pan,
-    aadhaar: k.documents?.aadhaar ?? legacyDocs.aadhaar,
+    aadhaar: legacyAadhaar,
+    aadhaarFront: k.documents?.aadhaarFront ?? legacyDocs.aadhaarFront ?? legacyDocs.aadhaar_front ?? legacyAadhaar,
+    aadhaarBack: k.documents?.aadhaarBack ?? legacyDocs.aadhaarBack ?? legacyDocs.aadhaar_back,
     gst: k.documents?.gst ?? legacyDocs.gst,
     cin: k.documents?.cin ?? legacyDocs.cin,
   };
@@ -100,6 +107,8 @@ function parseDraft(body: z.infer<typeof kycDraftSchema>) {
     documents: {
       pan: docs.pan,
       aadhaar: docs.aadhaar,
+      aadhaarFront: docs.aadhaarFront ?? docs.aadhaar_front,
+      aadhaarBack: docs.aadhaarBack ?? docs.aadhaar_back,
       gst: docs.gst,
       cin: docs.cin,
     },
@@ -171,7 +180,9 @@ export const submitMyKyc = asyncHandler(async (req: AuthRequest, res: Response) 
     if (!parsed.panNumber || !/^[A-Z]{5}\d{4}[A-Z]$/.test(parsed.panNumber)) errs.push("Valid PAN");
     if (!parsed.aadhaarNumber || parsed.aadhaarNumber.length !== 12) errs.push("Valid Aadhaar");
     if (!parsed.documents.pan) errs.push("PAN document");
-    if (!parsed.documents.aadhaar) errs.push("Aadhaar document");
+    const aadhaarFront = parsed.documents.aadhaarFront || parsed.documents.aadhaar;
+    if (!aadhaarFront) errs.push("Aadhaar front document");
+    if (!parsed.documents.aadhaarBack) errs.push("Aadhaar back document");
   } else {
     if (!parsed.businessName) errs.push("Business name");
     if (!parsed.panNumber) errs.push("PAN");

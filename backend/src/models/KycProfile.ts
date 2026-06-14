@@ -6,7 +6,10 @@ export type KycAccountType = "individual" | "company";
 
 export interface IKycDocuments {
   pan?: string;
+  /** @deprecated legacy single-sided upload */
   aadhaar?: string;
+  aadhaarFront?: string;
+  aadhaarBack?: string;
   gst?: string;
   cin?: string;
 }
@@ -39,6 +42,8 @@ const documentsSchema = new Schema<IKycDocuments>(
   {
     pan: String,
     aadhaar: String,
+    aadhaarFront: String,
+    aadhaarBack: String,
     gst: String,
     cin: String,
   },

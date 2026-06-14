@@ -171,11 +171,11 @@ export const getShippingRateCard = asyncHandler(async (req: AuthRequest, res: Re
     zones: payload.zones ?? DEFAULT_ZONES,
     weights: payload.weights ?? DEFAULT_WEIGHTS,
     rates: payload.rates ?? baseRates,
+    courierZoneRows,
     readOnly: req.user.role !== "admin",
     updatedAt: card?.updatedAt ?? null,
   };
   if (req.user.role === "admin") {
-    response.courierZoneRows = courierZoneRows;
     response.enterpriseRows = enterpriseRows;
   }
   res.json(response);

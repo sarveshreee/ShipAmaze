@@ -212,13 +212,22 @@ export default function AdminKyc() {
               )}
               <div className="space-y-2">
                 <p className="font-medium">Documents</p>
-                {(["pan", "aadhaar", "gst", "cin"] as const).map((key) => {
+                {(
+                  [
+                    { key: "pan", label: "PAN" },
+                    { key: "aadhaarFront", label: "Aadhaar front" },
+                    { key: "aadhaarBack", label: "Aadhaar back" },
+                    { key: "aadhaar", label: "Aadhaar (legacy)" },
+                    { key: "gst", label: "GST" },
+                    { key: "cin", label: "CIN" },
+                  ] as const
+                ).map(({ key, label }) => {
                   const url = detail.uploaded_docs?.[key] ?? detail.documents?.[key];
                   if (!url) return null;
                   const isData = url.startsWith("data:") || url.length > 200;
                   return (
                     <div key={key} className="flex items-center justify-between gap-2 rounded border border-border p-2">
-                      <span className="capitalize">{key}</span>
+                      <span>{label}</span>
                       {isData ? (
                         <a href={url} target="_blank" rel="noreferrer" className="text-primary text-xs">View document</a>
                       ) : (

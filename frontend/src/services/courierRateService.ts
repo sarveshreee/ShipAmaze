@@ -34,6 +34,10 @@ export const DEFAULT_WEIGHT_SLABS: CourierWeightSlab[] = [
   { weightKg: 10, weightLabel: "10 kg", prepaidRate: 0, codRate: 0 },
 ];
 
+export function listPublicCourierRateMasters() {
+  return apiClient.get<{ items: CourierRateMaster[] }>("/courier-rate-masters");
+}
+
 export function listCourierRateMasters() {
   return apiClient.get<{ items: CourierRateMaster[] }>("/admin/courier-rates");
 }
