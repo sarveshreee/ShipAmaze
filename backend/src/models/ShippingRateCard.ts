@@ -1,14 +1,54 @@
 import mongoose, { Schema, type Document, type Model, type Types } from "mongoose";
 
+export interface ICourierZoneRow {
+  courier: string;
+  zone: string;
+  rates: number[];
+  codCharge: number;
+  active: boolean;
+}
+
+export interface IEnterpriseRateRow {
+  courier: string;
+  type: "FWD" | "RTO" | "REV";
+  slab: "Base" | "Additional";
+  zoneRates: number[];
+  active: boolean;
+}
+
 export interface IShippingRateCard extends Document {
   paymentType: "COD" | "Prepaid";
   zones: string[];
   weights: string[];
   rates: number[][];
+  courierZoneRows?: ICourierZoneRow[];
+  enterpriseRows?: IEnterpriseRateRow[];
   updatedBy?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
+
+const courierZoneRowSchema = new Schema<ICourierZoneRow>(
+  {
+    courier: { type: String, required: true },
+    zone: { type: String, required: true },
+    rates: { type: [Number], default: [] },
+    codCharge: { type: Number, default: 0, min: 0 },
+    active: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
+const enterpriseRowSchema = new Schema<IEnterpriseRateRow>(
+  {
+    courier: { type: String, required: true },
+    type: { type: String, enum: ["FWD", "RTO", "REV"], required: true },
+    slab: { type: String, enum: ["Base", "Additional"], required: true },
+    zoneRates: { type: [Number], default: [] },
+    active: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
 
 const schema = new Schema<IShippingRateCard>(
   {
@@ -16,6 +56,8 @@ const schema = new Schema<IShippingRateCard>(
     zones: { type: [String], default: ["A", "B", "C", "D", "E"] },
     weights: { type: [String], default: ["0.5 kg", "1 kg", "2 kg", "5 kg", "10 kg"] },
     rates: { type: [[Number]], default: [] },
+    courierZoneRows: { type: [courierZoneRowSchema], default: [] },
+    enterpriseRows: { type: [enterpriseRowSchema], default: [] },
     updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true }

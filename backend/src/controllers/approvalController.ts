@@ -11,6 +11,14 @@ import {
   defaultRateMatrix,
   parseAndValidateRateMatrix,
 } from "../models/ShippingRateCard.js";
+import {
+  buildDefaultCourierZoneRows,
+  buildDefaultEnterpriseRows,
+  deriveLegacyRatesFromCourierRows,
+  migrateLegacyRatesToCourierRows,
+  parseCourierZoneRows,
+  parseEnterpriseRows,
+} from "../lib/courierPricing.js";
 import { Courier } from "../models/Courier.js";
 import { Product } from "../models/Product.js";
 import { User } from "../models/User.js";
@@ -143,20 +151,34 @@ export const getShippingRateCard = asyncHandler(async (req: AuthRequest, res: Re
     | "COD"
     | "Prepaid";
   const card = await ShippingRateCard.findOne({ paymentType }).lean();
+  const baseRates = card?.rates?.length ? card.rates : defaultRateMatrix();
+  let courierZoneRows = card?.courierZoneRows?.length
+    ? card.courierZoneRows
+    : migrateLegacyRatesToCourierRows(baseRates, DEFAULT_ZONES);
+  let enterpriseRows = card?.enterpriseRows?.length
+    ? card.enterpriseRows
+    : buildDefaultEnterpriseRows(courierZoneRows, undefined, DEFAULT_ZONES);
   const payload = card ?? {
     paymentType,
     zones: DEFAULT_ZONES,
     weights: DEFAULT_WEIGHTS,
-    rates: defaultRateMatrix(),
+    rates: baseRates,
+    courierZoneRows,
+    enterpriseRows,
   };
-  res.json({
+  const response: Record<string, unknown> = {
     paymentType: payload.paymentType,
-    zones: payload.zones,
-    weights: payload.weights,
-    rates: payload.rates,
+    zones: payload.zones ?? DEFAULT_ZONES,
+    weights: payload.weights ?? DEFAULT_WEIGHTS,
+    rates: payload.rates ?? baseRates,
     readOnly: req.user.role !== "admin",
     updatedAt: card?.updatedAt ?? null,
-  });
+  };
+  if (req.user.role === "admin") {
+    response.courierZoneRows = courierZoneRows;
+    response.enterpriseRows = enterpriseRows;
+  }
+  res.json(response);
 });
 
 /** Admin: save rate card immediately (no approval). */
@@ -169,12 +191,34 @@ export const adminSaveShippingRateCard = asyncHandler(async (req: AuthRequest, r
   const weights = Array.isArray(req.body.weights) && req.body.weights.length
     ? req.body.weights.map((w: unknown) => String(w).trim()).filter(Boolean)
     : DEFAULT_WEIGHTS;
-  let rates: number[][];
+
+  let courierZoneRows = buildDefaultCourierZoneRows(undefined, zones);
+  let enterpriseRows = buildDefaultEnterpriseRows(courierZoneRows, undefined, zones);
   try {
-    rates = parseAndValidateRateMatrix(req.body.rates, zones, weights);
+    if (Array.isArray(req.body.courierZoneRows) && req.body.courierZoneRows.length) {
+      courierZoneRows = parseCourierZoneRows(req.body.courierZoneRows, zones);
+      enterpriseRows =
+        Array.isArray(req.body.enterpriseRows) && req.body.enterpriseRows.length
+          ? parseEnterpriseRows(req.body.enterpriseRows, zones)
+          : buildDefaultEnterpriseRows(courierZoneRows, undefined, zones);
+    } else if (Array.isArray(req.body.enterpriseRows) && req.body.enterpriseRows.length) {
+      enterpriseRows = parseEnterpriseRows(req.body.enterpriseRows, zones);
+    }
   } catch (err: unknown) {
-    throw new AppError(400, err instanceof Error ? err.message : "Invalid rate matrix");
+    throw new AppError(400, err instanceof Error ? err.message : "Invalid courier pricing");
   }
+
+  let rates: number[][];
+  if (Array.isArray(req.body.rates) && req.body.rates.length) {
+    try {
+      rates = parseAndValidateRateMatrix(req.body.rates, zones, weights);
+    } catch (err: unknown) {
+      throw new AppError(400, err instanceof Error ? err.message : "Invalid rate matrix");
+    }
+  } else {
+    rates = deriveLegacyRatesFromCourierRows(courierZoneRows, zones, weights.length);
+  }
+
   const card = await ShippingRateCard.findOneAndUpdate(
     { paymentType },
     {
@@ -182,6 +226,8 @@ export const adminSaveShippingRateCard = asyncHandler(async (req: AuthRequest, r
       zones,
       weights,
       rates,
+      courierZoneRows,
+      enterpriseRows,
       updatedBy: req.user!._id,
     },
     { upsert: true, new: true }
@@ -191,6 +237,8 @@ export const adminSaveShippingRateCard = asyncHandler(async (req: AuthRequest, r
     zones: card.zones,
     weights: card.weights,
     rates: card.rates,
+    courierZoneRows: card.courierZoneRows,
+    enterpriseRows: card.enterpriseRows,
     updatedAt: card.updatedAt,
   });
 });

@@ -46,6 +46,24 @@ export type RateCardData = {
   rates: number[][];
   readOnly?: boolean;
   updatedAt?: string | null;
+  courierZoneRows?: CourierZoneRowPayload[];
+  enterpriseRows?: EnterpriseRateRowPayload[];
+};
+
+export type CourierZoneRowPayload = {
+  courier: string;
+  zone: string;
+  rates: number[];
+  codCharge: number;
+  active: boolean;
+};
+
+export type EnterpriseRateRowPayload = {
+  courier: string;
+  type: "FWD" | "RTO" | "REV";
+  slab: "Base" | "Additional";
+  zoneRates: number[];
+  active: boolean;
 };
 
 export async function getShippingRateCard(paymentType: "COD" | "Prepaid" = "Prepaid") {
