@@ -351,9 +351,9 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     linked: false as const,
     error: e instanceof Error ? e.message : String(e),
   }));
-  const wObj = w.toObject();
+  const wObj = w.toObject() as unknown as Record<string, unknown>;
   if (velocitySync.linked) {
-    (wObj as Record<string, unknown>).velocityWarehouseId = velocitySync.warehouse_id;
+    wObj.velocityWarehouseId = velocitySync.warehouse_id;
   }
   res.status(201).json({ ...wObj, _velocitySync: velocitySync });
 });
