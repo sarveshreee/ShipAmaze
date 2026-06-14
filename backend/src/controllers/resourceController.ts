@@ -23,7 +23,8 @@ import {
   pickupAddressFingerprint,
   assertIndianPhonesDistinct,
 } from "../utils/pickupValidation.js";
-import { Warehouse } from "../models/Warehouse.js";
+import { Warehouse, type IWarehouse } from "../models/Warehouse.js";
+import type { HydratedDocument } from "mongoose";
 import { Courier } from "../models/Courier.js";
 import { PincodeServiceability } from "../models/PincodeServiceability.js";
 import { Wallet } from "../models/Wallet.js";
@@ -312,7 +313,7 @@ export const listWarehouses = asyncHandler(async (req: AuthRequest, res: Respons
 export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
-  let w: Awaited<ReturnType<typeof Warehouse.create>>;
+  let w: HydratedDocument<IWarehouse>;
 
   if (req.user.role === "dropshipper") {
     await assertDropshipperWarehousePermission(req);
@@ -324,25 +325,25 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     if (!vendorIds.some((id) => String(id) === rawVendorId)) {
       throw new AppError(403, "You can only create warehouses for your own or assigned vendors");
     }
-    w = await Warehouse.create({
+    w = (await Warehouse.create({
       ...req.body,
       vendorId: new mongoose.Types.ObjectId(rawVendorId),
       ownerUserId: req.user._id,
       assignedUserIds: [req.user._id],
       createdByRole: "dropshipper",
-    });
+    })) as HydratedDocument<IWarehouse>;
   } else if (req.user.role === "admin") {
     const rawVendorId = trimStr((req.body as { vendorId?: string }).vendorId);
     if (!rawVendorId || !mongoose.isValidObjectId(rawVendorId)) throw new AppError(400, "vendorId is required");
-    w = await Warehouse.create({
+    w = (await Warehouse.create({
       ...req.body,
       vendorId: new mongoose.Types.ObjectId(rawVendorId),
       createdByRole: "admin",
-    });
+    })) as HydratedDocument<IWarehouse>;
   } else {
     const vendor = await Vendor.findOne({ userId: req.user._id });
     if (!vendor) throw new AppError(400, "Vendor profile not found");
-    w = await Warehouse.create({ ...req.body, vendorId: vendor._id });
+    w = (await Warehouse.create({ ...req.body, vendorId: vendor._id })) as HydratedDocument<IWarehouse>;
   }
 
   // Auto-sync to Velocity (non-fatal)
@@ -350,7 +351,7 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     linked: false as const,
     error: e instanceof Error ? e.message : String(e),
   }));
-  const wObj = w.toObject ? w.toObject() : w;
+  const wObj = w.toObject();
   if (velocitySync.linked) {
     (wObj as Record<string, unknown>).velocityWarehouseId = velocitySync.warehouse_id;
   }
@@ -360,7 +361,7 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
 export const updateWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
-  let w: Awaited<ReturnType<typeof Warehouse.findOneAndUpdate>>;
+  let w: HydratedDocument<IWarehouse> | null;
 
   if (req.user.role === "dropshipper") {
     await assertDropshipperWarehousePermission(req);
@@ -395,11 +396,11 @@ export const updateWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
       error: e instanceof Error ? e.message : String(e),
     }));
     if (velocitySync?.linked) {
-      (w as Record<string, unknown>).velocityWarehouseId = velocitySync.warehouse_id;
+      (w as unknown as Record<string, unknown>).velocityWarehouseId = velocitySync.warehouse_id;
     }
   }
 
-  res.json({ ...(w.toObject ? w.toObject() : w), ...(velocitySync ? { _velocitySync: velocitySync } : {}) });
+  res.json({ ...w.toObject(), ...(velocitySync ? { _velocitySync: velocitySync } : {}) });
 });
 
 export const deleteWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
