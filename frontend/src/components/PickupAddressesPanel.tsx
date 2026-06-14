@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import { indianStates } from "@/constants/indianStates";
-import { MapPin, Plus, Edit, Trash2, Star, Phone, User, Mail, AlertTriangle } from "lucide-react";
+import { MapPin, Plus, Edit, Trash2, Star, Phone, User, Mail, AlertTriangle, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { usePincodeValidation } from "@/hooks/usePincodeValidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,14 +73,26 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   /** Velocity code on the address being edited — for edit-dialog warnings only. */
   const [editingVelocityWarehouseId, setEditingVelocityWarehouseId] = useState<string | undefined>();
+  const { lookupPincode, pincodeData, pincodeError, pincodeLoading, resetPincode } = usePincodeValidation();
+
+  useEffect(() => {
+    if (pincodeData) {
+      setForm((f) => ({
+        ...f,
+        city: pincodeData.city || f.city,
+        state: pincodeData.state || f.state,
+      }));
+    }
+  }, [pincodeData]);
 
   useEffect(() => {
     if (!dialogOpen) {
       setEditingId(null);
       setForm(emptyForm);
       setEditingVelocityWarehouseId(undefined);
+      resetPincode();
     }
-  }, [dialogOpen]);
+  }, [dialogOpen, resetPincode]);
 
   useEffect(() => {
     const onVis = () => {
@@ -131,6 +144,10 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
     const pinDigits = form.pincode.replace(/\D/g, "").slice(0, 6);
     if (!/^\d{6}$/.test(pinDigits)) {
       toast.error("Pincode must be exactly 6 digits");
+      return;
+    }
+    if (pincodeError) {
+      toast.error("Invalid pincode — please enter a valid 6-digit India pincode");
       return;
     }
     const phoneDigits = form.phone.replace(/\D/g, "");
@@ -434,7 +451,23 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
             </div>
             <div>
               <Label>Pincode</Label>
-              <Input className="mt-1" value={form.pincode} onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))} />
+              <div className="relative mt-1">
+                <Input
+                  value={form.pincode}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+                    setForm((f) => ({ ...f, pincode: val }));
+                    lookupPincode(val);
+                  }}
+                  placeholder="6-digit pincode"
+                  maxLength={6}
+                  className={cn(pincodeError ? "border-destructive" : pincodeData ? "border-success" : "")}
+                />
+                {pincodeLoading && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-text-muted" />}
+                {!pincodeLoading && pincodeData && <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-success" />}
+                {!pincodeLoading && pincodeError && <AlertCircle className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-destructive" />}
+              </div>
+              {pincodeError && <p className="text-xs text-destructive mt-1">{pincodeError}</p>}
             </div>
             <div>
               <Label>Country</Label>

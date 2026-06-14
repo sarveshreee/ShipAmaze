@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Phone, Save, Pencil, Trash2, X } from "lucide-react";
+import { MapPin, User, Truck, Package, Box, ChevronRight, ChevronLeft, Plus, Phone, Save, Pencil, Trash2, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { usePincodeValidation } from "@/hooks/usePincodeValidation";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import * as orderService from "@/services/orderService";
 import * as pickupService from "@/services/pickupService";
@@ -79,6 +80,18 @@ export default function AddOrder() {
     addressLine1: "", addressLine2: "", addressType: "Home", consigneeEmail: "",
     pincode: "", city: "", state: "", country: "",
   });
+  const { lookupPincode: lookupConsigneePincode, pincodeData: consigneePincodeData, pincodeError: consigneePincodeError, pincodeLoading: consigneePincodeLoading } = usePincodeValidation();
+
+  useEffect(() => {
+    if (consigneePincodeData) {
+      setConsignee((p) => ({
+        ...p,
+        city: consigneePincodeData.city || p.city,
+        state: consigneePincodeData.state || p.state,
+        country: p.country || "India",
+      }));
+    }
+  }, [consigneePincodeData]);
 
   // Step 3
   const [shipment, setShipment] = useState({ orderId: getNextOrderId(), paymentType: "Prepaid", codAmount: "" });
@@ -865,9 +878,24 @@ export default function AddOrder() {
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div>
                   <Label>Pin Code<span className="text-danger">*</span></Label>
-                  <Input value={consignee.pincode} onChange={e => setConsignee(p => ({ ...p, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
-                    placeholder="Enter pincode..." className={stepErrors.pincode ? "border-danger" : ""} />
-                  {stepErrors.pincode && <p className="text-xs text-danger mt-1">{stepErrors.pincode}</p>}
+                  <div className="relative mt-1">
+                    <Input
+                      value={consignee.pincode}
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+                        setConsignee(p => ({ ...p, pincode: val }));
+                        lookupConsigneePincode(val);
+                      }}
+                      placeholder="6-digit pincode"
+                      maxLength={6}
+                      className={cn(stepErrors.pincode || consigneePincodeError ? "border-danger" : consigneePincodeData ? "border-success" : "")}
+                    />
+                    {consigneePincodeLoading && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-text-muted" />}
+                    {!consigneePincodeLoading && consigneePincodeData && <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-success" />}
+                    {!consigneePincodeLoading && consigneePincodeError && <AlertCircle className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-danger" />}
+                  </div>
+                  {consigneePincodeError && <p className="text-xs text-danger mt-1">{consigneePincodeError}</p>}
+                  {stepErrors.pincode && !consigneePincodeError && <p className="text-xs text-danger mt-1">{stepErrors.pincode}</p>}
                 </div>
                 <div>
                   <Label>City<span className="text-danger">*</span></Label>

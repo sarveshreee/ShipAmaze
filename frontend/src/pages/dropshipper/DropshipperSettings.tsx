@@ -30,6 +30,7 @@ interface KycProfile {
   account_type: AccountType;
   status: KycStatus;
   full_name?: string;
+  dob?: string;
   business_name?: string;
   pan_number?: string;
   aadhaar_number?: string;
@@ -217,15 +218,24 @@ function KycTab({ userId }: { userId: string | null }) {
       if (!profile.full_name) errs.push("Full name");
       if (!profile.pan_number || !/^[A-Z]{5}\d{4}[A-Z]$/.test(profile.pan_number)) errs.push("Valid PAN");
       if (!profile.aadhaar_number || profile.aadhaar_number.replace(/\s/g, "").length !== 12) errs.push("Valid Aadhaar");
+      if (!(profile as KycProfile & { dob?: string }).dob) errs.push("Date of birth");
       const docs = profile.uploaded_docs ?? {};
       if (!docs.pan) errs.push("PAN card upload");
       if (!docs.aadhaarFront && !docs.aadhaar) errs.push("Aadhaar front upload");
       if (!docs.aadhaarBack) errs.push("Aadhaar back upload");
     } else {
       if (!profile.business_name) errs.push("Business name");
-      if (!profile.pan_number) errs.push("PAN");
-      if (!profile.gst_number) errs.push("GST");
-      if (!profile.cin_number) errs.push("CIN");
+      if (!profile.pan_number) errs.push("PAN number");
+      if (!profile.gst_number) errs.push("GST number");
+      if (!profile.cin_number) errs.push("CIN / Registration number");
+      if (!profile.authorized_person_name) errs.push("Authorized person name");
+      if (!profile.authorized_person_pan) errs.push("Authorized person PAN");
+      const docs = profile.uploaded_docs ?? {};
+      if (!docs.pan) errs.push("PAN card upload");
+      if (!docs.gst) errs.push("GST certificate upload");
+      if (!docs.cin) errs.push("CIN document upload");
+      if (!docs.reg) errs.push("Registration document upload");
+      if (!docs.auth_id) errs.push("Authorized person ID proof upload");
     }
     if (!profile.address) errs.push("Address");
     if (errs.length) { toast.error(`Missing: ${errs.join(", ")}`); return; }
@@ -310,27 +320,29 @@ function KycTab({ userId }: { userId: string | null }) {
         <fieldset disabled={isLocked} className="space-y-4 disabled:opacity-70">
           {profile.account_type === "individual" ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><Label>Full name (as per PAN)</Label><Input value={profile.full_name || ""} onChange={e => update({ full_name: e.target.value })} placeholder="Your full name" /></div>
-              <div><Label>PAN number</Label><Input value={profile.pan_number || ""} onChange={e => update({ pan_number: e.target.value.toUpperCase() })} placeholder="ABCDE1234F" className="font-mono uppercase" maxLength={10} /></div>
-              <div><Label>Aadhaar number</Label><Input value={profile.aadhaar_number || ""} onChange={e => update({ aadhaar_number: e.target.value })} placeholder="XXXX XXXX XXXX" className="font-mono" maxLength={14} /></div>
-              <div className="sm:col-span-2"><Label>Residential address</Label><Input value={profile.address || ""} onChange={e => update({ address: e.target.value })} placeholder="House, street, area, city, pincode" /></div>
-              <FileUploadField label="PAN card (front)" value={profile.uploaded_docs?.pan} onChange={v => updateDoc("pan", v)} />
-              <FileUploadField label="Aadhaar Front Upload" value={profile.uploaded_docs?.aadhaarFront ?? profile.uploaded_docs?.aadhaar} onChange={v => updateDoc("aadhaarFront", v)} />
-              <FileUploadField label="Aadhaar Back Upload" value={profile.uploaded_docs?.aadhaarBack} onChange={v => updateDoc("aadhaarBack", v)} />
+              <div><Label>Full name (as per PAN) <span className="text-danger">*</span></Label><Input value={profile.full_name || ""} onChange={e => update({ full_name: e.target.value })} placeholder="Your full name" /></div>
+              <div><Label>Date of birth <span className="text-danger">*</span></Label><Input type="date" value={profile.dob || ""} onChange={e => update({ dob: e.target.value })} /></div>
+              <div><Label>PAN number <span className="text-danger">*</span></Label><Input value={profile.pan_number || ""} onChange={e => update({ pan_number: e.target.value.toUpperCase() })} placeholder="ABCDE1234F" className="font-mono uppercase" maxLength={10} /></div>
+              <div><Label>Aadhaar number <span className="text-danger">*</span></Label><Input value={profile.aadhaar_number || ""} onChange={e => update({ aadhaar_number: e.target.value })} placeholder="XXXX XXXX XXXX" className="font-mono" maxLength={14} /></div>
+              <div className="sm:col-span-2"><Label>Residential address <span className="text-danger">*</span></Label><Input value={profile.address || ""} onChange={e => update({ address: e.target.value })} placeholder="House, street, area, city, pincode" /></div>
+              <FileUploadField label="PAN card (front) *" value={profile.uploaded_docs?.pan} onChange={v => updateDoc("pan", v)} />
+              <FileUploadField label="Aadhaar Front Upload *" value={profile.uploaded_docs?.aadhaarFront ?? profile.uploaded_docs?.aadhaar} onChange={v => updateDoc("aadhaarFront", v)} />
+              <FileUploadField label="Aadhaar Back Upload *" value={profile.uploaded_docs?.aadhaarBack} onChange={v => updateDoc("aadhaarBack", v)} />
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="sm:col-span-2"><Label>Legal business name</Label><Input value={profile.business_name || ""} onChange={e => update({ business_name: e.target.value })} placeholder="Acme Pvt Ltd" /></div>
-              <div><Label>PAN number</Label><Input value={profile.pan_number || ""} onChange={e => update({ pan_number: e.target.value.toUpperCase() })} className="font-mono uppercase" maxLength={10} /></div>
-              <div><Label>GST number</Label><Input value={profile.gst_number || ""} onChange={e => update({ gst_number: e.target.value.toUpperCase() })} className="font-mono uppercase" maxLength={15} /></div>
-              <div><Label>CIN / Registration number</Label><Input value={profile.cin_number || ""} onChange={e => update({ cin_number: e.target.value.toUpperCase() })} className="font-mono uppercase" maxLength={21} /></div>
-              <div><Label>Authorized person name</Label><Input value={profile.authorized_person_name || ""} onChange={e => update({ authorized_person_name: e.target.value })} /></div>
-              <div><Label>Authorized person PAN</Label><Input value={profile.authorized_person_pan || ""} onChange={e => update({ authorized_person_pan: e.target.value.toUpperCase() })} className="font-mono uppercase" maxLength={10} /></div>
-              <div className="sm:col-span-2"><Label>Business address</Label><Input value={profile.address || ""} onChange={e => update({ address: e.target.value })} /></div>
-              <FileUploadField label="PAN card" value={profile.uploaded_docs?.pan} onChange={v => updateDoc("pan", v)} />
-              <FileUploadField label="GST certificate" value={profile.uploaded_docs?.gst} onChange={v => updateDoc("gst", v)} />
-              <FileUploadField label="Registration document" value={profile.uploaded_docs?.reg} onChange={v => updateDoc("reg", v)} />
-              <FileUploadField label="Authorized person ID proof" value={profile.uploaded_docs?.auth_id} onChange={v => updateDoc("auth_id", v)} />
+              <div className="sm:col-span-2"><Label>Legal business name <span className="text-danger">*</span></Label><Input value={profile.business_name || ""} onChange={e => update({ business_name: e.target.value })} placeholder="Acme Pvt Ltd" /></div>
+              <div><Label>PAN number <span className="text-danger">*</span></Label><Input value={profile.pan_number || ""} onChange={e => update({ pan_number: e.target.value.toUpperCase() })} className="font-mono uppercase" maxLength={10} /></div>
+              <div><Label>GST number <span className="text-danger">*</span></Label><Input value={profile.gst_number || ""} onChange={e => update({ gst_number: e.target.value.toUpperCase() })} className="font-mono uppercase" maxLength={15} /></div>
+              <div><Label>CIN / Registration number <span className="text-danger">*</span></Label><Input value={profile.cin_number || ""} onChange={e => update({ cin_number: e.target.value.toUpperCase() })} className="font-mono uppercase" maxLength={21} /></div>
+              <div><Label>Authorized person name <span className="text-danger">*</span></Label><Input value={profile.authorized_person_name || ""} onChange={e => update({ authorized_person_name: e.target.value })} /></div>
+              <div><Label>Authorized person PAN <span className="text-danger">*</span></Label><Input value={profile.authorized_person_pan || ""} onChange={e => update({ authorized_person_pan: e.target.value.toUpperCase() })} className="font-mono uppercase" maxLength={10} /></div>
+              <div className="sm:col-span-2"><Label>Business address <span className="text-danger">*</span></Label><Input value={profile.address || ""} onChange={e => update({ address: e.target.value })} /></div>
+              <FileUploadField label="PAN card *" value={profile.uploaded_docs?.pan} onChange={v => updateDoc("pan", v)} />
+              <FileUploadField label="GST certificate *" value={profile.uploaded_docs?.gst} onChange={v => updateDoc("gst", v)} />
+              <FileUploadField label="CIN document *" value={profile.uploaded_docs?.cin} onChange={v => updateDoc("cin", v)} />
+              <FileUploadField label="Registration document *" value={profile.uploaded_docs?.reg} onChange={v => updateDoc("reg", v)} />
+              <FileUploadField label="Authorized person ID proof *" value={profile.uploaded_docs?.auth_id} onChange={v => updateDoc("auth_id", v)} />
             </div>
           )}
         </fieldset>

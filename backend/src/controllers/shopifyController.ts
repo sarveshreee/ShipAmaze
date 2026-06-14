@@ -865,6 +865,66 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
 }
 
 /* ------------------------------------------------------------------ */
+/*  Sync webhooks (admin: force re-register without reconnecting)      */
+/* ------------------------------------------------------------------ */
+export const syncWebhooks = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user || req.user.role !== "admin") throw new AppError(403, "Admin only");
+  const conn = await ShopifyStoreConnection.findOne({ ownerUserId: req.user._id, isActive: true });
+  if (!conn) throw new AppError(404, "No active Shopify connection found");
+  const rawToken = conn.accessTokenEncrypted ? decrypt(conn.accessTokenEncrypted) : "";
+  if (!rawToken) throw new AppError(400, "Could not decrypt access token — reconnect Shopify");
+  if (!conn.shopDomain) throw new AppError(400, "No shop domain on connection");
+  const result = await ensureShopifyWebhooksRegistered(rawToken, conn.shopDomain);
+  res.json({ ok: true, webhooks: result });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Product image proxy (public — needed so Shopify can fetch images)  */
+/* ------------------------------------------------------------------ */
+export async function serveProductImage(req: Request, res: Response): Promise<void> {
+  const { productId, index } = req.params;
+  const idx = Number(index ?? 0);
+  if (!productId || !Number.isFinite(idx) || idx < 0) {
+    res.status(400).send("Bad request");
+    return;
+  }
+  const { Product } = await import("../models/Product.js");
+  if (!Types.ObjectId.isValid(productId)) {
+    res.status(404).send("Not found");
+    return;
+  }
+  const product = await Product.findById(productId).lean().catch(() => null);
+  if (!product) {
+    res.status(404).send("Product not found");
+    return;
+  }
+  const images: unknown[] = Array.isArray((product as Record<string, unknown>).images)
+    ? (product as Record<string, unknown>).images as unknown[]
+    : [];
+  const src = String(images[idx] ?? "").trim();
+  if (!src) {
+    res.status(404).send("Image not found");
+    return;
+  }
+  if (src.startsWith("data:")) {
+    const match = src.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      res.status(400).send("Invalid data URL");
+      return;
+    }
+    const mimeType = match[1];
+    const base64Data = match[2];
+    const buffer = Buffer.from(base64Data, "base64");
+    res.setHeader("Content-Type", mimeType);
+    res.setHeader("Content-Length", buffer.length);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(buffer);
+    return;
+  }
+  res.redirect(302, src);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Product push (uses existing Channels connection + token storage)   */
 /* ------------------------------------------------------------------ */
 export const getProductPushStatus = asyncHandler(async (req: AuthRequest, res: Response) => {

@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { MapPin, Phone, Calendar, Search, X, ArrowLeft } from "lucide-react";
+import { MapPin, Phone, Calendar, Search, X, ArrowLeft, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { usePincodeValidation } from "@/hooks/usePincodeValidation";
 interface AddressData {
   tag: string;
   label: string;
@@ -34,6 +35,17 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const { lookupPincode, pincodeData, pincodeError, pincodeLoading, resetPincode } = usePincodeValidation();
+
+  useEffect(() => {
+    if (pincodeData) {
+      setAddress((p) => ({
+        ...p,
+        city: pincodeData.city || p.city,
+        state: pincodeData.state || p.state,
+      }));
+    }
+  }, [pincodeData]);
 
   const resetState = () => {
     setTag("Home");
@@ -44,6 +56,7 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
     setContactName("");
     setContactPhone("");
     setErrors({});
+    resetPincode();
   };
 
   useEffect(() => { if (!open) resetState(); }, [open]);
@@ -66,6 +79,8 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
     const e: Record<string, string> = {};
     if (!address.addressLine1.trim()) e.addressLine1 = "The address field is required.";
     if (!address.pincode.trim()) e.pincode = "Required";
+    else if (!/^\d{6}$/.test(address.pincode.replace(/\D/g, ""))) e.pincode = "Must be 6 digits";
+    else if (pincodeError) e.pincode = "Invalid pincode";
     if (!address.city.trim()) e.city = "Required";
     if (!address.state.trim()) e.state = "Required";
     if (!contactName.trim()) e.contactName = "Required";
@@ -184,18 +199,36 @@ export function AddAddressModal({ open, onClose, onSave }: Props) {
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <Label>Pincode<span className="text-destructive">*</span></Label>
-                      <Input value={address.pincode} onChange={e => setAddress(p => ({ ...p, pincode: e.target.value }))}
-                        placeholder="Add Pincode" className={errors.pincode ? "border-destructive" : ""} />
+                      <div className="relative mt-1">
+                        <Input
+                          value={address.pincode}
+                          onChange={e => {
+                            const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+                            setAddress(p => ({ ...p, pincode: val }));
+                            lookupPincode(val);
+                          }}
+                          placeholder="6-digit pincode"
+                          maxLength={6}
+                          className={cn(errors.pincode ? "border-destructive" : pincodeData ? "border-success" : "")}
+                        />
+                        {pincodeLoading && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-text-muted" />}
+                        {!pincodeLoading && pincodeData && <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-success" />}
+                        {!pincodeLoading && pincodeError && <AlertCircle className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-destructive" />}
+                      </div>
+                      {pincodeError && <p className="text-xs text-destructive mt-1">{pincodeError}</p>}
+                      {errors.pincode && !pincodeError && <p className="text-xs text-destructive mt-1">{errors.pincode}</p>}
                     </div>
                     <div>
                       <Label>City<span className="text-destructive">*</span></Label>
                       <Input value={address.city} onChange={e => setAddress(p => ({ ...p, city: e.target.value }))}
-                        placeholder="City" className={errors.city ? "border-destructive" : ""} />
+                        placeholder="City" className={cn("mt-1", errors.city ? "border-destructive" : "")} />
+                      {errors.city && <p className="text-xs text-destructive mt-1">{errors.city}</p>}
                     </div>
                     <div>
                       <Label>State<span className="text-destructive">*</span></Label>
                       <Input value={address.state} onChange={e => setAddress(p => ({ ...p, state: e.target.value }))}
-                        placeholder="State" className={errors.state ? "border-destructive" : ""} />
+                        placeholder="State" className={cn("mt-1", errors.state ? "border-destructive" : "")} />
+                      {errors.state && <p className="text-xs text-destructive mt-1">{errors.state}</p>}
                     </div>
                   </div>
                   <div className="w-1/3">

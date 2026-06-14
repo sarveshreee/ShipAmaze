@@ -1394,7 +1394,11 @@ export function RichOrdersTable({
               </Alert>
             )}
             {(() => {
+              const selectedPickupWh = selectedWarehouseId
+                ? warehouses.find((w) => w.id === selectedWarehouseId)?.velocityWarehouseId?.trim()
+                : "";
               const modalOrderWh =
+                selectedPickupWh ||
                 shipmentModalOrder?.velocityWarehouseId ||
                 ((shipmentModalOrder?.pickupAddress && typeof shipmentModalOrder.pickupAddress === "object")
                   ? (shipmentModalOrder.pickupAddress as any).velocityWarehouseId
@@ -1506,7 +1510,6 @@ export function RichOrdersTable({
                   const res = await onCreateShipment({
                     orderId: shipmentModalOrder.id,
                     warehouseId: selectedWarehouseId || fallbackPickupId,
-                    velocityWarehouseId: selectedPickup?.velocityWarehouseId?.trim(),
                     carrier_id,
                     courier_name: courierPick.startsWith("name:") ? courierPick.slice(5) : undefined,
                   });

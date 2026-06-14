@@ -38,7 +38,7 @@ export default function AdminCouriers() {
   const [rules, setRules] = useState<CourierPriorityRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(true);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [savingRuleId, setSavingRuleId] = useState<string | null>(null);
   const [linkingCourier, setLinkingCourier] = useState<string | null>(null);
   const { data: courierList = [], isLoading, refetch: refetchCouriers } = useCouriers();
   const {
@@ -96,7 +96,7 @@ export default function AdminCouriers() {
       toast.error("Add at least one courier priority");
       return;
     }
-    setSaving(true);
+    setSavingRuleId(rule.id);
     try {
       if (isDraftRule(rule.id)) {
         const created = await courierPriorityService.createCourierPriorityRule({
@@ -117,7 +117,7 @@ export default function AdminCouriers() {
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Save failed");
     } finally {
-      setSaving(false);
+      setSavingRuleId(null);
     }
   };
 
@@ -158,23 +158,29 @@ export default function AdminCouriers() {
   const handleDragStart = (idx: number) => setDragIdx(idx);
   const handleDragOver = (e: React.DragEvent, idx: number) => {
     e.preventDefault();
-    if (dragIdx === null || dragIdx === idx) return;
-    const updated = [...rules];
-    const [moved] = updated.splice(dragIdx, 1);
-    updated.splice(idx, 0, moved);
-    setRules(updated);
-    setDragIdx(idx);
+    setDragIdx((prevDragIdx) => {
+      if (prevDragIdx === null || prevDragIdx === idx) return prevDragIdx;
+      setRules((prevRules) => {
+        const updated = [...prevRules];
+        const [moved] = updated.splice(prevDragIdx, 1);
+        updated.splice(idx, 0, moved);
+        return updated;
+      });
+      return idx;
+    });
   };
   const handleDragEnd = async () => {
     setDragIdx(null);
-    const persistedIds = rules.filter((r) => !isDraftRule(r.id)).map((r) => r.id);
-    if (persistedIds.length === 0) return;
-    try {
-      await courierPriorityService.reorderCourierPriorityRules(persistedIds);
-    } catch {
-      toast.error("Could not save rule order");
-      void loadRules();
-    }
+    setRules((prevRules) => {
+      const persistedIds = prevRules.filter((r) => !isDraftRule(r.id)).map((r) => r.id);
+      if (persistedIds.length > 0) {
+        courierPriorityService.reorderCourierPriorityRules(persistedIds).catch(() => {
+          toast.error("Could not save rule order");
+          void loadRules();
+        });
+      }
+      return prevRules;
+    });
   };
 
   const linkCourierPickup = async (courierName: string, pickupId: string) => {
@@ -467,32 +473,54 @@ export default function AdminCouriers() {
 
                   <div className="space-y-2 pl-8">
                     <p className="text-xs font-medium text-text-muted">Courier priority (1 = first choice)</p>
-                    {rule.priorities.map((p, pi) => (
-                      <div key={pi} className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs w-5 text-text-muted">{p.rank}.</span>
-                        <Select
-                          value={p.courierName}
-                          onValueChange={(v) => {
-                            const priorities = rule.priorities.map((row, j) =>
-                              j === pi ? { ...row, courierName: v } : row
-                            );
-                            updateRuleLocal(rule.id, { priorities });
-                          }}
-                        >
-                          <SelectTrigger className="h-8 w-[160px] text-xs">
-                            <SelectValue placeholder="Courier" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {courierList.map((c) => (
-                              <SelectItem key={c.name} value={c.name}>
-                                {c.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <ArrowRight className="h-3 w-3 text-text-muted hidden sm:block" />
-                      </div>
-                    ))}
+                    {rule.priorities.map((p, pi) => {
+                      const activeCouriers = courierList.filter((c) => c.active !== false);
+                      const isMissing = p.courierName && !activeCouriers.some((c) => c.name === p.courierName);
+                      return (
+                        <div key={pi} className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs w-5 text-text-muted">{p.rank}.</span>
+                          <Select
+                            value={p.courierName || undefined}
+                            onValueChange={(v) => {
+                              const priorities = rule.priorities.map((row, j) =>
+                                j === pi ? { ...row, courierName: v } : row
+                              );
+                              updateRuleLocal(rule.id, { priorities });
+                            }}
+                          >
+                            <SelectTrigger className={cn("h-8 w-[180px] text-xs", isMissing && "border-warning text-warning-dark")}>
+                              <SelectValue placeholder="Select courier…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {isMissing && (
+                                <SelectItem value={p.courierName} className="text-warning-dark text-xs">
+                                  ⚠ {p.courierName} (missing)
+                                </SelectItem>
+                              )}
+                              {activeCouriers.map((c) => (
+                                <SelectItem key={c.name} value={c.name}>
+                                  {c.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <ArrowRight className="h-3 w-3 text-text-muted hidden sm:block" />
+                          <button
+                            type="button"
+                            title="Remove this courier priority"
+                            onClick={() => {
+                              const priorities = rule.priorities
+                                .filter((_, j) => j !== pi)
+                                .map((row, j) => ({ ...row, rank: j + 1 }));
+                              updateRuleLocal(rule.id, { priorities });
+                            }}
+                            className="text-text-muted hover:text-danger p-0.5 ml-auto"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
                     <Button
                       type="button"
                       variant="outline"
@@ -508,10 +536,10 @@ export default function AdminCouriers() {
                     <Button
                       size="sm"
                       className="h-8 text-xs"
-                      disabled={saving}
+                      disabled={savingRuleId === rule.id}
                       onClick={() => void saveRule(rule)}
                     >
-                      {saving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                      {savingRuleId === rule.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
                       {draft ? "Create rule" : "Save rule"}
                     </Button>
                   </div>

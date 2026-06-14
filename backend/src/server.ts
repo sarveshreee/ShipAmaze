@@ -6,6 +6,8 @@ import { isVelocityEnabledFlag, redactMongoUri, validateEnv } from "./config/env
 import { getMailTransportStatus } from "./services/mail.js";
 import { brevoApiKeyHint, isLikelyBrevoV3ApiKey } from "./services/email/emailApiTransport.js";
 import { devLog } from "./utils/devLog.js";
+import { ShopifyStoreConnection } from "./models/ShopifyStoreConnection.js";
+import { performShopifyOrderSyncForUser } from "./services/shopifySyncRunner.js";
 
 validateEnv();
 
@@ -58,6 +60,22 @@ async function main() {
       console.info(`[server] ShipAmaze API ready on port ${PORT}`);
     }
   });
+
+  // Background Shopify order sync — runs every 60 minutes to catch any orders missed by webhooks
+  const shopifyBgSync = setInterval(async () => {
+    try {
+      const connections = await ShopifyStoreConnection.find({ isActive: true }).lean();
+      devLog.info(`[shopify:bg-sync] running for ${connections.length} active connection(s)`);
+      for (const conn of connections) {
+        await performShopifyOrderSyncForUser(conn.ownerUserId, conn.role as "vendor" | "dropshipper" | "admin").catch((e: unknown) => {
+          devLog.warn("[shopify:bg-sync] sync failed for", String(conn.ownerUserId), e instanceof Error ? e.message : e);
+        });
+      }
+    } catch (e: unknown) {
+      devLog.warn("[shopify:bg-sync] background sync error", e instanceof Error ? e.message : e);
+    }
+  }, 60 * 60 * 1000);
+  shopifyBgSync.unref();
 
   const shutdown = (signal: string) => {
     devLog.info(`[server] ${signal} received, shutting down…`);

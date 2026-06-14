@@ -47,6 +47,17 @@ function parseCorsOrigins(): string[] {
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+/** localhost / 127.0.0.1 on any port — browser origin may differ from http://localhost:8080. */
+function isLocalDevOrigin(origin: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (protocol !== "http:" && protocol !== "https:") return false;
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
 export function createApp() {
   const app = express();
   const isProd = process.env.NODE_ENV === "production";
@@ -64,6 +75,9 @@ export function createApp() {
         if (!isProd && corsAllowed.length === 0) {
           return callback(null, origin || true);
         }
+        if (!isProd && origin && isLocalDevOrigin(origin)) {
+          return callback(null, true);
+        }
         if (isProd) {
           if (!origin) {
             return callback(null, false);
@@ -77,6 +91,9 @@ export function createApp() {
           return callback(null, true);
         }
         if (corsAllowed.length === 0 || corsAllowed.includes(origin)) {
+          return callback(null, true);
+        }
+        if (origin && isLocalDevOrigin(origin)) {
           return callback(null, true);
         }
         return callback(null, false);
@@ -531,6 +548,11 @@ export function createApp() {
   api.delete("/account/team/:id", authMiddleware, accountController.deleteTeam);
   api.post("/account/team/:id/resend", authMiddleware, accountController.resendTeam);
 
+  // Shopify product image proxy — public so Shopify's CDN can fetch base64 product images
+  api.get("/shopify/product-image/:productId/:index", (req, res, next) => {
+    shopifyController.serveProductImage(req, res).catch(next);
+  });
+
   // Shopify OAuth — install/callback are public (Shopify redirects the browser)
   api.get("/shopify/install", shopifyCallbackLimiter, shopifyController.handleInstall);
   api.post("/shopify/connect", authMiddleware, shopifyConnectLimiter, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.initiateConnect);
@@ -538,6 +560,7 @@ export function createApp() {
   api.get("/shopify/status", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_VIEW), shopifyController.getStatus);
   api.post("/shopify/disconnect", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.disconnect);
   api.post("/shopify/sync-orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.CHANNELS_MANAGE), shopifyController.syncOrders);
+  api.post("/shopify/sync-webhooks", authMiddleware, requireRoles("admin"), shopifyController.syncWebhooks);
   api.get(
     "/shopify/product-push/:productId",
     authMiddleware,

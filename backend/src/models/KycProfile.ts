@@ -12,6 +12,8 @@ export interface IKycDocuments {
   aadhaarBack?: string;
   gst?: string;
   cin?: string;
+  reg?: string;
+  auth_id?: string;
 }
 
 export interface IKycProfile extends Document {
@@ -25,6 +27,8 @@ export interface IKycProfile extends Document {
   panNumber?: string;
   aadhaarNumber?: string;
   cinNumber?: string;
+  authorizedPersonName?: string;
+  authorizedPersonPan?: string;
   address?: string;
   documents: IKycDocuments;
   termsAcceptedAt?: Date;
@@ -46,6 +50,8 @@ const documentsSchema = new Schema<IKycDocuments>(
     aadhaarBack: String,
     gst: String,
     cin: String,
+    reg: String,
+    auth_id: String,
   },
   { _id: false }
 );
@@ -66,6 +72,8 @@ const kycSchema = new Schema<IKycProfile>(
     panNumber: String,
     aadhaarNumber: String,
     cinNumber: String,
+    authorizedPersonName: String,
+    authorizedPersonPan: String,
     address: String,
     documents: { type: documentsSchema, default: {} },
     termsAcceptedAt: Date,

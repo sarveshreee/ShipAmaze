@@ -32,6 +32,7 @@ import {
   orderWalletUserId,
 } from "../../services/walletLedger.js";
 import { resolvePreferredCourierName } from "../../services/courierPriorityService.js";
+import { Courier } from "../../models/Courier.js";
 import {
   applyDropshipperRateOverrides,
   loadDropshipperShippingOverride,
@@ -60,6 +61,10 @@ async function applyCourierPriorityRules(
   if (!courierName) return;
   localOrder.courier = courierName;
   localOrder.courierName = courierName;
+  const courierDoc = await Courier.findOne({ name: courierName }).lean();
+  if (courierDoc?.carrierId) {
+    merged.carrier_id = courierDoc.carrierId;
+  }
   devLog.info(
     "[velocity:courier-priority]",
     JSON.stringify({

@@ -26,14 +26,22 @@ function resolvePublicAssetBase(): string {
   return "http://127.0.0.1:5000";
 }
 
-/** Shopify requires publicly reachable https/http image URLs. */
-export function resolveShopifyImageUrls(rawImages: unknown): string[] {
+/** Shopify requires publicly reachable https/http image URLs.
+ *  data: URLs are converted to a backend proxy URL so Shopify can fetch them. */
+export function resolveShopifyImageUrls(rawImages: unknown, productId?: string): string[] {
   if (!Array.isArray(rawImages)) return [];
   const base = resolvePublicAssetBase();
   const out: string[] = [];
-  for (const raw of rawImages) {
+  for (let idx = 0; idx < rawImages.length; idx++) {
+    const raw = rawImages[idx];
     const src = String(raw ?? "").trim();
-    if (!src || src.startsWith("data:")) continue;
+    if (!src) continue;
+    if (src.startsWith("data:")) {
+      if (productId) {
+        out.push(`${base}/api/shopify/product-image/${productId}/${idx}`);
+      }
+      continue;
+    }
     if (/^https?:\/\//i.test(src)) {
       out.push(src);
       continue;
@@ -61,9 +69,10 @@ function resolveSellingPrice(product: Record<string, unknown>, override?: number
 export function buildShopifyProductPayload(
   product: Record<string, unknown>,
   sellingPrice: number,
-  variantId?: string
+  variantId?: string,
+  productId?: string
 ): ShopifyProductInput {
-  const images = resolveShopifyImageUrls(product.images);
+  const images = resolveShopifyImageUrls(product.images, productId);
   const tags = Array.isArray(product.tags) ? (product.tags as string[]).filter(Boolean).join(", ") : "";
   const description = String(
     product.long_description ??
@@ -108,12 +117,11 @@ export function buildShopifyProductPayload(
   return {
     title: String(product.name ?? "Product"),
     body_html: description || `<p>${String(product.name ?? "Product")}</p>`,
-    vendor: String(product.vendor_name ?? product.vendorName ?? product.brand ?? "ShipAmaze"),
     product_type: String(product.category ?? ""),
     tags,
     status: "active",
     variants,
-    ...(images.length ? { images: images.map((src) => ({ src })) } : {}),
+    images: images.map((src) => ({ src })),
   };
 }
 
@@ -185,7 +193,8 @@ export async function pushProductToShopifyStore(
   const payload = buildShopifyProductPayload(
     product as Record<string, unknown>,
     sellingPrice,
-    existing?.shopifyVariantId ?? undefined
+    existing?.shopifyVariantId ?? undefined,
+    productId
   );
 
   let shopifyProduct: shopifyService.ShopifyProductResult;

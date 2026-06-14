@@ -27,6 +27,8 @@ const docSchema = z.object({
   aadhaar_back: z.string().optional(),
   gst: z.string().optional(),
   cin: z.string().optional(),
+  reg: z.string().optional(),
+  auth_id: z.string().optional(),
 });
 
 const kycDraftSchema = z.object({
@@ -45,6 +47,10 @@ const kycDraftSchema = z.object({
   aadhaarNumber: z.string().optional(),
   cin_number: z.string().optional(),
   cinNumber: z.string().optional(),
+  authorized_person_name: z.string().optional(),
+  authorizedPersonName: z.string().optional(),
+  authorized_person_pan: z.string().optional(),
+  authorizedPersonPan: z.string().optional(),
   address: z.string().optional(),
   uploaded_docs: docSchema.optional(),
   documents: docSchema.optional(),
@@ -70,6 +76,8 @@ function mapKycResponse(k: IKycProfile | null | undefined) {
     aadhaarBack: k.documents?.aadhaarBack ?? legacyDocs.aadhaarBack ?? legacyDocs.aadhaar_back,
     gst: k.documents?.gst ?? legacyDocs.gst,
     cin: k.documents?.cin ?? legacyDocs.cin,
+    reg: k.documents?.reg ?? legacyDocs.reg,
+    auth_id: k.documents?.auth_id ?? legacyDocs.auth_id,
   };
   return {
     status: kycStatusToLegacy(k.status),
@@ -82,6 +90,8 @@ function mapKycResponse(k: IKycProfile | null | undefined) {
     pan_number: k.panNumber ?? (k.data?.pan_number as string) ?? "",
     aadhaar_number: k.aadhaarNumber ?? (k.data?.aadhaar_number as string) ?? "",
     cin_number: k.cinNumber ?? (k.data?.cin_number as string) ?? "",
+    authorized_person_name: k.authorizedPersonName ?? (k.data?.authorized_person_name as string) ?? "",
+    authorized_person_pan: k.authorizedPersonPan ?? (k.data?.authorized_person_pan as string) ?? "",
     address: k.address ?? (k.data?.address as string) ?? "",
     uploaded_docs: docs,
     documents: docs,
@@ -103,6 +113,8 @@ function parseDraft(body: z.infer<typeof kycDraftSchema>) {
     panNumber: String(body.panNumber ?? body.pan_number ?? "").trim().toUpperCase(),
     aadhaarNumber: String(body.aadhaarNumber ?? body.aadhaar_number ?? "").replace(/\s/g, ""),
     cinNumber: String(body.cinNumber ?? body.cin_number ?? "").trim(),
+    authorizedPersonName: String(body.authorizedPersonName ?? body.authorized_person_name ?? "").trim(),
+    authorizedPersonPan: String(body.authorizedPersonPan ?? body.authorized_person_pan ?? "").trim().toUpperCase(),
     address: String(body.address ?? "").trim(),
     documents: {
       pan: docs.pan,
@@ -111,6 +123,8 @@ function parseDraft(body: z.infer<typeof kycDraftSchema>) {
       aadhaarBack: docs.aadhaarBack ?? docs.aadhaar_back,
       gst: docs.gst,
       cin: docs.cin,
+      reg: docs.reg,
+      auth_id: docs.auth_id,
     },
     termsAccepted: body.termsAccepted === true,
   };
@@ -147,6 +161,8 @@ export const saveMyKycDraft = asyncHandler(async (req: AuthRequest, res: Respons
     panNumber: parsed.panNumber,
     aadhaarNumber: parsed.aadhaarNumber,
     cinNumber: parsed.cinNumber,
+    authorizedPersonName: parsed.authorizedPersonName,
+    authorizedPersonPan: parsed.authorizedPersonPan,
     address: parsed.address,
     documents: parsed.documents,
     status: nextStatus,
@@ -177,6 +193,7 @@ export const submitMyKyc = asyncHandler(async (req: AuthRequest, res: Response) 
   const errs: string[] = [];
   if (parsed.accountType === "individual") {
     if (!parsed.fullName) errs.push("Full name");
+    if (!parsed.dob) errs.push("Date of birth");
     if (!parsed.panNumber || !/^[A-Z]{5}\d{4}[A-Z]$/.test(parsed.panNumber)) errs.push("Valid PAN");
     if (!parsed.aadhaarNumber || parsed.aadhaarNumber.length !== 12) errs.push("Valid Aadhaar");
     if (!parsed.documents.pan) errs.push("PAN document");
@@ -185,9 +202,12 @@ export const submitMyKyc = asyncHandler(async (req: AuthRequest, res: Response) 
     if (!parsed.documents.aadhaarBack) errs.push("Aadhaar back document");
   } else {
     if (!parsed.businessName) errs.push("Business name");
-    if (!parsed.panNumber) errs.push("PAN");
-    if (!parsed.documents.gst && !parsed.gstNumber) errs.push("GST number or document");
+    if (!parsed.panNumber) errs.push("PAN number");
+    if (!parsed.gstNumber) errs.push("GST number");
+    if (!parsed.cinNumber) errs.push("CIN / Registration number");
     if (!parsed.documents.pan) errs.push("PAN document");
+    if (!parsed.documents.gst) errs.push("GST certificate document");
+    if (!parsed.documents.cin) errs.push("CIN document");
   }
   if (!parsed.address) errs.push("Address");
   if (errs.length) throw new AppError(400, `Missing or invalid: ${errs.join(", ")}`);
@@ -204,6 +224,8 @@ export const submitMyKyc = asyncHandler(async (req: AuthRequest, res: Response) 
       panNumber: parsed.panNumber,
       aadhaarNumber: parsed.aadhaarNumber,
       cinNumber: parsed.cinNumber,
+      authorizedPersonName: parsed.authorizedPersonName,
+      authorizedPersonPan: parsed.authorizedPersonPan,
       address: parsed.address,
       documents: parsed.documents,
       status: "pending_approval",

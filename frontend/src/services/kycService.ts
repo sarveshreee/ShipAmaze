@@ -9,10 +9,13 @@ export interface KycProfileResponse {
   account_type: "individual" | "company";
   business_name?: string;
   full_name?: string;
+  dob?: string;
   gst_number?: string;
   pan_number?: string;
   aadhaar_number?: string;
   cin_number?: string;
+  authorized_person_name?: string;
+  authorized_person_pan?: string;
   address?: string;
   uploaded_docs?: Record<string, string>;
   documents?: Record<string, string>;

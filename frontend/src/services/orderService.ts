@@ -140,8 +140,9 @@ export type { PublicTrackingOrder } from "@/types/publicTracking";
 
 export async function createShipment(body: {
   orderId: string;
+  /** Local Mongo pickup/warehouse id — backend resolves live Velocity warehouse_id from Pickup.velocityWarehouseId */
   warehouseId: string;
-  /** Linked Velocity warehouse code (e.g. WHBRR) from selected pickup */
+  /** @deprecated Prefer warehouseId; backend resolves live link. Kept for direct API callers only. */
   velocityWarehouseId?: string;
   /** Empty string = Velocity auto-assign */
   carrier_id?: string | number | "";

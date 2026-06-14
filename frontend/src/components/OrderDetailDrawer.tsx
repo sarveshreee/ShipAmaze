@@ -235,24 +235,31 @@ export function OrderDetailDrawer({
     }
   };
 
-  /** Resolves warehouse for Velocity when order does not yet store velocityWarehouseId. */
+  /** Resolves warehouse for Velocity — prefer live pickup via Mongo id over stale order velocity code. */
   function velocityWarehousePayload():
     | { warehouseId: string }
     | { warehouse_id: string }
     | Record<string, never> {
-    if (order.velocityWarehouseId?.trim()) return {};
+    const pickupMongoId =
+      (order.pickupAddressId && String(order.pickupAddressId).trim()) ||
+      (selectedWarehouseMongoId && String(selectedWarehouseMongoId).trim()) ||
+      "";
+    if (pickupMongoId) return { warehouseId: pickupMongoId };
     if (useDevVelocityOverride && isAdmin && CAN_USE_DEV_WH_OVERRIDE && DEV_VELOCITY_WH_CODE) {
       return { warehouse_id: DEV_VELOCITY_WH_CODE };
     }
-    if (selectedWarehouseMongoId) return { warehouseId: selectedWarehouseMongoId };
     return {};
   }
 
   function validateWarehouseBeforeShip(): boolean {
-    if (order.velocityWarehouseId?.trim()) return true;
+    const pickupMongoId =
+      (order.pickupAddressId && String(order.pickupAddressId).trim()) ||
+      (selectedWarehouseMongoId && String(selectedWarehouseMongoId).trim()) ||
+      "";
+    if (pickupMongoId) return true;
     if (useDevVelocityOverride && isAdmin && CAN_USE_DEV_WH_OVERRIDE && DEV_VELOCITY_WH_CODE)
       return true;
-    if (selectedWarehouseMongoId) return true;
+    if (order.velocityWarehouseId?.trim()) return true;
     toast.error(LINK_WH_MESSAGE);
     return false;
   }

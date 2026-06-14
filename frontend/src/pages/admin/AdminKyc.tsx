@@ -197,46 +197,65 @@ export default function AdminKyc() {
                 <div>
                   <p className="font-semibold text-text-primary">{detail.name}</p>
                   <p className="text-text-muted">{detail.email}</p>
+                  {detail.phone && <p className="text-text-muted text-xs">{detail.phone}</p>}
                 </div>
                 {statusBadge(detail.kycStatus ?? detail.status)}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><span className="text-text-muted">Business:</span> {detail.business_name || "—"}</div>
-                <div><span className="text-text-muted">PAN:</span> {detail.pan_number || "—"}</div>
-                <div><span className="text-text-muted">GST:</span> {detail.gst_number || "—"}</div>
-                <div><span className="text-text-muted">Aadhaar:</span> {detail.aadhaar_number ? "••••" + detail.aadhaar_number.slice(-4) : "—"}</div>
-                <div className="col-span-2"><span className="text-text-muted">Address:</span> {detail.address || "—"}</div>
+
+              <div className="rounded-md bg-surface-2/60 border border-border p-3 space-y-1">
+                <p className="font-medium text-text-primary mb-2">Account Type: <span className="capitalize font-normal">{detail.account_type}</span></p>
+                {detail.full_name && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Full name:</span><span>{detail.full_name}</span></div>}
+                {detail.dob && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Date of birth:</span><span>{detail.dob}</span></div>}
+                {detail.business_name && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Business name:</span><span>{detail.business_name}</span></div>}
+                {detail.pan_number && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">PAN:</span><span className="font-mono">{detail.pan_number}</span></div>}
+                {detail.aadhaar_number && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Aadhaar:</span><span className="font-mono">{"••••" + detail.aadhaar_number.slice(-4)}</span></div>}
+                {detail.gst_number && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">GST:</span><span className="font-mono">{detail.gst_number}</span></div>}
+                {detail.cin_number && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">CIN:</span><span className="font-mono">{detail.cin_number}</span></div>}
+                {detail.authorized_person_name && (
+                  <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Auth. person:</span><span>{detail.authorized_person_name}</span></div>
+                )}
+                {detail.authorized_person_pan && (
+                  <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Auth. person PAN:</span><span className="font-mono">{detail.authorized_person_pan}</span></div>
+                )}
+                {detail.address && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Address:</span><span>{detail.address}</span></div>}
               </div>
+
               {detail.rejectionRemark && (
                 <div className="rounded-md border border-danger/30 bg-danger-light/40 p-3 text-danger-dark">{detail.rejectionRemark}</div>
               )}
+
               <div className="space-y-2">
-                <p className="font-medium">Documents</p>
-                {(
-                  [
-                    { key: "pan", label: "PAN" },
-                    { key: "aadhaarFront", label: "Aadhaar front" },
-                    { key: "aadhaarBack", label: "Aadhaar back" },
-                    { key: "aadhaar", label: "Aadhaar (legacy)" },
-                    { key: "gst", label: "GST" },
-                    { key: "cin", label: "CIN" },
-                  ] as const
-                ).map(({ key, label }) => {
-                  const url = detail.uploaded_docs?.[key] ?? detail.documents?.[key];
-                  if (!url) return null;
-                  const isData = url.startsWith("data:") || url.length > 200;
-                  return (
-                    <div key={key} className="flex items-center justify-between gap-2 rounded border border-border p-2">
-                      <span>{label}</span>
-                      {isData ? (
-                        <a href={url} target="_blank" rel="noreferrer" className="text-primary text-xs">View document</a>
-                      ) : (
-                        <span className="text-xs text-text-muted">{url}</span>
-                      )}
-                    </div>
-                  );
-                })}
+                <p className="font-medium">Uploaded Documents</p>
+                {(() => {
+                  const allDocs = { ...(detail.documents ?? {}), ...(detail.uploaded_docs ?? {}) };
+                  const docLabels: Record<string, string> = {
+                    pan: "PAN Card",
+                    aadhaarFront: "Aadhaar Front",
+                    aadhaarBack: "Aadhaar Back",
+                    aadhaar: "Aadhaar (legacy)",
+                    gst: "GST Certificate",
+                    cin: "CIN Document",
+                    reg: "Registration Document",
+                    auth_id: "Authorized Person ID",
+                  };
+                  const entries = Object.entries(allDocs).filter(([, v]) => !!v);
+                  if (entries.length === 0) return <p className="text-text-muted text-xs">No documents uploaded.</p>;
+                  return entries.map(([key, url]) => {
+                    const isData = url.startsWith("data:") || url.length > 200;
+                    return (
+                      <div key={key} className="flex items-center justify-between gap-2 rounded border border-border p-2">
+                        <span className="font-medium">{docLabels[key] ?? key}</span>
+                        {isData ? (
+                          <a href={url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">View document ↗</a>
+                        ) : (
+                          <span className="text-xs text-text-muted">{url}</span>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
+
               {(detail.kycStatus === "pending_approval" || detail.status === "pending") && (
                 <DialogFooter className="gap-2">
                   <Button variant="outline" className="text-danger" onClick={() => { setRejectUserId(detail.userId); setDetail(null); }}>Reject</Button>
