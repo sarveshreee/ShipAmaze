@@ -56,6 +56,10 @@ export interface ShopifyProduct {
   variants: Array<{ id: number; price: string; sku: string; inventory_quantity: number }>;
 }
 
+function shopifyApiVersion(): string {
+  return process.env.SHOPIFY_API_VERSION?.trim() || "2026-01";
+}
+
 function shopifyHeaders(accessToken: string) {
   return {
     "X-Shopify-Access-Token": accessToken,
@@ -65,7 +69,7 @@ function shopifyHeaders(accessToken: string) {
 
 function shopifyBaseUrl(shop: string) {
   const domain = shop.includes(".myshopify.com") ? shop : `${shop}.myshopify.com`;
-  return `https://${domain}/admin/api/2024-01`;
+  return `https://${domain}/admin/api/${shopifyApiVersion()}`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -85,6 +89,68 @@ function formatShopifyErrorBody(text: string): string {
     /* keep raw snippet */
   }
   return message;
+}
+
+function shopifyAuthError(status: number, bodyText: string, endpoint: string): AppError {
+  const detail = formatShopifyErrorBody(bodyText);
+  if (status === 403) {
+    const msg =
+      endpoint.includes("orders") || detail.toLowerCase().includes("order")
+        ? "Shopify denied access to orders. In Shopify Admin → Develop apps → your custom app → Configuration, enable read_orders (and write_orders) under Admin API scopes, save, then reconnect in Channels."
+        : `Shopify denied access. Check your custom app Admin API scopes and reconnect in Channels. (${detail})`;
+    return new AppError(502, msg);
+  }
+  if (status === 401) {
+    return new AppError(
+      502,
+      "Shopify access token is invalid or revoked. Disconnect and reconnect your store in Channels with your custom app Client ID and Secret."
+    );
+  }
+  return new AppError(502, `Shopify API error ${status}: ${detail}`);
+}
+
+export type ShopifyConnectionCheck = {
+  ok: boolean;
+  issue?: "invalid_token" | "missing_scope" | "api_error";
+  message?: string;
+};
+
+/** Validates shop + orders API access (same checks used by manual sync). */
+export async function verifyStoreConnection(
+  accessToken: string,
+  shop: string
+): Promise<ShopifyConnectionCheck> {
+  try {
+    await getShopDetails(accessToken, shop);
+  } catch (e: unknown) {
+    if (e instanceof AppError) {
+      const issue = e.message.toLowerCase().includes("scope") ? "missing_scope" : "invalid_token";
+      return { ok: false, issue, message: e.message };
+    }
+    return { ok: false, issue: "api_error", message: "Could not reach Shopify." };
+  }
+
+  const probeUrl = `${shopifyBaseUrl(shop)}/orders.json?limit=1&status=any`;
+  try {
+    const res = await fetch(probeUrl, { method: "GET", headers: shopifyHeaders(accessToken) });
+    if (res.ok) return { ok: true };
+    const text = await res.text();
+    if (res.status === 401 || res.status === 403) {
+      const err = shopifyAuthError(res.status, text, "orders.json");
+      return {
+        ok: false,
+        issue: res.status === 403 ? "missing_scope" : "invalid_token",
+        message: err.message,
+      };
+    }
+    return {
+      ok: false,
+      issue: "api_error",
+      message: shopifyAuthError(res.status, text, "orders.json").message,
+    };
+  } catch {
+    return { ok: false, issue: "api_error", message: "Could not verify Shopify order access." };
+  }
 }
 
 async function shopifyRequest<T>(
@@ -110,8 +176,7 @@ async function shopifyRequest<T>(
       const text = await res.text();
       const message = formatShopifyErrorBody(text);
       if (res.status === 401 || res.status === 403) {
-        // Use 502 (not 401) so the frontend does not treat this as a ShipAmaze session expiry.
-        throw new AppError(502, "Shopify rejected this access token. Reconnect your store in Channels.");
+        throw shopifyAuthError(res.status, text, url);
       }
       throw new AppError(502, `Shopify API error ${res.status}: ${message}`);
     }
@@ -198,8 +263,7 @@ export async function getOrders(accessToken: string, shop: string): Promise<Shop
       const text = await res.text();
       const snippet = text.length > 400 ? `${text.slice(0, 400)}…` : text;
       if (res.status === 401 || res.status === 403) {
-        // Use 502 (not 401) so the frontend does not treat this as a ShipAmaze session expiry.
-        throw new AppError(502, "Shopify rejected this access token. Reconnect your store in Channels.");
+        throw shopifyAuthError(res.status, text, "orders.json");
       }
       throw new AppError(502, `Shopify API error ${res.status}: ${snippet}`);
     }

@@ -47,6 +47,44 @@ function oauthScopes(): string {
   );
 }
 
+const REQUIRED_SHOPIFY_SCOPES = ["read_orders"] as const;
+
+function assertRequiredShopifyScopes(scope: string): string | null {
+  const granted = new Set(
+    scope
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+  const missing = REQUIRED_SHOPIFY_SCOPES.filter((s) => !granted.has(s));
+  if (missing.length === 0) return null;
+  return `Missing Shopify scopes: ${missing.join(", ")}. In Shopify Admin → Develop apps → your custom app → Configuration, enable ${missing.join(" and ")} under Admin API scopes, save, then connect again.`;
+}
+
+async function isShopifyConnectionHealthy(
+  accessTokenEncrypted: string,
+  shopDomain: string
+): Promise<{ ok: true } | { ok: false; message: string; issue: "invalid_token" | "missing_scope" | "decrypt_failed" | "api_error" }> {
+  let accessToken: string;
+  try {
+    accessToken = decrypt(accessTokenEncrypted);
+  } catch {
+    return {
+      ok: false,
+      issue: "decrypt_failed",
+      message:
+        "Stored Shopify credentials could not be read. Disconnect and reconnect your store in Channels (ensure ENCRYPTION_SECRET has not changed on the server).",
+    };
+  }
+  const check = await shopifyService.verifyStoreConnection(accessToken, shopDomain);
+  if (check.ok) return { ok: true };
+  return {
+    ok: false,
+    issue: check.issue ?? "api_error",
+    message: check.message ?? "Shopify connection is not healthy. Reconnect your store in Channels.",
+  };
+}
+
 function resolveFrontendBaseUrl(): string {
   const explicit = process.env.FRONTEND_URL?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
@@ -280,18 +318,14 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
     isActive: true,
   }).lean();
   if (existing?.accessTokenEncrypted) {
-    try {
-      const tok = decrypt(existing.accessTokenEncrypted);
-      if (tok) {
-        throw new AppError(
-          400,
-          "This Shopify store is already connected. Disconnect first to reconnect with new credentials."
-        );
-      }
-    } catch (e: unknown) {
-      if (e instanceof AppError) throw e;
-      /* stale token — allow reconnect */
+    const health = await isShopifyConnectionHealthy(existing.accessTokenEncrypted, shopDomain);
+    if (health.ok) {
+      throw new AppError(
+        400,
+        "This Shopify store is already connected. Disconnect first to reconnect with new credentials."
+      );
     }
+    /* Invalid token / scope — allow OAuth reconnect (callback upserts the connection). */
   }
 
   const state = await createOAuthState(
@@ -377,6 +411,20 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   const { access_token, scope } = tokenData;
   if (process.env.NODE_ENV === "development") {
     devLog.info("[shopify] oauth token exchanged", { scope });
+  }
+
+  const scopeError = assertRequiredShopifyScopes(scope);
+  if (scopeError) {
+    devLog.warn("[shopify:oauth] missing required scopes", { scope });
+    res.redirect(buildFrontendRedirect("error", scopeError));
+    return;
+  }
+
+  const accessCheck = await shopifyService.verifyStoreConnection(access_token, shop);
+  if (!accessCheck.ok) {
+    devLog.warn("[shopify:oauth] store access check failed", { message: accessCheck.message });
+    res.redirect(buildFrontendRedirect("error", accessCheck.message ?? "Could not access Shopify orders."));
+    return;
   }
 
   // Get shop details to verify
@@ -467,12 +515,25 @@ export const getStatus = asyncHandler(async (req: AuthRequest, res: Response) =>
     ownerUserId: req.user._id,
     isActive: true,
   })
-    .select("shopDomain scope installedAt lastSyncedAt syncCount lastSyncError")
+    .select("shopDomain scope installedAt lastSyncedAt syncCount lastSyncError accessTokenEncrypted")
     .lean();
 
   if (!conn) {
     res.json({ connected: false });
     return;
+  }
+
+  let tokenHealth: "ok" | "invalid_token" | "missing_scope" | "decrypt_failed" | "api_error" = "ok";
+  let needsReconnect = false;
+  let connectionMessage: string | null = null;
+
+  if (conn.accessTokenEncrypted) {
+    const health = await isShopifyConnectionHealthy(conn.accessTokenEncrypted, conn.shopDomain);
+    if (!health.ok) {
+      tokenHealth = health.issue;
+      needsReconnect = true;
+      connectionMessage = health.message;
+    }
   }
 
   const ownerOr = {
@@ -500,8 +561,13 @@ export const getStatus = asyncHandler(async (req: AuthRequest, res: Response) =>
     installedAt: conn.installedAt,
     lastSyncedAt: conn.lastSyncedAt ?? null,
     syncCount: conn.syncCount ?? 0,
-    lastSyncError: conn.lastSyncError ?? null,
+    lastSyncError: conn.lastSyncError ?? connectionMessage ?? null,
     syncedOrdersCount,
+    tokenHealth,
+    needsReconnect,
+    connectionMessage,
+    redirectUri: oauthRedirectUri(),
+    appUrl: resolveFrontendBaseUrl(),
   });
 });
 

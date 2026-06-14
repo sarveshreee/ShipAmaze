@@ -49,8 +49,8 @@ function errMsg(err: unknown): string {
   return "Something went wrong";
 }
 
-const SHOPIFY_REDIRECT_URI = "https://api.shipamaze.com/api/shopify/callback";
-const SHOPIFY_APP_URL = "https://shipamaze.com";
+const DEFAULT_SHOPIFY_REDIRECT_URI = "https://api.shipamaze.com/api/shopify/callback";
+const DEFAULT_SHOPIFY_APP_URL = "https://shipamaze.com";
 
 function SetupUrlCopyRow({ label, url }: { label: string; url: string }) {
   const [copied, setCopied] = useState(false);
@@ -113,6 +113,9 @@ export default function ShopifyConnect() {
     try {
       const s = await shopifyService.getShopifyStatus();
       setStatus(s);
+      if (s.connected && s.shopDomain) {
+        setShop(s.shopDomain);
+      }
     } catch {
       setStatus({ connected: false });
     } finally {
@@ -217,6 +220,7 @@ export default function ShopifyConnect() {
             ? `${m} Wait a moment, then try again.`
             : m,
       });
+      void loadStatus();
     } finally {
       setSyncing(false);
     }
@@ -237,6 +241,13 @@ export default function ShopifyConnect() {
       setDisconnecting(false);
     }
   };
+
+  const showReconnect =
+    Boolean(status?.connected && (status.needsReconnect || status.tokenHealth !== "ok"));
+  const setupRedirectUri = status?.redirectUri?.trim() || DEFAULT_SHOPIFY_REDIRECT_URI;
+  const setupAppUrl = status?.appUrl?.trim() || DEFAULT_SHOPIFY_APP_URL;
+  const connectionWarning =
+    status?.connectionMessage?.trim() || status?.lastSyncError?.trim() || null;
 
   if (loading) {
     return (
@@ -284,9 +295,14 @@ export default function ShopifyConnect() {
               Connect with your store&apos;s custom app credentials (same flow as Importerr).
             </p>
           </div>
-          {status?.connected && (
+          {status?.connected && !showReconnect && (
             <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium bg-success-light text-success-dark border border-success/30 shrink-0">
               <CheckCircle2 className="h-3.5 w-3.5" /> Connected
+            </span>
+          )}
+          {showReconnect && (
+            <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium bg-warning-light text-warning-dark border border-warning/30 shrink-0">
+              <AlertCircle className="h-3.5 w-3.5" /> Reconnect required
             </span>
           )}
         </div>
@@ -316,15 +332,54 @@ export default function ShopifyConnect() {
                   ) : null}
                 </p>
               )}
-              {status.lastSyncError ? (
+              {connectionWarning ? (
                 <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-light/30 p-2 text-xs text-warning-dark mt-2">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>{status.lastSyncError}</span>
+                  <span>{connectionWarning}</span>
                 </div>
               ) : null}
             </div>
 
-            {!status.lastSyncedAt && (
+            {showReconnect ? (
+              <div className="rounded-lg border border-warning/40 bg-warning-light/20 p-4 space-y-3">
+                <p className="text-sm font-medium text-warning-dark">
+                  Reconnect your Shopify store to refresh the access token and order permissions.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="shopify-reconnect-key">API Key (Client ID)</Label>
+                  <Input
+                    id="shopify-reconnect-key"
+                    placeholder="From Shopify Admin → Develop apps"
+                    value={shopifyApiKey}
+                    onChange={(e) => setShopifyApiKey(e.target.value)}
+                    disabled={connecting}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shopify-reconnect-secret">API Secret (Client secret)</Label>
+                  <Input
+                    id="shopify-reconnect-secret"
+                    type="password"
+                    placeholder="From your custom app credentials"
+                    value={shopifyApiSecret}
+                    onChange={(e) => setShopifyApiSecret(e.target.value)}
+                    disabled={connecting}
+                    autoComplete="off"
+                  />
+                </div>
+                <Button
+                  onClick={() => void handleConnect()}
+                  disabled={connecting || syncing}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary-dark gap-2"
+                >
+                  <Link2 className="h-4 w-4" />
+                  {connecting ? "Redirecting to Shopify…" : "Reconnect Shopify"}
+                </Button>
+              </div>
+            ) : null}
+
+            {!status.lastSyncedAt && !showReconnect && (
               <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning-light/40 p-3">
                 <AlertCircle className="h-4 w-4 text-warning-dark mt-0.5 shrink-0" />
                 <p className="text-sm text-warning-dark">
@@ -336,7 +391,7 @@ export default function ShopifyConnect() {
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() => void handleSync()}
-                disabled={syncing}
+                disabled={syncing || showReconnect}
                 className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2"
               >
                 <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
@@ -409,11 +464,11 @@ export default function ShopifyConnect() {
                 </li>
                 <li className="flex gap-2">
                   <span className="font-medium text-text-secondary shrink-0">2.</span>
-                  <SetupUrlCopyRow label="Redirect URI" url={SHOPIFY_REDIRECT_URI} />
+                  <SetupUrlCopyRow label="Redirect URI" url={setupRedirectUri} />
                 </li>
                 <li className="flex gap-2">
                   <span className="font-medium text-text-secondary shrink-0">3.</span>
-                  <SetupUrlCopyRow label="App URL" url={SHOPIFY_APP_URL} />
+                  <SetupUrlCopyRow label="App URL" url={setupAppUrl} />
                 </li>
                 <li className="flex gap-2">
                   <span className="font-medium text-text-secondary shrink-0">4.</span>

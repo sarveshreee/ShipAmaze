@@ -9,6 +9,11 @@ export interface ShopifyStatus {
   syncCount?: number;
   lastSyncError?: string | null;
   syncedOrdersCount?: number;
+  tokenHealth?: "ok" | "invalid_token" | "missing_scope" | "decrypt_failed" | "api_error";
+  needsReconnect?: boolean;
+  connectionMessage?: string | null;
+  redirectUri?: string;
+  appUrl?: string;
 }
 
 export type ShopifySkipReason = {

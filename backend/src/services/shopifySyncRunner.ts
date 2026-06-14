@@ -87,9 +87,19 @@ export async function performShopifyOrderSyncForUser(
     throw new AppError(400, "No active Shopify store connected. Please connect first.");
   }
 
+  let accessToken: string;
+  try {
+    accessToken = decrypt(conn.accessTokenEncrypted);
+  } catch {
+    const msg =
+      "Stored Shopify credentials could not be read. Disconnect and reconnect your store in Channels.";
+    conn.lastSyncError = msg;
+    await conn.save();
+    throw new AppError(502, msg);
+  }
+
   let shopOrders: shopifyService.ShopifyOrder[] = [];
   try {
-    const accessToken = decrypt(conn.accessTokenEncrypted);
     shopOrders = await shopifyService.getOrders(accessToken, conn.shopDomain);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Shopify sync failed";
