@@ -114,34 +114,37 @@ export async function rejectProductPrice(id: string, reason: string) {
   );
 }
 
-export type DropshipperCourierRate = {
-  courierName: string;
-  carrierId?: string;
-  surfaceRate?: number;
-  airRate?: number;
-  codRate?: number;
-  enabled?: boolean;
-};
-
 export type DropshipperShippingRatesResponse = {
-  dropshipper: { id: string; name: string; email: string };
-  override: {
-    shippingCharge: number;
-    surfaceRate?: number;
-    airRate?: number;
-    courierRates: DropshipperCourierRate[];
-    notes?: string;
+  dropshipper: { id: string; userId?: string; name: string; email: string };
+  paymentType: "COD" | "Prepaid";
+  courierZoneRows: CourierZoneRowPayload[];
+  masterCourierZoneRows?: CourierZoneRowPayload[];
+  hasOverride?: boolean;
+  updatedAt?: string | null;
+  override?: {
+    prepaidCourierZoneRows?: CourierZoneRowPayload[];
+    codCourierZoneRows?: CourierZoneRowPayload[];
     updatedAt?: string | null;
   };
-  availableCouriers: Array<{ name: string; surfaceRate?: number; airRate?: number }>;
 };
 
-export async function getDropshipperShippingRates(userId: string) {
-  return apiClient.get<DropshipperShippingRatesResponse>(`/admin/dropshipper-shipping-rates/${encodeURIComponent(userId)}`);
+export async function getDropshipperShippingRates(userId: string, paymentType: "COD" | "Prepaid" = "Prepaid") {
+  return apiClient.get<DropshipperShippingRatesResponse>(
+    `/admin/dropshipper-shipping-rates/${encodeURIComponent(userId)}?paymentType=${paymentType}`
+  );
 }
 
-export async function saveDropshipperShippingRates(userId: string, body: Record<string, unknown>) {
-  return apiClient.put<DropshipperShippingRatesResponse["override"]>(`/admin/dropshipper-shipping-rates/${encodeURIComponent(userId)}`, body);
+export async function saveDropshipperShippingRates(
+  userId: string,
+  body: {
+    paymentType: "COD" | "Prepaid";
+    courierZoneRows: CourierZoneRowPayload[];
+  }
+) {
+  return apiClient.put<{ paymentType: "COD" | "Prepaid"; courierZoneRows: CourierZoneRowPayload[]; hasOverride: boolean }>(
+    `/admin/dropshipper-shipping-rates/${encodeURIComponent(userId)}`,
+    body
+  );
 }
 
 export function finalPrice(price: number, shipping: number) {

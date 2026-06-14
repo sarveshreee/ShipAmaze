@@ -23,6 +23,7 @@ import { Courier } from "../models/Courier.js";
 import { Product } from "../models/Product.js";
 import { User } from "../models/User.js";
 import { DropshipperShippingOverride } from "../models/DropshipperShippingOverride.js";
+import { Dropshipper } from "../models/Dropshipper.js";
 import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotifications.js";
 import mongoose from "mongoose";
 import { assertOwnerAdmin, isStaffAdmin } from "../utils/staffPermissions.js";
@@ -155,6 +156,16 @@ export const getShippingRateCard = asyncHandler(async (req: AuthRequest, res: Re
   let courierZoneRows = card?.courierZoneRows?.length
     ? card.courierZoneRows
     : migrateLegacyRatesToCourierRows(baseRates, DEFAULT_ZONES);
+  let usingDropshipperOverride = false;
+  if (req.user.role === "dropshipper") {
+    const override = await DropshipperShippingOverride.findOne({ dropshipperUserId: req.user._id }).lean();
+    const overrideRows =
+      paymentType === "COD" ? override?.codCourierZoneRows : override?.prepaidCourierZoneRows;
+    if (overrideRows?.length) {
+      courierZoneRows = overrideRows;
+      usingDropshipperOverride = true;
+    }
+  }
   let enterpriseRows = card?.enterpriseRows?.length
     ? card.enterpriseRows
     : buildDefaultEnterpriseRows(courierZoneRows, undefined, DEFAULT_ZONES);
@@ -170,7 +181,9 @@ export const getShippingRateCard = asyncHandler(async (req: AuthRequest, res: Re
     paymentType: payload.paymentType,
     zones: payload.zones ?? DEFAULT_ZONES,
     weights: payload.weights ?? DEFAULT_WEIGHTS,
-    rates: payload.rates ?? baseRates,
+    rates: usingDropshipperOverride
+        ? deriveLegacyRatesFromCourierRows(courierZoneRows, DEFAULT_ZONES, DEFAULT_WEIGHTS.length)
+        : payload.rates ?? baseRates,
     courierZoneRows,
     readOnly: req.user.role !== "admin",
     updatedAt: card?.updatedAt ?? null,
@@ -551,6 +564,8 @@ function mapDropshipperShippingOverride(row: Record<string, unknown> | null) {
       surfaceRate: undefined as number | undefined,
       airRate: undefined as number | undefined,
       courierRates: [] as Array<Record<string, unknown>>,
+      prepaidCourierZoneRows: [] as Array<Record<string, unknown>>,
+      codCourierZoneRows: [] as Array<Record<string, unknown>>,
       notes: "",
       updatedAt: null as Date | null,
     };
@@ -561,57 +576,100 @@ function mapDropshipperShippingOverride(row: Record<string, unknown> | null) {
     surfaceRate: row.surfaceRate != null ? num(row.surfaceRate) : undefined,
     airRate: row.airRate != null ? num(row.airRate) : undefined,
     courierRates: Array.isArray(row.courierRates) ? row.courierRates : [],
+    prepaidCourierZoneRows: Array.isArray(row.prepaidCourierZoneRows) ? row.prepaidCourierZoneRows : [],
+    codCourierZoneRows: Array.isArray(row.codCourierZoneRows) ? row.codCourierZoneRows : [],
     notes: String(row.notes ?? ""),
     updatedAt: row.updatedAt as Date | null,
   };
 }
 
+async function resolveDropshipperUserId(rawId: string): Promise<string> {
+  if (!mongoose.isValidObjectId(rawId)) throw new AppError(400, "Invalid userId");
+  const user = await User.findById(rawId).select("role").lean();
+  if (user?.role === "dropshipper") return rawId;
+  const drop = await Dropshipper.findById(rawId).select("userId").lean();
+  if (drop?.userId) {
+    const linked = await User.findById(drop.userId).select("role").lean();
+    if (linked?.role === "dropshipper") return String(drop.userId);
+  }
+  throw new AppError(404, "Dropshipper not found");
+}
+
+function mapCourierZoneRows(rows: Array<Record<string, unknown> | { courier: string; zone: string; rates: number[]; codCharge: number; active: boolean }>) {
+  return rows.map((r) => ({
+    courier: String((r as Record<string, unknown>).courier ?? ""),
+    zone: String((r as Record<string, unknown>).zone ?? ""),
+    rates: Array.isArray((r as Record<string, unknown>).rates) ? [...((r as Record<string, unknown>).rates as number[])] : [],
+    codCharge: num((r as Record<string, unknown>).codCharge ?? 0),
+    active: (r as Record<string, unknown>).active !== false,
+  }));
+}
+
+async function loadMasterCourierZoneRows(paymentType: "COD" | "Prepaid") {
+  const card = await ShippingRateCard.findOne({ paymentType }).lean();
+  const baseRates = card?.rates?.length ? card.rates : defaultRateMatrix();
+  const rows = card?.courierZoneRows?.length
+    ? card.courierZoneRows
+    : migrateLegacyRatesToCourierRows(baseRates, DEFAULT_ZONES);
+  return mapCourierZoneRows(rows as unknown as Array<Record<string, unknown>>);
+}
+
 /** Admin: read per-dropshipper courier pricing overrides. */
 export const getDropshipperShippingRates = asyncHandler(async (req: AuthRequest, res: Response) => {
   assertOwnerAdminReq(req);
-  const userId = req.params.userId;
-  if (!mongoose.isValidObjectId(userId)) throw new AppError(400, "Invalid userId");
+  const userId = await resolveDropshipperUserId(req.params.userId);
+  const paymentType = (String(req.query.paymentType ?? "Prepaid") === "COD" ? "COD" : "Prepaid") as
+    | "COD"
+    | "Prepaid";
   const user = await User.findById(userId).select("name email role").lean();
   if (!user || user.role !== "dropshipper") throw new AppError(404, "Dropshipper not found");
-  const override = await DropshipperShippingOverride.findOne({ dropshipperUserId: userId }).lean();
-  const couriers = await Courier.find({ active: { $ne: false } }).sort({ priority: 1, name: 1 }).lean();
+
+  const [override, masterCourierZoneRows] = await Promise.all([
+    DropshipperShippingOverride.findOne({ dropshipperUserId: userId }).lean(),
+    loadMasterCourierZoneRows(paymentType),
+  ]);
+
+  const savedRows =
+    paymentType === "COD" ? override?.codCourierZoneRows : override?.prepaidCourierZoneRows;
+  const hasOverride = Array.isArray(savedRows) && savedRows.length > 0;
+  const courierZoneRows = hasOverride
+    ? mapCourierZoneRows(savedRows as Array<Record<string, unknown>>)
+    : masterCourierZoneRows;
+
   res.json({
-    dropshipper: { id: userId, name: user.name, email: user.email },
+    dropshipper: { id: userId, userId, name: user.name, email: user.email },
+    paymentType,
+    courierZoneRows,
+    masterCourierZoneRows,
+    hasOverride,
     override: mapDropshipperShippingOverride(override as Record<string, unknown> | null),
-    availableCouriers: couriers.map((c) => ({
-      name: c.name,
-      surfaceRate: c.surfaceRate,
-      airRate: c.airRate,
-    })),
+    updatedAt: override?.updatedAt ?? null,
   });
 });
 
-/** Admin: save per-dropshipper courier pricing (affects live rate quotes). */
+/** Admin: save per-dropshipper courier zone matrix (does not touch global rate card). */
 export const saveDropshipperShippingRates = asyncHandler(async (req: AuthRequest, res: Response) => {
   assertOwnerAdminReq(req);
-  const userId = req.params.userId;
-  if (!mongoose.isValidObjectId(userId)) throw new AppError(400, "Invalid userId");
+  const userId = await resolveDropshipperUserId(req.params.userId);
   const user = await User.findById(userId).select("role name").lean();
   if (!user || user.role !== "dropshipper") throw new AppError(404, "Dropshipper not found");
 
-  const courierRates = Array.isArray(req.body.courierRates) ? req.body.courierRates : [];
+  const paymentType = (req.body.paymentType === "COD" ? "COD" : "Prepaid") as "COD" | "Prepaid";
+  const courierZoneRows = parseCourierZoneRows(req.body.courierZoneRows, DEFAULT_ZONES);
+  const field = paymentType === "COD" ? "codCourierZoneRows" : "prepaidCourierZoneRows";
+
+  const previous = await DropshipperShippingOverride.findOne({ dropshipperUserId: userId }).lean();
+  const previousRows =
+    paymentType === "COD" ? previous?.codCourierZoneRows : previous?.prepaidCourierZoneRows;
+
   const doc = await DropshipperShippingOverride.findOneAndUpdate(
     { dropshipperUserId: userId },
     {
-      dropshipperUserId: userId,
-      shippingCharge: num(req.body.shippingCharge),
-      surfaceRate: req.body.surfaceRate != null ? num(req.body.surfaceRate) : undefined,
-      airRate: req.body.airRate != null ? num(req.body.airRate) : undefined,
-      courierRates: courierRates.map((r: Record<string, unknown>) => ({
-        courierName: String(r.courierName ?? "").trim(),
-        carrierId: r.carrierId != null ? String(r.carrierId) : undefined,
-        surfaceRate: r.surfaceRate != null ? num(r.surfaceRate) : undefined,
-        airRate: r.airRate != null ? num(r.airRate) : undefined,
-        codRate: r.codRate != null ? num(r.codRate) : undefined,
-        enabled: r.enabled !== false,
-      })),
-      notes: String(req.body.notes ?? ""),
-      updatedBy: req.user!._id,
+      $set: {
+        dropshipperUserId: userId,
+        [field]: courierZoneRows,
+        updatedBy: req.user!._id,
+      },
     },
     { upsert: true, new: true }
   );
@@ -620,13 +678,13 @@ export const saveDropshipperShippingRates = asyncHandler(async (req: AuthRequest
     type: "dropshipper_override",
     dropshipperUserId: new mongoose.Types.ObjectId(userId),
     pendingValues: {
-      shippingCharge: doc.shippingCharge,
-      surfaceRate: doc.surfaceRate,
-      airRate: doc.airRate,
-      courierRates: doc.courierRates,
-      notes: doc.notes,
+      paymentType,
+      courierZoneRows,
     },
-    previousValues: {},
+    previousValues: {
+      paymentType,
+      courierZoneRows: previousRows ?? [],
+    },
     status: "approved",
     submittedBy: req.user!._id,
     submittedByRole: "admin",
@@ -635,5 +693,10 @@ export const saveDropshipperShippingRates = asyncHandler(async (req: AuthRequest
     reviewedAt: new Date(),
   });
 
-  res.json(mapDropshipperShippingOverride(doc.toObject() as unknown as Record<string, unknown>));
+  res.json({
+    paymentType,
+    courierZoneRows: mapCourierZoneRows(courierZoneRows as unknown as Array<Record<string, unknown>>),
+    hasOverride: true,
+    updatedAt: doc.updatedAt,
+  });
 });

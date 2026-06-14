@@ -231,6 +231,7 @@ export const listDropshippers = asyncHandler(async (req: AuthRequest, res: Respo
     const u = d.userId as { name?: string; email?: string; phone?: string } | null;
     out.push({
       id: String(d._id),
+      userId: String(d.userId),
       name: u?.name ?? "User",
       email: u?.email ?? "",
       phone: u?.phone ?? "",

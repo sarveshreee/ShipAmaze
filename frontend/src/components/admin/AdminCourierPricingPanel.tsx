@@ -64,6 +64,9 @@ type Props = {
   loading: boolean;
   saving: boolean;
   onSave: () => void;
+  matrixOnly?: boolean;
+  title?: string;
+  subtitle?: string;
 };
 
 export function AdminCourierPricingPanel({
@@ -78,6 +81,9 @@ export function AdminCourierPricingPanel({
   loading,
   saving,
   onSave,
+  matrixOnly = false,
+  title = "Courier Rate Card",
+  subtitle = "Enterprise pricing matrix — saves sync dropshipper zone rates from Delhivery.",
 }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("matrix");
   const [courierFilter, setCourierFilter] = useState<string>("all");
@@ -90,8 +96,11 @@ export function AdminCourierPricingPanel({
   const [marginPercent, setMarginPercent] = useState("10");
 
   const hasChanges =
-    JSON.stringify({ courierZoneRows, enterpriseRows }) !==
-    JSON.stringify({ courierZoneRows: initialCourierZoneRows, enterpriseRows: initialEnterpriseRows });
+    JSON.stringify({ courierZoneRows, enterpriseRows: matrixOnly ? [] : enterpriseRows }) !==
+    JSON.stringify({
+      courierZoneRows: initialCourierZoneRows,
+      enterpriseRows: matrixOnly ? [] : initialEnterpriseRows,
+    });
 
   const filteredMatrixRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -174,7 +183,9 @@ export function AdminCourierPricingPanel({
     }
     const courier = bulkCourier === "all" ? undefined : bulkCourier;
     onCourierZoneRowsChange(applyMargin(courierZoneRows, pct, courier));
-    onEnterpriseRowsChange(applyMarginEnterprise(enterpriseRows, pct, courier));
+    if (!matrixOnly) {
+      onEnterpriseRowsChange(applyMarginEnterprise(enterpriseRows, pct, courier));
+    }
     toast.success(`Applied ${pct > 0 ? "+" : ""}${pct}% margin`);
   };
 
@@ -184,9 +195,11 @@ export function AdminCourierPricingPanel({
       return;
     }
     onCourierZoneRowsChange(setCourierActive(courierZoneRows, bulkCourier, active));
-    onEnterpriseRowsChange(
-      enterpriseRows.map((r) => (r.courier === bulkCourier ? { ...r, active } : r))
-    );
+    if (!matrixOnly) {
+      onEnterpriseRowsChange(
+        enterpriseRows.map((r) => (r.courier === bulkCourier ? { ...r, active } : r))
+      );
+    }
     toast.success(`${bulkCourier} ${active ? "enabled" : "disabled"}`);
   };
 
@@ -199,14 +212,12 @@ export function AdminCourierPricingPanel({
           <div>
             <h3 className="font-semibold text-text-primary flex items-center gap-2">
               <Truck className="h-5 w-5 text-primary" />
-              Courier Rate Card
+              {title}
               <Badge variant="outline" className="font-normal text-xs">
                 {paymentType}
               </Badge>
             </h3>
-            <p className="text-xs text-text-muted mt-1">
-              Enterprise pricing matrix — saves sync dropshipper zone rates from Delhivery.
-            </p>
+            <p className="text-xs text-text-muted mt-1">{subtitle}</p>
             {hasChanges && (
               <p className="text-xs text-amber-700 dark:text-amber-400 font-medium mt-1">Unsaved changes</p>
             )}
@@ -233,6 +244,7 @@ export function AdminCourierPricingPanel({
               {t}
             </button>
           ))}
+          {!matrixOnly && (
           <div className="flex rounded-lg border border-border overflow-hidden ml-auto">
             {(
               [
@@ -255,6 +267,7 @@ export function AdminCourierPricingPanel({
               </button>
             ))}
           </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -385,7 +398,7 @@ export function AdminCourierPricingPanel({
         <div className="flex items-center gap-2 p-10 text-text-muted justify-center">
           <Loader2 className="h-5 w-5 animate-spin" /> Loading pricing…
         </div>
-      ) : viewMode === "matrix" ? (
+      ) : viewMode === "matrix" || matrixOnly ? (
         <div className="overflow-x-auto max-h-[min(70vh,720px)]">
           <table className="w-full text-sm min-w-[900px]">
             <thead className="sticky top-0 z-10 bg-surface-2/95 dark:bg-muted/90 backdrop-blur-sm">
