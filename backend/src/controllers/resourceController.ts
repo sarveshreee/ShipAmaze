@@ -228,10 +228,21 @@ export const listDropshippers = asyncHandler(async (req: AuthRequest, res: Respo
   const rows = await Dropshipper.find().populate("userId").lean();
   const out = [];
   for (const d of rows) {
-    const u = d.userId as { name?: string; email?: string; phone?: string } | null;
+    const rawUserRef = d.userId as
+      | { _id?: unknown; name?: string; email?: string; phone?: string }
+      | string
+      | null;
+    let userId = "";
+    let u: { name?: string; email?: string; phone?: string } | null = null;
+    if (rawUserRef && typeof rawUserRef === "object" && rawUserRef._id != null) {
+      userId = String(rawUserRef._id);
+      u = rawUserRef;
+    } else if (rawUserRef) {
+      userId = String(rawUserRef);
+    }
     out.push({
       id: String(d._id),
-      userId: String(d.userId),
+      userId,
       name: u?.name ?? "User",
       email: u?.email ?? "",
       phone: u?.phone ?? "",

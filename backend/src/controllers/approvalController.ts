@@ -23,7 +23,6 @@ import { Courier } from "../models/Courier.js";
 import { Product } from "../models/Product.js";
 import { User } from "../models/User.js";
 import { DropshipperShippingOverride } from "../models/DropshipperShippingOverride.js";
-import { Dropshipper } from "../models/Dropshipper.js";
 import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotifications.js";
 import mongoose from "mongoose";
 import { assertOwnerAdmin, isStaffAdmin } from "../utils/staffPermissions.js";
@@ -583,16 +582,14 @@ function mapDropshipperShippingOverride(row: Record<string, unknown> | null) {
   };
 }
 
+/** Resolve route param to canonical User._id (dropshipper role). Dropshipper document _id is not accepted. */
 async function resolveDropshipperUserId(rawId: string): Promise<string> {
-  if (!mongoose.isValidObjectId(rawId)) throw new AppError(400, "Invalid userId");
-  const user = await User.findById(rawId).select("role").lean();
-  if (user?.role === "dropshipper") return rawId;
-  const drop = await Dropshipper.findById(rawId).select("userId").lean();
-  if (drop?.userId) {
-    const linked = await User.findById(drop.userId).select("role").lean();
-    if (linked?.role === "dropshipper") return String(drop.userId);
-  }
-  throw new AppError(404, "Dropshipper not found");
+  const userId = String(rawId ?? "").trim();
+  if (!userId || userId === "[object Object]") throw new AppError(400, "Invalid userId");
+  if (!mongoose.isValidObjectId(userId)) throw new AppError(400, "Invalid userId");
+  const user = await User.findById(userId).select("role").lean();
+  if (!user || user.role !== "dropshipper") throw new AppError(404, "Dropshipper not found");
+  return userId;
 }
 
 function mapCourierZoneRows(rows: Array<Record<string, unknown> | { courier: string; zone: string; rates: number[]; codCharge: number; active: boolean }>) {
@@ -637,7 +634,7 @@ export const getDropshipperShippingRates = asyncHandler(async (req: AuthRequest,
     : masterCourierZoneRows;
 
   res.json({
-    dropshipper: { id: userId, userId, name: user.name, email: user.email },
+    dropshipper: { userId, name: user.name, email: user.email },
     paymentType,
     courierZoneRows,
     masterCourierZoneRows,

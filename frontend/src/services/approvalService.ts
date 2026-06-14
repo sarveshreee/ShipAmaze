@@ -1,4 +1,5 @@
 import { apiClient } from "@/lib/apiClient";
+import { assertDropshipperUserId } from "@/lib/dropshipperUserId";
 
 export type ShippingRateApproval = {
   id: string;
@@ -115,7 +116,7 @@ export async function rejectProductPrice(id: string, reason: string) {
 }
 
 export type DropshipperShippingRatesResponse = {
-  dropshipper: { id: string; userId?: string; name: string; email: string };
+  dropshipper: { userId: string; name: string; email: string };
   paymentType: "COD" | "Prepaid";
   courierZoneRows: CourierZoneRowPayload[];
   masterCourierZoneRows?: CourierZoneRowPayload[];
@@ -129,8 +130,9 @@ export type DropshipperShippingRatesResponse = {
 };
 
 export async function getDropshipperShippingRates(userId: string, paymentType: "COD" | "Prepaid" = "Prepaid") {
+  const canonicalUserId = assertDropshipperUserId(userId);
   return apiClient.get<DropshipperShippingRatesResponse>(
-    `/admin/dropshipper-shipping-rates/${encodeURIComponent(userId)}?paymentType=${paymentType}`
+    `/admin/dropshipper-shipping-rates/${encodeURIComponent(canonicalUserId)}?paymentType=${paymentType}`
   );
 }
 
@@ -141,8 +143,9 @@ export async function saveDropshipperShippingRates(
     courierZoneRows: CourierZoneRowPayload[];
   }
 ) {
+  const canonicalUserId = assertDropshipperUserId(userId);
   return apiClient.put<{ paymentType: "COD" | "Prepaid"; courierZoneRows: CourierZoneRowPayload[]; hasOverride: boolean }>(
-    `/admin/dropshipper-shipping-rates/${encodeURIComponent(userId)}`,
+    `/admin/dropshipper-shipping-rates/${encodeURIComponent(canonicalUserId)}`,
     body
   );
 }

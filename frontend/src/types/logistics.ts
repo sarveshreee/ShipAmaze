@@ -147,6 +147,8 @@ export interface Order {
 
 export interface Dropshipper {
   id: string;
+  /** User._id — use this for API calls, not `id` (Dropshipper document). */
+  userId?: string;
   name: string;
   email: string;
   phone: string;
