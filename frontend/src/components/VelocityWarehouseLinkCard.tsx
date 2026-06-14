@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/lib/apiClient";
 import * as velocityService from "@/services/velocityService";
 import {
-  VELOCITY_DASHBOARD_URL,
+  VELOCITY_WAREHOUSE_URL,
   getVelocityWarehouseLinkStatus,
   normalizeVelocityWarehouseCode,
   validateVelocityWarehouseCode,
@@ -121,7 +121,7 @@ export function VelocityWarehouseLinkCard({
   };
 
   const openVelocityDashboard = () => {
-    window.open(VELOCITY_DASHBOARD_URL, "_blank", "noopener,noreferrer");
+    window.open(VELOCITY_WAREHOUSE_URL, "_blank", "noopener,noreferrer");
   };
 
   return (

@@ -1,11 +1,20 @@
+import {
+  resolveVelocityDashboardUrl,
+  resolveVelocityWarehouseUrl,
+} from "@/lib/velocityDashboardUrls";
+
 /** Velocity warehouse code format — must match backend `VELOCITY_WH_ID_PATTERN`. */
 export const VELOCITY_WH_PATTERN = /^WH[A-Z0-9]+$/i;
 
-/** Default Velocity merchant dashboard (override via VITE_VELOCITY_DASHBOARD_URL). */
-export const VELOCITY_DASHBOARD_URL = (
-  (import.meta.env.VITE_VELOCITY_DASHBOARD_URL as string | undefined)?.trim() ||
-  "https://shazam.velocity.in"
-).replace(/\/$/, "");
+/** Velocity merchant home (not API host). */
+export const VELOCITY_DASHBOARD_URL = resolveVelocityDashboardUrl(
+  import.meta.env.VITE_VELOCITY_DASHBOARD_URL as string | undefined
+);
+
+/** Warehouse / address settings — used by pickup link UI. */
+export const VELOCITY_WAREHOUSE_URL = resolveVelocityWarehouseUrl(
+  import.meta.env.VITE_VELOCITY_WAREHOUSE_URL as string | undefined
+);
 
 export type VelocityWarehouseLinkStatus = "linked" | "not_linked" | "invalid";
 
