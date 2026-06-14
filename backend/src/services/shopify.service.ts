@@ -110,7 +110,8 @@ async function shopifyRequest<T>(
       const text = await res.text();
       const message = formatShopifyErrorBody(text);
       if (res.status === 401 || res.status === 403) {
-        throw new AppError(401, "Shopify rejected this access token. Reconnect your store in Channels.");
+        // Use 502 (not 401) so the frontend does not treat this as a ShipAmaze session expiry.
+        throw new AppError(502, "Shopify rejected this access token. Reconnect your store in Channels.");
       }
       throw new AppError(502, `Shopify API error ${res.status}: ${message}`);
     }
@@ -197,7 +198,8 @@ export async function getOrders(accessToken: string, shop: string): Promise<Shop
       const text = await res.text();
       const snippet = text.length > 400 ? `${text.slice(0, 400)}…` : text;
       if (res.status === 401 || res.status === 403) {
-        throw new AppError(401, "Shopify rejected this access token. Reconnect your store in Channels.");
+        // Use 502 (not 401) so the frontend does not treat this as a ShipAmaze session expiry.
+        throw new AppError(502, "Shopify rejected this access token. Reconnect your store in Channels.");
       }
       throw new AppError(502, `Shopify API error ${res.status}: ${snippet}`);
     }
