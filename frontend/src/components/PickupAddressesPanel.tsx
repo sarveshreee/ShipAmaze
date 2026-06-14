@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import { indianStates } from "@/constants/indianStates";
-import { MapPin, Plus, Edit, Trash2, Star, Phone, User, Mail } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { MapPin, Plus, Edit, Trash2, Star, Phone, User, Mail, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +31,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
+import { VelocityWarehouseLinkStatusBadge } from "@/components/VelocityWarehouseLinkStatusBadge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { getVelocityWarehouseLinkStatus, normalizeVelocityWarehouseCode } from "@/lib/velocityWarehouseLink";
 
 const emptyForm = {
   label: "",
@@ -68,11 +70,14 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  /** Velocity code on the address being edited — for edit-dialog warnings only. */
+  const [editingVelocityWarehouseId, setEditingVelocityWarehouseId] = useState<string | undefined>();
 
   useEffect(() => {
     if (!dialogOpen) {
       setEditingId(null);
       setForm(emptyForm);
+      setEditingVelocityWarehouseId(undefined);
     }
   }, [dialogOpen]);
 
@@ -86,12 +91,14 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
 
   const openCreate = () => {
     setEditingId(null);
+    setEditingVelocityWarehouseId(undefined);
     setForm(emptyForm);
     setDialogOpen(true);
   };
 
   const openEdit = (a: PickupAddress) => {
     setEditingId(a.id);
+    setEditingVelocityWarehouseId(a.velocityWarehouseId);
     setForm({
       label: a.label,
       contactName: a.contactName,
@@ -242,11 +249,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
                           Default
                         </span>
                       )}
-                      {(Boolean(a.velocityWarehouseId?.trim()) || a.velocityLinked) && (
-                        <Badge variant="secondary" className="text-[10px] font-medium px-2 py-0 h-5 border-indigo-500/40 bg-indigo-500/15 text-indigo-700 dark:text-indigo-200">
-                          Velocity Linked
-                        </Badge>
-                      )}
+                      <VelocityWarehouseLinkStatusBadge velocityWarehouseId={a.velocityWarehouseId} />
                       {a.isActive === false ? (
                         <span className="inline-flex rounded-full bg-text-muted/20 text-text-muted px-2 py-0.5 text-[10px] font-medium">
                           Inactive
@@ -257,8 +260,14 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
                         </span>
                       )}
                     </div>
-                    {a.velocityStatus ? (
-                      <p className="mt-1 text-[10px] text-text-muted">Velocity: {a.velocityStatus}</p>
+                    {getVelocityWarehouseLinkStatus(a.velocityWarehouseId) === "linked" ? (
+                      <p className="mt-1 font-mono text-[11px] font-semibold text-primary">
+                        {normalizeVelocityWarehouseCode(a.velocityWarehouseId)}
+                      </p>
+                    ) : getVelocityWarehouseLinkStatus(a.velocityWarehouseId) === "not_linked" ? (
+                      <p className="mt-1 text-[10px] text-warning-dark">Not linked — booking disabled</p>
+                    ) : a.velocityWarehouseId?.trim() ? (
+                      <p className="mt-1 text-[10px] text-danger">Invalid Velocity code</p>
                     ) : null}
                   </div>
                 </div>
@@ -331,6 +340,26 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
             <DialogTitle>{editingId ? "Edit pickup address" : "New pickup address"}</DialogTitle>
             <DialogDescription>Warehouse / ship-from location used when creating orders.</DialogDescription>
           </DialogHeader>
+          {editingId &&
+          (getVelocityWarehouseLinkStatus(editingVelocityWarehouseId) === "linked" ||
+            getVelocityWarehouseLinkStatus(editingVelocityWarehouseId) === "invalid") ? (
+            <Alert className="border-warning/40 bg-warning-light/40 py-2.5 [&>svg]:text-warning-dark">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="text-xs text-warning-dark">
+                Address changes do not automatically update Velocity. Update the warehouse in Velocity Dashboard if
+                required.
+                {normalizeVelocityWarehouseCode(editingVelocityWarehouseId) ? (
+                  <>
+                    {" "}
+                    Linked code:{" "}
+                    <span className="font-mono font-semibold">
+                      {normalizeVelocityWarehouseCode(editingVelocityWarehouseId)}
+                    </span>
+                  </>
+                ) : null}
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
             <div className="sm:col-span-2">
               <Label>Warehouse / address name</Label>
