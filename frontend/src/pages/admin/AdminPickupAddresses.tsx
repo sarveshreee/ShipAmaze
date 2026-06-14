@@ -4,7 +4,7 @@ export default function AdminPickupAddresses() {
   return (
     <PickupAddressesPanel
       breadcrumb={["Admin", "Pickup Addresses"]}
-      subtitle="Manage platform pickup / warehouse locations for admin orders and shipments."
+      subtitle="All pickup / warehouse addresses — platform (admin) and vendor addresses are shown here and available for order processing."
     />
   );
 }

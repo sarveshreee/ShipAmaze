@@ -208,7 +208,7 @@ export default function AdminKyc() {
                 {detail.dob && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Date of birth:</span><span>{detail.dob}</span></div>}
                 {detail.business_name && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Business name:</span><span>{detail.business_name}</span></div>}
                 {detail.pan_number && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">PAN:</span><span className="font-mono">{detail.pan_number}</span></div>}
-                {detail.aadhaar_number && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Aadhaar:</span><span className="font-mono">{"••••" + detail.aadhaar_number.slice(-4)}</span></div>}
+                {detail.aadhaar_number && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">Aadhaar:</span><span className="font-mono">{detail.aadhaar_number}</span></div>}
                 {detail.gst_number && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">GST:</span><span className="font-mono">{detail.gst_number}</span></div>}
                 {detail.cin_number && <div className="grid grid-cols-2 gap-1"><span className="text-text-muted">CIN:</span><span className="font-mono">{detail.cin_number}</span></div>}
                 {detail.authorized_person_name && (
@@ -238,17 +238,37 @@ export default function AdminKyc() {
                     reg: "Registration Document",
                     auth_id: "Authorized Person ID",
                   };
+
+                  const openDoc = (url: string, label: string) => {
+                    const win = window.open("", "_blank");
+                    if (!win) return;
+                    win.document.write(
+                      `<!DOCTYPE html><html><head><title>${label}</title>` +
+                      `<style>*{margin:0;padding:0;}body{background:#111;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;}` +
+                      `img{max-width:100%;height:auto;display:block;}</style></head>` +
+                      `<body><img src="${url}" alt="${label}" /></body></html>`
+                    );
+                    win.document.close();
+                  };
+
                   const entries = Object.entries(allDocs).filter(([, v]) => !!v);
                   if (entries.length === 0) return <p className="text-text-muted text-xs">No documents uploaded.</p>;
                   return entries.map(([key, url]) => {
-                    const isData = url.startsWith("data:") || url.length > 200;
+                    const label = docLabels[key] ?? key;
+                    const isViewable = url.startsWith("data:") || url.startsWith("http") || url.length > 100;
                     return (
-                      <div key={key} className="flex items-center justify-between gap-2 rounded border border-border p-2">
-                        <span className="font-medium">{docLabels[key] ?? key}</span>
-                        {isData ? (
-                          <a href={url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">View document ↗</a>
+                      <div key={key} className="flex items-center justify-between gap-2 rounded border border-border p-2.5 bg-surface-2/30">
+                        <span className="font-medium text-text-primary">{label}</span>
+                        {isViewable ? (
+                          <button
+                            type="button"
+                            onClick={() => openDoc(url, label)}
+                            className="text-primary text-xs hover:underline font-medium flex items-center gap-1"
+                          >
+                            View document ↗
+                          </button>
                         ) : (
-                          <span className="text-xs text-text-muted">{url}</span>
+                          <span className="text-xs text-text-muted truncate max-w-[200px]">{url}</span>
                         )}
                       </div>
                     );

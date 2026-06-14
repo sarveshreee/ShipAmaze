@@ -16,41 +16,45 @@ export function parseWeightGrams(weightStr: string | undefined): number {
   return Math.round(num);
 }
 
-function resolvePublicAssetBase(): string {
-  const explicit = process.env.API_PUBLIC_URL?.trim() || process.env.BACKEND_URL?.trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const frontend = process.env.FRONTEND_URL?.trim();
-  if (frontend) return frontend.replace(/\/+$/, "");
-  const cors = process.env.CORS_ORIGIN?.split(",")[0]?.trim();
-  if (cors) return cors.replace(/\/+$/, "");
-  return "http://127.0.0.1:5000";
+type ShopifyImageObject = { src: string } | { attachment: string; filename: string };
+
+function mimeToExtension(mime: string): string {
+  const map: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+  };
+  return map[mime.toLowerCase().trim()] ?? "jpg";
 }
 
-/** Shopify requires publicly reachable https/http image URLs.
- *  data: URLs are converted to a backend proxy URL so Shopify can fetch them. */
-export function resolveShopifyImageUrls(rawImages: unknown, productId?: string): string[] {
+/**
+ * Convert product images into Shopify image objects.
+ * - data: URLs → { attachment, filename } so Shopify stores them directly (no proxy needed)
+ * - http(s) URLs → { src } for Shopify to fetch
+ */
+export function resolveShopifyImages(rawImages: unknown): ShopifyImageObject[] {
   if (!Array.isArray(rawImages)) return [];
-  const base = resolvePublicAssetBase();
-  const out: string[] = [];
-  for (let idx = 0; idx < rawImages.length; idx++) {
-    const raw = rawImages[idx];
+  const out: ShopifyImageObject[] = [];
+  for (const raw of rawImages) {
     const src = String(raw ?? "").trim();
     if (!src) continue;
     if (src.startsWith("data:")) {
-      if (productId) {
-        out.push(`${base}/api/shopify/product-image/${productId}/${idx}`);
+      const match = src.match(/^data:([^;]+);base64,(.+)$/s);
+      if (match) {
+        const mime = match[1];
+        const base64Data = match[2].trim();
+        const ext = mimeToExtension(mime);
+        out.push({ attachment: base64Data, filename: `product-image.${ext}` });
       }
       continue;
     }
     if (/^https?:\/\//i.test(src)) {
-      out.push(src);
+      out.push({ src });
       continue;
     }
-    if (src.startsWith("/")) {
-      out.push(`${base}${src}`);
-      continue;
-    }
-    out.push(`${base}/${src.replace(/^\/+/, "")}`);
   }
   return out;
 }
@@ -70,9 +74,9 @@ export function buildShopifyProductPayload(
   product: Record<string, unknown>,
   sellingPrice: number,
   variantId?: string,
-  productId?: string
+  _productId?: string
 ): ShopifyProductInput {
-  const images = resolveShopifyImageUrls(product.images, productId);
+  const images = resolveShopifyImages(product.images);
   const tags = Array.isArray(product.tags) ? (product.tags as string[]).filter(Boolean).join(", ") : "";
   const description = String(
     product.long_description ??
@@ -121,7 +125,7 @@ export function buildShopifyProductPayload(
     tags,
     status: "active",
     variants,
-    images: images.map((src) => ({ src })),
+    images,
   };
 }
 
@@ -193,8 +197,7 @@ export async function pushProductToShopifyStore(
   const payload = buildShopifyProductPayload(
     product as Record<string, unknown>,
     sellingPrice,
-    existing?.shopifyVariantId ?? undefined,
-    productId
+    existing?.shopifyVariantId ?? undefined
   );
 
   let shopifyProduct: shopifyService.ShopifyProductResult;

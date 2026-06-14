@@ -50,9 +50,8 @@ export function ProcessSelectedModal({
   onProcess,
 }: Props) {
   const { role } = useAuth();
-  const { data: platformPickups = [] } = usePickupAddresses({ scope: "platform" });
   const { data: userPickups = [] } = usePickupAddresses();
-  const pickupAddresses = role === "admin" ? platformPickups : userPickups;
+  const pickupAddresses = userPickups;
   const activePickups = useMemo(() => pickupAddresses.filter((a) => a.isActive !== false), [pickupAddresses]);
 
   const [shipmentMode, setShipmentMode] = useState<"" | "forward" | "reverse">("");

@@ -130,7 +130,7 @@ function FileUploadField({ label, value, onChange }: { label: string; value?: st
     const f = e.target.files?.[0];
     if (!f) return;
     if (f.size > 5 * 1024 * 1024) { toast.error("File too large (max 5MB)"); return; }
-    if (!/\.(pdf|jpg|jpeg|png)$/i.test(f.name)) { toast.error("Only PDF/JPG/PNG allowed"); return; }
+    if (!/\.(jpg|jpeg|png|webp)$/i.test(f.name)) { toast.error("Only JPG/PNG/WEBP images allowed"); return; }
     const reader = new FileReader();
     reader.onload = () => {
       onChange(String(reader.result ?? ""));
@@ -159,8 +159,8 @@ function FileUploadField({ label, value, onChange }: { label: string; value?: st
       ) : (
         <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-surface-2/50 px-3 py-2.5 text-sm text-text-muted hover:bg-surface-2 hover:border-primary/40 transition-colors">
           <Upload className="h-4 w-4" />
-          Click to upload (PDF, JPG, PNG)
-          <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFile} className="hidden" />
+          Click to upload (JPG, PNG, WEBP)
+          <input type="file" accept=".jpg,.jpeg,.png,.webp,image/*" onChange={handleFile} className="hidden" />
         </label>
       )}
     </div>

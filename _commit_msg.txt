@@ -1,0 +1,12 @@
+fix: Shopify image push, KYC doc viewer, vendor pickups, KYC upload restriction
+
+- shopifyProductPush: replace broken proxy-URL approach with Shopify attachment field
+  (base64 data uploaded directly to Shopify CDN, no public proxy server needed)
+- shopify.service: extend ShopifyProductInput images type to accept attachment and filename
+- AdminKyc: show full Aadhaar number (unmasked) for admin review
+- AdminKyc: fix document image viewer — open in new window via document.write instead of
+  data URL href (which shows blank screen in Chrome for security reasons)
+- ProcessSelectedModal: admin now sees all pickup addresses (vendor + platform) in order
+  processing dialog, not just admin-owned platform addresses
+- AdminPickupAddresses: update subtitle to reflect all-address visibility
+- DropshipperSettings: KYC file upload restricted to images only (JPG/PNG/WEBP), PDF removed

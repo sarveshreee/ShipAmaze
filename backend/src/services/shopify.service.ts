@@ -305,7 +305,7 @@ export type ShopifyProductInput = {
     weight?: number;
     weight_unit?: "g" | "kg" | "lb" | "oz";
   }>;
-  images?: Array<{ src: string }>;
+  images?: Array<{ src: string } | { attachment: string; filename: string }>;
 };
 
 export type ShopifyProductResult = {
