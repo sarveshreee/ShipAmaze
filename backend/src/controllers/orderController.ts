@@ -959,15 +959,9 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
     if (order.isJunk) {
       throw new AppError(400, "Cannot move junk orders to Ready to Ship");
     }
-    if (order.shipmentCreated) {
-      throw new AppError(400, "Cannot manually move orders that already have a shipment");
-    }
-    const st = String(order.status || "").toLowerCase();
-    if (BLOCKED_BULK_MOVE_TO_READY.has(st)) {
-      throw new AppError(
-        400,
-        `Order ${order.orderId} cannot be moved to Ready to Ship from status "${order.status}"`
-      );
+    const st = String(order.status || "").toLowerCase().replace(/-/g, "_");
+    if (st === "delivered" || st === "cancelled") {
+      throw new AppError(400, `Cannot move ${order.status} orders to Ready to Ship`);
     }
   }
 
@@ -1036,11 +1030,10 @@ export const updateOrderStatus = asyncHandler(async (req: AuthRequest, res: Resp
       throw new AppError(403, "Forbidden");
     }
     const st = String(o.status || "").toLowerCase().replace(/-/g, "_");
-    if (BLOCKED_BULK_MOVE_TO_READY.has(st)) {
-      throw new AppError(400, `Order cannot be moved to Ready to Ship from status "${o.status}"`);
+    if (st === "delivered" || st === "cancelled") {
+      throw new AppError(400, `Cannot move ${o.status} orders to Ready to Ship`);
     }
     if (o.isJunk) throw new AppError(400, "Cannot move junk orders to Ready to Ship");
-    if (o.shipmentCreated) throw new AppError(400, "Cannot move orders that already have a shipment");
 
     o.status = "ready_to_ship";
     o.shipmentStatus = "ready_to_ship";

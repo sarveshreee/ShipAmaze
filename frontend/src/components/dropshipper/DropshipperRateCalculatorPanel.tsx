@@ -56,6 +56,7 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
     pickupPin: string;
     deliveryPin: string;
     zone: string;
+    zoneIsEstimate: boolean;
     applicableWeight: number;
     chargedSlab: string;
   } | null>(null);
@@ -121,7 +122,8 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
     }
 
     const zoneRecord = pincodeByPin.get(delivery);
-    const zone = zoneRecord?.zone?.trim() ?? "";
+    const mappedZone = zoneRecord?.zone?.trim() ?? "";
+    const zoneIsEstimate = !mappedZone;
 
     setCalculating(true);
     setQuotes(null);
@@ -133,7 +135,7 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
         paymentMode,
         shipmentType,
         shipmentValue: paymentMode === "cod" ? Number(shipmentValue) : undefined,
-        deliveryZone: zone,
+        deliveryZone: mappedZone,
         lengthCm: hasAnyDim ? l : undefined,
         widthCm: hasAnyDim ? w : undefined,
         heightCm: hasAnyDim ? h : undefined,
@@ -142,11 +144,12 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
       setSummary({
         pickupPin: pickup,
         deliveryPin: delivery,
-        zone: zone || "—",
+        zone: mappedZone || "A",
+        zoneIsEstimate,
         applicableWeight: charged,
         chargedSlab: chargedWeightSlabLabel(DEFAULT_WEIGHTS, charged),
       });
-      if (!results.length) toast.info("No courier rates found for this route — pincode may not be serviceable");
+      if (!results.length) toast.info("No courier rates configured — add rates in the admin Rate Card");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Calculation failed");
     } finally {
@@ -163,7 +166,7 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
             Rate Calculator
           </h3>
           <p className="text-xs text-text-muted mt-1">
-            View-only estimate — live Velocity rates, then admin courier masters, then zone card fallback.
+            Estimates shipping cost using admin-configured Courier Rate Card prices.
           </p>
         </div>
 
@@ -321,10 +324,17 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
           <div className="p-4 border-b border-border bg-surface-2/50">
             <h3 className="font-semibold text-text-primary">Courier-wise Rates</h3>
             {summary && (
-              <p className="text-xs text-text-muted mt-1">
-                {summary.pickupPin} → {summary.deliveryPin} · Zone {summary.zone} · {summary.applicableWeight.toFixed(2)} kg (
-                {summary.chargedSlab}) · {paymentMode === "cod" ? "COD" : "Prepaid"} · {shipmentType === "return" ? "Return" : "Forward"}
-              </p>
+              <>
+                <p className="text-xs text-text-muted mt-1">
+                  {summary.pickupPin} → {summary.deliveryPin} · Zone {summary.zone}{summary.zoneIsEstimate ? " (est.)" : ""} · {summary.applicableWeight.toFixed(2)} kg (
+                  {summary.chargedSlab}) · {paymentMode === "cod" ? "COD" : "Prepaid"} · {shipmentType === "return" ? "Return" : "Forward"}
+                </p>
+                {summary.zoneIsEstimate && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+                    Pincode zone not mapped — showing Zone A rates as estimate
+                  </p>
+                )}
+              </>
             )}
           </div>
           {quotes.length === 0 ? (

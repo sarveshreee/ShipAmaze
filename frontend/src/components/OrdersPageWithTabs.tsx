@@ -334,6 +334,16 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     }
   };
 
+  const handleMoveToReady = async (orderId: string) => {
+    try {
+      await orderService.updateOrderStatus(orderId, "ready_to_ship");
+      toast.success("Order moved to Ready to Ship");
+      await refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to move order");
+    }
+  };
+
   const handleExport = () => {
     const data = selected.size > 0 ? filtered.filter(o => selected.has(o.id)) : filtered;
     downloadCSV("orders_export", ["ID","Customer","City","Status","Payment","Amount","Date","AWB","Courier"], data.map(o => [o.id, o.customer, o.city, o.status, o.payment, o.amount, o.date, o.awb, o.courier]));
@@ -531,6 +541,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onBulkJunk={handleBulkJunk}
           onOpenProcessModal={() => setProcessModalOpen(true)}
           onBulkMoveToReady={handleBulkMoveToReady}
+          onMoveToReady={handleMoveToReady}
           onExport={handleExport}
           loading={loading}
           activeTab={activeTab}

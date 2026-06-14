@@ -12,30 +12,26 @@ import {
   computeApplicableWeightKg,
   computeVolumetricWeightKg,
   formatRateAmount,
-  rateForZoneWeight,
+  normalizeZoneCode,
+  weightSlabIndex,
 } from "@/lib/shippingRateCardUtils";
-import { getRates, type VelocityRate } from "@/services/velocityService";
-
-const ZONES = ["A", "B", "C", "D", "E"];
-const WEIGHT_SLABS = ["0.5 kg", "1 kg", "2 kg", "5 kg", "10 kg"];
+import { DEFAULT_WEIGHTS } from "@/lib/courierPricingUtils";
+import * as approvalService from "@/services/approvalService";
 
 type ShipmentType = "forward" | "return";
 type PaymentType = "COD" | "Prepaid";
 
-export type AdminCalcResult = {
+type CourierRate = {
+  courier: string;
   zone: string;
-  chargedWeight: number;
-  chargedSlab: string;
-  paymentType: PaymentType;
-  shipmentType: ShipmentType;
-  rate: number;
-  pickupPin: string;
-  deliveryPin: string;
+  freightCharge: number;
+  codCharge?: number;
+  totalCharge: number;
 };
 
 type Props = {
   pincodeByPin: Map<string, PincodeService>;
-  resolveRatesMatrix: (payment: PaymentType) => Promise<number[][]>;
+  resolveRatesMatrix?: (payment: PaymentType) => Promise<number[][]>;
 };
 
 function normalizePin(raw: string): string {
@@ -51,7 +47,7 @@ function segmentBtn(active: boolean) {
   );
 }
 
-export function AdminRateCalculatorPanel({ pincodeByPin, resolveRatesMatrix }: Props) {
+export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
   const [shipmentType, setShipmentType] = useState<ShipmentType>("forward");
   const [pickupPin, setPickupPin] = useState("");
   const [deliveryPin, setDeliveryPin] = useState("");
@@ -62,8 +58,8 @@ export function AdminRateCalculatorPanel({ pincodeByPin, resolveRatesMatrix }: P
   const [calcPaymentType, setCalcPaymentType] = useState<PaymentType>("Prepaid");
   const [shipmentValue, setShipmentValue] = useState("");
   const [calculating, setCalculating] = useState(false);
-  const [result, setResult] = useState<AdminCalcResult | null>(null);
-  const [velocityQuotes, setVelocityQuotes] = useState<VelocityRate[] | null>(null);
+  const [courierRates, setCourierRates] = useState<CourierRate[] | null>(null);
+  const [calcSummary, setCalcSummary] = useState<{ pickup: string; delivery: string; zone: string; weight: string; zoneIsEstimate: boolean } | null>(null);
 
   const pickupNorm = normalizePin(pickupPin);
   const deliveryNorm = normalizePin(deliveryPin);
@@ -126,48 +122,48 @@ export function AdminRateCalculatorPanel({ pincodeByPin, resolveRatesMatrix }: P
     }
 
     const zoneRecord = pincodeByPin.get(delivery);
-    const zone = zoneRecord?.zone?.trim();
+    const mappedZone = zoneRecord?.zone?.trim() ?? "";
+    // Default to Zone A if delivery pincode zone is not in our database
+    const zone = mappedZone || "A";
+    const zoneIsEstimate = !mappedZone;
 
     setCalculating(true);
-    setResult(null);
-    setVelocityQuotes(null);
+    setCourierRates(null);
+    setCalcSummary(null);
     try {
-      if (zone) {
-        const matrix = await resolveRatesMatrix(calcPaymentType);
-        const rate = rateForZoneWeight(matrix, ZONES, zone, charged, WEIGHT_SLABS);
-        if (rate == null) {
-          toast.error(`No rate in zone-card for zone ${zone} — falling back to live courier rates`);
-        } else {
-          setResult({
-            zone,
-            chargedWeight: charged,
-            chargedSlab: chargedWeightSlabLabel(WEIGHT_SLABS, charged),
-            paymentType: calcPaymentType,
-            shipmentType,
-            rate,
-            pickupPin: pickup,
-            deliveryPin: delivery,
-          });
-          return;
-        }
+      const rateCard = await approvalService.getShippingRateCard(calcPaymentType);
+      const rows = (rateCard?.courierZoneRows ?? []).filter((r) => r.active !== false);
+
+      const results: CourierRate[] = [];
+      const slabIdx = weightSlabIndex(DEFAULT_WEIGHTS, charged);
+
+      for (const row of rows) {
+        if (normalizeZoneCode(row.zone) !== normalizeZoneCode(zone)) continue;
+        const freight = Number(row.rates[slabIdx] ?? 0);
+        if (!(freight > 0)) continue;
+        const codCharge = calcPaymentType === "COD" ? Number(row.codCharge ?? 0) : undefined;
+        const total = freight + (codCharge ?? 0);
+        results.push({
+          courier: row.courier,
+          zone,
+          freightCharge: freight,
+          codCharge: codCharge && codCharge > 0 ? codCharge : undefined,
+          totalCharge: total,
+        });
       }
-      // Velocity live-rate fallback
-      const resp = await getRates({
-        from: pickup,
-        to: delivery,
-        weight: charged,
-        length: Number(dimL) || undefined,
-        width: Number(dimW) || undefined,
-        height: Number(dimH) || undefined,
-        payment_mode: calcPaymentType === "COD" ? "cod" : "prepaid",
-        cod_value: calcPaymentType === "COD" ? Number(shipmentValue) || undefined : undefined,
-        shipment_type: shipmentType,
-      });
-      const quotes = (resp.data ?? []).filter((q) => q.total_charge > 0);
-      if (!quotes.length) {
-        toast.info("No courier rates found for this route — pincode may not be serviceable");
+
+      if (!results.length) {
+        toast.info("No courier rates configured in the Rate Card — add rates in Rates & Shipping page");
       } else {
-        setVelocityQuotes(quotes);
+        results.sort((a, b) => a.totalCharge - b.totalCharge);
+        setCourierRates(results);
+        setCalcSummary({
+          pickup,
+          delivery,
+          zone,
+          weight: chargedWeightSlabLabel(DEFAULT_WEIGHTS, charged),
+          zoneIsEstimate,
+        });
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Calculation failed");
@@ -184,7 +180,7 @@ export function AdminRateCalculatorPanel({ pincodeByPin, resolveRatesMatrix }: P
           Rate Calculator
         </h3>
         <p className="text-xs text-text-muted mt-1">
-          Estimates shipping from the current zone rate card ({calcPaymentType}) — no live courier API.
+          Shows courier prices from the admin-configured Courier Rate Card.
         </p>
       </div>
 
@@ -336,64 +332,34 @@ export function AdminRateCalculatorPanel({ pincodeByPin, resolveRatesMatrix }: P
         )}
       </Button>
 
-      {result && (
-        <div className="rounded-xl border border-border overflow-hidden bg-card">
-          <div className="px-4 py-3 border-b border-border bg-surface-2/50 dark:bg-muted/30">
-            <h4 className="font-semibold text-text-primary">Estimated Rate Result</h4>
-            <p className="text-xs text-text-muted mt-0.5">
-              {result.pickupPin} → {result.deliveryPin} · {result.shipmentType === "forward" ? "Forward" : "Return"}
-            </p>
-          </div>
-          <div className="p-4 grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="text-xs text-text-muted">Zone</p>
-              <p className="font-semibold text-primary">Zone {result.zone}</p>
-            </div>
-            <div>
-              <p className="text-xs text-text-muted">Charged Weight</p>
-              <p className="font-semibold text-text-primary">
-                {result.chargedWeight.toFixed(2)} kg
-                <span className="text-xs font-normal text-text-muted ml-1">({result.chargedSlab} slab)</span>
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-text-muted">Payment Type</p>
-              <p className="font-medium text-text-primary">{result.paymentType === "COD" ? "Cash on Delivery" : "Prepaid"}</p>
-            </div>
-            <div>
-              <p className="text-xs text-text-muted">Estimated Rate</p>
-              <p className="text-lg font-bold text-primary">₹{formatRateAmount(result.rate)}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {velocityQuotes && velocityQuotes.length > 0 && (
+      {courierRates && courierRates.length > 0 && calcSummary && (
         <div className="rounded-xl border border-border overflow-hidden bg-card">
           <div className="px-4 py-3 border-b border-border bg-surface-2/50 dark:bg-muted/30">
             <div className="flex items-center justify-between">
-              <h4 className="font-semibold text-text-primary">Live Courier Rates</h4>
-              <Badge variant="outline" className="text-[10px]">via Velocity</Badge>
+              <h4 className="font-semibold text-text-primary">Courier Rates</h4>
+              <Badge variant="outline" className="text-[10px]">Rate Card</Badge>
             </div>
             <p className="text-xs text-text-muted mt-0.5">
-              {pickupNorm} → {deliveryNorm} · {shipmentType === "forward" ? "Forward" : "Return"} · {calcPaymentType}
+              {calcSummary.pickup} → {calcSummary.delivery} · Zone {calcSummary.zone}{calcSummary.zoneIsEstimate ? " (est.)" : ""} · {calcSummary.weight} · {calcPaymentType}
             </p>
+            {calcSummary.zoneIsEstimate && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+                Delivery pincode zone not mapped — showing Zone A rates as estimate
+              </p>
+            )}
           </div>
           <div className="divide-y divide-border max-h-[420px] overflow-y-auto">
-            {velocityQuotes.map((q, idx) => (
-              <div key={`${q.carrier_id}-${idx}`} className="p-4 flex items-center gap-4 hover:bg-surface-2/30 transition-colors">
+            {courierRates.map((q, idx) => (
+              <div key={`${q.courier}-${idx}`} className="p-4 flex items-center gap-4 hover:bg-surface-2/30 transition-colors">
                 <Truck className="h-5 w-5 text-primary shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-text-primary">{q.carrier_name}</p>
-                  <p className="text-xs text-text-muted">
-                    {q.zone ? `Zone ${q.zone}` : "—"}
-                    {q.tat ? ` · ${q.tat}` : ""}
-                  </p>
+                  <p className="font-medium text-text-primary">{q.courier}</p>
+                  <p className="text-xs text-text-muted">Zone {q.zone}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-lg font-bold text-primary">₹{formatRateAmount(q.total_charge)}</p>
-                  {q.cod_charge ? (
-                    <p className="text-[10px] text-text-muted">incl. ₹{formatRateAmount(q.cod_charge)} COD</p>
+                  <p className="text-lg font-bold text-primary">₹{formatRateAmount(q.totalCharge)}</p>
+                  {q.codCharge ? (
+                    <p className="text-[10px] text-text-muted">incl. ₹{formatRateAmount(q.codCharge)} COD</p>
                   ) : null}
                 </div>
               </div>

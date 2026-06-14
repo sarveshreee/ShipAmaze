@@ -1,5 +1,4 @@
 import * as approvalService from "@/services/approvalService";
-import * as velocityService from "@/services/velocityService";
 import { listPublicCourierRateMasters, type CourierRateMaster } from "@/services/courierRateService";
 import { resolveSlabRate } from "@/lib/courierRateSlab";
 import {
@@ -13,7 +12,7 @@ import {
   weightSlabIndex,
 } from "@/lib/shippingRateCardUtils";
 
-export type RateQuoteSource = "velocity" | "rate_master" | "zone_card";
+export type RateQuoteSource = "rate_master" | "zone_card";
 
 export type DropshipperRateQuote = {
   courier: string;
@@ -92,27 +91,14 @@ export async function buildDropshipperRateQuotes(
   input: BuildRateQuotesInput
 ): Promise<DropshipperRateQuote[]> {
   const paymentType = input.paymentMode === "cod" ? "COD" : "Prepaid";
-  const zone = normalizeZoneCode(input.deliveryZone);
+  // Default to Zone A when delivery zone is not mapped in our database
+  const zone = normalizeZoneCode(input.deliveryZone || "A");
 
-  const [velocityResp, mastersResp, rateCard] = await Promise.all([
-    velocityService
-      .getRates({
-        from: input.pickupPin,
-        to: input.deliveryPin,
-        weight: input.applicableWeightKg,
-        length: input.lengthCm,
-        width: input.widthCm,
-        height: input.heightCm,
-        payment_mode: input.paymentMode,
-        cod_value: input.paymentMode === "cod" ? input.shipmentValue : undefined,
-        shipment_type: input.shipmentType,
-      })
-      .catch(() => ({ data: [] as velocityService.VelocityRate[] })),
+  const [mastersResp, rateCard] = await Promise.all([
     listPublicCourierRateMasters().catch(() => ({ items: [] as CourierRateMaster[] })),
     approvalService.getShippingRateCard(paymentType).catch(() => null),
   ]);
 
-  const velocityRates = velocityResp.data ?? [];
   const masters = (mastersResp.items ?? []).filter((m) => m.active !== false);
   const courierZoneRows = (rateCard?.courierZoneRows ?? []).filter((r) => r.active !== false);
   const legacyMatrix = rateCard?.rates ?? [];
@@ -120,7 +106,6 @@ export async function buildDropshipperRateQuotes(
   const legacyWeights = rateCard?.weights ?? DEFAULT_WEIGHTS;
 
   const courierNames = new Set<string>();
-  for (const v of velocityRates) courierNames.add(v.carrier_name);
   for (const m of masters) courierNames.add(m.courierName);
   for (const r of courierZoneRows) {
     if (normalizeZoneCode(r.zone) === normalizeZoneCode(zone)) courierNames.add(r.courier);
@@ -129,23 +114,6 @@ export async function buildDropshipperRateQuotes(
   const quotes: DropshipperRateQuote[] = [];
 
   for (const courier of courierNames) {
-    const velocityMatch = velocityRates.find(
-      (v) => normalizeCourierName(v.carrier_name) === normalizeCourierName(courier)
-    );
-    if (velocityMatch && velocityMatch.total_charge > 0) {
-      quotes.push({
-        courier: velocityMatch.carrier_name,
-        carrierId: String(velocityMatch.carrier_id ?? ""),
-        zone: velocityMatch.zone ?? zone,
-        freightCharge: velocityMatch.freight_charge ?? velocityMatch.total_charge,
-        codCharge: velocityMatch.cod_charge,
-        totalCharge: velocityMatch.total_charge,
-        source: "velocity",
-        tat: velocityMatch.tat,
-      });
-      continue;
-    }
-
     const master = masters.find((m) => normalizeCourierName(m.courierName) === normalizeCourierName(courier));
     const masterTotal = master ? masterRate(master, input.applicableWeightKg, input.paymentMode) : null;
     if (masterTotal != null && masterTotal > 0) {
@@ -201,12 +169,10 @@ export async function buildDropshipperRateQuotes(
 
 export function rateQuoteSourceLabel(source: RateQuoteSource): string {
   switch (source) {
-    case "velocity":
-      return "Live rate";
     case "rate_master":
       return "Configured";
     case "zone_card":
-      return "Zone card";
+      return "Rate card";
     default:
       return source;
   }

@@ -97,28 +97,6 @@ export default function AdminRates() {
     return m;
   }, [pincodeList]);
 
-  const legacyRates = useMemo(() => deriveLegacyRates(courierZoneRows), [courierZoneRows]);
-
-  const resolveRatesMatrix = useCallback(
-    async (payment: "COD" | "Prepaid") => {
-      if (payment === paymentType) return legacyRates;
-      const card = await approvalService.getShippingRateCard(payment);
-      if (card.courierZoneRows?.length) {
-        return deriveLegacyRates(
-          card.courierZoneRows.map((r) => ({
-            courier: r.courier,
-            zone: r.zone,
-            rates: r.rates,
-            codCharge: r.codCharge,
-            active: r.active !== false,
-          }))
-        );
-      }
-      return card.rates?.length ? card.rates : deriveLegacyRates(buildDefaultCourierZoneRows());
-    },
-    [paymentType, legacyRates]
-  );
-
   const switchPaymentType = (next: "COD" | "Prepaid") => {
     if (next === paymentType) return;
     if (hasChanges) {
@@ -177,7 +155,7 @@ export default function AdminRates() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(340px,420px)_1fr] gap-6">
         <div className="xl:sticky xl:top-4 xl:self-start">
-          <AdminRateCalculatorPanel pincodeByPin={pincodeByPin} resolveRatesMatrix={resolveRatesMatrix} />
+          <AdminRateCalculatorPanel pincodeByPin={pincodeByPin} />
         </div>
 
         <AdminCourierPricingPanel

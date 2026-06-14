@@ -338,6 +338,7 @@ interface Props {
   /** All / Manual / Channel tabs: bulk move to Ready to Ship only */
   showBulkMoveToReady?: boolean;
   onBulkMoveToReady?: () => Promise<void>;
+  onMoveToReady?: (orderId: string) => Promise<void>;
   couriers?: Array<{ id: string; name: string }>;
   warehouses?: Array<{ id: string; warehouseName: string; city?: string; velocityWarehouseId?: string; isDefault?: boolean }>;
   onCreateShipment?: (payload: {
@@ -382,6 +383,7 @@ export function RichOrdersTable({
   processSelectedDisabled = false,
   showBulkMoveToReady = false,
   onBulkMoveToReady,
+  onMoveToReady,
   couriers: _couriers = [],
   warehouses = [],
   onCreateShipment,
@@ -1236,20 +1238,18 @@ export function RichOrdersTable({
                         </div>
                       ) : (
                         <div className="flex flex-col gap-1.5">
-                          {role === "admin" && !o.awb && !o.isJunk && (
+                          {!o.isJunk && o.status !== "ready_to_ship" && !o.awb && onMoveToReady && (
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
-                              onClick={(e) => {
+                              className="h-7 text-xs gap-1 border-green-500/40 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
+                              onClick={async (e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
-                                setShipmentModalOrder(o);
-                                setSelectedCourierId("");
-                                setSelectedWarehouseId("");
+                                await onMoveToReady(o.id);
                               }}
                             >
-                              <Truck className="h-3 w-3" /> Create Shipment
+                              <Truck className="h-3 w-3" /> Move To Ready
                             </Button>
                           )}
                           <Button variant="outline" size="sm"
