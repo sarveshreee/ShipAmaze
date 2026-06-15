@@ -11,7 +11,7 @@ const placementClasses: Record<LogoPlacement, string> = {
   /** Location #3 — marketplace sub-header */
   marketplace: "h-7 w-auto max-w-[220px] sm:h-8 sm:max-w-[280px] md:max-w-[320px] object-contain object-left",
   "auth-hero": "h-20 w-auto max-w-[360px] sm:h-24 sm:max-w-[420px] object-contain",
-  "auth-form": "h-14 w-auto max-w-[280px] object-contain",
+  "auth-form": "h-[72px] w-auto max-w-[min(100%,420px)] sm:h-20 md:h-24 object-contain",
   loading: "h-14 w-auto max-w-[280px] object-contain",
 };
 
@@ -51,8 +51,11 @@ export function ShipAmazeLogo({
     <img
       src={src}
       alt={alt}
+      width={placement === "auth-form" ? 500 : undefined}
+      height={placement === "auth-form" ? 500 : undefined}
       className={cn("select-none", imgClass, className)}
       decoding="async"
+      fetchPriority={placement === "auth-form" ? "high" : undefined}
       draggable={false}
     />
   );

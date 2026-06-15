@@ -206,6 +206,193 @@
 .animate-dash { animation: dash 12s linear infinite; }
 .animate-fade-in-up { animation: fade-in-up 0.5s ease-out both; }
 
+/* Auth pages — orange brand palette (scoped, does not affect app shell) */
+.auth-page {
+  --color-primary: 24 95% 53%;
+  --color-primary-light: 33 100% 96%;
+  --color-primary-dark: 21 90% 45%;
+  --primary: var(--color-primary);
+  --ring: var(--color-primary);
+  /* Always use readable light-theme text on auth (fixes dark-mode washed-out labels) */
+  --color-text-primary: 24 32% 12%;
+  --color-text-secondary: 24 12% 38%;
+  --color-text-muted: 24 8% 50%;
+  --foreground: 24 32% 12%;
+  --muted-foreground: 24 8% 50%;
+  --border: 30 22% 88%;
+  --input: 30 20% 86%;
+  --background: 0 0% 100%;
+  color-scheme: light;
+  background: linear-gradient(165deg, hsl(34 100% 99%) 0%, hsl(28 80% 97%) 50%, hsl(33 100% 98%) 100%);
+}
+
+.auth-form-card {
+  animation: auth-form-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-form-logo {
+  animation: auth-form-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-form-header {
+  animation: auth-form-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both;
+}
+
+.auth-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: hsl(24 22% 28%);
+}
+
+.auth-input {
+  height: 2.75rem;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1.5px solid hsl(30 18% 86%);
+  background: hsl(0 0% 100%);
+  padding: 0 0.875rem;
+  font-size: 0.875rem;
+  color: hsl(24 32% 12%);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.auth-input::placeholder {
+  color: hsl(24 8% 62%);
+}
+
+.auth-input:hover:not(:focus-visible):not(:disabled) {
+  border-color: hsl(30 30% 78%);
+  background: hsl(33 60% 99%);
+}
+
+.auth-input:focus-visible {
+  outline: none;
+  border-color: hsl(var(--color-primary));
+  box-shadow: 0 0 0 4px hsl(var(--color-primary) / 0.14);
+  transform: translateY(-1px);
+}
+
+.auth-field {
+  animation: auth-field-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-field:nth-child(1) { animation-delay: 0.1s; }
+.auth-field:nth-child(2) { animation-delay: 0.16s; }
+.auth-field:nth-child(3) { animation-delay: 0.22s; }
+.auth-field:nth-child(4) { animation-delay: 0.28s; }
+.auth-field:nth-child(5) { animation-delay: 0.34s; }
+
+.auth-submit-btn {
+  height: 2.75rem;
+  border: none;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: hsl(0 0% 100%);
+  background: linear-gradient(135deg, hsl(26 96% 56%) 0%, hsl(22 92% 48%) 100%);
+  box-shadow: 0 4px 16px hsl(24 95% 53% / 0.32);
+  transition:
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.25s ease,
+    filter 0.2s ease;
+  animation: auth-field-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both;
+}
+
+.auth-submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px hsl(24 95% 53% / 0.42);
+  filter: brightness(1.03);
+}
+
+.auth-submit-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 4px 14px hsl(24 95% 53% / 0.3);
+}
+
+.auth-form-footer {
+  animation: auth-form-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.38s both;
+}
+
+.auth-role-btn {
+  border-radius: 0.875rem;
+  border: 1.5px solid transparent;
+  transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.auth-role-btn:hover:not(.auth-role-btn--active) {
+  border-color: hsl(var(--color-primary) / 0.25);
+  background: hsl(0 0% 100%);
+  transform: translateY(-1px);
+}
+
+.auth-role-btn--active {
+  background: linear-gradient(135deg, hsl(26 96% 56%), hsl(22 92% 48%));
+  border-color: hsl(var(--color-primary));
+  color: hsl(0 0% 100%);
+  box-shadow: 0 4px 16px hsl(24 95% 53% / 0.28);
+  transform: scale(1.02);
+}
+
+.auth-page .auth-link {
+  color: hsl(var(--color-primary-dark));
+  font-weight: 600;
+  transition: color 0.2s ease;
+}
+
+.auth-page .auth-link:hover {
+  color: hsl(var(--color-primary));
+  text-decoration: underline;
+}
+
+.auth-page .auth-hero-img {
+  image-rendering: auto;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+@keyframes auth-form-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auth-field-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auth-switch-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.auth-page .auth-mode-switch {
+  animation: auth-switch-in 0.45s ease-out both;
+}
+
 /* Safe area for mobile bottom nav */
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);

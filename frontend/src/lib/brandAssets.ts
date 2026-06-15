@@ -18,6 +18,10 @@ export const BRAND_OG_IMAGE = "/brand/og-image.png";
 export const BRAND_FAVICON = "/brand/favicon-32.png";
 export const BRAND_APPLE_TOUCH = "/brand/apple-touch-icon.png";
 
+/** Auth hero illustrations (login / signup split panels). */
+export const AUTH_LOGIN_HERO = "/brand/loginpage.png";
+export const AUTH_SIGNUP_HERO = "/brand/singuppage.png";
+
 export function themeAwareLogo(isDark: boolean): string {
   return isDark ? LOGO_DARK : LOGO_LIGHT;
 }
