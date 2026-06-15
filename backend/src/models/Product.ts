@@ -4,6 +4,8 @@ export interface IProduct extends Document {
   name: string;
   sku?: string;
   category?: string;
+  /** Additional marketplace categories (first entry mirrors `category` for legacy filters). */
+  categories?: string[];
   weight?: string;
   price: number;
   sellingPrice?: number;
@@ -25,6 +27,7 @@ const productSchema = new Schema<IProduct>(
     name: { type: String, required: true },
     sku: String,
     category: String,
+    categories: [String],
     weight: String,
     price: { type: Number, default: 0 },
     sellingPrice: Number,

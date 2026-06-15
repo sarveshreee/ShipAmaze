@@ -701,7 +701,9 @@ export function RichOrdersTable({
                 disabled={processSelectedDisabled}
                 title={
                   processSelectedDisabled
-                    ? "All selected orders must be Ready to Ship with no AWB and no shipment created"
+                    ? selected.size === 0
+                      ? "Select at least one order"
+                      : "Selected orders must not be junk and must not already have an AWB or shipment"
                     : undefined
                 }
                 onClick={() => {

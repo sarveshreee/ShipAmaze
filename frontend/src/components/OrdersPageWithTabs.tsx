@@ -268,17 +268,27 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const filtered = orders;
 
   const selectedOrders = useMemo(() => filtered.filter((o) => selected.has(o.id)), [filtered, selected]);
+
+  /** On All / Channel / Manual tabs, allow Process Selected whenever orders are checked (backend validates eligibility). */
+  const RELAXED_PROCESS_TABS = useMemo(() => new Set(["all", "channel", "manual"]), []);
+
   const canProcessSelectedSelection = useMemo(() => {
     if (selectedOrders.length === 0) return false;
-    return selectedOrders.every((o) => {
-      const st = String(o.status ?? "").toLowerCase().replace(/-/g, "_");
-      const ready = st === "ready_to_ship";
+    const isEligible = (o: Order) => {
       if ((o as { isJunk?: boolean }).isJunk) return false;
       if (o.shipmentCreated) return false;
       if (String(o.awb ?? "").trim()) return false;
-      return ready;
+      return true;
+    };
+    if (RELAXED_PROCESS_TABS.has(activeTab)) {
+      return selectedOrders.every(isEligible);
+    }
+    return selectedOrders.every((o) => {
+      const st = String(o.status ?? "").toLowerCase().replace(/-/g, "_");
+      const ready = st === "ready_to_ship";
+      return isEligible(o) && ready;
     });
-  }, [selectedOrders]);
+  }, [selectedOrders, activeTab, RELAXED_PROCESS_TABS]);
 
   const [processSubmitting, setProcessSubmitting] = useState(false);
 
@@ -547,7 +557,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           activeTab={activeTab}
           onToggleSidebar={() => window.dispatchEvent(new Event('toggle-sidebar'))}
           showProcessSelected={showProcessSelected}
-          processSelectedDisabled={selected.size > 0 && !canProcessSelectedSelection}
+          processSelectedDisabled={selected.size === 0 || !canProcessSelectedSelection}
           showBulkMoveToReady={showBulkMoveToReady}
           couriers={couriers}
           warehouses={linkedWarehouseOptions}

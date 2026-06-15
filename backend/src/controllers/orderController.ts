@@ -1062,9 +1062,46 @@ function generateAwb() {
   return `AWB-${Date.now()}-${suffix}`;
 }
 
+function normalizeOrderStatusKey(raw: string | undefined | null): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+}
+
+/** Orders that cannot enter Process Selected (already shipped, terminal, or already queued). */
+const BLOCKED_PROCESS_SELECTED_STATUSES = new Set([
+  "delivered",
+  "cancelled",
+  "canceled",
+  "shipped",
+  "in_transit",
+  "out_for_delivery",
+  "picked_up",
+  "pending_pickup",
+  "pickup_scheduled",
+  "ndr",
+  "rto",
+  "junk",
+  "failed",
+  "reship",
+]);
+
+function assertOrderEligibleForProcessSelected(o: IOrder): void {
+  if (o.isJunk) throw new AppError(400, `Order ${o.orderId} is junk`);
+  if (o.shipmentCreated) throw new AppError(400, `Order ${o.orderId} already has a shipment`);
+  if (String(o.awb || "").trim()) {
+    throw new AppError(400, `Order ${o.orderId} already has an AWB`);
+  }
+  const st = normalizeOrderStatusKey(o.status);
+  if (BLOCKED_PROCESS_SELECTED_STATUSES.has(st)) {
+    throw new AppError(400, `Order ${o.orderId} cannot be processed from status "${o.status}"`);
+  }
+}
+
 /**
- * Admin-only: Assign shipment processing details to orders already in Ready-to-Ship.
- * Moves them to Pending Pickup and generates an AWB.
+ * Admin-only: Assign shipment processing details and move orders directly to Pending Pickup.
+ * Orders do not need to be in Ready to Ship first — early statuses (e.g. pending/draft) are accepted.
  */
 export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
@@ -1127,18 +1164,16 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   const orders = await Order.find({ orderId: { $in: ids } }).exec();
   if (orders.length !== ids.length) throw new AppError(404, "One or more orders were not found");
 
-  // Validate state transitions and assign per-order AWB
+  // Validate and assign per-order AWB → Pending Pickup
   const now = new Date();
   const updated = [];
   for (const o of orders) {
-    const st = String(o.status || "").toLowerCase();
-    if (o.isJunk) throw new AppError(400, `Order ${o.orderId} is junk`);
-    if (o.shipmentCreated) throw new AppError(400, `Order ${o.orderId} already has a shipment`);
-    if (st !== "ready-to-ship" && st !== "ready_to_ship" && st !== "ready-to-ship".toLowerCase()) {
-      throw new AppError(400, `Order ${o.orderId} must be in Ready to Ship`);
-    }
-    if (String(o.awb || "").trim()) {
-      throw new AppError(400, `Order ${o.orderId} already has an AWB`);
+    assertOrderEligibleForProcessSelected(o);
+
+    const st = normalizeOrderStatusKey(o.status);
+    if (st !== "ready_to_ship") {
+      o.movedToReadyAt = now;
+      appendStatusHistory(o, "ready_to_ship", req.user._id, "Auto-moved via Process Selected");
     }
 
     const awb = generateAwb();
@@ -1169,6 +1204,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     o.status = "pending-pickup";
     o.shipmentStatus = "pending_pickup";
     (o as unknown as { shipmentMode?: string }).shipmentMode = shipmentMode;
+    appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected");
     await o.save();
     updated.push({ orderId: o.orderId, awb });
   }

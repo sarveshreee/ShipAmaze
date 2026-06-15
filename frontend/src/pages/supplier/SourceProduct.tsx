@@ -7,8 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Star, Image as ImageIcon, ChevronLeft, ChevronRight, Save, Eye, Loader2, X } from "lucide-react";
+import { Plus, Trash2, Star, Image as ImageIcon, ChevronLeft, ChevronRight, Save, Eye, Loader2, X, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import * as productService from "@/services/productService";
@@ -32,7 +34,7 @@ interface Variant {
 }
 
 const emptyForm = {
-  name: "", sku: "", category: "", brand: "",
+  name: "", sku: "", categories: [] as string[], brand: "",
   short_description: "", long_description: "",
   status: "draft", tags: "", unit: "pcs", min_order_qty: 1,
   price: 0, selling_price: 0, stock: 0, hsn: "",
@@ -128,9 +130,15 @@ export default function SourceProduct() {
 
   const hydrate = (p: any) => {
     const sp = p.sellingPrice ?? p.selling_price;
+    const categories: string[] = Array.isArray(p.categories) && p.categories.length > 0
+      ? p.categories.map((c: unknown) => String(c)).filter(Boolean)
+      : p.category
+        ? [String(p.category)]
+        : [];
     setForm({
       ...emptyForm,
       ...p,
+      categories,
       selling_price: typeof sp === "number" ? sp : Number(sp) || 0,
       tags: Array.isArray(p.tags) ? p.tags.join(", ") : p.tags || "",
       images: Array.isArray(p.images) ? p.images : [],
@@ -234,7 +242,7 @@ export default function SourceProduct() {
   // Validation
   const validate = (forPublish: boolean) => {
     if (!form.name.trim()) { toast.error("Product name is required"); setStep("details"); return false; }
-    if (!form.category) { toast.error("Category is required"); setStep("details"); return false; }
+    if (form.categories.length === 0) { toast.error("Select at least one category"); setStep("details"); return false; }
     if (forPublish && form.images.length === 0) { toast.error("At least one image is required to publish"); setStep("details"); return false; }
     if (forPublish && form.selling_price <= 0) { toast.error("Selling price required"); setStep("details"); return false; }
     if (forPublish && !form.terms) { toast.error("Please accept terms"); setStep("other"); return false; }
@@ -264,7 +272,8 @@ export default function SourceProduct() {
       const payload: Record<string, unknown> = {
         name: form.name,
         sku: form.sku || undefined,
-        category: form.category || undefined,
+        categories: form.categories,
+        category: form.categories[0] || undefined,
         brand: form.brand || undefined,
         shortDescription: form.short_description || undefined,
         longDescription: form.long_description || undefined,
@@ -397,20 +406,64 @@ export default function SourceProduct() {
             )}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <Label>Product Category *</Label>
-                <Select value={form.category} onValueChange={v => {
-                  const mapped = hsnForCategoryName(categories, v);
-                  const prevDefault = hsnForCategoryName(categories, form.category);
-                  const shouldAutoFill = !form.hsn || form.hsn === prevDefault;
-                  update({ category: v, ...(shouldAutoFill && mapped ? { hsn: mapped } : {}) });
-                }}>
-                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    {categories.map(c => (
-                      <SelectItem key={c.id} value={c.name}>{c.emoji ? `${c.emoji} ` : ""}{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Product Categories *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mt-1 w-full justify-between font-normal h-10"
+                    >
+                      <span className="truncate text-left">
+                        {form.categories.length > 0
+                          ? form.categories.join(", ")
+                          : "Select categories…"}
+                      </span>
+                      <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2 max-h-64 overflow-y-auto" align="start">
+                    {categories.length === 0 ? (
+                      <p className="text-sm text-text-muted px-2 py-1">No categories configured.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {categories.map((c) => {
+                          const checked = form.categories.includes(c.name);
+                          return (
+                            <label
+                              key={c.id}
+                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted cursor-pointer"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(v) => {
+                                  const next = v
+                                    ? [...form.categories, c.name]
+                                    : form.categories.filter((n) => n !== c.name);
+                                  const mapped = hsnForCategoryName(categories, c.name);
+                                  const prevDefault = form.categories[0]
+                                    ? hsnForCategoryName(categories, form.categories[0])
+                                    : "";
+                                  const shouldAutoFill = !form.hsn || form.hsn === prevDefault;
+                                  update({
+                                    categories: next,
+                                    ...(shouldAutoFill && v && mapped ? { hsn: mapped } : {}),
+                                  });
+                                }}
+                              />
+                              <span>{c.emoji ? `${c.emoji} ` : ""}{c.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
+                {form.categories.length > 0 && (
+                  <p className="text-xs text-text-muted mt-1">
+                    {form.categories.length} categor{form.categories.length === 1 ? "y" : "ies"} selected
+                  </p>
+                )}
               </div>
               <div><Label>Product Name *</Label><Input value={form.name} onChange={e => update({ name: e.target.value })} placeholder="e.g. Cotton T-Shirt" /></div>
               <div><Label>Product Main SKU</Label><Input value={form.sku} onChange={e => update({ sku: e.target.value })} placeholder="SKU-001" /></div>
