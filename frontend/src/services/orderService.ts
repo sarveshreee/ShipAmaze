@@ -2,6 +2,54 @@ import { apiClient } from "@/lib/apiClient";
 import type { Order } from "@/types/logistics";
 import type { PublicTrackingOrder } from "@/types/publicTracking";
 
+/** Aligns with backend `normalizeOrderStatusKey` / Process Selected eligibility. */
+export function normalizeOrderStatusKey(raw: string | undefined | null): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+}
+
+const BLOCKED_PROCESS_SELECTED_STATUSES = new Set([
+  "delivered",
+  "cancelled",
+  "canceled",
+  "shipped",
+  "in_transit",
+  "out_for_delivery",
+  "picked_up",
+  "pending_pickup",
+  "pickup_scheduled",
+  "ndr",
+  "rto",
+  "junk",
+  "failed",
+  "reship",
+]);
+
+/** Whether an order can enter Process Selected (matches backend rules). */
+export function isOrderProcessable(
+  order: Pick<Order, "status" | "isJunk" | "shipmentCreated" | "awb">,
+): boolean {
+  if (order.isJunk) return false;
+  if (order.shipmentCreated) return false;
+  if (String(order.awb ?? "").trim()) return false;
+  if (BLOCKED_PROCESS_SELECTED_STATUSES.has(normalizeOrderStatusKey(order.status))) return false;
+  return true;
+}
+
+/** First rejection reason when an order cannot enter Process Selected. */
+export function getProcessBlockReason(
+  order: Pick<Order, "status" | "isJunk" | "shipmentCreated" | "awb">,
+): string | null {
+  if (order.isJunk) return "isJunk";
+  if (order.shipmentCreated) return "shipmentCreated";
+  if (String(order.awb ?? "").trim()) return "hasAwb";
+  const st = normalizeOrderStatusKey(order.status);
+  if (BLOCKED_PROCESS_SELECTED_STATUSES.has(st)) return `blockedStatus:${st}`;
+  return null;
+}
+
 export type OrdersListMeta = {
   orders: Order[];
   total: number;
@@ -178,6 +226,10 @@ export async function moveOrderToJunk(id: string, junkReason?: string) {
   return apiClient.post<{ success: true; message: string }>(`/orders/${encodeURIComponent(id)}/junk`, {
     junkReason,
   });
+}
+
+export async function moveOrderToReship(id: string) {
+  return apiClient.post<{ success: true; message: string }>(`/orders/${encodeURIComponent(id)}/reship`, {});
 }
 
 export async function bulkMoveOrders(orderIds: string[], targetStatus: "ready_to_ship") {

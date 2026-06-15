@@ -1015,6 +1015,30 @@ export const markOrderJunk = asyncHandler(async (req: AuthRequest, res: Response
   });
 });
 
+export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const { id } = req.params;
+  const order = await Order.findOne({ orderId: id });
+  if (!order) throw new AppError(404, "Order not found");
+  await assertOrderAccess(req.user, order);
+
+  order.isJunk = false;
+  order.junkedAt = undefined;
+  order.junkReason = undefined;
+  order.status = "reship";
+  order.shipmentCreated = false;
+  order.awb = "";
+  order.trackingId = undefined;
+  order.shipmentStatus = "reship";
+  appendStatusHistory(order, "reship", req.user._id);
+  await order.save();
+
+  res.json({
+    success: true,
+    message: "Order moved to reship",
+  });
+});
+
 export const updateOrderStatus = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   const { orderId } = req.params;

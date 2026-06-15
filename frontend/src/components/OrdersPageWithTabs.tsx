@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import * as orderService from "@/services/orderService";
-import type { OrderListFilterValues } from "@/services/orderService";
+import { isOrderProcessable, getProcessBlockReason, type OrderListFilterValues } from "@/services/orderService";
 import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
 import { OrderListAdvancedFilters } from "@/components/OrderListAdvancedFilters";
 import { Badge } from "@/components/ui/badge";
@@ -269,26 +269,39 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const selectedOrders = useMemo(() => filtered.filter((o) => selected.has(o.id)), [filtered, selected]);
 
-  /** On All / Channel / Manual tabs, allow Process Selected whenever orders are checked (backend validates eligibility). */
+  /** All / Channel / Manual: enable when any selected order can be processed. */
   const RELAXED_PROCESS_TABS = useMemo(() => new Set(["all", "channel", "manual"]), []);
+
+  const processableSelectedOrders = useMemo(
+    () => selectedOrders.filter(isOrderProcessable),
+    [selectedOrders],
+  );
 
   const canProcessSelectedSelection = useMemo(() => {
     if (selectedOrders.length === 0) return false;
-    const isEligible = (o: Order) => {
-      if ((o as { isJunk?: boolean }).isJunk) return false;
-      if (o.shipmentCreated) return false;
-      if (String(o.awb ?? "").trim()) return false;
-      return true;
-    };
+    // All / Channel / Manual: enable whenever rows are checked; modal filters eligible orders.
     if (RELAXED_PROCESS_TABS.has(activeTab)) {
-      return selectedOrders.every(isEligible);
+      return true;
     }
-    return selectedOrders.every((o) => {
-      const st = String(o.status ?? "").toLowerCase().replace(/-/g, "_");
-      const ready = st === "ready_to_ship";
-      return isEligible(o) && ready;
-    });
+    return selectedOrders.every(isOrderProcessable);
   }, [selectedOrders, activeTab, RELAXED_PROCESS_TABS]);
+
+  const openProcessModal = useCallback(() => {
+    const skipped = selectedOrders.length - processableSelectedOrders.length;
+    if (processableSelectedOrders.length === 0) {
+      const reasons = [...new Set(selectedOrders.map((o) => getProcessBlockReason(o)).filter(Boolean))];
+      toast.error(
+        reasons.includes("hasAwb")
+          ? "Selected order(s) already have an AWB. Pick orders that show “Awaiting shipment”, or use Ready to Ship tab."
+          : "Selected order(s) cannot be processed. Choose orders awaiting shipment without an AWB.",
+      );
+      return;
+    }
+    if (skipped > 0) {
+      toast.message(`${skipped} selected order(s) skipped — already shipped or not eligible.`);
+    }
+    setProcessModalOpen(true);
+  }, [selectedOrders, processableSelectedOrders]);
 
   const [processSubmitting, setProcessSubmitting] = useState(false);
 
@@ -315,6 +328,16 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       await refetch();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to move order to junk");
+    }
+  };
+
+  const handleMarkReship = async (id: string) => {
+    try {
+      await orderService.moveOrderToReship(id);
+      toast.success("Order moved to reship");
+      await refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to move order to reship");
     }
   };
 
@@ -362,7 +385,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="All Orders" breadcrumb={[breadcrumbPrefix, "All Orders"]}
+      <PageHeader title="All Orders" breadcrumb={[breadcrumbPrefix, "All Orders"]} className="mb-4 sm:mb-6"
         actions={
           <div className="flex items-center gap-2">
             {showActions && (
@@ -373,10 +396,10 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       />
 
       {/* Status tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-2 mb-4 border-b border-border -mx-4 px-4 lg:mx-0 lg:px-0">
+      <div className="flex gap-0.5 sm:gap-1 overflow-x-auto pb-2 mb-3 sm:mb-4 border-b border-border -mx-4 px-4 lg:mx-0 lg:px-0 scrollbar-hide snap-x snap-mandatory">
         {tabs.map(tab => (
           <button key={tab.filter} onClick={() => { setActiveTab(tab.filter); }}
-            className={cn("flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-[2px]",
+            className={cn("flex shrink-0 snap-start items-center gap-1 sm:gap-1.5 whitespace-nowrap px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium transition-colors border-b-2 -mb-[2px]",
               activeTab === tab.filter ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
             )}>
             {tab.label}
@@ -389,12 +412,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
       {/* Search */}
       {activeTab === "channel" && (
-        <div className="flex flex-wrap gap-2 mb-3 items-center">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mb-3 items-center">
           <Select
             value={channelPayment ?? "__any__"}
             onValueChange={(v) => setChannelPayment(v === "__any__" ? undefined : v)}
           >
-            <SelectTrigger className="w-[160px] h-9 text-sm">
+            <SelectTrigger className="w-full min-w-0 sm:w-[160px] h-9 text-sm">
               <SelectValue placeholder="Payment" />
             </SelectTrigger>
             <SelectContent>
@@ -407,7 +430,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
             value={channelFulfillment ?? "__any__"}
             onValueChange={(v) => setChannelFulfillment(v === "__any__" ? undefined : v)}
           >
-            <SelectTrigger className="w-[180px] h-9 text-sm">
+            <SelectTrigger className="w-full min-w-0 sm:w-[180px] h-9 text-sm">
               <SelectValue placeholder="Shopify fulfillment" />
             </SelectTrigger>
             <SelectContent>
@@ -420,23 +443,28 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-2 items-center">
-        <div className="relative flex-1 min-w-[160px]">
+      <div className="space-y-2 mb-2">
+        <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
           <Input
-            placeholder="Search by tracking ID, order ID, order number, mobile, customer, product, SKU"
+            placeholder={
+              isMobile
+                ? "Search orders…"
+                : "Search by tracking ID, order ID, order number, mobile, customer, product, SKU"
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="pl-9 w-full"
             aria-label="Search orders"
           />
         </div>
-        <div className="flex flex-wrap items-end gap-2 shrink-0">
-          <div>
+
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-2">
+          <div className="min-w-0">
             <Label className="text-xs text-text-muted block mb-1">From date</Label>
             <Input
               type="date"
-              className="h-9 w-[150px] text-sm"
+              className="h-9 w-full sm:w-[150px] text-sm"
               value={advancedFilters.dateFrom ?? ""}
               onChange={(e) =>
                 setAdvancedFilters((p) => ({ ...p, dateFrom: e.target.value ? e.target.value : undefined }))
@@ -444,11 +472,11 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               aria-label="Filter from date"
             />
           </div>
-          <div>
+          <div className="min-w-0">
             <Label className="text-xs text-text-muted block mb-1">To date</Label>
             <Input
               type="date"
-              className="h-9 w-[150px] text-sm"
+              className="h-9 w-full sm:w-[150px] text-sm"
               value={advancedFilters.dateTo ?? ""}
               onChange={(e) =>
                 setAdvancedFilters((p) => ({ ...p, dateTo: e.target.value ? e.target.value : undefined }))
@@ -457,48 +485,53 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
             />
           </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="gap-2 shrink-0"
-          onClick={() => setFilterSheetOpen(true)}
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          <span className="hidden sm:inline">Filters</span>
-        </Button>
-        {hasListFilters && (
-          <Button type="button" variant="ghost" size="sm" className="text-text-muted shrink-0" onClick={clearAllFilters}>
-            Clear all
-          </Button>
-        )}
-        <span className="text-xs text-text-muted whitespace-nowrap hidden sm:inline sm:ml-auto">
-          {total} total
-        </span>
-        <div className="flex items-center gap-1 shrink-0">
+
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled={page <= 1 || loading}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="gap-2 shrink-0"
+            onClick={() => setFilterSheetOpen(true)}
           >
-            Prev
+            <SlidersHorizontal className="h-4 w-4" />
+            <span className="hidden sm:inline">Filters</span>
           </Button>
-          <span className="text-xs text-text-muted px-1">
-            Page {page} / {Math.max(1, Math.ceil(total / pageSize))}
+          {hasListFilters && (
+            <Button type="button" variant="ghost" size="sm" className="text-text-muted shrink-0" onClick={clearAllFilters}>
+              Clear all
+            </Button>
+          )}
+          <span className="text-xs text-text-muted whitespace-nowrap hidden sm:inline sm:ml-auto">
+            {total} total
           </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={loading || page * pageSize >= total}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
+          <div className="flex items-center gap-1 shrink-0 ml-auto sm:ml-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Prev
+            </Button>
+            <span className="text-xs text-text-muted px-1 whitespace-nowrap">
+              Page {page} / {Math.max(1, Math.ceil(total / pageSize))}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loading || page * pageSize >= total}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </Button>
+          </div>
+          <Button variant="outline" size="icon" className="sm:hidden shrink-0" onClick={handleExport}>
+            <Download className="h-4 w-4" />
           </Button>
         </div>
-        <Button variant="outline" size="icon" className="sm:hidden shrink-0" onClick={handleExport}><Download className="h-4 w-4" /></Button>
       </div>
 
       {filterTags.length > 0 && (
@@ -548,8 +581,9 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onSelectAll={(ids) => setSelected(new Set(ids))}
           onClearSelection={() => setSelected(new Set())}
           onMarkJunk={handleMarkJunk}
+          onMarkReship={handleMarkReship}
           onBulkJunk={handleBulkJunk}
-          onOpenProcessModal={() => setProcessModalOpen(true)}
+          onOpenProcessModal={openProcessModal}
           onBulkMoveToReady={handleBulkMoveToReady}
           onMoveToReady={handleMoveToReady}
           onExport={handleExport}
@@ -595,17 +629,15 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       <ProcessSelectedModal
         open={processModalOpen}
         onClose={() => !processSubmitting && setProcessModalOpen(false)}
-        orderIds={Array.from(selected)}
+        orderIds={processableSelectedOrders.map((o) => o.id)}
         couriers={couriers
           .filter((c) => c.active !== false)
           .map((c) => ({ id: c.id, name: c.name, carrierId: c.carrierId || undefined }))}
-        referenceOrders={orders
-          .filter((o) => selected.has(o.id))
-          .map((o) => ({
-            pincode: o.shippingPincode || o.pincode,
-            payment: o.payment,
-            amount: o.amount,
-          }))}
+        referenceOrders={processableSelectedOrders.map((o) => ({
+          pincode: o.shippingPincode || o.pincode,
+          payment: o.payment,
+          amount: o.amount,
+        }))}
         submitting={processSubmitting}
         onProcess={async (payload) => {
           setProcessSubmitting(true);

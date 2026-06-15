@@ -45,8 +45,8 @@ export function ProductNameText({ product, className, compact = false }: Product
   return (
     <p
       className={cn(
-        "font-medium text-text-primary leading-snug line-clamp-2",
-        compact ? "text-[11px]" : "text-sm",
+        "font-medium text-text-primary leading-snug break-words",
+        compact ? "text-[11px] line-clamp-3" : "text-sm line-clamp-2",
         className
       )}
       title={name}

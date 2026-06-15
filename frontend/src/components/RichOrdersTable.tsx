@@ -4,7 +4,7 @@ import type { Order } from "@/types/logistics";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User, Trash2, Truck, Calendar, IndianRupee, Tag } from "lucide-react";
+import { Eye, Printer, Ban, Pencil, SlidersHorizontal, X, MapPin, Phone, Mail, Package, Monitor, Download, Settings, CheckSquare, Save, Clock, User, Trash2, Truck, Calendar, IndianRupee, Tag, RotateCcw } from "lucide-react";
 import { ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
 import { EditSkuModal } from "@/components/EditSkuModal";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
@@ -44,6 +44,15 @@ const WHATSAPP_OPTIONS = [
   "Order Confirmed", "Order Cancelled", "Response Awaited", "Msg Failed",
   "Address Update Request"
 ];
+
+/** Pending/draft orders without a shipment — user picks Reship or Junk when cancelling. */
+function isPendingCancelEligible(o: Order): boolean {
+  if (o.isJunk) return false;
+  if (String(o.awb ?? "").trim()) return false;
+  if (o.shipmentCreated) return false;
+  const st = String(o.status ?? "").toLowerCase().replace(/-/g, "_");
+  return st === "pending" || st === "draft";
+}
 
 interface FilterPopoverProps {
   open: boolean;
@@ -326,6 +335,7 @@ interface Props {
   onSelectAll: (ids: string[]) => void;
   onClearSelection: () => void;
   onMarkJunk: (id: string) => void;
+  onMarkReship?: (id: string) => void;
   onBulkJunk?: () => void;
   onOpenProcessModal?: () => void;
   onExport?: () => void;
@@ -373,6 +383,7 @@ export function RichOrdersTable({
   onSelectAll,
   onClearSelection,
   onMarkJunk,
+  onMarkReship,
   onBulkJunk,
   onOpenProcessModal,
   onExport,
@@ -412,6 +423,7 @@ export function RichOrdersTable({
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [editingRemark, setEditingRemark] = useState<string | null>(null);
   const [junkConfirmId, setJunkConfirmId] = useState<string | null>(null);
+  const [reshipConfirmId, setReshipConfirmId] = useState<string | null>(null);
   const [shipmentModalOrder, setShipmentModalOrder] = useState<Order | null>(null);
   const [shipmentItemsMissing, setShipmentItemsMissing] = useState(false);
   const [selectedCourierId, setSelectedCourierId] = useState("");
@@ -703,7 +715,7 @@ export function RichOrdersTable({
                   processSelectedDisabled
                     ? selected.size === 0
                       ? "Select at least one order"
-                      : "Selected orders must not be junk and must not already have an AWB or shipment"
+                      : "Selected orders must be eligible (no AWB/shipment yet, not already picked up or delivered)"
                     : undefined
                 }
                 onClick={() => {
@@ -1254,11 +1266,26 @@ export function RichOrdersTable({
                               <Truck className="h-3 w-3" /> Move To Ready
                             </Button>
                           )}
-                          <Button variant="outline" size="sm"
-                            className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
-                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
-                            <Ban className="h-3 w-3" /> Junk
-                          </Button>
+                          {isPendingCancelEligible(o) && onMarkReship ? (
+                            <div className="flex gap-1.5">
+                              <Button variant="outline" size="sm"
+                                className="h-7 text-xs gap-1 border-primary/40 text-primary hover:bg-primary-light"
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setReshipConfirmId(o.id); }}>
+                                <RotateCcw className="h-3 w-3" /> Reship
+                              </Button>
+                              <Button variant="outline" size="sm"
+                                className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
+                                <Ban className="h-3 w-3" /> Junk
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button variant="outline" size="sm"
+                              className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                              onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
+                              <Ban className="h-3 w-3" /> Junk
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1310,6 +1337,25 @@ export function RichOrdersTable({
               className="border border-primary text-primary bg-transparent hover:bg-primary-light"
               onClick={() => { if (junkConfirmId) { onMarkJunk(junkConfirmId); setJunkConfirmId(null); } }}>
               Yes, Move to Junk
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reship Confirmation Dialog */}
+      <AlertDialog open={!!reshipConfirmId} onOpenChange={(open) => !open && setReshipConfirmId(null)}>
+        <AlertDialogContent className="sm:max-w-[400px]">
+          <AlertDialogHeader>
+            <AlertDialogDescription className="text-sm text-text-primary">
+              Move this order to Reship? You can edit and re-process it from the Reship tab.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex gap-3 sm:gap-3">
+            <AlertDialogCancel className="border-none shadow-none text-text-secondary hover:text-text-primary">No</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-primary text-primary-foreground hover:bg-primary-dark"
+              onClick={() => { if (reshipConfirmId && onMarkReship) { onMarkReship(reshipConfirmId); setReshipConfirmId(null); } }}>
+              Yes, Move to Reship
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

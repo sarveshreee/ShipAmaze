@@ -8,6 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+} from "@/components/ui/alert-dialog";
 import type { Order, OrderStatus } from "@/types/logistics";
 import {
   User, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
@@ -83,6 +92,14 @@ function errMsg(err: unknown) {
   return "Unknown error";
 }
 
+function isPendingCancelEligible(order: Order): boolean {
+  if (order.isJunk) return false;
+  if (String(order.awb ?? "").trim()) return false;
+  if (order.shipmentCreated) return false;
+  const st = String(order.status ?? "").toLowerCase().replace(/-/g, "_");
+  return st === "pending" || st === "draft";
+}
+
 export function OrderDetailDrawer({
   order,
   open,
@@ -108,6 +125,7 @@ export function OrderDetailDrawer({
 
   const [selectedWarehouseMongoId, setSelectedWarehouseMongoId] = useState("");
   const [useDevVelocityOverride, setUseDevVelocityOverride] = useState(false);
+  const [pendingCancelOpen, setPendingCancelOpen] = useState(false);
 
   const linkedWarehouses = useMemo(() => {
     const withLink = warehouses.filter((w) => w.velocityWarehouseId?.trim());
@@ -215,10 +233,11 @@ export function OrderDetailDrawer({
   };
 
   const cancelOrder = async () => {
-    if (!confirm(`Cancel order ${order.id}?`)) return;
+    if (!order) return;
 
     const awbToCancel = order.awb;
     if (awbToCancel) {
+      if (!confirm(`Cancel order ${order.id}?`)) return;
       setUpdating(true);
       try {
         await velocityService.cancelShipment({ awbs: [awbToCancel], orderId: order.id });
@@ -230,8 +249,45 @@ export function OrderDetailDrawer({
       } finally {
         setUpdating(false);
       }
-    } else {
-      await updateStatus("cancelled");
+      return;
+    }
+
+    if (isPendingCancelEligible(order)) {
+      setPendingCancelOpen(true);
+      return;
+    }
+
+    if (!confirm(`Cancel order ${order.id}?`)) return;
+    await updateStatus("cancelled");
+  };
+
+  const movePendingToReship = async () => {
+    if (!order) return;
+    setUpdating(true);
+    try {
+      await orderService.moveOrderToReship(order.id);
+      toast.success("Order moved to reship");
+      setPendingCancelOpen(false);
+      onOrderUpdated?.();
+    } catch (err: unknown) {
+      toast.error(errMsg(err));
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const movePendingToJunk = async () => {
+    if (!order) return;
+    setUpdating(true);
+    try {
+      await orderService.moveOrderToJunk(order.id);
+      toast.success("Order moved to junk");
+      setPendingCancelOpen(false);
+      onOrderUpdated?.();
+    } catch (err: unknown) {
+      toast.error(errMsg(err));
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -958,6 +1014,33 @@ export function OrderDetailDrawer({
           </section>
         </div>
       </SheetContent>
+
+      <AlertDialog open={pendingCancelOpen} onOpenChange={setPendingCancelOpen}>
+        <AlertDialogContent className="sm:max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogDescription className="text-sm text-text-primary">
+              This pending order has not shipped yet. Choose where to send it:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <AlertDialogCancel disabled={updating}>Keep order</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-primary text-primary-foreground hover:bg-primary-dark"
+              disabled={updating}
+              onClick={() => void movePendingToReship()}
+            >
+              Send to Reship
+            </AlertDialogAction>
+            <AlertDialogAction
+              className="border border-danger text-danger bg-transparent hover:bg-danger-light"
+              disabled={updating}
+              onClick={() => void movePendingToJunk()}
+            >
+              Send to Junk
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }
