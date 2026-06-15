@@ -437,16 +437,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         >
           <div
             className={cn(
-              "relative flex shrink-0 items-center gap-2 border-b border-sidebar-border/80",
-              isDesktopCollapsed ? "h-[60px] justify-center px-2" : "h-[60px] px-3",
+              "relative flex shrink-0 items-center gap-2 border-b border-sidebar-border/80 bg-sidebar",
+              isDesktopCollapsed ? "min-h-[4rem] justify-center px-2 py-3" : "min-h-[4rem] px-4 py-3",
             )}
           >
             <Link
               to={homePath}
               onClick={() => setSidebarOpen(false)}
               className={cn(
-                "flex min-w-0 items-center transition-opacity hover:opacity-90",
-                isDesktopCollapsed ? "justify-center" : "flex-1 overflow-hidden",
+                "flex min-w-0 flex-1 items-center transition-opacity hover:opacity-90",
+                isDesktopCollapsed ? "justify-center" : "",
               )}
               title="ShipAmaze"
             >

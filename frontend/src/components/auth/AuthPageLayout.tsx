@@ -18,11 +18,16 @@ const HERO_BG: Record<AuthHeroVariant, string> = {
 
 /** Split auth shell: hero image (left) + form panel (right), orange theme via `.auth-page`. */
 export function AuthPageLayout({ heroImage, heroAlt, variant, children }: AuthPageLayoutProps) {
+  const isSignup = variant === "signup";
+
   return (
-    <div className="auth-page relative flex min-h-screen flex-col overflow-hidden lg:flex-row">
+    <div
+      data-variant={variant}
+      className="auth-page relative flex min-h-screen flex-col overflow-x-hidden lg:h-screen lg:max-h-screen lg:overflow-hidden lg:flex-row"
+    >
       {/* Hero — left on desktop */}
       <div
-        className="relative order-1 h-44 w-full shrink-0 overflow-hidden sm:h-52 lg:h-auto lg:min-h-screen lg:w-[60%]"
+        className="relative order-1 h-36 w-full shrink-0 overflow-hidden sm:h-44 md:h-48 lg:h-full lg:w-[60%]"
         style={{ backgroundColor: HERO_BG[variant] }}
       >
         <img
@@ -43,8 +48,8 @@ export function AuthPageLayout({ heroImage, heroAlt, variant, children }: AuthPa
       </div>
 
       {/* Form — right on desktop */}
-      <div className="relative z-10 order-2 flex w-full shrink-0 flex-col lg:w-[40%]">
-        <AuthModeSwitch variant={variant} className="absolute right-5 top-5 z-20 sm:right-8 sm:top-7" />
+      <div className="relative z-10 order-2 flex w-full min-w-0 shrink-0 flex-col lg:h-full lg:w-[40%] lg:overflow-hidden">
+        <AuthModeSwitch variant={variant} className="absolute right-4 top-4 z-20 sm:right-8 sm:top-7" />
 
         <div
           className="pointer-events-none absolute -right-16 top-0 hidden h-72 w-72 rounded-full opacity-40 blur-3xl lg:block"
@@ -52,10 +57,22 @@ export function AuthPageLayout({ heroImage, heroAlt, variant, children }: AuthPa
           aria-hidden
         />
 
-        <div className="flex flex-1 items-center justify-center px-6 pb-8 pt-14 sm:px-10 sm:pt-8 lg:py-12">
-          <div className="auth-form-card w-full max-w-[420px]">
-            <div className="mb-8 flex flex-col items-center lg:items-start">
-              <ShipAmazeLogo placement="auth-form" className="auth-form-logo mb-1" />
+        <div
+          className={
+            isSignup
+              ? "flex flex-1 items-start justify-center overflow-x-hidden px-4 pb-4 pt-14 sm:items-center sm:px-6 sm:pt-8 lg:items-center lg:px-8 lg:py-3"
+              : "flex flex-1 items-start justify-center overflow-x-hidden px-4 pb-8 pt-14 sm:items-center sm:px-6 sm:pt-8 lg:px-10 lg:py-10"
+          }
+        >
+          <div
+            className={
+              isSignup
+                ? "auth-form-card w-full min-w-0 max-w-full sm:max-w-[480px] lg:max-w-[520px]"
+                : "auth-form-card w-full min-w-0 max-w-full sm:max-w-[480px] lg:max-w-[540px]"
+            }
+          >
+            <div className="mb-4 flex flex-col items-center sm:mb-5 lg:mb-5 lg:items-start">
+              <ShipAmazeLogo placement="auth-form" className="auth-form-logo mb-0" />
             </div>
             {children}
           </div>

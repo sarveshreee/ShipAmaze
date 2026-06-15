@@ -9,6 +9,7 @@ import {
   AuthFormFooter,
   AuthFormHeader,
   authInputClass,
+  authFieldGridClass,
   authLabelClass,
   authSubmitClass,
 } from "@/components/auth/authFormStyles";
@@ -18,8 +19,8 @@ import { toast } from "sonner";
 import { roleDashboardPath, type SignupRole } from "@/services/authService";
 
 const roles: { value: SignupRole; label: string; icon: React.ReactNode }[] = [
-  { value: "vendor", label: "Vendor", icon: <Package className="h-4 w-4" /> },
-  { value: "dropshipper", label: "Dropshipper", icon: <Truck className="h-4 w-4" /> },
+  { value: "vendor", label: "Vendor", icon: <Package className="h-3.5 w-3.5" /> },
+  { value: "dropshipper", label: "Dropshipper", icon: <Truck className="h-3.5 w-3.5" /> },
 ];
 
 const highlights = [
@@ -97,9 +98,9 @@ export default function SignupPage() {
       heroAlt="ShipAmaze global AI-powered logistics network"
       variant="signup"
     >
-      <AuthFormHeader title="Create your account" subtitle="Get started with ShipAmaze in minutes" />
+      <AuthFormHeader compact title="Create your account" subtitle="Get started with ShipAmaze in minutes" />
 
-      <ul className="auth-field mb-5 space-y-2 lg:hidden">
+      <ul className="auth-field mb-4 space-y-2 sm:mb-5 lg:hidden">
         {highlights.map((item) => (
           <li
             key={item.text}
@@ -111,9 +112,9 @@ export default function SignupPage() {
         ))}
       </ul>
 
-      <form onSubmit={handleSubmit} className="space-y-3.5">
-        <div className="auth-field grid grid-cols-2 gap-3">
-          <div className="space-y-2">
+      <form onSubmit={handleSubmit} className="auth-signup-form space-y-1.5 lg:space-y-1.5">
+        <div className={cn("auth-field", authFieldGridClass)}>
+          <div className="min-w-0 space-y-1">
             <label className={authLabelClass}>Full Name *</label>
             <Input
               value={fullName}
@@ -122,7 +123,7 @@ export default function SignupPage() {
               className={inputClass}
             />
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-1">
             <label className={authLabelClass}>Phone</label>
             <Input
               value={phone}
@@ -133,29 +134,30 @@ export default function SignupPage() {
           </div>
         </div>
 
-        <div className="auth-field space-y-2">
-          <label className={authLabelClass}>Email *</label>
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="amit@example.com"
-            className={inputClass}
-          />
+        <div className={cn("auth-field", authFieldGridClass)}>
+          <div className="min-w-0 space-y-1">
+            <label className={authLabelClass}>Email *</label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="amit@example.com"
+              className={inputClass}
+            />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <label className={authLabelClass}>Business Name</label>
+            <Input
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              placeholder="Your business name"
+              className={inputClass}
+            />
+          </div>
         </div>
 
-        <div className="auth-field space-y-2">
-          <label className={authLabelClass}>Business Name</label>
-          <Input
-            value={businessName}
-            onChange={(e) => setBusinessName(e.target.value)}
-            placeholder="Your business name"
-            className={inputClass}
-          />
-        </div>
-
-        <div className="auth-field grid grid-cols-2 gap-3">
-          <div className="space-y-2">
+        <div className={cn("auth-field", authFieldGridClass)}>
+          <div className="min-w-0 space-y-1">
             <label className={authLabelClass}>Password *</label>
             <div className="relative">
               <Input
@@ -174,7 +176,7 @@ export default function SignupPage() {
               </button>
             </div>
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-1">
             <label className={authLabelClass}>Confirm Password *</label>
             <div className="relative">
               <Input
@@ -195,16 +197,16 @@ export default function SignupPage() {
           </div>
         </div>
 
-        <div className="auth-field space-y-2">
+        <div className="auth-field space-y-1">
           <label className={authLabelClass}>Register as</label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-1.5">
             {roles.map((r) => (
               <button
                 key={r.value}
                 type="button"
                 onClick={() => setRole(r.value)}
                 className={cn(
-                  "auth-role-btn flex flex-col items-center gap-1.5 py-3 text-sm font-medium",
+                  "auth-role-btn flex flex-row items-center justify-center gap-1.5 py-1.5 text-xs font-medium",
                   role === r.value
                     ? "auth-role-btn--active"
                     : "bg-white/90 text-[hsl(24_12%_38%)]"
@@ -217,12 +219,12 @@ export default function SignupPage() {
           </div>
         </div>
 
-        <label className="auth-field flex items-start gap-2.5 text-xs text-[hsl(24_12%_38%)] pt-1">
+        <label className="auth-field flex items-center gap-1.5 text-[11px] leading-tight text-[hsl(24_12%_38%)]">
           <input
             type="checkbox"
             checked={agreed}
             onChange={(e) => setAgreed(e.target.checked)}
-            className="mt-0.5 rounded border-[hsl(30_20%_86%)] accent-[hsl(24_95%_53%)]"
+            className="rounded border-[hsl(30_20%_86%)] accent-[hsl(24_95%_53%)]"
           />
           I agree to the{" "}
           <a href="#" className="auth-link hover:underline">
@@ -241,7 +243,7 @@ export default function SignupPage() {
         </Button>
       </form>
 
-      <AuthFormFooter className="mt-5">
+      <AuthFormFooter className="!mt-2 text-xs">
         Already have an account?{" "}
         <Link to="/login" className="auth-link">
           Sign in

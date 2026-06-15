@@ -234,6 +234,41 @@
   animation: auth-form-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+@media (min-width: 1024px) {
+  .auth-page[data-variant="signup"] .auth-input {
+    height: 2rem;
+    font-size: 0.75rem;
+    padding: 0 0.625rem;
+    border-radius: 0.5rem;
+  }
+
+  .auth-page[data-variant="signup"] .auth-input:focus-visible {
+    transform: none;
+    box-shadow: 0 0 0 3px hsl(var(--color-primary) / 0.12);
+  }
+
+  .auth-page[data-variant="signup"] .auth-submit-btn {
+    height: 2rem;
+    font-size: 0.8125rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 2px 10px hsl(24 95% 53% / 0.28);
+  }
+
+  .auth-page[data-variant="signup"] .auth-label {
+    font-size: 0.6875rem;
+    line-height: 1.2;
+  }
+
+  .auth-page[data-variant="signup"] .auth-form-footer {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .auth-page[data-variant="signup"] .auth-role-btn {
+    border-radius: 0.5rem;
+  }
+}
+
 .auth-form-header {
   animation: auth-form-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both;
 }
@@ -391,6 +426,40 @@
 
 .auth-page .auth-mode-switch {
   animation: auth-switch-in 0.45s ease-out both;
+}
+
+.sidebar-brand__logo {
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 10px hsl(0 0% 0% / 0.22);
+}
+
+.sidebar-brand__mark {
+  box-shadow: 0 2px 10px hsl(0 0% 0% / 0.22);
+}
+
+.sidebar-brand__name {
+  text-shadow: 0 1px 2px hsl(0 0% 0% / 0.2);
+}
+
+@media (max-width: 639px) {
+  .auth-form-card {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .auth-input {
+    font-size: 1rem;
+    min-height: 2.875rem;
+  }
+
+  .auth-submit-btn {
+    min-height: 2.875rem;
+  }
+
+  .auth-form-header h2 {
+    font-size: 1.5rem;
+    line-height: 1.25;
+  }
 }
 
 /* Safe area for mobile bottom nav */

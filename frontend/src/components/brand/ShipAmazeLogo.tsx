@@ -11,9 +11,26 @@ const placementClasses: Record<LogoPlacement, string> = {
   /** Location #3 — marketplace sub-header */
   marketplace: "h-7 w-auto max-w-[220px] sm:h-8 sm:max-w-[280px] md:max-w-[320px] object-contain object-left",
   "auth-hero": "h-20 w-auto max-w-[360px] sm:h-24 sm:max-w-[420px] object-contain",
-  "auth-form": "h-[72px] w-auto max-w-[min(100%,420px)] sm:h-20 md:h-24 object-contain",
+  "auth-form": "h-20 w-auto max-w-[min(100%,520px)] sm:h-24 md:h-28 lg:h-32 object-contain object-left",
   loading: "h-14 w-auto max-w-[280px] object-contain",
+  sidebar: "h-full w-[160%] max-w-none object-cover object-left",
 };
+
+function SidebarBrandMark({ decorative }: { decorative?: boolean }) {
+  return (
+    <div className="sidebar-brand__mark flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#faf8f5] p-1 shadow-md ring-1 ring-white/25">
+      <img
+        src={LOGO_CARD}
+        alt={decorative ? "" : "ShipAmaze"}
+        width={480}
+        height={140}
+        className={placementClasses.sidebar}
+        decoding="async"
+        draggable={false}
+      />
+    </div>
+  );
+}
 
 interface ShipAmazeLogoProps {
   placement?: LogoPlacement;
@@ -29,15 +46,7 @@ export function ShipAmazeLogo({
   const { theme } = useTheme();
 
   if (placement === "sidebar") {
-    return (
-      <img
-        src={LOGO_CARD}
-        alt={alt}
-        className={cn("h-10 w-10 shrink-0 rounded-md object-contain", className)}
-        decoding="async"
-        draggable={false}
-      />
-    );
+    return <SidebarBrandMark />;
   }
 
   const useDarkLogo =
@@ -61,16 +70,16 @@ export function ShipAmazeLogo({
   );
 }
 
-/** Sidebar header: [Logo] ShipAmaze — logo with background + brand text when expanded. */
+/** Sidebar header — app mark + ShipAmaze wordmark. */
 export function SidebarBrand({ showText = true, className }: { showText?: boolean; className?: string }) {
   return (
-    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
-      <ShipAmazeLogo placement="sidebar" />
-      {showText && (
-        <span className="truncate text-[15px] font-semibold tracking-tight text-slate-50 dark:text-white">
+    <div className={cn("sidebar-brand flex min-w-0 items-center gap-3", className)}>
+      <SidebarBrandMark decorative={showText} />
+      {showText ? (
+        <span className="sidebar-brand__name whitespace-nowrap text-[17px] font-bold leading-tight tracking-tight text-white">
           ShipAmaze
         </span>
-      )}
+      ) : null}
     </div>
   );
 }
