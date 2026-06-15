@@ -25,6 +25,12 @@ export interface IPickup extends Document {
   addressFingerprint?: string;
   /** Velocity dashboard warehouse code after linkOnly (e.g. WHZBRR). */
   velocityWarehouseId?: string;
+  /** Set when this pickup was auto-synced from a vendor/dropshipper Warehouse document. */
+  sourceWarehouseId?: Types.ObjectId;
+  /** Role of the actor who caused this pickup to be created. */
+  createdByRole?: "admin" | "vendor" | "dropshipper";
+  /** Vendor ObjectId when createdByRole is vendor or dropshipper. */
+  vendorId?: Types.ObjectId;
 }
 
 const pickupSchema = new Schema<IPickup>(
@@ -49,6 +55,9 @@ const pickupSchema = new Schema<IPickup>(
     deletedAt: { type: Date },
     addressFingerprint: { type: String, index: true },
     velocityWarehouseId: { type: String },
+    sourceWarehouseId: { type: Schema.Types.ObjectId, ref: "Warehouse", index: true },
+    createdByRole: { type: String, enum: ["admin", "vendor", "dropshipper"] },
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor", index: true },
   },
   { timestamps: true }
 );

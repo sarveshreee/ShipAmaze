@@ -50,13 +50,47 @@ import {
 } from "../modules/velocity/velocity.warehouseSync.js";
 
 /**
- * Auto-sync a Warehouse's address fields to a Pickup address.
- * Creates a new Pickup on first call; updates the linked one on subsequent calls.
+ * Returns the _id of the first active admin user.
+ * Auto-synced vendor warehouse pickups are owned by admin so they appear in Admin Pickup Addresses.
+ */
+async function getPlatformAdminUserId(): Promise<mongoose.Types.ObjectId | null> {
+  const admin = await User.findOne({
+    role: "admin",
+    $or: [{ isActive: { $ne: false } }, { isActive: { $exists: false } }],
+  })
+    .select("_id")
+    .lean();
+  return admin ? (admin._id as mongoose.Types.ObjectId) : null;
+}
+
+/**
+ * Soft-deletes the Pickup record auto-synced from the given Warehouse.
+ */
+async function deletePickupForWarehouse(w: HydratedDocument<IWarehouse>): Promise<void> {
+  try {
+    const ownerClauses: Record<string, unknown>[] = [{ sourceWarehouseId: w._id }];
+    if (w.linkedPickupId) ownerClauses.push({ _id: w.linkedPickupId });
+    await Pickup.updateMany(
+      {
+        $and: [
+          { $or: ownerClauses },
+          { $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }] },
+        ],
+      },
+      { $set: { deletedAt: new Date(), isActive: false, isDefault: false } }
+    );
+  } catch (e) {
+    console.warn("[warehouse-pickup-delete] non-fatal error:", e instanceof Error ? e.message : String(e));
+  }
+}
+
+/**
+ * Auto-sync a Warehouse's address fields to an admin-owned Pickup address.
+ * Creates on first call; updates in place on subsequent calls.
  * Non-fatal — never throws to callers.
  */
-async function syncWarehouseToPickup(w: HydratedDocument<IWarehouse>, ownerUserId: mongoose.Types.ObjectId): Promise<void> {
+async function syncWarehouseToPickup(w: HydratedDocument<IWarehouse>): Promise<void> {
   try {
-    const label = `${w.name} (Warehouse)`;
     const addressLine1 = w.addressLine1 || "";
     const city = w.city || "";
     const state = w.state || "";
@@ -64,35 +98,55 @@ async function syncWarehouseToPickup(w: HydratedDocument<IWarehouse>, ownerUserI
     const contactName = w.contactName || "";
     const phone = w.phone || "";
 
-    if (!addressLine1 || !city || !pincode) return;
+    if (!addressLine1 || !city || !pincode) {
+      return;
+    }
 
-    if (w.linkedPickupId) {
-      await Pickup.findByIdAndUpdate(w.linkedPickupId, {
-        $set: { label, contactName, phone, addressLine1, addressLine2: w.addressLine2, city, state, pincode },
-      });
-    } else {
-      const existing = await Pickup.findOne({ userId: ownerUserId, addressLine1, city, pincode, deletedAt: { $exists: false } });
-      let pickup;
-      if (existing) {
-        await Pickup.findByIdAndUpdate(existing._id, { $set: { label, contactName, phone, addressLine2: w.addressLine2, state } });
-        pickup = existing;
-      } else {
-        pickup = await Pickup.create({
-          userId: ownerUserId,
-          label,
-          contactName,
-          phone,
-          addressLine1,
-          addressLine2: w.addressLine2,
-          city,
-          state,
-          pincode,
-          country: "India",
-          isDefault: false,
-          isActive: true,
-        });
+    const adminUserId = await getPlatformAdminUserId();
+    if (!adminUserId) {
+      console.warn("[warehouse-pickup-sync] no admin user found — skipping pickup sync");
+      return;
+    }
+
+    const vendor = w.vendorId ? await Vendor.findById(w.vendorId).select("name").lean() : null;
+    const vendorSuffix = vendor?.name ? ` — ${vendor.name}` : "";
+    const label = `${w.name} (Warehouse)${vendorSuffix}`;
+
+    const notDeletedClause = { $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }] };
+
+    let pickup = w.linkedPickupId
+      ? await Pickup.findOne({ _id: w.linkedPickupId, ...notDeletedClause })
+      : null;
+
+    if (!pickup) {
+      pickup = await Pickup.findOne({ sourceWarehouseId: w._id, ...notDeletedClause });
+    }
+
+    const pickupFields = {
+      userId: adminUserId,
+      label,
+      contactName,
+      phone,
+      addressLine1,
+      addressLine2: w.addressLine2,
+      city,
+      state,
+      pincode,
+      country: "India",
+      isActive: w.isActive !== false,
+      sourceWarehouseId: w._id,
+      createdByRole: w.createdByRole ?? "vendor",
+      vendorId: w.vendorId,
+    };
+
+    if (pickup) {
+      await Pickup.findByIdAndUpdate(pickup._id, { $set: pickupFields });
+      if (!w.linkedPickupId || String(w.linkedPickupId) !== String(pickup._id)) {
+        await Warehouse.findByIdAndUpdate(w._id, { $set: { linkedPickupId: pickup._id } });
       }
-      await Warehouse.findByIdAndUpdate(w._id, { $set: { linkedPickupId: pickup._id } });
+    } else {
+      const created = await Pickup.create({ ...pickupFields, isDefault: false });
+      await Warehouse.findByIdAndUpdate(w._id, { $set: { linkedPickupId: created._id } });
     }
   } catch (e) {
     console.warn("[warehouse-pickup-sync] non-fatal error:", e instanceof Error ? e.message : String(e));
@@ -393,7 +447,12 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
   } else {
     const vendor = await Vendor.findOne({ userId: req.user._id });
     if (!vendor) throw new AppError(400, "Vendor profile not found");
-    w = (await Warehouse.create({ ...req.body, vendorId: vendor._id })) as HydratedDocument<IWarehouse>;
+    w = (await Warehouse.create({
+      ...req.body,
+      vendorId: vendor._id,
+      ownerUserId: req.user._id,
+      createdByRole: "vendor",
+    })) as HydratedDocument<IWarehouse>;
   }
 
   // Auto-sync to Velocity (non-fatal)
@@ -406,8 +465,8 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     wObj.velocityWarehouseId = velocitySync.warehouse_id;
   }
 
-  // Auto-sync warehouse address to admin Pickup Addresses (non-fatal)
-  void syncWarehouseToPickup(w, req.user._id);
+  // Auto-sync warehouse address to admin Pickup Addresses (await for reliability)
+  await syncWarehouseToPickup(w);
 
   res.status(201).json({ ...wObj, _velocitySync: velocitySync });
 });
@@ -454,8 +513,8 @@ export const updateWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     }
   }
 
-  // Auto-sync warehouse address to admin Pickup Addresses (non-fatal)
-  void syncWarehouseToPickup(w, req.user._id);
+  // Auto-sync warehouse address to admin Pickup Addresses (await for reliability)
+  await syncWarehouseToPickup(w);
 
   res.json({ ...w.toObject(), ...(velocitySync ? { _velocitySync: velocitySync } : {}) });
 });
@@ -1014,6 +1073,9 @@ function mapPickupDoc(a: {
   isActive?: boolean;
   deletedAt?: Date;
   velocityWarehouseId?: string;
+  sourceWarehouseId?: unknown;
+  createdByRole?: string;
+  vendorId?: unknown;
 }) {
   const label = a.label ?? "";
   return {
@@ -1040,6 +1102,9 @@ function mapPickupDoc(a: {
       typeof a.velocityWarehouseId === "string" && a.velocityWarehouseId.trim()
         ? a.velocityWarehouseId.trim()
         : undefined,
+    sourceWarehouseId: a.sourceWarehouseId ? String(a.sourceWarehouseId) : undefined,
+    createdByRole: a.createdByRole ?? undefined,
+    vendorId: a.vendorId ? String(a.vendorId) : undefined,
   };
 }
 

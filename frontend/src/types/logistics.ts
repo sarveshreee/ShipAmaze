@@ -257,6 +257,12 @@ export interface PickupAddress {
   velocityLinked?: boolean;
   /** Velocity sync / link status from integration when available */
   velocityStatus?: string;
+  /** Set when this pickup was auto-synced from a vendor Warehouse document */
+  sourceWarehouseId?: string;
+  /** Role of the actor who caused this pickup to be created */
+  createdByRole?: "admin" | "vendor" | "dropshipper";
+  /** Vendor ID when createdByRole is vendor or dropshipper */
+  vendorId?: string;
 }
 
 export interface Manifest {

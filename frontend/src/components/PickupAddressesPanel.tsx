@@ -293,7 +293,21 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
                           Active
                         </span>
                       )}
+                      {a.sourceWarehouseId ? (
+                        <span className="inline-flex rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 text-[10px] font-medium">
+                          Vendor Warehouse
+                        </span>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-[10px] font-medium">
+                          Admin
+                        </span>
+                      )}
                     </div>
+                    {a.sourceWarehouseId && a.vendorId ? (
+                      <p className="mt-1 text-[10px] text-text-muted">
+                        Source: Vendor · ID: {a.vendorId.slice(-6)}
+                      </p>
+                    ) : null}
                     {getVelocityWarehouseLinkStatus(a.velocityWarehouseId) === "linked" ? (
                       <p className="mt-1 font-mono text-[11px] font-semibold text-primary">
                         {normalizeVelocityWarehouseCode(a.velocityWarehouseId)}
