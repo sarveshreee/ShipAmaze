@@ -23,6 +23,7 @@ export interface ILabelInvoiceSetting extends Document {
   hideWarehouseMobile: boolean;
   hideReturnAddress: boolean;
   hideReturnMobile: boolean;
+  hidePickupAddress: boolean;
   showLogo: boolean;
   showBrandName: boolean;
   showWeight: boolean;
@@ -53,6 +54,7 @@ const labelInvoiceSettingSchema = new Schema<ILabelInvoiceSetting>(
     hideWarehouseMobile: { type: Boolean, default: false },
     hideReturnAddress: { type: Boolean, default: false },
     hideReturnMobile: { type: Boolean, default: false },
+    hidePickupAddress: { type: Boolean, default: false },
     showLogo: { type: Boolean, default: true },
     showBrandName: { type: Boolean, default: true },
     showWeight: { type: Boolean, default: true },

@@ -1,12 +1,33 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
-import { Package, CheckCircle2, RotateCcw, AlertTriangle, IndianRupee, Users } from "lucide-react";
+import { Package, CheckCircle2, RotateCcw, AlertTriangle, IndianRupee, Users, Store, Truck } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
 import { Link } from "react-router-dom";
 import { useOrders } from "@/hooks/useApiData";
+import { apiClient } from "@/lib/apiClient";
 import type { Order } from "@/types/logistics";
+
+type DashboardSummary = {
+  activeVendors: number;
+  activeDropshippers: number;
+  topProducts: Array<{ name: string; orderCount: number; revenue: number }>;
+  topVendors: Array<{ name: string; email: string; orderCount: number; revenue: number }>;
+  topDropshippers: Array<{ name: string; email: string; orderCount: number; revenue: number }>;
+};
+
+function useDashboardSummary() {
+  const [data, setData] = useState<DashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    apiClient.get<DashboardSummary>("/dashboard/summary")
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, []);
+  return { data, loading };
+}
 
 const STATUS_COLORS: Record<string, string> = {
   delivered: "hsl(var(--color-success))",
@@ -45,6 +66,7 @@ function aggregateByCourier(orders: Order[]) {
 
 export default function AdminDashboard() {
   const { data: orders = [], isLoading } = useOrders();
+  const { data: summary } = useDashboardSummary();
 
   const total = orders.length;
   const delivered = orders.filter((o) => o.status === "delivered").length;
@@ -79,7 +101,8 @@ export default function AdminDashboard() {
         <KPICard icon={RotateCcw} label="RTO %" value={`${rtoPct}%`} color="danger" />
         <KPICard icon={AlertTriangle} label="NDR %" value={`${ndrPct}%`} color="warning" />
         <KPICard icon={IndianRupee} label="Order value" value={isLoading ? "…" : `₹${(revenue / 100000).toFixed(2)}L`} color="tertiary" />
-        <KPICard icon={Users} label="Active sellers" value="—" color="secondary" />
+        <KPICard icon={Store} label="Active Vendors" value={summary ? String(summary.activeVendors) : "—"} color="secondary" />
+        <KPICard icon={Users} label="Active Dropshippers" value={summary ? String(summary.activeDropshippers) : "—"} color="secondary" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
@@ -219,6 +242,99 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Performance Widgets */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+        {/* Top Products */}
+        <div className="rounded-lg bg-card p-5 shadow-card">
+          <div className="flex items-center gap-2 mb-4">
+            <Package className="h-4 w-4 text-primary" />
+            <h3 className="font-semibold text-text-primary">Top Products</h3>
+          </div>
+          {!summary?.topProducts?.length ? (
+            <p className="text-sm text-text-muted py-6 text-center">No product data yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border text-left">
+                <th className="pb-2 font-medium text-text-secondary">Product</th>
+                <th className="pb-2 font-medium text-text-secondary text-right">Orders</th>
+                <th className="pb-2 font-medium text-text-secondary text-right">Revenue</th>
+              </tr></thead>
+              <tbody>
+                {summary.topProducts.map((p, i) => (
+                  <tr key={i} className="border-b border-border last:border-0">
+                    <td className="py-2 text-text-primary max-w-[120px] truncate">{p.name || "—"}</td>
+                    <td className="py-2 text-right tabular-nums text-text-secondary">{p.orderCount}</td>
+                    <td className="py-2 text-right tabular-nums font-medium text-text-primary">₹{p.revenue.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Top Vendors */}
+        <div className="rounded-lg bg-card p-5 shadow-card">
+          <div className="flex items-center gap-2 mb-4">
+            <Store className="h-4 w-4 text-secondary" />
+            <h3 className="font-semibold text-text-primary">Top Vendors</h3>
+          </div>
+          {!summary?.topVendors?.length ? (
+            <p className="text-sm text-text-muted py-6 text-center">No vendor data yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border text-left">
+                <th className="pb-2 font-medium text-text-secondary">Vendor</th>
+                <th className="pb-2 font-medium text-text-secondary text-right">Orders</th>
+                <th className="pb-2 font-medium text-text-secondary text-right">Revenue</th>
+              </tr></thead>
+              <tbody>
+                {summary.topVendors.map((v, i) => (
+                  <tr key={i} className="border-b border-border last:border-0">
+                    <td className="py-2 max-w-[120px]">
+                      <div className="text-text-primary truncate">{v.name}</div>
+                      <div className="text-[10px] text-text-muted truncate">{v.email}</div>
+                    </td>
+                    <td className="py-2 text-right tabular-nums text-text-secondary">{v.orderCount}</td>
+                    <td className="py-2 text-right tabular-nums font-medium text-text-primary">₹{v.revenue.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Top Dropshippers */}
+        <div className="rounded-lg bg-card p-5 shadow-card">
+          <div className="flex items-center gap-2 mb-4">
+            <Truck className="h-4 w-4 text-tertiary" />
+            <h3 className="font-semibold text-text-primary">Top Dropshippers</h3>
+          </div>
+          {!summary?.topDropshippers?.length ? (
+            <p className="text-sm text-text-muted py-6 text-center">No dropshipper data yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border text-left">
+                <th className="pb-2 font-medium text-text-secondary">Dropshipper</th>
+                <th className="pb-2 font-medium text-text-secondary text-right">Orders</th>
+                <th className="pb-2 font-medium text-text-secondary text-right">Revenue</th>
+              </tr></thead>
+              <tbody>
+                {summary.topDropshippers.map((d, i) => (
+                  <tr key={i} className="border-b border-border last:border-0">
+                    <td className="py-2 max-w-[120px]">
+                      <div className="text-text-primary truncate">{d.name}</div>
+                      <div className="text-[10px] text-text-muted truncate">{d.email}</div>
+                    </td>
+                    <td className="py-2 text-right tabular-nums text-text-secondary">{d.orderCount}</td>
+                    <td className="py-2 text-right tabular-nums font-medium text-text-primary">₹{d.revenue.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>

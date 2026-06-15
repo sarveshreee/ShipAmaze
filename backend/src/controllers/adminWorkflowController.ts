@@ -339,11 +339,15 @@ export const adminListCatalogueProducts = asyncHandler(async (req: AuthRequest, 
 
   if (andClauses.length) q.$and = andClauses;
 
+  const featuredOnly = String(req.query.featuredOnly ?? "").trim();
+  if (featuredOnly === "true") q.isFeatured = true;
+
   const sortParam = String(req.query.sort ?? "-createdAt");
   const sort: Record<string, 1 | -1> = {};
   if (sortParam === "name") sort.name = 1;
   else if (sortParam === "-name") sort.name = -1;
   else if (sortParam === "createdAt") sort.createdAt = 1;
+  else if (sortParam === "profit_desc") { sort.sellingPrice = -1; }
   else sort.createdAt = -1;
 
   const [rows, total] = await Promise.all([
@@ -383,6 +387,7 @@ function mapProductLean(p: Record<string, unknown>) {
     uploadedBy: p.uploadedBy ? String(p.uploadedBy) : null,
     uploadedByRole: p.uploadedByRole,
     images: p.images,
+    isFeatured: p.isFeatured === true,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -393,7 +398,7 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
   const id = req.params.id;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const body = req.body as Record<string, unknown>;
-  const allowed = ["status", "name", "sku", "category", "price", "sellingPrice", "shippingCharge", "stock"];
+  const allowed = ["status", "name", "sku", "category", "price", "sellingPrice", "shippingCharge", "stock", "isFeatured"];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) {
     if (body[k] !== undefined) patch[k] = body[k];
@@ -421,6 +426,17 @@ export const adminBulkCatalogueProducts = asyncHandler(async (req: AuthRequest, 
   if (!Array.isArray(ids) || ids.length === 0) throw new AppError(400, "ids required");
   const oid = ids.filter((x) => mongoose.isValidObjectId(String(x))).map((x) => new mongoose.Types.ObjectId(String(x)));
   if (oid.length === 0) throw new AppError(400, "No valid ids");
+
+  if (action === "feature") {
+    const r = await Product.updateMany({ _id: { $in: oid } }, { $set: { isFeatured: true } });
+    res.json({ ok: true, modified: r.modifiedCount });
+    return;
+  }
+  if (action === "unfeature") {
+    const r = await Product.updateMany({ _id: { $in: oid } }, { $set: { isFeatured: false } });
+    res.json({ ok: true, modified: r.modifiedCount });
+    return;
+  }
 
   let status: string | undefined;
   if (action === "activate" || action === "approve") status = "active";

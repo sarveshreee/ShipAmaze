@@ -23,7 +23,7 @@ import type { CatalogueProductRow } from "@/services/adminWorkflowService";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/EmptyState";
-import { Layers, Loader2, Plus, RefreshCw } from "lucide-react";
+import { Layers, Loader2, Plus, RefreshCw, Star } from "lucide-react";
 import { ApiError } from "@/lib/apiClient";
 import { getFinalProductPrice } from "@/lib/pricing";
 
@@ -42,6 +42,7 @@ export default function AdminCatalogue() {
   const [status, setStatus] = useState<string>("all");
   const [stockStatus, setStockStatus] = useState<string>("all");
   const [sort, setSort] = useState("-createdAt");
+  const [featuredOnly, setFeaturedOnly] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [vendors, setVendors] = useState<adminWorkflowService.AdminVendorRow[]>([]);
@@ -78,6 +79,7 @@ export default function AdminCatalogue() {
         sort,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
+        featuredOnly: featuredOnly ? "true" : undefined,
       });
       setItems(r.items ?? []);
       setTotal(r.total ?? 0);
@@ -88,7 +90,7 @@ export default function AdminCatalogue() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, searchDebounced, category, vendorId, status, stockStatus, sort, dateFrom, dateTo]);
+  }, [page, limit, searchDebounced, category, vendorId, status, stockStatus, sort, dateFrom, dateTo, featuredOnly]);
 
   useEffect(() => {
     void loadVendors();
@@ -290,8 +292,19 @@ export default function AdminCatalogue() {
               <SelectItem value="createdAt">Oldest first</SelectItem>
               <SelectItem value="name">Name A–Z</SelectItem>
               <SelectItem value="-name">Name Z–A</SelectItem>
+              <SelectItem value="profit_desc">Most Profitable</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            type="button"
+            variant={featuredOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => { setFeaturedOnly(f => !f); setPage(1); }}
+            className={featuredOnly ? "bg-amber-500 text-white hover:bg-amber-600" : ""}
+            title="Show featured/most profitable only"
+          >
+            <Star className="h-4 w-4 mr-1" />{featuredOnly ? "Featured only" : "All products"}
+          </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           </Button>
@@ -311,6 +324,12 @@ export default function AdminCatalogue() {
             </Button>
             <Button size="sm" variant="destructive" disabled={saving} onClick={() => void runBulk("reject")}>
               Reject
+            </Button>
+            <Button size="sm" className="bg-amber-500 text-white hover:bg-amber-600 gap-1" disabled={saving} onClick={() => void runBulk("feature")}>
+              <Star className="h-3.5 w-3.5" /> Mark Featured
+            </Button>
+            <Button size="sm" variant="outline" disabled={saving} onClick={() => void runBulk("unfeature")}>
+              Remove Featured
             </Button>
           </div>
         )}
@@ -368,7 +387,12 @@ export default function AdminCatalogue() {
                       aria-label={`Select ${p.name}`}
                     />
                   </td>
-                  <td className="p-3 font-medium text-text-primary max-w-[200px] truncate">{p.name}</td>
+                  <td className="p-3 max-w-[200px]">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {p.isFeatured && <Star className="h-3.5 w-3.5 shrink-0 text-amber-500 fill-amber-400" />}
+                      <span className="font-medium text-text-primary truncate">{p.name}</span>
+                    </div>
+                  </td>
                   <td className="p-3 font-mono text-xs text-text-secondary">{p.sku || "—"}</td>
                   <td className="p-3 text-text-secondary max-w-[140px] truncate">{p.vendorName || "—"}</td>
                   <td className="p-3 tabular-nums">{p.stock ?? "—"}</td>

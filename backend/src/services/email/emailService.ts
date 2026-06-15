@@ -289,3 +289,21 @@ export async function sendSecurityEmail(
   });
   await safeSend(u.email, subject, html, text);
 }
+
+/** Admin alert: a new vendor or dropshipper just registered. */
+export async function sendAdminSignupAlert(opts: { role: string; name: string; email: string; adminEmail: string }): Promise<void> {
+  const roleLabel = opts.role === "vendor" ? "Vendor" : "Dropshipper";
+  const subject = `New ${roleLabel} Registered — ${opts.name}`;
+  const html = `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px">
+    <h2 style="color:#1a1a2e">New ${roleLabel} Registration</h2>
+    <p>A new <strong>${roleLabel}</strong> has registered on ShipAmaze.</p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0">
+      <tr><td style="padding:8px;font-weight:600;color:#555">Name</td><td style="padding:8px">${opts.name}</td></tr>
+      <tr><td style="padding:8px;font-weight:600;color:#555">Email</td><td style="padding:8px">${opts.email}</td></tr>
+      <tr><td style="padding:8px;font-weight:600;color:#555">Role</td><td style="padding:8px">${roleLabel}</td></tr>
+    </table>
+    <p style="color:#666;font-size:13px">Log in to the admin panel to review and approve their account.</p>
+  </div>`;
+  const text = `New ${roleLabel} registered: ${opts.name} (${opts.email})`;
+  await safeSend(opts.adminEmail, subject, html, text);
+}

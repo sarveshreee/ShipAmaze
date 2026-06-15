@@ -468,6 +468,7 @@ export function createApp() {
     invoiceController.postInvoiceGenerateStub
   );
 
+  api.get("/dashboard/summary", authMiddleware, reportsController.getDashboardSummary);
   api.get("/reports/summary", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ANALYTICS_VIEW), reportsController.getReportsSummary);
   api.get("/reports/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ANALYTICS_VIEW), reportsController.getReportsOrders);
   api.get("/exports/csv", authMiddleware, requireOwnerAdmin, reportsController.exportCsv);
@@ -476,6 +477,7 @@ export function createApp() {
   api.patch("/ndr/:awb", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.NDR_MANAGE), resourceController.updateNdr);
 
   api.get("/returns", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.RETURNS_VIEW), resourceController.listReturns);
+  api.post("/returns", authMiddleware, resourceController.createReturn);
   api.patch("/returns/:returnId", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.RETURNS_MANAGE), resourceController.updateReturn);
 
   api.get("/manifests", authMiddleware, requireRoles("admin"), requireOwnerAdmin, resourceController.listManifests);

@@ -31,6 +31,26 @@ export function weightSlabIndex(weightLabels: string[], weightKg: number): numbe
   return idx === -1 ? parsed.length - 1 : idx;
 }
 
+/**
+ * When weight exceeds all defined slabs, returns the last slab index and a multiplier
+ * = ceil(weightKg / maxSlabKg). Otherwise returns the correct slab index and multiplier 1.
+ *
+ * Example: 628 kg, max slab = 10 kg  → { slabIdx: lastIdx, multiplier: 63 }
+ */
+export function weightSlabMultiplier(
+  weightLabels: string[],
+  weightKg: number
+): { slabIdx: number; multiplier: number } {
+  if (!weightLabels.length) return { slabIdx: 0, multiplier: 1 };
+  const parsed = weightLabels.map(parseWeightKgFromLabel);
+  const idx = parsed.findIndex((w) => w >= weightKg);
+  if (idx !== -1) return { slabIdx: idx, multiplier: 1 };
+  // Weight exceeds all slabs
+  const maxSlabKg = parsed[parsed.length - 1] || 1;
+  const multiplier = Math.ceil(weightKg / maxSlabKg);
+  return { slabIdx: parsed.length - 1, multiplier };
+}
+
 export function normalizeZoneCode(zone: string): string {
   return String(zone ?? "")
     .trim()

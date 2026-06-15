@@ -977,17 +977,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </header>
 
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-5 lg:px-8 lg:py-6 lg:pb-6">
-          {role === "dropshipper" && isKycPending && (
+          {(role === "dropshipper" || role === "vendor") && isKycPending && (
             <div className="mb-4 rounded-lg border border-warning/40 bg-warning-light/50 px-4 py-3 text-sm text-warning-dark">
               <strong>
                 {kycStatus === "pending_approval" ? "KYC Pending Approval" : "KYC Required"} —
               </strong>{" "}
               {kycStatus === "pending_approval"
-                ? "Your documents are under admin review. Shopify, order creation, and marketplace ordering stay disabled until approved."
+                ? "Your documents are under admin review. Actions are disabled until approved."
                 : kycStatus === "rejected"
                   ? "Your KYC was rejected. Update documents in Settings and resubmit."
-                  : "Complete KYC verification to activate your account and unlock orders, Shopify, and marketplace."}{" "}
-              <Link to="/dropshipper/settings" className="font-medium underline underline-offset-2">Open KYC Settings</Link>
+                  : "Complete KYC verification to activate your account."}{" "}
+              <Link to={role === "vendor" ? "/vendor/settings" : "/dropshipper/settings"} className="font-medium underline underline-offset-2">Open KYC Settings</Link>
             </div>
           )}
           {children}

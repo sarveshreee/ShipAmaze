@@ -49,6 +49,56 @@ import {
   syncVendorWarehouseToVelocity,
 } from "../modules/velocity/velocity.warehouseSync.js";
 
+/**
+ * Auto-sync a Warehouse's address fields to a Pickup address.
+ * Creates a new Pickup on first call; updates the linked one on subsequent calls.
+ * Non-fatal — never throws to callers.
+ */
+async function syncWarehouseToPickup(w: HydratedDocument<IWarehouse>, ownerUserId: mongoose.Types.ObjectId): Promise<void> {
+  try {
+    const label = `${w.name} (Warehouse)`;
+    const addressLine1 = w.addressLine1 || "";
+    const city = w.city || "";
+    const state = w.state || "";
+    const pincode = w.pincode || "";
+    const contactName = w.contactName || "";
+    const phone = w.phone || "";
+
+    if (!addressLine1 || !city || !pincode) return;
+
+    if (w.linkedPickupId) {
+      await Pickup.findByIdAndUpdate(w.linkedPickupId, {
+        $set: { label, contactName, phone, addressLine1, addressLine2: w.addressLine2, city, state, pincode },
+      });
+    } else {
+      const existing = await Pickup.findOne({ userId: ownerUserId, addressLine1, city, pincode, deletedAt: { $exists: false } });
+      let pickup;
+      if (existing) {
+        await Pickup.findByIdAndUpdate(existing._id, { $set: { label, contactName, phone, addressLine2: w.addressLine2, state } });
+        pickup = existing;
+      } else {
+        pickup = await Pickup.create({
+          userId: ownerUserId,
+          label,
+          contactName,
+          phone,
+          addressLine1,
+          addressLine2: w.addressLine2,
+          city,
+          state,
+          pincode,
+          country: "India",
+          isDefault: false,
+          isActive: true,
+        });
+      }
+      await Warehouse.findByIdAndUpdate(w._id, { $set: { linkedPickupId: pickup._id } });
+    }
+  } catch (e) {
+    console.warn("[warehouse-pickup-sync] non-fatal error:", e instanceof Error ? e.message : String(e));
+  }
+}
+
 function transactionDisplayType(ledgerType: string | undefined, type: "Credit" | "Debit"): string {
   const lt = (ledgerType || "general").toLowerCase();
   if (lt === "manual_credit_request" || lt === "recharge" || lt === "manual_test_recharge") return "Recharge";
@@ -355,6 +405,10 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
   if (velocitySync.linked) {
     wObj.velocityWarehouseId = velocitySync.warehouse_id;
   }
+
+  // Auto-sync warehouse address to admin Pickup Addresses (non-fatal)
+  void syncWarehouseToPickup(w, req.user._id);
+
   res.status(201).json({ ...wObj, _velocitySync: velocitySync });
 });
 
@@ -399,6 +453,9 @@ export const updateWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
       (w as unknown as Record<string, unknown>).velocityWarehouseId = velocitySync.warehouse_id;
     }
   }
+
+  // Auto-sync warehouse address to admin Pickup Addresses (non-fatal)
+  void syncWarehouseToPickup(w, req.user._id);
 
   res.json({ ...w.toObject(), ...(velocitySync ? { _velocitySync: velocitySync } : {}) });
 });
@@ -856,6 +913,49 @@ export const listReturns = asyncHandler(async (_req: AuthRequest, res: Response)
       weight: r.weight,
     }))
   );
+});
+
+export const createReturn = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const body = req.body as {
+    originalOrderId?: string;
+    customer?: string;
+    reason?: string;
+    courier?: string;
+    weight?: string;
+    refundAmount?: number;
+  };
+  if (!body.originalOrderId?.trim()) throw new AppError(400, "originalOrderId is required");
+  if (!body.reason?.trim()) throw new AppError(400, "reason is required");
+
+  const returnId = `RET-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const r = await ReturnOrder.create({
+    returnId,
+    originalOrderId: String(body.originalOrderId ?? "").trim(),
+    customer: String(body.customer ?? "").trim(),
+    reason: String(body.reason ?? "").trim(),
+    courier: String(body.courier ?? "Delhivery").trim(),
+    weight: String(body.weight ?? "").trim(),
+    refundAmount: Number(body.refundAmount ?? 0),
+    status: "Return Requested",
+    date: today,
+    awb: "",
+  });
+
+  res.status(201).json({
+    id: r.returnId,
+    originalOrderId: r.originalOrderId,
+    awb: r.awb,
+    customer: r.customer,
+    reason: r.reason,
+    courier: r.courier,
+    status: r.status,
+    date: r.date,
+    refundAmount: r.refundAmount,
+    weight: r.weight,
+  });
 });
 
 export const updateReturn = asyncHandler(async (req: AuthRequest, res: Response) => {

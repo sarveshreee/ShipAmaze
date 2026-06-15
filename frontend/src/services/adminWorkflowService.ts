@@ -17,6 +17,7 @@ export type CatalogueProductRow = {
   uploadedBy?: string | null;
   uploadedByRole?: string;
   images?: string[];
+  isFeatured?: boolean;
   createdAt?: string;
   updatedAt?: string;
 };

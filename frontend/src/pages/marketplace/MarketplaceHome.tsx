@@ -10,11 +10,13 @@ import { MarketplaceProductCard } from "@/components/marketplace/MarketplaceProd
 import { ProfitCalculatorModal } from "@/components/marketplace/ProfitCalculatorModal";
 import { ShopifyPushDrawer } from "@/components/marketplace/ShopifyPushDrawer";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
+import { useCategories } from "@/hooks/useCategories";
 
 export default function MarketplaceHome() {
   const { role } = useAuth();
   const navigate = useNavigate();
   const { products, grouped, categories, isLoading } = useMarketplaceProducts();
+  const { categories: adminCategories } = useCategories();
   const [search, setSearch] = useState("");
   const [calc, setCalc] = useState<SupplierProduct | null>(null);
   const [push, setPush] = useState<SupplierProduct | null>(null);
@@ -22,10 +24,17 @@ export default function MarketplaceHome() {
 
   const sectionsOrder = useMemo(() => {
     const live = Array.from(grouped.keys());
-    const ordered = ["Gardening Products","Accessories","Gym & Wellness","Men","Beauty & Personal Care","Car & Bike Accessories","Home and Living","Kids"];
-    const set = new Set(live);
-    return [...ordered.filter(c => set.has(c)), ...live.filter(c => !ordered.includes(c))];
-  }, [grouped]);
+    const liveSet = new Set(live);
+    // Use admin-configured displayOrder from the Categories API
+    const ordered = adminCategories
+      .filter(c => c.enabled !== false)
+      .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999))
+      .map(c => c.name)
+      .filter(name => liveSet.has(name));
+    const orderedSet = new Set(ordered);
+    // Append any live categories not in admin list
+    return [...ordered, ...live.filter(c => !orderedSet.has(c))];
+  }, [grouped, adminCategories]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return null;

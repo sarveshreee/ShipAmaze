@@ -8,7 +8,8 @@ export type NotificationType =
   | "support_update"
   | "approval_pending"
   | "approval_decision"
-  | "kyc_update";
+  | "kyc_update"
+  | "user_signup";
 
 export interface INotification extends Document {
   userId: Types.ObjectId;
@@ -26,7 +27,7 @@ const notificationSchema = new Schema<INotification>(
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     type: {
       type: String,
-      enum: ["order_created", "shipment_created", "shopify_sync", "wallet_recharge", "support_update", "approval_pending", "approval_decision"],
+      enum: ["order_created", "shipment_created", "shopify_sync", "wallet_recharge", "support_update", "approval_pending", "approval_decision", "kyc_update", "user_signup"],
       required: true,
     },
     title: { type: String, required: true },

@@ -17,15 +17,15 @@ export async function getKycState(userId: unknown): Promise<{
   return { status, kycVerified };
 }
 
-/** Blocks dropshippers until KYC is admin-approved. Admins/vendors pass through. */
+/** Blocks dropshippers AND vendors until KYC is admin-approved. Admins/staff pass through. */
 export const requireKycApproved = async (req: AuthRequest, _res: Response, next: NextFunction) => {
   if (!req.user) return next(new AppError(401, "Unauthorized"));
-  if (req.user.role !== "dropshipper") return next();
+  if (req.user.role !== "dropshipper" && req.user.role !== "vendor") return next();
   const { kycVerified, status } = await getKycState(req.user._id);
   if (kycVerified) return next();
   const msg =
     status === "pending_approval"
-      ? "KYC pending admin approval. Shopify, orders, and marketplace actions are disabled until approved."
+      ? "KYC pending admin approval. Actions are disabled until approved."
       : status === "rejected"
         ? "KYC was rejected. Please resubmit your documents in Settings."
         : "Complete KYC verification in Settings before using this feature.";

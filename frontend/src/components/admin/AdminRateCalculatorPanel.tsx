@@ -13,7 +13,7 @@ import {
   computeVolumetricWeightKg,
   formatRateAmount,
   normalizeZoneCode,
-  weightSlabIndex,
+  weightSlabMultiplier,
 } from "@/lib/shippingRateCardUtils";
 import { DEFAULT_WEIGHTS } from "@/lib/courierPricingUtils";
 import * as approvalService from "@/services/approvalService";
@@ -27,6 +27,7 @@ type CourierRate = {
   freightCharge: number;
   codCharge?: number;
   totalCharge: number;
+  multiplier?: number;
 };
 
 type Props = {
@@ -135,12 +136,13 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
       const rows = (rateCard?.courierZoneRows ?? []).filter((r) => r.active !== false);
 
       const results: CourierRate[] = [];
-      const slabIdx = weightSlabIndex(DEFAULT_WEIGHTS, charged);
+      const { slabIdx, multiplier } = weightSlabMultiplier(DEFAULT_WEIGHTS, charged);
 
       for (const row of rows) {
         if (normalizeZoneCode(row.zone) !== normalizeZoneCode(zone)) continue;
-        const freight = Number(row.rates[slabIdx] ?? 0);
-        if (!(freight > 0)) continue;
+        const baseFreight = Number(row.rates[slabIdx] ?? 0);
+        if (!(baseFreight > 0)) continue;
+        const freight = baseFreight * multiplier;
         const codCharge = calcPaymentType === "COD" ? Number(row.codCharge ?? 0) : undefined;
         const total = freight + (codCharge ?? 0);
         results.push({
@@ -149,6 +151,7 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
           freightCharge: freight,
           codCharge: codCharge && codCharge > 0 ? codCharge : undefined,
           totalCharge: total,
+          multiplier,
         });
       }
 
@@ -355,6 +358,11 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-text-primary">{q.courier}</p>
                   <p className="text-xs text-text-muted">Zone {q.zone}</p>
+                  {q.multiplier && q.multiplier > 1 && (
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+                      {q.multiplier}× slab rate (weight exceeds max slab)
+                    </p>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-lg font-bold text-primary">₹{formatRateAmount(q.totalCharge)}</p>

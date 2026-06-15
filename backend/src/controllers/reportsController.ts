@@ -6,6 +6,7 @@ import { Order } from "../models/Order.js";
 import { Transaction } from "../models/Transaction.js";
 import { CodRemittance } from "../models/CodRemittance.js";
 import { Invoice } from "../models/Invoice.js";
+import { User } from "../models/User.js";
 import mongoose from "mongoose";
 import { buildReportOrdersQuery, csvRow, exportFilename } from "../utils/reportQuery.js";
 
@@ -370,5 +371,94 @@ export const getReportsOrders = asyncHandler(async (req: AuthRequest, res: Respo
     total,
     page: pq.page,
     pageSize: pq.pageSize,
+  });
+});
+
+/** GET /dashboard/summary — admin-only analytics for the dashboard widgets. */
+export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user || req.user.role !== "admin") throw new AppError(403, "Admin only");
+
+  const [activeVendors, activeDropshippers, topProducts, topVendors, topDropshippers] = await Promise.all([
+    User.countDocuments({ role: "vendor", status: "active" }),
+    User.countDocuments({ role: "dropshipper", status: "active" }),
+    Order.aggregate([
+      { $match: { status: { $nin: ["cancelled", "junk"] } } },
+      {
+        $group: {
+          _id: "$productName",
+          orderCount: { $sum: 1 },
+          revenue: { $sum: { $ifNull: ["$amount", 0] } },
+        },
+      },
+      { $sort: { orderCount: -1 } },
+      { $limit: 5 },
+      { $project: { _id: 0, name: "$_id", orderCount: 1, revenue: 1 } },
+    ]),
+    Order.aggregate([
+      { $match: { status: { $nin: ["cancelled", "junk"] }, vendorId: { $exists: true, $ne: null } } },
+      {
+        $group: {
+          _id: "$vendorId",
+          orderCount: { $sum: 1 },
+          revenue: { $sum: { $ifNull: ["$amount", 0] } },
+        },
+      },
+      { $sort: { orderCount: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          name: { $ifNull: [{ $arrayElemAt: ["$user.name", 0] }, "Unknown"] },
+          email: { $ifNull: [{ $arrayElemAt: ["$user.email", 0] }, ""] },
+          orderCount: 1,
+          revenue: 1,
+        },
+      },
+    ]),
+    Order.aggregate([
+      { $match: { status: { $nin: ["cancelled", "junk"] }, dropshipperId: { $exists: true, $ne: null } } },
+      {
+        $group: {
+          _id: "$dropshipperId",
+          orderCount: { $sum: 1 },
+          revenue: { $sum: { $ifNull: ["$amount", 0] } },
+        },
+      },
+      { $sort: { orderCount: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          name: { $ifNull: [{ $arrayElemAt: ["$user.name", 0] }, "Unknown"] },
+          email: { $ifNull: [{ $arrayElemAt: ["$user.email", 0] }, ""] },
+          orderCount: 1,
+          revenue: 1,
+        },
+      },
+    ]),
+  ]);
+
+  res.json({
+    activeVendors,
+    activeDropshippers,
+    topProducts,
+    topVendors,
+    topDropshippers,
   });
 });

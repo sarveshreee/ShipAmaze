@@ -22,6 +22,7 @@ export type LabelInvoiceSettings = {
   hideWarehouseMobile: boolean;
   hideReturnAddress: boolean;
   hideReturnMobile: boolean;
+  hidePickupAddress: boolean;
   showLogo: boolean;
   showBrandName: boolean;
   showWeight: boolean;
@@ -51,6 +52,7 @@ export const DEFAULT_LABEL_INVOICE_SETTINGS: LabelInvoiceSettings = {
   hideWarehouseMobile: false,
   hideReturnAddress: false,
   hideReturnMobile: false,
+  hidePickupAddress: false,
   showLogo: true,
   showBrandName: true,
   showWeight: true,

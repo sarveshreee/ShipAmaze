@@ -81,7 +81,7 @@ async function main() {
     }
   });
 
-  // Background Shopify order sync — runs every 60 minutes to catch any orders missed by webhooks
+  // Background Shopify order sync — runs every 5 minutes as a fallback for any webhook misses
   const shopifyBgSync = setInterval(async () => {
     try {
       const connections = await ShopifyStoreConnection.find({ isActive: true }).lean();
@@ -94,7 +94,7 @@ async function main() {
     } catch (e: unknown) {
       devLog.warn("[shopify:bg-sync] background sync error", e instanceof Error ? e.message : e);
     }
-  }, 60 * 60 * 1000);
+  }, 5 * 60 * 1000);
   shopifyBgSync.unref();
 
   const shutdown = (signal: string) => {

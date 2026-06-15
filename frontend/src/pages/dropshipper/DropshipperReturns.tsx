@@ -2,12 +2,18 @@ import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { useReturnOrders } from "@/hooks/useApiData";
-import { Undo2, Package, CheckCircle2, Clock, Search, Download } from "lucide-react";
+import { Undo2, Package, CheckCircle2, Clock, Search, Download, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { downloadCSV } from "@/lib/exportUtils";
 import { toast } from "sonner";
+import * as returnService from "@/services/returnService";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+
+const COURIERS = ["Delhivery", "DTDC", "BlueDart", "Amazon", "Shadowfax", "Xpressbees", "Ecom Express", "Other"];
+const RETURN_REASONS = ["Damaged", "Wrong Item", "Not Delivered", "Customer Request", "Quality Issue", "Other"];
 
 const returnStatusColors: Record<string, string> = {
   'Return Requested': 'bg-warning-light text-warning-dark',
@@ -22,7 +28,42 @@ export default function DropshipperReturns() {
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
   const tabs = ['all', 'Return Requested', 'In Transit', 'Received', 'Refund Processed'];
-  const { data: returnOrders = [], isLoading } = useReturnOrders();
+  const { data: returnOrders = [], isLoading, refetch } = useReturnOrders();
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({
+    originalOrderId: '',
+    customer: '',
+    reason: '',
+    courier: 'Delhivery',
+    weight: '',
+    refundAmount: '',
+  });
+
+  const handleCreateReturn = async () => {
+    if (!form.originalOrderId.trim()) { toast.error("Original Order ID is required"); return; }
+    if (!form.reason.trim()) { toast.error("Reason is required"); return; }
+    setCreating(true);
+    try {
+      await returnService.createReturn({
+        originalOrderId: form.originalOrderId.trim(),
+        customer: form.customer.trim(),
+        reason: form.reason.trim(),
+        courier: form.courier,
+        weight: form.weight.trim(),
+        refundAmount: Number(form.refundAmount) || 0,
+      });
+      toast.success("Return order created");
+      setCreateOpen(false);
+      setForm({ originalOrderId: '', customer: '', reason: '', courier: 'Delhivery', weight: '', refundAmount: '' });
+      refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to create return");
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const filtered = returnOrders.filter(r => {
     if (tab !== 'all' && r.status !== tab) return false;
@@ -50,7 +91,12 @@ export default function DropshipperReturns() {
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Returns" breadcrumb={["Dropshipper", "Returns"]}
-        actions={<Button onClick={handleExport} variant="outline" className="gap-2"><Download className="h-4 w-4" />Export CSV</Button>}
+        actions={
+          <div className="flex gap-2">
+            <Button onClick={handleExport} variant="outline" className="gap-2"><Download className="h-4 w-4" />Export CSV</Button>
+            <Button onClick={() => setCreateOpen(true)} className="bg-primary text-primary-foreground gap-2"><Plus className="h-4 w-4" />Create Return</Button>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -103,6 +149,52 @@ export default function DropshipperReturns() {
           </tbody>
         </table>
       </div>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Return Order</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Original Order ID <span className="text-danger">*</span></Label>
+              <Input placeholder="e.g. ORD-12345" value={form.originalOrderId} onChange={e => setForm(f => ({ ...f, originalOrderId: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Customer Name</Label>
+              <Input placeholder="Customer name" value={form.customer} onChange={e => setForm(f => ({ ...f, customer: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Reason <span className="text-danger">*</span></Label>
+              <select className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}>
+                <option value="">Select reason</option>
+                {RETURN_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>Courier</Label>
+              <select className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm" value={form.courier} onChange={e => setForm(f => ({ ...f, courier: e.target.value }))}>
+                {COURIERS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Weight (kg)</Label>
+                <Input placeholder="e.g. 0.5" value={form.weight} onChange={e => setForm(f => ({ ...f, weight: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Refund Amount (₹)</Label>
+                <Input type="number" placeholder="0" value={form.refundAmount} onChange={e => setForm(f => ({ ...f, refundAmount: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={() => void handleCreateReturn()} disabled={creating} className="bg-primary text-primary-foreground">
+              {creating ? "Creating..." : "Create Return"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

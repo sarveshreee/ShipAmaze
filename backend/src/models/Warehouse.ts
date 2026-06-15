@@ -17,6 +17,8 @@ export interface IWarehouse extends Document {
   /** When false, hidden from vendor lists and should not be used for new admin shipments */
   isActive?: boolean;
   velocityWarehouseId?: string;
+  /** Linked admin Pickup address ID for auto-sync */
+  linkedPickupId?: Types.ObjectId;
 }
 
 const warehouseSchema = new Schema<IWarehouse>(
@@ -36,6 +38,7 @@ const warehouseSchema = new Schema<IWarehouse>(
     isDefault: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     velocityWarehouseId: { type: String },
+    linkedPickupId: { type: Schema.Types.ObjectId, ref: "Pickup" },
   },
   { timestamps: true }
 );

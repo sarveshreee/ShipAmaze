@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -355,6 +355,11 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
                       {q.zone ? `Zone ${q.zone}` : "—"}
                       {q.tat ? ` · ${q.tat}` : ""}
                     </p>
+                    {q.multiplier && q.multiplier > 1 && (
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+                        {q.multiplier}× slab rate (weight exceeds max slab)
+                      </p>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-lg font-bold text-primary">₹{formatQuoteAmount(q.totalCharge)}</p>

@@ -443,6 +443,7 @@ export default function AdminSettings() {
                   {(
                     [
                       ["hideCustomerMobile", "Hide customer mobile"],
+                      ["hidePickupAddress", "Hide pickup address on label"],
                       ["hideWarehouseAddress", "Hide warehouse address"],
                       ["hideWarehouseMobile", "Hide warehouse mobile"],
                       ["hideReturnAddress", "Hide return address"],

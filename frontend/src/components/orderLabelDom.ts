@@ -213,14 +213,16 @@ export function createOrderLabelElement(
   const brandLabel = settings.showBrandName
     ? dash(settings.brandName || settings.companyName)
     : "—";
-  const sellerLines = [
-    brandLabel !== "—" ? brandLabel : dash(settings.companyName),
-    ...String(settings.address || "")
-      .split(/\n|,/)
-      .map((s) => s.trim())
-      .filter(Boolean),
-  ].filter((x) => x !== "—");
-  const sellerBlock = block("From (Seller)", sellerLines.length ? sellerLines : ["—"]);
+  const sellerLines = settings.hidePickupAddress
+    ? []
+    : [
+        brandLabel !== "—" ? brandLabel : dash(settings.companyName),
+        ...String(settings.address || "")
+          .split(/\n|,/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ].filter((x) => x !== "—");
+  const sellerBlock = block("From (Seller)", sellerLines.length ? sellerLines : (settings.hidePickupAddress ? ["(hidden)"] : ["—"]));
 
   const logoCell = el("div", {
     style: {

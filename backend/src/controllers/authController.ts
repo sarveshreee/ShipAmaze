@@ -72,7 +72,7 @@ async function toPublicUser(user: {
   }
   let kycStatus: string | undefined;
   let kycVerified: boolean | undefined;
-  if (user.role === "dropshipper") {
+  if (user.role === "dropshipper" || user.role === "vendor") {
     const kyc = await getKycState(user._id);
     kycStatus = kyc.status;
     kycVerified = kyc.kycVerified;
@@ -134,6 +134,14 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
       ordersToday: 0,
       status: "Active",
     });
+    await KycProfile.create({
+      userId: user._id,
+      status: "pending_kyc",
+      accountType: "individual",
+      businessName: body.companyName ?? "",
+      documents: {},
+      data: { status: "draft" },
+    });
   } else if (body.role === "dropshipper") {
     await Dropshipper.create({
       userId: user._id,
@@ -164,6 +172,33 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
       502,
       "Account created, but OTP email could not be delivered. Please use Resend code after checking email settings."
     );
+  }
+
+  // Fire-and-forget admin signup notifications
+  if (body.role === "vendor" || body.role === "dropshipper") {
+    const roleLabel = body.role === "vendor" ? "Vendor" : "Dropshipper";
+    void (async () => {
+      try {
+        const { notifyAllAdmins } = await import("../services/inAppNotifications.js");
+        const { sendAdminSignupAlert } = await import("../services/email/emailService.js");
+        const { User: UserModel } = await import("../models/User.js");
+        await notifyAllAdmins(
+          "user_signup",
+          `New ${roleLabel} Registered`,
+          `${user.name} (${user.email}) just signed up as a ${roleLabel}.`,
+          { userId: String(user._id), email: user.email, role: body.role }
+        );
+        // Send email to all admin users
+        const adminUsers = await UserModel.find({ role: "admin", status: "active" }).select("email").lean();
+        for (const admin of adminUsers) {
+          if (admin.email) {
+            await sendAdminSignupAlert({ role: body.role, name: user.name, email: user.email, adminEmail: admin.email });
+          }
+        }
+      } catch (e) {
+        console.warn("[auth] Admin signup notification failed:", e instanceof Error ? e.message : String(e));
+      }
+    })();
   }
 
   const publicUser = await toPublicUser(user);

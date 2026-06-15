@@ -10,6 +10,7 @@ import {
   normalizeZoneCode,
   rateForZoneWeight,
   weightSlabIndex,
+  weightSlabMultiplier,
 } from "@/lib/shippingRateCardUtils";
 
 export type RateQuoteSource = "rate_master" | "zone_card";
@@ -23,6 +24,7 @@ export type DropshipperRateQuote = {
   totalCharge: number;
   source: RateQuoteSource;
   tat?: string;
+  multiplier?: number;
 };
 
 export type BuildRateQuotesInput = {
@@ -50,10 +52,10 @@ function rateFromCourierZoneRow(
   weightKg: number,
   payment: "prepaid" | "cod"
 ): number | null {
-  const idx = weightSlabIndex(DEFAULT_WEIGHTS, weightKg);
-  const freight = row.rates[idx];
+  const { slabIdx, multiplier } = weightSlabMultiplier(DEFAULT_WEIGHTS, weightKg);
+  const freight = row.rates[slabIdx];
   if (freight == null || !Number.isFinite(Number(freight))) return null;
-  const base = Number(freight);
+  const base = Number(freight) * multiplier;
   if (payment === "cod") return base + Number(row.codCharge ?? 0);
   return base;
 }
@@ -136,16 +138,18 @@ export async function buildDropshipperRateQuotes(
           normalizeCourierName(r.courier) === normalizeCourierName(courier) &&
           normalizeZoneCode(r.zone) === normalizeZoneCode(zone)
       );
-      const idx = weightSlabIndex(DEFAULT_WEIGHTS, input.applicableWeightKg);
-      const freight = row?.rates[idx] ?? zoneTotal;
+      const { slabIdx, multiplier } = weightSlabMultiplier(DEFAULT_WEIGHTS, input.applicableWeightKg);
+      const baseFreight = Number(row?.rates[slabIdx] ?? zoneTotal);
+      const freight = baseFreight * multiplier;
       const codCharge = input.paymentMode === "cod" ? Number(row?.codCharge ?? 0) : undefined;
       quotes.push({
         courier,
         zone,
-        freightCharge: Number(freight),
+        freightCharge: freight,
         codCharge,
-        totalCharge: zoneTotal,
+        totalCharge: freight + (codCharge ?? 0),
         source: "zone_card",
+        multiplier: multiplier > 1 ? multiplier : undefined,
       });
       continue;
     }
