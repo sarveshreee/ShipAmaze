@@ -562,7 +562,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       localOrder.codCharges = later.cod_charges;
       localOrder.shipmentStatus = later.status;
       localOrder.assignedDateTime = new Date();
-      applyVelocityMappedOrderStatus(localOrder, later.status, "ready-to-ship", "velocity_assign_awb");
+      applyVelocityMappedOrderStatus(localOrder, later.status, "pending-pickup", "velocity_assign_awb");
       localOrder.shipmentCreated = true;
       if (later.awb_code) localOrder.trackingId = later.awb_code;
       await localOrder.save();
@@ -684,7 +684,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           localOrder.codCharges = later.cod_charges;
           localOrder.shipmentStatus = later.status;
           localOrder.assignedDateTime = new Date();
-          applyVelocityMappedOrderStatus(localOrder, later.status, "ready-to-ship", "velocity_forward_dup_retry");
+          applyVelocityMappedOrderStatus(localOrder, later.status, "pending-pickup", "velocity_forward_dup_retry");
           localOrder.shipmentCreated = true;
           if (later.awb_code) localOrder.trackingId = later.awb_code;
           await localOrder.save();
@@ -763,7 +763,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     localOrder.rtoCharges = result.rto_charges;
     localOrder.shipmentStatus = result.status;
     localOrder.assignedDateTime = new Date();
-    applyVelocityMappedOrderStatus(localOrder, result.status, "ready-to-ship", "velocity_forward_create");
+    applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_forward_create");
     localOrder.shipmentCreated = true;
     if (result.awb_code) localOrder.trackingId = result.awb_code;
     await localOrder.save();
@@ -877,7 +877,7 @@ export const createForwardShipmentLater = asyncHandler(async (req: AuthRequest, 
     localOrder.codCharges = result.cod_charges;
     localOrder.shipmentStatus = result.status;
     localOrder.assignedDateTime = new Date();
-    applyVelocityMappedOrderStatus(localOrder, result.status, "ready-to-ship", "velocity_forward_awb_later");
+    applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_forward_awb_later");
     await localOrder.save();
   }
 

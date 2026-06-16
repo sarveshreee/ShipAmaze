@@ -23,6 +23,7 @@ import type { IOrder } from "../models/Order.js";
 import { createInAppNotification } from "../services/inAppNotifications.js";
 import { orderWalletUserId } from "../services/walletLedger.js";
 import { buildPickupSnapshotFromLean } from "../utils/pickupSnapshot.js";
+import { resolveVendorIdFromPickup } from "../utils/pickupVendor.js";
 import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
 import {
   firstItemArrayFromOrderDoc,
@@ -221,6 +222,7 @@ async function assertOrderAccess(
     ownerUserId?: unknown;
     vendorId?: unknown;
     dropshipperId?: unknown;
+    pickupAddressId?: unknown;
   }
 ) {
   if (user.role === "admin") return;
@@ -228,6 +230,16 @@ async function assertOrderAccess(
     const v = await vendorDocForUser(user._id);
     if (v && String(order.vendorId ?? "") === String(v._id)) return;
     if (String(order.createdBy) === String(user._id)) return;
+    if (order.pickupAddressId) {
+      const pickup = await Pickup.findOne({
+        _id: order.pickupAddressId,
+        userId: user._id,
+        $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }],
+      })
+        .select("_id")
+        .lean();
+      if (pickup) return;
+    }
     throw new AppError(403, "Forbidden");
   }
   const owned =
@@ -1096,8 +1108,6 @@ function normalizeOrderStatusKey(raw: string | undefined | null): string {
 /** Orders that cannot enter Process Selected (already shipped, terminal, or already queued). */
 const BLOCKED_PROCESS_SELECTED_STATUSES = new Set([
   "delivered",
-  "cancelled",
-  "canceled",
   "shipped",
   "in_transit",
   "out_for_delivery",
@@ -1175,10 +1185,12 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
 
   const pickup = await Pickup.findOne(pickupByIdSelectableQuery(pickupAddressId, req.user))
     .select(
-      "label contactName phone alternatePhone email addressLine1 addressLine2 landmark city state pincode country gstin velocityWarehouseId"
+      "label contactName phone alternatePhone email addressLine1 addressLine2 landmark city state pincode country gstin velocityWarehouseId vendorId createdByRole userId"
     )
     .lean();
   if (!pickup) throw new AppError(404, "Pickup address not found");
+
+  const vendorIdFromPickup = await resolveVendorIdFromPickup(pickup);
 
   const pickupSnapshot = buildPickupSnapshotFromLean(
     pickup,
@@ -1213,6 +1225,9 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     o.pickupWarehouseId = pickupAddressId;
     o.pickupAddress = pickupSnapshot;
     o.velocityWarehouseId = pickupSnapshot.velocityWarehouseId;
+    if (vendorIdFromPickup) {
+      o.vendorId = vendorIdFromPickup;
+    }
     if (weight !== undefined) o.weight = String(weight);
     if (length !== undefined) o.length = length;
     if (width !== undefined) {

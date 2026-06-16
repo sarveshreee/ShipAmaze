@@ -1,13 +1,21 @@
 import mongoose from "mongoose";
 import type { IUser } from "../models/User.js";
 import { Vendor } from "../models/Vendor.js";
+import { vendorOwnedPickupIds } from "./pickupVendor.js";
 
 /** Role-scoped base filter (before junk/view/tab). */
 export async function buildOrderVisibilityQuery(user: IUser): Promise<Record<string, unknown>> {
   if (user.role === "admin") return {};
   if (user.role === "vendor") {
     const v = await Vendor.findOne({ userId: user._id });
-    if (v) return { vendorId: v._id };
+    if (v) {
+      const pickupIds = await vendorOwnedPickupIds(user._id);
+      const or: Record<string, unknown>[] = [{ vendorId: v._id }];
+      if (pickupIds.length > 0) {
+        or.push({ pickupAddressId: { $in: pickupIds } });
+      }
+      return { $or: or };
+    }
     return { createdBy: user._id };
   }
   return {
@@ -51,12 +59,22 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
     };
   }
   if (t === "ready-to-ship" || t === "ready_to_ship") {
-    return { isJunk: { $ne: true }, status: { $in: ["ready-to-ship", "ready_to_ship"] } };
+    return {
+      isJunk: { $ne: true },
+      status: { $in: ["ready-to-ship", "ready_to_ship"] },
+      $or: [{ awb: { $exists: false } }, { awb: null }, { awb: "" }],
+    };
   }
   if (t === "pending-pickup" || t === "pending_pickup") {
     return {
       isJunk: { $ne: true },
-      status: { $in: ["pending-pickup", "pending_pickup", "pickup_scheduled"] },
+      $or: [
+        { status: { $in: ["pending-pickup", "pending_pickup", "pickup_scheduled"] } },
+        {
+          status: { $in: ["ready-to-ship", "ready_to_ship"] },
+          awb: { $regex: /\S/ },
+        },
+      ],
     };
   }
   if (t === "in-transit" || t === "in_transit") {

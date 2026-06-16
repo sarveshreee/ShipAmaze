@@ -67,7 +67,7 @@ export default function MarketplaceProductDetail() {
             <Badge variant="outline" className="gap-1"><Package className="h-3 w-3" /> Inventory: {product.stock}</Badge>
             <Badge variant="outline" className="gap-1"><Star className="h-3 w-3 text-primary" /> Supplier Score: {score}/5</Badge>
             <Badge variant="outline" className="gap-1"><Weight className="h-3 w-3" /> Weight: {product.weight || "500 gms"}</Badge>
-            <Badge variant="outline" className="gap-1">DD: {product.sku}</Badge>
+            <Badge variant="outline" className="gap-1">SA: {product.sku}</Badge>
           </div>
 
           <Button className="w-full h-12 text-base" onClick={() => setPush(true)}>
@@ -101,7 +101,7 @@ export default function MarketplaceProductDetail() {
 
       {/* Assurance */}
       <div className="bg-card rounded-2xl border p-6">
-        <h3 className="font-bold mb-4">Dropdash Assurance</h3>
+        <h3 className="font-bold mb-4">ShipAmaze Assurance</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { icon: ShieldCheck, label: "Quality Assured Products", color: "text-amber-600 bg-amber-100" },
@@ -121,7 +121,7 @@ export default function MarketplaceProductDetail() {
       <div className="bg-card rounded-2xl border p-6 space-y-4">
         <h3 className="text-lg font-bold text-green-600">Highlights</h3>
         <p className="text-sm text-muted-foreground whitespace-pre-line">
-          {product.long_description || product.short_description || `${product.name} — premium quality, sourced from verified suppliers. Backed by Dropdash assurance.`}
+          {product.long_description || product.short_description || `${product.name} — premium quality, sourced from verified suppliers. Backed by ShipAmaze assurance.`}
         </p>
         {product.tags?.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-2">
@@ -131,7 +131,7 @@ export default function MarketplaceProductDetail() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm pt-2 border-t">
           <div><p className="text-muted-foreground text-xs">SKU</p><p className="font-medium">{product.sku}</p></div>
           <div><p className="text-muted-foreground text-xs">Category</p><p className="font-medium">{product.category || "—"}</p></div>
-          <div><p className="text-muted-foreground text-xs">Brand</p><p className="font-medium">{product.brand || "DropDash"}</p></div>
+          <div><p className="text-muted-foreground text-xs">Brand</p><p className="font-medium">{product.brand || "ShipAmaze"}</p></div>
           <div><p className="text-muted-foreground text-xs">Weight</p><p className="font-medium">{product.weight || "500g"}</p></div>
           <div><p className="text-muted-foreground text-xs">HSN</p><p className="font-medium">{product.hsn || "—"}</p></div>
           <div><p className="text-muted-foreground text-xs">Origin</p><p className="font-medium">{product.country_of_origin}</p></div>

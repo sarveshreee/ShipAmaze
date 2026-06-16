@@ -295,6 +295,11 @@ export function ProcessSelectedModal({
                 {activePickups.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.label}
+                    {a.createdByRole === "vendor"
+                      ? " (Vendor warehouse)"
+                      : a.createdByRole === "admin"
+                        ? " (Admin)"
+                        : ""}
                   </option>
                 ))}
               </select>
