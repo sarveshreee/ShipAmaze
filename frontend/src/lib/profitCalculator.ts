@@ -12,7 +12,7 @@ export type ProfitCalculatorInput = {
   shippingChargePerOrder: number;
 };
 
-/** Dropshipping P&L: revenue on delivered; sourcing + forward ship on confirmed; RTO fee on returns. */
+/** Dropshipping P&L: revenue + sourcing on delivered; forward ship on confirmed; RTO fee on returns. */
 export function computeProfitCalculator(input: ProfitCalculatorInput): ProfitCalculatorResult | null {
   const {
     sellingPrice,
@@ -36,7 +36,7 @@ export function computeProfitCalculator(input: ProfitCalculatorInput): ProfitCal
   const rto = rtoChargePerOrder > 0 ? returnsNotDelivered : 0;
 
   const revenue = delivered * sellingPrice;
-  const sourcingCost = confirmed * unitCost;
+  const sourcingCost = delivered * unitCost;
   const shippingCost = confirmed * shippingChargePerOrder;
   const rtoCost = rto * rtoChargePerOrder;
   const adCost = expectedOrders * adSpendPerOrder;

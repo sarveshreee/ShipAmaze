@@ -302,7 +302,7 @@ export function ProfitCalculatorModal({ open, onOpenChange, product, onPushToSho
                 </div>
                 <p className="font-medium text-foreground pt-1">Costs</p>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Sourcing ({result.confirmed} × app price)</span>
+                  <span className="text-muted-foreground">Sourcing ({result.delivered} × app price)</span>
                   <span>₹{result.sourcingCost.toFixed(0)}</span>
                 </div>
                 <div className="flex justify-between">
