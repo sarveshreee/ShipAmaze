@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Calculator, Star, Package, Weight, ChevronDown, ShieldCheck, Truck, Banknote, RefreshCw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Calculator, Star, Package, Weight, ShieldCheck, Truck, Banknote, RefreshCw, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMarketplaceProduct } from "@/hooks/useMarketplace";
 import { ProfitCalculatorModal } from "@/components/marketplace/ProfitCalculatorModal";
@@ -18,7 +17,6 @@ export default function MarketplaceProductDetail() {
   const [activeImg, setActiveImg] = useState(0);
   const [calc, setCalc] = useState(false);
   const [push, setPush] = useState(false);
-  const [chargesOpen, setChargesOpen] = useState(false);
 
   if (isLoading) return <p className="text-center text-muted-foreground py-12">Loading...</p>;
   if (!product) return (
@@ -75,18 +73,6 @@ export default function MarketplaceProductDetail() {
           </Button>
 
           {product.category && <Badge variant="secondary" className="rounded-full">{product.category}</Badge>}
-
-          <Collapsible open={chargesOpen} onOpenChange={setChargesOpen} className="border rounded-xl bg-muted/30">
-            <CollapsibleTrigger className="flex items-center justify-between w-full p-3 text-sm">
-              <span>↘ RTO & RVP charges are applicable and vary depending on Product weight. <span className="underline text-primary">View Charges</span></span>
-              <ChevronDown className={`h-4 w-4 transition ${chargesOpen ? "rotate-180" : ""}`} />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="px-3 pb-3 text-xs space-y-1 text-muted-foreground">
-              <p>• RTO charge: ~₹70 per shipment (varies by weight)</p>
-              <p>• RVP charge: applicable when buyer initiates return</p>
-              <p>• COD handling: 1.5% of order value</p>
-            </CollapsibleContent>
-          </Collapsible>
 
           <div>
             <p className="font-semibold text-sm mb-2">Variants</p>

@@ -32,6 +32,7 @@ import * as approvalController from "./controllers/approvalController.js";
 import * as reportsController from "./controllers/reportsController.js";
 import * as invoiceController from "./controllers/invoiceController.js";
 import * as labelInvoiceSettingsController from "./controllers/labelInvoiceSettingsController.js";
+import * as profitCalculatorSettingsController from "./controllers/profitCalculatorSettingsController.js";
 import * as courierPriorityController from "./controllers/courierPriorityController.js";
 import * as courierRateController from "./controllers/courierRateController.js";
 import {
@@ -166,6 +167,14 @@ export function createApp() {
     requireRoles("admin"),
     requireOwnerAdmin,
     labelInvoiceSettingsController.putLabelInvoiceSettings
+  );
+
+  api.get("/settings/profit-calculator", authMiddleware, profitCalculatorSettingsController.getProfitCalculatorSettings);
+  api.put(
+    "/settings/profit-calculator",
+    authMiddleware,
+    requireRoles("admin"),
+    profitCalculatorSettingsController.putProfitCalculatorSettings
   );
 
   api.get("/products/marketplace", authMiddleware, resourceController.listMarketplaceProducts);
