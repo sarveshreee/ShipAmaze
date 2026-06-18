@@ -51,6 +51,8 @@ function errMsg(err: unknown): string {
 
 const DEFAULT_SHOPIFY_REDIRECT_URI = "https://api.shipamaze.com/api/shopify/callback";
 const DEFAULT_SHOPIFY_APP_URL = "https://shipamaze.com";
+const SHOPIFY_ADMIN_API_SCOPES =
+  "read_orders,write_orders,read_products,write_products,read_locations,write_locations,read_customers,write_customers";
 
 function SetupUrlCopyRow({ label, url }: { label: string; url: string }) {
   const [copied, setCopied] = useState(false);
@@ -472,6 +474,10 @@ export default function ShopifyConnect() {
                 </li>
                 <li className="flex gap-2">
                   <span className="font-medium text-text-secondary shrink-0">4.</span>
+                  <SetupUrlCopyRow label="Scopes" url={SHOPIFY_ADMIN_API_SCOPES} />
+                </li>
+                <li className="flex gap-2">
+                  <span className="font-medium text-text-secondary shrink-0">5.</span>
                   <span>Copy Client ID and Client Secret, then connect</span>
                 </li>
               </ol>
