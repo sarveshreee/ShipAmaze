@@ -474,7 +474,13 @@ export default function ShopifyConnect() {
                 </li>
                 <li className="flex gap-2">
                   <span className="font-medium text-text-secondary shrink-0">4.</span>
-                  <SetupUrlCopyRow label="Scopes" url={SHOPIFY_ADMIN_API_SCOPES} />
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <SetupUrlCopyRow label="Scopes" url={SHOPIFY_ADMIN_API_SCOPES} />
+                    <p className="text-[11px] text-text-muted leading-relaxed">
+                      In your app configuration, enable each scope individually (select all listed above — do not paste the
+                      whole comma-separated line as one entry).
+                    </p>
+                  </div>
                 </li>
                 <li className="flex gap-2">
                   <span className="font-medium text-text-secondary shrink-0">5.</span>

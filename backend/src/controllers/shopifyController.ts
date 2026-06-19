@@ -25,6 +25,7 @@ import {
   pushProductToShopifyStore,
 } from "../services/shopifyProductPush.js";
 import { devLog } from "../utils/devLog.js";
+import { shopifyOAuthScopesString, validateGrantedShopifyScopes } from "../utils/shopifyScopes.js";
 
 /* ------------------------------------------------------------------ */
 /*  Env helpers (server URL + scopes; credentials come from each user)    */
@@ -41,24 +42,7 @@ function oauthRedirectUri(): string {
 }
 
 function oauthScopes(): string {
-  return (
-    process.env.SHOPIFY_SCOPES?.trim() ||
-    "read_orders,write_orders,read_products,write_products,read_locations,write_locations,read_customers,write_customers"
-  );
-}
-
-const REQUIRED_SHOPIFY_SCOPES = ["read_orders"] as const;
-
-function assertRequiredShopifyScopes(scope: string): string | null {
-  const granted = new Set(
-    scope
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-  );
-  const missing = REQUIRED_SHOPIFY_SCOPES.filter((s) => !granted.has(s));
-  if (missing.length === 0) return null;
-  return `Missing Shopify scopes: ${missing.join(", ")}. In Shopify Admin → Develop apps → your custom app → Configuration, enable ${missing.join(" and ")} under Admin API scopes, save, then connect again.`;
+  return shopifyOAuthScopesString();
 }
 
 async function isShopifyConnectionHealthy(
@@ -407,18 +391,24 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     return;
   }
 
-  const tokenData = (await tokenRes.json()) as { access_token: string; scope: string };
-  const { access_token, scope } = tokenData;
+  const tokenData = (await tokenRes.json()) as { access_token: string; scope?: string | string[] };
+  const { access_token, scope: scopeFromToken } = tokenData;
   if (process.env.NODE_ENV === "development") {
-    devLog.info("[shopify] oauth token exchanged", { scope });
+    devLog.info("[shopify] oauth token exchanged", { scope: scopeFromToken });
   }
 
-  const scopeError = assertRequiredShopifyScopes(scope);
+  const grantedScopes = await shopifyService.resolveGrantedAccessScopes(access_token, shop, scopeFromToken);
+  const scopeError = validateGrantedShopifyScopes(grantedScopes);
   if (scopeError) {
-    devLog.warn("[shopify:oauth] missing required scopes", { scope });
+    devLog.warn("[shopify:oauth] missing required scopes", {
+      scopeFromToken,
+      granted: [...grantedScopes],
+    });
     res.redirect(buildFrontendRedirect("error", scopeError));
     return;
   }
+
+  const scope = [...grantedScopes].join(",");
 
   const accessCheck = await shopifyService.verifyStoreConnection(access_token, shop);
   if (!accessCheck.ok) {

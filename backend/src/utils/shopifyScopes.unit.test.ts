@@ -1,0 +1,44 @@
+import { describe, expect, it } from "vitest";
+import { parseShopifyScopeList, validateGrantedShopifyScopes } from "./shopifyScopes.js";
+
+describe("parseShopifyScopeList", () => {
+  it("parses comma-separated scopes", () => {
+    expect(parseShopifyScopeList("read_orders,write_orders,read_products")).toEqual(
+      new Set(["read_orders", "write_orders", "read_products"])
+    );
+  });
+
+  it("parses space-separated scopes", () => {
+    expect(
+      parseShopifyScopeList(
+        "read_orders write_orders read_products write_products read_locations write_locations read_customers write_customers"
+      )
+    ).toEqual(
+      new Set([
+        "read_orders",
+        "write_orders",
+        "read_products",
+        "write_products",
+        "read_locations",
+        "write_locations",
+        "read_customers",
+        "write_customers",
+      ])
+    );
+  });
+
+  it("parses scope arrays", () => {
+    expect(parseShopifyScopeList(["read_orders", "write_orders"])).toEqual(
+      new Set(["read_orders", "write_orders"])
+    );
+  });
+});
+
+describe("validateGrantedShopifyScopes", () => {
+  it("accepts when all default scopes are granted", () => {
+    process.env.SHOPIFY_SCOPES =
+      "read_orders,write_orders,read_products,write_products,read_locations,write_locations,read_customers,write_customers";
+    const granted = parseShopifyScopeList(process.env.SHOPIFY_SCOPES);
+    expect(validateGrantedShopifyScopes(granted)).toBeNull();
+  });
+});

@@ -4,6 +4,11 @@
  */
 
 import { AppError } from "../middleware/errorMiddleware.js";
+import {
+  getRequestedShopifyScopes,
+  missingShopifyScopes,
+  parseShopifyScopeList,
+} from "../utils/shopifyScopes.js";
 
 export interface ShopifyShop {
   id: number;
@@ -114,6 +119,41 @@ export type ShopifyConnectionCheck = {
   issue?: "invalid_token" | "missing_scope" | "api_error";
   message?: string;
 };
+
+export async function getGrantedAccessScopes(accessToken: string, shop: string): Promise<Set<string>> {
+  const domain = shop.includes(".myshopify.com") ? shop : `${shop}.myshopify.com`;
+  const url = `https://${domain}/admin/oauth/access_scopes.json`;
+  try {
+    const res = await fetch(url, { method: "GET", headers: shopifyHeaders(accessToken) });
+    if (!res.ok) return new Set();
+    const data = (await res.json()) as { access_scopes?: Array<{ handle?: string }> };
+    const handles = (data.access_scopes ?? [])
+      .map((s) => s.handle?.trim())
+      .filter((h): h is string => Boolean(h));
+    return new Set(handles);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Prefer token scope string; fall back to access_scopes.json when incomplete. */
+export async function resolveGrantedAccessScopes(
+  accessToken: string,
+  shop: string,
+  scopeFromToken: unknown
+): Promise<Set<string>> {
+  const fromToken = parseShopifyScopeList(scopeFromToken);
+  const required = getRequestedShopifyScopes();
+  const tokenMissing = missingShopifyScopes(fromToken, required);
+  if (tokenMissing.length === 0 && fromToken.size > 0) {
+    return fromToken;
+  }
+
+  const fromApi = await getGrantedAccessScopes(accessToken, shop);
+  if (fromApi.size > 0) return fromApi;
+
+  return fromToken;
+}
 
 /** Validates shop + orders API access (same checks used by manual sync). */
 export async function verifyStoreConnection(
