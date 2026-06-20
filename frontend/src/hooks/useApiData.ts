@@ -195,6 +195,7 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     shopifyFulfillmentStatus: o.shopifyFulfillmentStatus != null ? String(o.shopifyFulfillmentStatus) : undefined,
     shopifyNote: o.shopifyNote != null ? String(o.shopifyNote) : undefined,
     shopifyTags: o.shopifyTags != null ? String(o.shopifyTags) : undefined,
+    adminRemark: o.adminRemark != null ? String(o.adminRemark) : undefined,
     lastShopifySyncAt: o.lastShopifySyncAt != null ? String(o.lastShopifySyncAt) : undefined,
     items: (o.items as Order["products"]) || (o.orderItems as Order["products"]) || undefined,
     updatedAt:
@@ -308,7 +309,7 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
         tab: view === "junk" ? undefined : tab,
         payment,
         fulfillment,
-        counts: view === "junk" ? false : counts,
+        counts,
         ...adv,
       });
       if (Array.isArray(res)) {

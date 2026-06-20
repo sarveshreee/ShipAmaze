@@ -180,6 +180,19 @@ export async function moveOrderToJunk(id: string, junkReason?: string) {
   });
 }
 
+export async function deleteJunkOrder(id: string) {
+  return apiClient.delete<{ success: true; message: string; orderId: string }>(
+    `/orders/${encodeURIComponent(id)}`
+  );
+}
+
+export async function bulkDeleteJunkOrders(orderIds: string[]) {
+  return apiClient.post<{ success: true; deletedCount: number; orderIds: string[] }>(
+    "/orders/bulk-delete-junk",
+    { orderIds }
+  );
+}
+
 export async function moveOrderToReship(id: string) {
   return apiClient.post<{ success: true; message: string }>(`/orders/${encodeURIComponent(id)}/reship`, {});
 }

@@ -109,6 +109,8 @@ export interface IOrder extends Document {
   shopifyNote?: string;
   shopifyTags?: string;
   lastShopifySyncAt?: Date;
+  /** Admin-only internal remark shown in orders table. */
+  adminRemark?: string;
 }
 
 const trackingActivitySchema = new Schema<ITrackingActivity>(
@@ -205,6 +207,7 @@ const orderSchema = new Schema<IOrder>(
     shopifyFulfillmentStatus: { type: String },
     shopifyNote: { type: String },
     shopifyTags: { type: String },
+    adminRemark: { type: String },
     lastShopifySyncAt: { type: Date },
   },
   { timestamps: true }

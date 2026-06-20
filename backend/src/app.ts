@@ -156,6 +156,8 @@ export function createApp() {
   );
   api.get("/orders/:orderId/sku-audit", authMiddleware, orderController.listOrderSkuAudit);
   api.post("/orders/:id/junk", authMiddleware, orderController.markOrderJunk);
+  api.delete("/orders/:id", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.deleteJunkOrder);
+  api.post("/orders/bulk-delete-junk", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.bulkDeleteJunkOrders);
   api.post("/orders/:id/reship", authMiddleware, orderController.markOrderReship);
   api.patch("/orders/:orderId/status", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.updateOrderStatus);
   api.put("/orders/:orderId", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.updateOrder);

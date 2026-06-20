@@ -153,11 +153,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const isAdmin = role === "admin";
   const { canProcessOrders } = useDropshipperAccess();
 
-  /** Admin: show Process Selected on all tabs except Junk (same workflow everywhere). */
-  const ADMIN_PROCESS_TABS = useMemo(
-    () => new Set(tabs.map((t) => t.filter).filter((f) => f !== "junk")),
-    []
-  );
+  /** Admin: show Process Selected on every tab including Junk. */
+  const ADMIN_PROCESS_TABS = useMemo(() => new Set(tabs.map((t) => t.filter)), []);
   const showProcessSelected = isAdmin && ADMIN_PROCESS_TABS.has(activeTab);
 
   const BULK_MOVE_TO_READY_TABS = new Set(["all", "channel", "manual"]);
@@ -292,12 +289,18 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const selectedOrders = useMemo(() => filtered.filter((o) => selected.has(o.id)), [filtered, selected]);
 
-  /** On All / Channel / Manual tabs, allow Process Selected whenever orders are checked (backend validates eligibility). */
-  const RELAXED_PROCESS_TABS = useMemo(() => new Set(["all", "channel", "manual"]), []);
+  /** Tabs where Process Selected accepts orders without ready_to_ship (backend validates). */
+  const RELAXED_PROCESS_TABS = useMemo(
+    () => new Set(["all", "channel", "manual", "reship", "junk"]),
+    []
+  );
 
   const canProcessSelectedSelection = useMemo(() => {
     if (selectedOrders.length === 0) return false;
     const isEligible = (o: Order) => {
+      if (activeTab === "junk") {
+        return Boolean((o as { isJunk?: boolean }).isJunk);
+      }
       if ((o as { isJunk?: boolean }).isJunk) return false;
       if (o.shipmentCreated) return false;
       if (String(o.awb ?? "").trim()) return false;
@@ -343,8 +346,13 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const handleMarkReship = async (id: string) => {
     try {
+      const order = orders.find((o) => o.id === id);
       await orderService.moveOrderToReship(id);
-      toast.success("Order moved to reship");
+      toast.success(
+        order?.awb
+          ? "Courier notified and order moved to reship"
+          : "Order moved to reship"
+      );
       await refetch();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to move order to reship");
@@ -361,6 +369,19 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       await refetch();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to process selected orders");
+    }
+  };
+
+  const handleBulkDeleteJunk = async () => {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    try {
+      const res = await orderService.bulkDeleteJunkOrders(ids);
+      toast.success(`${res.deletedCount} order(s) permanently deleted`);
+      setSelected(new Set());
+      await refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete selected orders");
     }
   };
 
@@ -582,7 +603,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onClearSelection={() => setSelected(new Set())}
           onMarkJunk={handleMarkJunk}
           onMarkReship={handleMarkReship}
-          onBulkJunk={handleBulkJunk}
+          onBulkJunk={activeTab === "junk" ? handleBulkDeleteJunk : handleBulkJunk}
+          bulkJunkLabel={activeTab === "junk" ? "Bulk Delete" : "Bulk Junk"}
           onOpenProcessModal={() => setProcessModalOpen(true)}
           onBulkMoveToReady={handleBulkMoveToReady}
           onMoveToReady={handleMoveToReady}
@@ -595,6 +617,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           showBulkMoveToReady={showBulkMoveToReady}
           couriers={couriers}
           warehouses={linkedWarehouseOptions}
+          onOrdersChanged={refetch}
           onCreateShipment={
             canProcessOrders
               ? async (payload) => {

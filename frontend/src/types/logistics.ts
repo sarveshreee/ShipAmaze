@@ -142,6 +142,7 @@ export interface Order {
   shopifyNote?: string;
   shopifyTags?: string;
   lastShopifySyncAt?: string;
+  adminRemark?: string;
   vendorId?: string;
 }
 

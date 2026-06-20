@@ -25,6 +25,7 @@ import { orderWalletUserId } from "../services/walletLedger.js";
 import { buildPickupSnapshotFromLean } from "../utils/pickupSnapshot.js";
 import { resolveVendorIdFromPickup } from "../utils/pickupVendor.js";
 import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
+import * as velocityService from "../modules/velocity/velocity.service.js";
 import {
   firstItemArrayFromOrderDoc,
   normalizeLineItem,
@@ -132,6 +133,7 @@ function mapOrder(o: {
   shopifyNote?: string;
   shopifyTags?: string;
   lastShopifySyncAt?: Date;
+  adminRemark?: string;
 }) {
   const items = (o.orderItems ?? o.items ?? o.products ?? []) as unknown[];
   const productsOut = Array.isArray(o.products) && o.products.length > 0 ? o.products : items;
@@ -209,6 +211,7 @@ function mapOrder(o: {
     shopifyFulfillmentStatus: o.shopifyFulfillmentStatus,
     shopifyNote: o.shopifyNote,
     shopifyTags: o.shopifyTags,
+    adminRemark: o.adminRemark,
     lastShopifySyncAt:
       o.lastShopifySyncAt instanceof Date ? o.lastShopifySyncAt.toISOString() : o.lastShopifySyncAt
         ? String(o.lastShopifySyncAt)
@@ -350,8 +353,8 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
   if (listFilters) query = mergeQueries(query, listFilters);
 
   let tabCounts: Record<string, number> | undefined;
-  if (pq.counts && view !== "junk") {
-    const tabs = [
+  if (pq.counts) {
+    const tabList = [
       "all",
       "channel",
       "manual",
@@ -364,14 +367,16 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       "failed",
     ];
     tabCounts = {};
-    for (const tab of tabs) {
+    for (const tab of tabList) {
       let q2: Record<string, unknown> = { ...visibility, isJunk: { $ne: true } };
       const tq = buildTabQuery(tab);
       if (tq) q2 = mergeQueries(q2, tq);
       if (listFilters) q2 = mergeQueries(q2, listFilters);
       tabCounts[tab] = await Order.countDocuments(q2);
     }
-    tabCounts.junk = await Order.countDocuments(mergeQueries({ ...visibility }, { isJunk: true }));
+    tabCounts.junk = await Order.countDocuments(
+      mergeQueries({ ...visibility, isJunk: true }, listFilters ?? {})
+    );
   }
 
   const skip = (pq.page - 1) * pq.pageSize;
@@ -762,6 +767,24 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     }
   }
 
+  if (body.adminRemark !== undefined || body.remarks !== undefined) {
+    order.adminRemark = String(body.adminRemark ?? body.remarks ?? "").slice(0, 2000);
+  }
+
+  const amtOnly = body.amount;
+  if (amtOnly !== undefined && amtOnly !== null && String(amtOnly).trim() !== "" && !hasLineItemsUpdate) {
+    const n = Number(amtOnly);
+    if (!Number.isFinite(n) || n < 0) throw new AppError(400, "amount must be a valid number ≥ 0");
+    order.amount = n;
+  }
+
+  const payRaw = body.payment;
+  if (payRaw !== undefined && payRaw !== null && String(payRaw).trim() !== "") {
+    const p = String(payRaw).trim();
+    if (!["COD", "Prepaid"].includes(p)) throw new AppError(400, "payment must be COD or Prepaid");
+    order.payment = p;
+  }
+
   await order.save();
   res.json(mapOrder(order));
 });
@@ -1032,6 +1055,47 @@ export const markOrderJunk = asyncHandler(async (req: AuthRequest, res: Response
   });
 });
 
+/** Admin: permanently delete a junk order from the system. */
+export const deleteJunkOrder = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+
+  const { id } = req.params;
+  const order = await Order.findOne({ orderId: id });
+  if (!order) throw new AppError(404, "Order not found");
+  if (!order.isJunk) throw new AppError(400, "Only junk orders can be permanently deleted");
+
+  await OrderSkuAudit.deleteMany({ orderId: order.orderId });
+  await order.deleteOne();
+
+  res.json({ success: true, message: "Order permanently deleted", orderId: id });
+});
+
+/** Admin: permanently delete multiple junk orders. */
+export const bulkDeleteJunkOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+
+  const body = req.body as { orderIds?: unknown };
+  if (!Array.isArray(body.orderIds) || body.orderIds.length === 0) {
+    throw new AppError(400, "orderIds must be a non-empty array");
+  }
+  const ids = [...new Set(body.orderIds.map((x) => String(x).trim()).filter(Boolean))];
+
+  const orders = await Order.find({ orderId: { $in: ids }, isJunk: true }).select("orderId").lean();
+  if (orders.length === 0) throw new AppError(404, "No junk orders found to delete");
+
+  const orderIds = orders.map((o) => o.orderId);
+  await OrderSkuAudit.deleteMany({ orderId: { $in: orderIds } });
+  const result = await Order.deleteMany({ orderId: { $in: orderIds }, isJunk: true });
+
+  res.json({
+    success: true,
+    deletedCount: result.deletedCount ?? orderIds.length,
+    orderIds,
+  });
+});
+
 export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   const { id } = req.params;
@@ -1039,13 +1103,16 @@ export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Respon
   if (!order) throw new AppError(404, "Order not found");
   await assertOrderAccess(req.user, order);
 
+  const awb = String(order.awb ?? "").trim();
+  if (awb) {
+    await velocityService.cancelShipment({ awbs: [awb] });
+  }
+
   order.isJunk = false;
   order.junkedAt = undefined;
   order.junkReason = undefined;
+  clearOrderShipmentForRebook(order);
   order.status = "reship";
-  order.shipmentCreated = false;
-  order.awb = "";
-  order.trackingId = undefined;
   order.shipmentStatus = "reship";
   appendStatusHistory(order, "reship", req.user._id);
   await order.save();
@@ -1123,8 +1190,38 @@ const BLOCKED_PROCESS_SELECTED_STATUSES = new Set([
   "rto",
   "junk",
   "failed",
-  "reship",
 ]);
+
+function clearOrderShipmentForRebook(order: InstanceType<typeof Order>): void {
+  order.shipmentCreated = false;
+  order.awb = "";
+  order.trackingId = undefined;
+  order.shipmentId = undefined;
+  order.velocityOrderId = undefined;
+  order.velocityShipmentId = undefined;
+  order.velocityReturnId = undefined;
+  order.labelUrl = undefined;
+  order.manifestUrl = undefined;
+  order.courierCompanyId = undefined;
+  order.shippingCharges = undefined;
+  order.velocityFreightCost = undefined;
+  order.codCharges = undefined;
+  order.rtoCharges = undefined;
+  order.trackingUrl = undefined;
+  order.trackingActivities = undefined;
+}
+
+function restoreOrderFromJunkForProcess(order: InstanceType<typeof Order>): void {
+  order.isJunk = false;
+  order.junkedAt = undefined;
+  order.junkReason = undefined;
+  clearOrderShipmentForRebook(order);
+  const st = normalizeOrderStatusKey(order.status);
+  if (st === "junk" || st === "reship") {
+    order.status = "ready_to_ship";
+    order.shipmentStatus = "ready_to_ship";
+  }
+}
 
 function assertOrderEligibleForProcessSelected(o: IOrder): void {
   if (o.isJunk) throw new AppError(400, `Order ${o.orderId} is junk`);
@@ -1249,12 +1346,31 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   const now = new Date();
   const updated = [];
   for (const o of orders) {
+    if (o.isJunk) {
+      restoreOrderFromJunkForProcess(o);
+      appendStatusHistory(o, "ready_to_ship", req.user._id, "Restored from junk via Process Selected");
+    }
+
     assertOrderEligibleForProcessSelected(o);
 
     const st = normalizeOrderStatusKey(o.status);
+    const isReship = st === "reship";
+    if (isReship) {
+      o.status = "ready_to_ship";
+      o.shipmentStatus = "ready_to_ship";
+      clearOrderShipmentForRebook(o);
+    } else if (st !== "ready_to_ship") {
+      o.status = "ready_to_ship";
+      o.shipmentStatus = "ready_to_ship";
+    }
     if (st !== "ready_to_ship") {
       o.movedToReadyAt = now;
-      appendStatusHistory(o, "ready_to_ship", req.user._id, "Auto-moved via Process Selected");
+      appendStatusHistory(
+        o,
+        "ready_to_ship",
+        req.user._id,
+        isReship ? "Reship — moved via Process Selected" : "Auto-moved via Process Selected"
+      );
     }
 
     o.courierName = autoCourier ? "Auto" : courierName;

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Order } from "@/types/logistics";
 import { useAuth } from "@/contexts/AuthContext";
@@ -91,12 +91,13 @@ interface EditProductModalProps {
   open: boolean;
   onClose: () => void;
   order: Order;
-  onSave: (orderId: string, products: any[], codAmount: number) => void;
+  onSave: (orderId: string, products: any[], codAmount: number) => void | Promise<void>;
 }
 
 function EditProductModal({ open, onClose, order, onSave }: EditProductModalProps) {
   const [products, setProducts] = useState<{ name: string; price: string; qty: string; sku: string }[]>([]);
   const [codAmount, setCodAmount] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open && order) {
@@ -119,11 +120,18 @@ function EditProductModal({ open, onClose, order, onSave }: EditProductModalProp
   const addProduct = () => setProducts(prev => [...prev, { name: "", price: "", qty: "1", sku: "" }]);
   const removeProduct = (idx: number) => { if (products.length > 1) setProducts(prev => prev.filter((_, i) => i !== idx)); };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const mapped = products.map(p => ({ name: p.name, price: Number(p.price), qty: Number(p.qty), sku: p.sku }));
-    onSave(order.id, mapped, Number(codAmount));
-    onClose();
-    toast.success("Product details updated");
+    setSaving(true);
+    try {
+      await onSave(order.id, mapped, Number(codAmount));
+      onClose();
+      toast.success("Product details updated");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not update products");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -176,8 +184,8 @@ function EditProductModal({ open, onClose, order, onSave }: EditProductModalProp
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button onClick={handleSubmit} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
-            <Save className="h-4 w-4" /> Submit
+          <Button onClick={() => void handleSubmit()} disabled={saving} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
+            {saving ? "Saving…" : <><Save className="h-4 w-4" /> Submit</>}
           </Button>
           <Button variant="secondary" onClick={onClose} className="bg-sidebar text-sidebar-primary-foreground hover:bg-sidebar-accent">
             Close
@@ -189,9 +197,10 @@ function EditProductModal({ open, onClose, order, onSave }: EditProductModalProp
 }
 
 // Edit Order Price Modal
-function EditPriceModal({ open, onClose, order, onSave }: { open: boolean; onClose: () => void; order: Order; onSave: (id: string, amount: number, codAmount: number) => void }) {
+function EditPriceModal({ open, onClose, order, onSave }: { open: boolean; onClose: () => void; order: Order; onSave: (id: string, amount: number, codAmount: number) => void | Promise<void> }) {
   const [orderAmount, setOrderAmount] = useState("");
   const [codAmount, setCodAmount] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open && order) {
@@ -200,10 +209,17 @@ function EditPriceModal({ open, onClose, order, onSave }: { open: boolean; onClo
     }
   }, [open, order]);
 
-  const handleSubmit = () => {
-    onSave(order.id, Number(orderAmount), Number(codAmount));
-    onClose();
-    toast.success("Order price updated");
+  const handleSubmit = async () => {
+    setSaving(true);
+    try {
+      await onSave(order.id, Number(orderAmount), Number(codAmount));
+      onClose();
+      toast.success("Order price updated");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not update price");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -223,8 +239,8 @@ function EditPriceModal({ open, onClose, order, onSave }: { open: boolean; onClo
           </div>
         </div>
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button onClick={handleSubmit} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
-            <Save className="h-4 w-4" /> Submit
+          <Button onClick={() => void handleSubmit()} disabled={saving} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
+            {saving ? "Saving…" : <><Save className="h-4 w-4" /> Submit</>}
           </Button>
           <Button variant="secondary" onClick={onClose} className="bg-sidebar text-sidebar-primary-foreground hover:bg-sidebar-accent">
             Close
@@ -344,6 +360,8 @@ interface Props {
   onMarkJunk: (id: string) => void;
   onMarkReship?: (id: string) => void;
   onBulkJunk?: () => void;
+  /** Label for bulk junk/delete action bar button (default: Bulk Junk). */
+  bulkJunkLabel?: string;
   onOpenProcessModal?: () => void;
   onExport?: () => void;
   loading: boolean;
@@ -358,6 +376,8 @@ interface Props {
   onMoveToReady?: (orderId: string) => Promise<void>;
   couriers?: Array<{ id: string; name: string }>;
   warehouses?: Array<{ id: string; warehouseName: string; city?: string; velocityWarehouseId?: string; isDefault?: boolean }>;
+  /** Refetch orders after inline edits so the table updates immediately. */
+  onOrdersChanged?: () => void | Promise<void>;
   onCreateShipment?: (payload: {
     orderId: string;
     warehouseId: string;
@@ -392,6 +412,7 @@ export function RichOrdersTable({
   onMarkJunk,
   onMarkReship,
   onBulkJunk,
+  bulkJunkLabel = "Bulk Junk",
   onOpenProcessModal,
   onExport,
   loading,
@@ -404,6 +425,7 @@ export function RichOrdersTable({
   onMoveToReady,
   couriers: _couriers = [],
   warehouses = [],
+  onOrdersChanged,
   onCreateShipment,
   emptyDescription = "No orders found for these filters.",
 }: Props) {
@@ -411,6 +433,7 @@ export function RichOrdersTable({
   const { role } = useAuth();
   const { canEditSku, canProcessOrders } = useDropshipperAccess();
   const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
+  const [bulkDeleteJunkConfirmOpen, setBulkDeleteJunkConfirmOpen] = useState(false);
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
   const [addressFilter, setAddressFilter] = useState({ open: false, search: "", selectedStates: new Set<string>(), validPincodes: false, invalidPincodes: false, invalidContact: false });
@@ -429,6 +452,15 @@ export function RichOrdersTable({
 
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [editingRemark, setEditingRemark] = useState<string | null>(null);
+  const [savingRemarkId, setSavingRemarkId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const o of orders) {
+      next[o.id] = o.adminRemark ?? "";
+    }
+    setRemarks(next);
+  }, [orders]);
   const [junkConfirmId, setJunkConfirmId] = useState<string | null>(null);
   const [reshipConfirmId, setReshipConfirmId] = useState<string | null>(null);
   const [shipmentModalOrder, setShipmentModalOrder] = useState<Order | null>(null);
@@ -562,26 +594,32 @@ export function RichOrdersTable({
   const channelLabel = (o: Order) =>
     o.channel === "Shopify" || o.externalSource === "shopify" ? "Shopify" : "Manual";
 
-  const handleEditProductSave = (orderId: string, products: any[], codAmount: number) => {
-    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
-    const updated = stored.map((o: any) => {
-      if (o.id === orderId || o.orderId === orderId || o.order_id === orderId) {
-        return { ...o, products, amount: codAmount };
-      }
-      return o;
+  const refreshOrders = useCallback(async () => {
+    if (onOrdersChanged) {
+      await onOrdersChanged();
+    } else {
+      window.dispatchEvent(new Event("shipamaze:refetch:orders"));
+    }
+  }, [onOrdersChanged]);
+
+  const handleEditProductSave = async (orderId: string, products: any[], codAmount: number) => {
+    await orderService.updateOrder(orderId, {
+      products,
+      orderItems: products,
+      items: products,
+      amount: codAmount,
     });
-    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+    await refreshOrders();
   };
 
-  const handleEditPriceSave = (orderId: string, amount: number, codAmount: number) => {
-    const stored = JSON.parse(localStorage.getItem("shipflow_orders") || "[]");
-    const updated = stored.map((o: any) => {
-      if (o.id === orderId || o.orderId === orderId || o.order_id === orderId) {
-        return { ...o, amount, codAmount };
-      }
-      return o;
+  const handleEditPriceSave = async (orderId: string, amount: number, codAmount: number) => {
+    const order = orders.find((o) => o.id === orderId);
+    const isCod = order?.payment === "COD";
+    await orderService.updateOrder(orderId, {
+      amount: isCod ? codAmount : amount,
+      ...(isCod ? { payment: "COD" as const } : {}),
     });
-    localStorage.setItem("shipflow_orders", JSON.stringify(updated));
+    await refreshOrders();
   };
 
   const handleEditAddressSave = async (orderId: string, data: any) => {
@@ -602,9 +640,20 @@ export function RichOrdersTable({
       height: Number(data.height),
     });
 
-    // Keep Create Shipment dialog in sync right after save.
     setShipmentModalOrder((prev) => (prev && prev.id === orderId ? { ...prev, ...updated } : prev));
-    window.dispatchEvent(new Event("shipamaze:refetch:orders"));
+    await refreshOrders();
+  };
+
+  const handleRemarkSave = async (orderId: string, text: string) => {
+    setSavingRemarkId(orderId);
+    try {
+      await orderService.updateOrder(orderId, { adminRemark: text });
+      await refreshOrders();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not save remark");
+    } finally {
+      setSavingRemarkId(null);
+    }
   };
 
   const handleEditOrder = (order: Order) => {
@@ -763,9 +812,49 @@ export function RichOrdersTable({
                 </Button>
               </>
             )}
-            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark" onClick={onBulkJunk}>
-              <Trash2 className="h-3.5 w-3.5" /> Bulk Junk
-            </Button>
+            {onBulkJunk && (
+              activeTab === "junk" ? (
+                <AlertDialog open={bulkDeleteJunkConfirmOpen} onOpenChange={setBulkDeleteJunkConfirmOpen}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                    onClick={() => setBulkDeleteJunkConfirmOpen(true)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> {bulkJunkLabel}
+                  </Button>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Permanently delete {selected.size} order(s)?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This removes the selected junk orders from ShipAmaze permanently. This cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-danger text-danger-foreground hover:bg-danger/90"
+                        onClick={() => {
+                          setBulkDeleteJunkConfirmOpen(false);
+                          void onBulkJunk();
+                        }}
+                      >
+                        Delete permanently
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs gap-1.5 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                  onClick={onBulkJunk}
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> {bulkJunkLabel}
+                </Button>
+              )
+            )}
           </div>
         </div>
       )}
@@ -1249,7 +1338,11 @@ export function RichOrdersTable({
                             rows={2}
                             value={remarks[o.id] || ""}
                             onChange={e => setRemarks(r => ({ ...r, [o.id]: e.target.value }))}
-                            onBlur={() => setEditingRemark(null)}
+                            onBlur={() => {
+                              setEditingRemark(null);
+                              void handleRemarkSave(o.id, remarks[o.id] ?? "");
+                            }}
+                            disabled={savingRemarkId === o.id}
                             autoFocus
                           />
                         </div>
@@ -1338,7 +1431,7 @@ export function RichOrdersTable({
         onClose={() => setEditSku(null)}
         order={editSku?.order ?? null}
         lineIndex={editSku?.lineIndex ?? 0}
-        onSaved={() => window.dispatchEvent(new Event("shipamaze:refetch:orders"))}
+        onSaved={() => void refreshOrders()}
       />
 
       {/* Edit Price Modal */}
@@ -1356,7 +1449,7 @@ export function RichOrdersTable({
         <AlertDialogContent className="sm:max-w-[400px]">
           <AlertDialogHeader>
             <AlertDialogDescription className="text-sm text-text-primary">
-              Cancel this order and move it to Reship? You can edit and re-process it from the Reship tab.
+              Cancel this shipment with the courier and move the order to Reship? The courier will be notified so they do not attempt pickup. You can edit and re-process from the Reship tab.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex gap-3 sm:gap-3">
