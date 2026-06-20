@@ -23,6 +23,7 @@ const LEGACY_TO_CANONICAL: Record<string, OrderCanonicalStatus> = {
   "on-process": "pickup_scheduled",
   "pending-pickup": "pickup_scheduled",
   pending_pickup: "pickup_scheduled",
+  "pickup-scheduled": "pickup_scheduled",
   "not-picked": "pickup_scheduled",
   pickup_scheduled: "pickup_scheduled",
   picked_up: "picked_up",

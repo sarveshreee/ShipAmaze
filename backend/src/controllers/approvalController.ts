@@ -15,6 +15,7 @@ import {
   buildDefaultCourierZoneRows,
   buildDefaultEnterpriseRows,
   deriveLegacyRatesFromCourierRows,
+  mergeCourierZoneRows,
   migrateLegacyRatesToCourierRows,
   parseCourierZoneRows,
   parseEnterpriseRows,
@@ -152,8 +153,9 @@ export const getShippingRateCard = asyncHandler(async (req: AuthRequest, res: Re
     | "Prepaid";
   const card = await ShippingRateCard.findOne({ paymentType }).lean();
   const baseRates = card?.rates?.length ? card.rates : defaultRateMatrix();
+  const defaultRows = buildDefaultCourierZoneRows(undefined, DEFAULT_ZONES);
   let courierZoneRows = card?.courierZoneRows?.length
-    ? card.courierZoneRows
+    ? mergeCourierZoneRows(defaultRows, card.courierZoneRows)
     : migrateLegacyRatesToCourierRows(baseRates, DEFAULT_ZONES);
   let usingDropshipperOverride = false;
   if (req.user.role === "dropshipper") {
@@ -204,17 +206,25 @@ export const adminSaveShippingRateCard = asyncHandler(async (req: AuthRequest, r
     ? req.body.weights.map((w: unknown) => String(w).trim()).filter(Boolean)
     : DEFAULT_WEIGHTS;
 
-  let courierZoneRows = buildDefaultCourierZoneRows(undefined, zones);
+  const defaultRows = buildDefaultCourierZoneRows(undefined, zones);
+  const existingCard = await ShippingRateCard.findOne({ paymentType }).lean();
+  const existingRows = existingCard?.courierZoneRows?.length ? existingCard.courierZoneRows : [];
+
+  let courierZoneRows = defaultRows;
   let enterpriseRows = buildDefaultEnterpriseRows(courierZoneRows, undefined, zones);
   try {
     if (Array.isArray(req.body.courierZoneRows) && req.body.courierZoneRows.length) {
-      courierZoneRows = parseCourierZoneRows(req.body.courierZoneRows, zones);
+      const incomingRows = parseCourierZoneRows(req.body.courierZoneRows, zones);
+      courierZoneRows = mergeCourierZoneRows(defaultRows, existingRows, incomingRows);
       enterpriseRows =
         Array.isArray(req.body.enterpriseRows) && req.body.enterpriseRows.length
           ? parseEnterpriseRows(req.body.enterpriseRows, zones)
           : buildDefaultEnterpriseRows(courierZoneRows, undefined, zones);
     } else if (Array.isArray(req.body.enterpriseRows) && req.body.enterpriseRows.length) {
+      courierZoneRows = mergeCourierZoneRows(defaultRows, existingRows);
       enterpriseRows = parseEnterpriseRows(req.body.enterpriseRows, zones);
+    } else {
+      courierZoneRows = mergeCourierZoneRows(defaultRows, existingRows);
     }
   } catch (err: unknown) {
     throw new AppError(400, err instanceof Error ? err.message : "Invalid courier pricing");

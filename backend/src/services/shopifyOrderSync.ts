@@ -29,12 +29,44 @@ export function shopifyExternalOrderId(shopDomain: string, shopifyNumericId: num
   return `shopify-${safeShopKey(shopDomain)}-${shopifyNumericId}`;
 }
 
-/** Map Shopify financial_status to display payment field */
+function collectShopifyGatewayHaystack(so: ShopifyOrder): string {
+  const parts: string[] = [];
+  if (Array.isArray(so.payment_gateway_names)) {
+    parts.push(...so.payment_gateway_names.map((g) => String(g)));
+  }
+  if (so.gateway) parts.push(String(so.gateway));
+  return parts.join(" ").toLowerCase();
+}
+
+/** Detect COD from Shopify payment gateways or order tags. */
+export function shopifyOrderIsCod(so: ShopifyOrder): boolean {
+  const gateways = collectShopifyGatewayHaystack(so);
+  if (/cash\s*on\s*delivery|\bcod\b|cash_on_delivery/.test(gateways)) return true;
+
+  const tags = String(so.tags ?? "").toLowerCase();
+  if (/\bcod\b/.test(tags) || /cash\s*on\s*delivery/.test(tags)) return true;
+
+  return false;
+}
+
+/** Map Shopify order to ShipAmaze payment field (COD vs Prepaid). */
+export function mapShopifyOrderPayment(so: ShopifyOrder): "COD" | "Prepaid" {
+  if (shopifyOrderIsCod(so)) return "COD";
+
+  const f = String(so.financial_status ?? "").toLowerCase();
+  if (f === "paid" || f === "partially_paid") return "Prepaid";
+  if (f === "refunded" || f === "partially_refunded" || f === "voided") return "Prepaid";
+  if (f === "pending" || f === "authorized") return "Prepaid";
+
+  return "COD";
+}
+
+/** @deprecated Use mapShopifyOrderPayment — kept for callers passing financial_status only. */
 export function mapShopifyFinancialToPayment(financial: string | undefined): string {
   const f = String(financial ?? "").toLowerCase();
   if (f === "paid" || f === "partially_paid") return "Prepaid";
+  if (f === "refunded" || f === "partially_refunded" || f === "voided") return "Prepaid";
   if (f === "pending" || f === "authorized") return "Prepaid";
-  if (f === "refunded" || f === "partially_refunded") return "Prepaid";
   return "COD";
 }
 
@@ -59,7 +91,7 @@ export function buildShopifyOrderPayload(
   const lineItems = Array.isArray(so.line_items) ? so.line_items : [];
   const externalId = shopifyExternalOrderId(shopDomain, so.id);
   const normalizedStatus = mapShopifyToInternalStatus(so);
-  const payment = mapShopifyFinancialToPayment(so.financial_status);
+  const payment = mapShopifyOrderPayment(so);
   const createdDate =
     typeof so.created_at === "string" && so.created_at.length >= 10 ? so.created_at.slice(0, 10) : "";
 

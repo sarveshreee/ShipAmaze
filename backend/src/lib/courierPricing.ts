@@ -13,7 +13,58 @@ export const DEFAULT_COURIERS = [
   "Amazon",
   "Shadowfax",
   "Xpressbees",
+  "Ekart",
 ] as const;
+
+/** Zone-A freight slabs + COD charge — used when seeding missing couriers in the rate card. */
+export const COURIER_ZONE_A_PRESETS: Record<
+  string,
+  { rates: [number, number, number, number, number]; codCharge: number }
+> = {
+  Delhivery: { rates: [85, 120, 205, 350, 450], codCharge: 25 },
+  DTDC: { rates: [87, 122, 207, 352, 452], codCharge: 30 },
+  BlueDart: { rates: [89, 124, 209, 354, 454], codCharge: 35 },
+  Amazon: { rates: [91, 126, 211, 356, 456], codCharge: 40 },
+  Shadowfax: { rates: [93, 128, 213, 358, 458], codCharge: 45 },
+  Xpressbees: { rates: [95, 130, 215, 360, 460], codCharge: 50 },
+  Ekart: { rates: [85, 120, 205, 350, 450], codCharge: 25 },
+};
+
+function presetRatesForZone(courier: string, zoneIndex: number): number[] {
+  const preset = COURIER_ZONE_A_PRESETS[courier];
+  const bump = zoneIndex * 2;
+  if (preset) return preset.rates.map((r) => r + bump);
+  const base = defaultRateMatrix()[zoneIndex] ?? defaultRateMatrix()[0];
+  const ci = DEFAULT_COURIERS.indexOf(courier as (typeof DEFAULT_COURIERS)[number]);
+  const courierBump = ci >= 0 ? ci * 2 : 0;
+  return base.map((v) => v + courierBump);
+}
+
+function presetCodCharge(courier: string): number {
+  return COURIER_ZONE_A_PRESETS[courier]?.codCharge ?? 25;
+}
+
+export function courierZoneRowKey(courier: string, zone: string): string {
+  return `${courier}::${zone.toUpperCase()}`;
+}
+
+/** Fill missing courier×zone rows; later layers override earlier (admin edits win). */
+export function mergeCourierZoneRows(...layers: ICourierZoneRow[][]): ICourierZoneRow[] {
+  const map = new Map<string, ICourierZoneRow>();
+  for (const layer of layers) {
+    for (const row of layer) {
+      if (!row?.courier?.trim() || !row?.zone?.trim()) continue;
+      map.set(courierZoneRowKey(row.courier, row.zone), row);
+    }
+  }
+  const courierOrder = (name: string) => {
+    const i = (DEFAULT_COURIERS as readonly string[]).indexOf(name);
+    return i >= 0 ? i : 999;
+  };
+  return Array.from(map.values()).sort(
+    (a, b) => courierOrder(a.courier) - courierOrder(b.courier) || a.zone.localeCompare(b.zone)
+  );
+}
 
 export const ENTERPRISE_TYPES = ["FWD", "RTO", "REV"] as const;
 export const ENTERPRISE_SLABS = ["Base", "Additional"] as const;
@@ -82,14 +133,17 @@ export function buildDefaultCourierZoneRows(
   baseMatrix: number[][] = defaultRateMatrix()
 ): ICourierZoneRow[] {
   const rows: ICourierZoneRow[] = [];
-  couriers.forEach((courier, ci) => {
+  couriers.forEach((courier) => {
     zones.forEach((zone, zi) => {
-      const bump = ci * 2;
+      const useLegacyMatrix =
+        courier === "Delhivery" &&
+        Array.isArray(baseMatrix[zi]) &&
+        baseMatrix[zi]!.length === DEFAULT_WEIGHTS.length;
       rows.push({
         courier,
         zone,
-        rates: baseMatrix[zi].map((v) => v + bump),
-        codCharge: 25 + ci * 5,
+        rates: useLegacyMatrix ? [...baseMatrix[zi]!] : presetRatesForZone(courier, zi),
+        codCharge: presetCodCharge(courier),
         active: true,
       });
     });

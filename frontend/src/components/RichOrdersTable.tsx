@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { getRates, type VelocityRate } from "@/services/velocityService";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { toast } from "sonner";
-import { printShippingLabel } from "@/components/ShippingLabel";
+import { printBulkInvoices, printBulkLabels, printShippingLabel } from "@/components/ShippingLabel";
 import * as orderService from "@/services/orderService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -732,6 +732,36 @@ export function RichOrdersTable({
               >
                 <CheckSquare className="h-3.5 w-3.5" /> Process Selected
               </Button>
+            )}
+            {activeTab === "pending-pickup" && selected.size > 0 && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs gap-1.5"
+                  onClick={() => {
+                    const picked = orders.filter((o) => selected.has(o.id));
+                    if (!picked.length) return;
+                    printBulkLabels(picked);
+                    toast.success(`Printing ${picked.length} label(s)…`);
+                  }}
+                >
+                  <Printer className="h-3.5 w-3.5" /> Bulk Label Print
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs gap-1.5"
+                  onClick={() => {
+                    const picked = orders.filter((o) => selected.has(o.id));
+                    if (!picked.length) return;
+                    printBulkInvoices(picked);
+                    toast.success(`Printing ${picked.length} invoice(s)…`);
+                  }}
+                >
+                  <Printer className="h-3.5 w-3.5" /> Bulk Invoice Print
+                </Button>
+              </>
             )}
             <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark" onClick={onBulkJunk}>
               <Trash2 className="h-3.5 w-3.5" /> Bulk Junk

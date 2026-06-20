@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   shopifyExternalOrderId,
   mapShopifyFinancialToPayment,
+  mapShopifyOrderPayment,
+  shopifyOrderIsCod,
   mapShopifyToInternalStatus,
 } from "./shopifyOrderSync.js";
 import type { ShopifyOrder } from "./shopify.service.js";
@@ -15,6 +17,34 @@ describe("shopifyOrderSync helpers", () => {
     expect(mapShopifyFinancialToPayment("paid")).toBe("Prepaid");
     expect(mapShopifyFinancialToPayment("pending")).toBe("Prepaid");
     expect(mapShopifyFinancialToPayment(undefined)).toBe("COD");
+  });
+
+  it("mapShopifyOrderPayment detects COD from payment gateway", () => {
+    const codOrder = {
+      id: 1,
+      financial_status: "pending",
+      payment_gateway_names: ["Cash on Delivery (COD)"],
+    } as unknown as ShopifyOrder;
+    expect(shopifyOrderIsCod(codOrder)).toBe(true);
+    expect(mapShopifyOrderPayment(codOrder)).toBe("COD");
+  });
+
+  it("mapShopifyOrderPayment treats paid online orders as Prepaid", () => {
+    const prepaid = {
+      id: 2,
+      financial_status: "paid",
+      payment_gateway_names: ["Razorpay"],
+    } as unknown as ShopifyOrder;
+    expect(mapShopifyOrderPayment(prepaid)).toBe("Prepaid");
+  });
+
+  it("mapShopifyOrderPayment detects COD from tags", () => {
+    const tagged = {
+      id: 3,
+      financial_status: "pending",
+      tags: "COD, express",
+    } as unknown as ShopifyOrder;
+    expect(mapShopifyOrderPayment(tagged)).toBe("COD");
   });
 
   it("mapShopifyToInternalStatus maps fulfilment and financial hints", () => {

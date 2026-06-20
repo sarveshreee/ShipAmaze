@@ -7,8 +7,7 @@ import { Save, Loader2 } from "lucide-react";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import { toast } from "sonner";
 import type { ProcessSelectedPayload } from "@/services/orderService";
-import { listCourierRateMasters, type CourierRateMaster } from "@/services/courierRateService";
-import { resolveSlabRate } from "@/lib/courierRateSlab";
+import { checkServiceability, type VelocityCarrier } from "@/services/velocityService";
 
 export type ProcessSelectedOrderRef = {
   pincode?: string;
@@ -30,14 +29,12 @@ export function ProcessSelectedModal({
   open,
   onClose,
   orderIds,
-  couriers,
   referenceOrders = [],
   submitting = false,
   onProcess,
 }: Props) {
   const { data: userPickups = [] } = usePickupAddresses();
-  const pickupAddresses = userPickups;
-  const activePickups = useMemo(() => pickupAddresses.filter((a) => a.isActive !== false), [pickupAddresses]);
+  const activePickups = useMemo(() => userPickups.filter((a) => a.isActive !== false), [userPickups]);
 
   const [shipmentMode, setShipmentMode] = useState<"" | "forward" | "reverse">("");
   const [pickupAddr, setPickupAddr] = useState("");
@@ -48,8 +45,8 @@ export function ProcessSelectedModal({
   const [dimW, setDimW] = useState("");
   const [dimH, setDimH] = useState("");
   const [weightPreset, setWeightPreset] = useState("other");
-  const [rateMasters, setRateMasters] = useState<CourierRateMaster[]>([]);
-  const [rateMastersLoading, setRateMastersLoading] = useState(false);
+  const [serviceableCouriers, setServiceableCouriers] = useState<VelocityCarrier[]>([]);
+  const [serviceableLoading, setServiceableLoading] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -62,25 +59,8 @@ export function ProcessSelectedModal({
       setDimW("");
       setDimH("");
       setWeightPreset("other");
-      setRateMasters([]);
-      return;
+      setServiceableCouriers([]);
     }
-    let cancelled = false;
-    setRateMastersLoading(true);
-    void listCourierRateMasters()
-      .then((res) => {
-        if (cancelled) return;
-        setRateMasters((res.items ?? []).filter((r) => r.active !== false));
-      })
-      .catch(() => {
-        if (!cancelled) setRateMasters([]);
-      })
-      .finally(() => {
-        if (!cancelled) setRateMastersLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
   }, [open]);
 
   useEffect(() => {
@@ -114,10 +94,36 @@ export function ProcessSelectedModal({
     return String(o.payment).toLowerCase().includes("cod") ? ("cod" as const) : ("prepaid" as const);
   }, [referenceOrders]);
 
-  const weightNum = Number(weight);
-  const hasValidWeight = Number.isFinite(weightNum) && weightNum > 0;
   const hasPickupPin = pickupPincode.length === 6;
   const hasDestPin = destPincode.length === 6;
+
+  useEffect(() => {
+    if (!open || shipmentMode !== "forward" || !hasPickupPin || !hasDestPin) {
+      setServiceableCouriers([]);
+      return;
+    }
+    let cancelled = false;
+    setServiceableLoading(true);
+    void checkServiceability({
+      from: pickupPincode,
+      to: destPincode,
+      payment_mode: referencePayment,
+      shipment_type: "forward",
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setServiceableCouriers(res.data ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceableCouriers([]);
+      })
+      .finally(() => {
+        if (!cancelled) setServiceableLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, shipmentMode, pickupPincode, destPincode, referencePayment, hasPickupPin, hasDestPin]);
 
   const validationMessages = useMemo(() => {
     if (!open) return [] as string[];
@@ -128,38 +134,8 @@ export function ProcessSelectedModal({
     if (pickupAddr && !hasPickupPin) {
       msgs.push("Selected pickup address does not contain a valid pincode.");
     }
-    if (!hasValidWeight && rateMasters.length > 0) {
-      msgs.push("Enter shipment weight to calculate admin courier rates.");
-    }
     return msgs;
-  }, [open, referenceOrders.length, hasDestPin, pickupAddr, hasPickupPin, hasValidWeight, rateMasters.length]);
-
-  const manualCourierOptions = useMemo(() => {
-    return rateMasters
-      .slice()
-      .sort(
-        (a, b) =>
-          (a.priority ?? 99) - (b.priority ?? 99) || a.courierName.localeCompare(b.courierName)
-      )
-      .map((r) => ({
-        id: r.id,
-        name: r.courierName,
-        carrierId: r.carrierId?.trim() || undefined,
-        charge: hasValidWeight
-          ? resolveSlabRate(r.weightSlabs, weightNum, referencePayment)
-          : null,
-      }));
-  }, [rateMasters, hasValidWeight, weightNum, referencePayment]);
-
-  const manualCourierNames = useMemo(
-    () => new Set(manualCourierOptions.map((c) => c.name.toLowerCase())),
-    [manualCourierOptions]
-  );
-
-  const legacyDbCouriers = useMemo(
-    () => couriers.filter((c) => !manualCourierNames.has(c.name.toLowerCase())),
-    [couriers, manualCourierNames]
-  );
+  }, [open, referenceOrders.length, hasDestPin, pickupAddr, hasPickupPin]);
 
   const handlePreset = (val: string) => {
     setWeightPreset(val);
@@ -169,36 +145,15 @@ export function ProcessSelectedModal({
   const resolveCourierPayload = (): { courierName: string; carrierId?: string } => {
     const sel = courierSelect.trim();
     if (!sel || sel.toLowerCase() === "auto") return { courierName: "Auto" };
-    if (sel.startsWith("name:")) {
-      const name = sel.slice(5).trim();
-      const manual = manualCourierOptions.find((c) => c.name === name);
-      if (manual?.carrierId) {
-        return { courierName: manual.name, carrierId: manual.carrierId };
-      }
-      return { courierName: name };
-    }
-    if (sel.startsWith("rate:")) {
-      const id = sel.slice(5).trim();
-      const manual = manualCourierOptions.find((c) => c.id === id);
-      if (manual) {
-        return {
-          courierName: manual.name,
-          carrierId: manual.carrierId,
-        };
-      }
-    }
-    const db = couriers.find((c) => c.carrierId && c.carrierId === sel);
-    if (db) {
-      return { courierName: db.name, carrierId: db.carrierId };
-    }
-    const byName = couriers.find((c) => c.name === sel);
-    if (byName) {
+    if (sel.startsWith("svc:")) {
+      const id = sel.slice(4).trim();
+      const svc = serviceableCouriers.find((c) => String(c.carrier_id) === id);
       return {
-        courierName: byName.name,
-        carrierId: byName.carrierId || undefined,
+        courierName: svc?.carrier_name ?? id,
+        carrierId: id,
       };
     }
-    return { courierName: sel, carrierId: sel };
+    return { courierName: sel };
   };
 
   const handleSubmit = async () => {
@@ -233,6 +188,11 @@ export function ProcessSelectedModal({
 
     const { courierName, carrierId } = resolveCourierPayload();
 
+    if (courierName !== "Auto" && !carrierId?.trim()) {
+      toast.error("Select a courier from the Velocity serviceable list (e.g. Ekart Standard)");
+      return;
+    }
+
     const payload: ProcessSelectedPayload = {
       orderIds,
       pickupAddressId: pickupAddr,
@@ -262,8 +222,8 @@ export function ProcessSelectedModal({
         </DialogHeader>
 
         <p className="text-sm text-text-muted">
-          Selected orders move directly to <strong>Pending Pickup</strong> with the courier and pickup details you
-          choose. Junk orders and orders that already have an AWB or shipment cannot be processed.
+          Orders are booked via Velocity with a real AWB. Dropshippers are charged your admin Rate
+          Card price (Rates &amp; Shipping), not Velocity&apos;s actual freight.
         </p>
 
         <div className="space-y-5 py-2">
@@ -295,11 +255,6 @@ export function ProcessSelectedModal({
                 {activePickups.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.label}
-                    {a.createdByRole === "vendor"
-                      ? " (Vendor warehouse)"
-                      : a.createdByRole === "admin"
-                        ? " (Admin)"
-                        : ""}
                   </option>
                 ))}
               </select>
@@ -335,29 +290,23 @@ export function ProcessSelectedModal({
                 className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
               >
                 <option value="">Auto — system assigns courier</option>
-                {manualCourierOptions.map((c) => (
-                  <option key={`rate-${c.id}`} value={`rate:${c.id}`}>
-                    {c.name}
-                    {c.charge != null ? ` — ₹${c.charge.toFixed(0)}` : ""}
-                  </option>
-                ))}
-                {legacyDbCouriers.map((c) => (
-                  <option key={`db-${c.id || c.name}`} value={`name:${c.name}`}>
-                    {c.name}
+                {serviceableCouriers.map((c) => (
+                  <option key={`svc-${c.carrier_id}`} value={`svc:${c.carrier_id}`}>
+                    {c.carrier_name}
                   </option>
                 ))}
               </select>
 
-              {rateMastersLoading && (
+              {serviceableLoading && (
                 <p className="text-[11px] text-text-muted mt-1 flex items-center gap-1">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  Loading courier rates…
+                  Loading serviceable couriers from Velocity…
                 </p>
               )}
 
-              {!rateMastersLoading && manualCourierOptions.length > 0 && !hasValidWeight && (
-                <p className="text-[11px] text-text-muted mt-1">
-                  Enter weight to see slab pricing for couriers.
+              {!serviceableLoading && serviceableCouriers.length === 0 && hasPickupPin && hasDestPin && shipmentMode === "forward" && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">
+                  No live couriers returned for this lane. Check pickup pincode and Velocity credentials.
                 </p>
               )}
 

@@ -23,6 +23,11 @@ export function orderWalletUserId(order: IOrder): Types.ObjectId | null {
   return uid ? (uid as Types.ObjectId) : null;
 }
 
+/** Only dropshipper-linked orders debit wallet (admin/vendor test orders skip). */
+export function orderShouldDebitWallet(order: IOrder): boolean {
+  return Boolean(order.dropshipperId);
+}
+
 async function ensureWalletDoc(userId: Types.ObjectId, session?: ClientSession | null): Promise<InstanceType<typeof Wallet>> {
   let w = await Wallet.findOne({ userId }).session(session ?? null);
   if (!w) {
@@ -42,8 +47,12 @@ export async function getWalletBalance(userId: Types.ObjectId): Promise<number> 
 export async function assertWalletBalanceAtLeast(userId: Types.ObjectId, minAmount: number): Promise<void> {
   assertPositiveAmount(minAmount, "minimum balance check");
   const bal = await getWalletBalance(userId);
-  if (bal < roundMoney(minAmount)) {
-    throw new AppError(402, "Insufficient wallet balance for this operation");
+  const need = roundMoney(minAmount);
+  if (bal < need) {
+    throw new AppError(
+      402,
+      `Insufficient wallet balance for this operation (need ₹${need.toFixed(2)}, available ₹${bal.toFixed(2)})`
+    );
   }
 }
 
@@ -209,8 +218,11 @@ export async function debitShipmentChargeIfApplicable(params: {
   shippingCharges: unknown;
 }): Promise<
   | { applied: true; amount: number; txnId: string; balanceAfter: number }
-  | { applied: false; reason: "no_billable_user" | "zero_amount" | "duplicate" | "insufficient" }
+  | { applied: false; reason: "no_billable_user" | "zero_amount" | "duplicate" | "insufficient" | "not_dropshipper_order" }
 > {
+  if (!orderShouldDebitWallet(params.order)) {
+    return { applied: false, reason: "not_dropshipper_order" };
+  }
   const billUserId = orderWalletUserId(params.order);
   if (!billUserId) return { applied: false, reason: "no_billable_user" };
 

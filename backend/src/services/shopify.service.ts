@@ -41,6 +41,9 @@ export interface ShopifyOrder {
   cancelled_at?: string | null;
   note?: string | null;
   tags?: string | null;
+  /** Legacy single gateway field (some API versions / webhooks). */
+  gateway?: string | null;
+  payment_gateway_names?: string[];
   line_items: ShopifyLineItem[];
   shipping_address?: {
     name: string;

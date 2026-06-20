@@ -249,15 +249,31 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     const isReship = status === "reship";
     const isJunk = Boolean((o as any).isJunk);
     const hasAwb = Boolean(String(o.awb ?? "").trim());
+    const shipmentCreated = Boolean((o as { shipmentCreated?: boolean }).shipmentCreated);
     const st = String(status ?? "").toLowerCase().replace(/-/g, "_");
     const channel = ((o as any).channel as string | undefined) ?? "";
     const externalSource = ((o as any).externalSource as string | undefined) ?? "";
+    const fulfillmentPipeline = new Set([
+      "ready_to_ship",
+      "pending_pickup",
+      "pickup_scheduled",
+      "picked_up",
+      "in_transit",
+      "shipped",
+      "out_for_delivery",
+      "delivered",
+      "failed",
+      "ndr",
+      "rto",
+      "reship",
+    ]);
+    const isPreFulfillment = !fulfillmentPipeline.has(st) && !hasAwb && !shipmentCreated;
     if (tab === "all") return !isJunk && !isReship;
     if (tab === "channel") {
-      return (channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship;
+      return (channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship && isPreFulfillment;
     }
     if (tab === "manual") {
-      return !(channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship;
+      return !(channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship && isPreFulfillment;
     }
     if (tab === "ready-to-ship") {
       return !isJunk && !isReship && st === "ready_to_ship" && !hasAwb;

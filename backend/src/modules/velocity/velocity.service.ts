@@ -45,6 +45,29 @@ function unwrapVelocityPayload<T>(raw: unknown): T {
   return raw as T;
 }
 
+/** Map Velocity forward-shipment payload keys to our internal response shape. */
+export function normalizeForwardOrderResponse(raw: Record<string, unknown>): VelocityForwardOrderResponse {
+  const charges = raw.charges as Record<string, unknown> | undefined;
+  const frwd = charges?.frwd_charges as Record<string, unknown> | undefined;
+  const rto = charges?.rto_charges as Record<string, unknown> | undefined;
+  const carrierId = raw.courier_company_id ?? raw.carrier_id ?? "";
+  const carrierName = String(raw.courier_name ?? raw.carrier_name ?? "");
+  return {
+    order_id: String(raw.order_id ?? ""),
+    shipment_id: String(raw.shipment_id ?? ""),
+    awb_code: String(raw.awb_code ?? ""),
+    carrier_name: String(carrierName),
+    carrier_id: carrierId as string | number,
+    label_url: typeof raw.label_url === "string" ? raw.label_url : undefined,
+    manifest_url: typeof raw.manifest_url === "string" ? raw.manifest_url : undefined,
+    shipping_charges: Number(frwd?.shipping_charges ?? raw.shipping_charges ?? 0),
+    cod_charges: frwd?.cod_charges != null ? Number(frwd.cod_charges) : undefined,
+    rto_charges: rto?.rto_charges != null ? Number(rto.rto_charges) : undefined,
+    status: String(raw.shipment_status ?? raw.status ?? "pickup_scheduled"),
+    message: typeof raw.message === "string" ? raw.message : undefined,
+  };
+}
+
 // ─── Warehouse ───────────────────────────────────────────
 
 export async function createWarehouseInVelocity(input: VelocityPreparedWarehouseInput) {
@@ -97,7 +120,8 @@ export async function createForwardShipment(payload: VelocityForwardOrderRequest
     "/custom/api/v1/forward-order-orchestration",
     providerBody
   );
-  return unwrapVelocityPayload<VelocityForwardOrderResponse>(raw);
+  const unwrapped = unwrapVelocityPayload<Record<string, unknown>>(raw);
+  return normalizeForwardOrderResponse(unwrapped);
 }
 
 // ─── Forward order only (no AWB yet) ─────────────────────

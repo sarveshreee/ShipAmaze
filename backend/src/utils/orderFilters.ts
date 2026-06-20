@@ -29,15 +29,48 @@ const READY_OR_PENDING_PICKUP = [
   "pending-pickup",
   "pending_pickup",
   "pickup_scheduled",
+  "pickup-scheduled",
 ];
+
+/** Orders that have entered the fulfillment pipeline — hidden from Channel / Manual tabs. */
+const FULFILLMENT_PIPELINE_STATUSES = [
+  ...READY_OR_PENDING_PICKUP,
+  "picked_up",
+  "in-transit",
+  "in_transit",
+  "shipped",
+  "out-for-delivery",
+  "out_for_delivery",
+  "delivered",
+  "failed",
+  "ndr",
+  "rto",
+  "reship",
+];
+
+function channelManualBaseQuery(channelOrManual: "channel" | "manual"): Record<string, unknown> {
+  const sourceFilter =
+    channelOrManual === "channel"
+      ? { $or: [{ externalSource: "shopify" }, { channel: "Shopify" }] }
+      : { $nor: [{ externalSource: "shopify" }, { channel: "Shopify" }] };
+  return {
+    $and: [
+      { isJunk: { $ne: true } },
+      { status: { $ne: "reship", $nin: FULFILLMENT_PIPELINE_STATUSES } },
+      { shipmentCreated: { $ne: true } },
+      { $or: [{ awb: { $exists: false } }, { awb: null }, { awb: "" }] },
+      sourceFilter,
+    ],
+  };
+}
 
 /** Tab filters aligned with frontend OrdersPageWithTabs.filterByTab */
 export function buildTabQuery(tab: string): Record<string, unknown> | undefined {
   const t = tab.toLowerCase();
   if (t === "junk") return undefined;
 
-  // All / Channel / Manual include Ready-to-Ship (and other non-junk, non-reship) so admins can
-  // "Process Selected" from these tabs without switching away from channel/manual slices.
+  // All includes every non-junk order. Channel / Manual show only pre-fulfillment orders
+  // (not yet in Ready to Ship, Pending Pickup, or later stages).
   if (t === "all") {
     return {
       isJunk: { $ne: true },
@@ -45,18 +78,10 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
     };
   }
   if (t === "channel") {
-    return {
-      isJunk: { $ne: true },
-      status: { $ne: "reship" },
-      $or: [{ externalSource: "shopify" }, { channel: "Shopify" }],
-    };
+    return channelManualBaseQuery("channel");
   }
   if (t === "manual") {
-    return {
-      isJunk: { $ne: true },
-      status: { $ne: "reship" },
-      $nor: [{ externalSource: "shopify" }, { channel: "Shopify" }],
-    };
+    return channelManualBaseQuery("manual");
   }
   if (t === "ready-to-ship" || t === "ready_to_ship") {
     return {
@@ -69,7 +94,7 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
     return {
       isJunk: { $ne: true },
       $or: [
-        { status: { $in: ["pending-pickup", "pending_pickup", "pickup_scheduled"] } },
+        { status: { $in: ["pending-pickup", "pending_pickup", "pickup_scheduled", "pickup-scheduled"] } },
         {
           status: { $in: ["ready-to-ship", "ready_to_ship"] },
           awb: { $regex: /\S/ },

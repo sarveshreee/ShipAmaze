@@ -15,6 +15,7 @@ import { Vendor } from "../../models/Vendor.js";
 import { Pickup } from "../../models/Pickup.js";
 import * as velocityService from "./velocity.service.js";
 import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.mapper.js";
+import { normalizeOrderStatus } from "../../utils/orderStatus.js";
 import { normalizePincode, sanitizeForVelocityLog } from "./velocity.payload.js";
 import {
   syncPickupToVelocity,
@@ -30,6 +31,7 @@ import {
   assertWalletBalanceAtLeast,
   debitShipmentChargeIfApplicable,
   orderWalletUserId,
+  orderShouldDebitWallet,
 } from "../../services/walletLedger.js";
 import { resolvePreferredCourierName } from "../../services/courierPriorityService.js";
 import { Courier } from "../../models/Courier.js";
@@ -38,11 +40,13 @@ import {
   loadDropshipperShippingOverride,
   type VelocityRateRow,
 } from "../../services/dropshipperShippingRates.js";
+import { applyBillableShippingToOrder, resolveBillableShippingCharge } from "../../services/billableShippingCharge.js";
 import {
   mergeVelocityWarehouse,
   resolvePayloadWarehouseId,
   type MergedForwardContext,
 } from "./velocity.warehouseMerge.js";
+import { resolveVelocityCarrierId } from "./velocity.resolveCarrier.js";
 
 async function applyCourierPriorityRules(
   merged: Record<string, unknown>,
@@ -77,30 +81,28 @@ async function applyCourierPriorityRules(
 }
 
 async function precheckForwardShipmentWallet(localOrder: IOrder | null): Promise<void> {
-  if (!localOrder) return;
+  if (!localOrder || !orderShouldDebitWallet(localOrder)) return;
   const uid = orderWalletUserId(localOrder);
   if (!uid) return;
-  const est = Number(localOrder.shippingCharges);
+  const billable = await resolveBillableShippingCharge({
+    order: localOrder,
+    courierName: String(localOrder.courierName ?? localOrder.courier ?? ""),
+    weightKg: parseFloat(String(localOrder.weight ?? "")) || undefined,
+  });
+  const est = billable?.total ?? Number(localOrder.shippingCharges);
   if (!Number.isFinite(est) || !(est > 0)) return;
   await assertWalletBalanceAtLeast(uid, est);
 }
 
 async function forwardShipmentWalletPayload(
   localOrder: IOrder | null,
-  shippingCharges: unknown
+  velocityShippingCharges: unknown
 ): Promise<Record<string, unknown>> {
   if (!localOrder) return {};
-  const fromResult = Number(shippingCharges);
-  const fromOrder = Number(localOrder.shippingCharges);
-  const charge =
-    Number.isFinite(fromResult) && fromResult > 0
-      ? fromResult
-      : Number.isFinite(fromOrder) && fromOrder > 0
-        ? fromOrder
-        : 0;
+  const charge = Number(localOrder.shippingCharges);
   const r = await debitShipmentChargeIfApplicable({
     order: localOrder,
-    shippingCharges: charge,
+    shippingCharges: Number.isFinite(charge) && charge > 0 ? charge : velocityShippingCharges,
   });
   return { walletDeduction: r };
 }
@@ -116,8 +118,10 @@ function applyVelocityMappedOrderStatus(
   fallback: string,
   note: string
 ) {
-  const mapped = mapVelocityStatus(velocityRawStatus) || fallback;
-  if (!shouldApplyInternalStatusUpdate(order.status, mapped)) return;
+  const mappedRaw = mapVelocityStatus(velocityRawStatus) || fallback;
+  const mapped = normalizeOrderStatus(mappedRaw);
+  const current = normalizeOrderStatus(order.status);
+  if (!shouldApplyInternalStatusUpdate(current, mapped)) return;
   if (order.status !== mapped) appendStatusHistoryEntry(order, mapped, note);
   order.status = mapped;
 }
@@ -558,8 +562,11 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       localOrder.courierCompanyId = later.carrier_id;
       localOrder.courierName = later.carrier_name;
       localOrder.labelUrl = later.label_url;
-      localOrder.shippingCharges = later.shipping_charges;
-      localOrder.codCharges = later.cod_charges;
+      await applyBillableShippingToOrder(localOrder, {
+        courierName: String(later.carrier_name ?? localOrder.courierName ?? localOrder.courier ?? ""),
+        velocityFreightCost: later.shipping_charges,
+        weightKg: parseFloat(String(localOrder.weight ?? "")) || undefined,
+      });
       localOrder.shipmentStatus = later.status;
       localOrder.assignedDateTime = new Date();
       applyVelocityMappedOrderStatus(localOrder, later.status, "pending-pickup", "velocity_assign_awb");
@@ -680,8 +687,11 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           localOrder.courierCompanyId = later.carrier_id;
           localOrder.courierName = later.carrier_name;
           localOrder.labelUrl = later.label_url;
-          localOrder.shippingCharges = later.shipping_charges;
-          localOrder.codCharges = later.cod_charges;
+          await applyBillableShippingToOrder(localOrder, {
+            courierName: String(later.carrier_name ?? localOrder.courierName ?? localOrder.courier ?? ""),
+            velocityFreightCost: later.shipping_charges,
+            weightKg: parseFloat(String(localOrder.weight ?? "")) || undefined,
+          });
           localOrder.shipmentStatus = later.status;
           localOrder.assignedDateTime = new Date();
           applyVelocityMappedOrderStatus(localOrder, later.status, "pending-pickup", "velocity_forward_dup_retry");
@@ -758,9 +768,12 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     localOrder.courierName = result.carrier_name;
     localOrder.labelUrl = result.label_url;
     localOrder.manifestUrl = result.manifest_url;
-    localOrder.shippingCharges = result.shipping_charges;
-    localOrder.codCharges = result.cod_charges;
     localOrder.rtoCharges = result.rto_charges;
+    await applyBillableShippingToOrder(localOrder, {
+      courierName: String(result.carrier_name ?? localOrder.courierName ?? localOrder.courier ?? ""),
+      velocityFreightCost: result.shipping_charges,
+      weightKg: parseFloat(String(localOrder.weight ?? "")) || undefined,
+    });
     localOrder.shipmentStatus = result.status;
     localOrder.assignedDateTime = new Date();
     applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_forward_create");
@@ -873,8 +886,11 @@ export const createForwardShipmentLater = asyncHandler(async (req: AuthRequest, 
     localOrder.courierName = result.carrier_name;
     localOrder.courierCompanyId = result.carrier_id;
     localOrder.labelUrl = result.label_url;
-    localOrder.shippingCharges = result.shipping_charges;
-    localOrder.codCharges = result.cod_charges;
+    await applyBillableShippingToOrder(localOrder, {
+      courierName: String(result.carrier_name ?? localOrder.courierName ?? localOrder.courier ?? ""),
+      velocityFreightCost: result.shipping_charges,
+      weightKg: parseFloat(String(localOrder.weight ?? "")) || undefined,
+    });
     localOrder.shipmentStatus = result.status;
     localOrder.assignedDateTime = new Date();
     applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_forward_awb_later");
@@ -1357,8 +1373,7 @@ function buildForwardPayload(
   const rawCarrier = body.carrier_id;
   let carrierId: string | number | undefined;
   if (rawCarrier !== undefined && rawCarrier !== null && String(rawCarrier).trim() !== "") {
-    const s = String(rawCarrier).trim();
-    carrierId = /^\d+$/.test(s) ? Number(s) : s;
+    carrierId = String(rawCarrier).trim();
   }
 
   const op = orderPlain(localOrder);
@@ -1613,4 +1628,120 @@ async function assertOrderAccess(user: NonNullable<AuthRequest["user"]>, order: 
   }
 
   throw new AppError(403, "Forbidden");
+}
+
+export type ForwardBookingResult = {
+  awb_code: string;
+  carrier_name: string;
+  carrier_id?: string | number;
+  label_url?: string;
+  shipment_id?: string;
+};
+
+/**
+ * Book a real forward shipment via Velocity for an existing order document.
+ * Used by Process Selected and other server-side flows (no HTTP response).
+ */
+export async function bookForwardShipmentForOrder(
+  req: AuthRequest,
+  localOrder: IOrder,
+  body: Record<string, unknown>
+): Promise<ForwardBookingResult> {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+
+  const merged = await mergeVelocityWarehouse(req, body, localOrder);
+  const manualCourierName = String(body.courier_name ?? "").trim();
+  const explicitCourier = Boolean(manualCourierName && manualCourierName.toLowerCase() !== "auto");
+
+  if (manualCourierName) {
+    localOrder.courierName = manualCourierName;
+    localOrder.courier = manualCourierName;
+  }
+  if (body.carrier_id != null && String(body.carrier_id).trim() !== "") {
+    merged.carrier_id = body.carrier_id;
+  } else if (explicitCourier) {
+    const resolvedId = await resolveVelocityCarrierId(manualCourierName, localOrder, {
+      weight: body.weight != null ? Number(body.weight) : undefined,
+      length: body.length != null ? Number(body.length) : undefined,
+      width: body.width != null ? Number(body.width) : undefined,
+      height: body.height != null ? Number(body.height) : undefined,
+    });
+    if (resolvedId != null && String(resolvedId).trim() !== "") {
+      merged.carrier_id = resolvedId;
+    }
+  }
+
+  if (!explicitCourier) {
+    await applyCourierPriorityRules(merged as Record<string, unknown>, localOrder);
+  } else {
+    localOrder.courierName = manualCourierName;
+    localOrder.courier = manualCourierName;
+    if (merged.carrier_id == null || String(merged.carrier_id).trim() === "") {
+      throw new AppError(
+        422,
+        `Could not resolve Velocity carrier ID for "${manualCourierName}". Ensure the lane is serviceable or set carrier ID in Admin → Courier Rates.`
+      );
+    }
+  }
+
+  if (!merged.order_id) {
+    merged.order_id = `${localOrder.orderId}-${Date.now()}`;
+  }
+
+  const payload = buildForwardPayload(merged, localOrder);
+
+  validateForwardPayload(payload, localOrder);
+  await precheckForwardShipmentWallet(localOrder);
+
+  let result;
+  let usedPayloadOrderId = payload.order_id;
+  try {
+    result = await velocityService.createForwardShipment(payload);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes("order already exists")) {
+      const retryOrderId = `${localOrder.orderId}-${Date.now()}`;
+      const retryPayload: VelocityForwardOrderRequest = { ...payload, order_id: retryOrderId };
+      result = await velocityService.createForwardShipment(retryPayload);
+      usedPayloadOrderId = retryOrderId;
+    } else {
+      throw err;
+    }
+  }
+
+  applyMergedPickupAndWarehouse(localOrder, merged);
+  localOrder.awb = result.awb_code ?? localOrder.awb;
+  const displayCourier = result.carrier_name?.trim() || (explicitCourier ? manualCourierName : localOrder.courier);
+  localOrder.courier = displayCourier;
+  localOrder.velocityOrderId = result.order_id || usedPayloadOrderId;
+  localOrder.velocityShipmentId = result.shipment_id;
+  localOrder.courierCompanyId = result.carrier_id;
+  localOrder.courierName = displayCourier;
+  localOrder.labelUrl = result.label_url;
+  localOrder.manifestUrl = result.manifest_url;
+  localOrder.rtoCharges = result.rto_charges;
+  await applyBillableShippingToOrder(localOrder, {
+    courierName: displayCourier,
+    velocityFreightCost: result.shipping_charges,
+    weightKg: parseFloat(String(localOrder.weight ?? "")) || undefined,
+  });
+  localOrder.shipmentStatus = result.status;
+  localOrder.assignedDateTime = new Date();
+  applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_process_selected");
+  localOrder.shipmentCreated = true;
+  if (result.awb_code) localOrder.trackingId = result.awb_code;
+  await localOrder.save();
+  await forwardShipmentWalletPayload(localOrder, result.shipping_charges);
+
+  if (!result.awb_code?.trim()) {
+    throw new AppError(502, "Courier did not return an AWB. Check Velocity credentials and courier mapping.");
+  }
+
+  return {
+    awb_code: result.awb_code,
+    carrier_name: result.carrier_name ?? localOrder.courierName ?? "",
+    carrier_id: result.carrier_id,
+    label_url: result.label_url,
+    shipment_id: result.shipment_id,
+  };
 }

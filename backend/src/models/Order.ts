@@ -84,6 +84,8 @@ export interface IOrder extends Document {
   labelUrl?: string;
   manifestUrl?: string;
   shippingCharges?: number;
+  /** Actual Velocity/courier freight (internal); dropshipper is billed via shippingCharges. */
+  velocityFreightCost?: number;
   codCharges?: number;
   rtoCharges?: number;
   shipmentStatus?: string;
@@ -181,6 +183,7 @@ const orderSchema = new Schema<IOrder>(
     labelUrl: { type: String },
     manifestUrl: { type: String },
     shippingCharges: { type: Number },
+    velocityFreightCost: { type: Number },
     codCharges: { type: Number },
     rtoCharges: { type: Number },
     shipmentStatus: { type: String },

@@ -17,6 +17,12 @@ export function printBulkLabels(orders: Order[], settings?: LabelInvoiceSettings
   openPrintWindowForLabelNodes(nodes, s, "Bulk shipping labels");
 }
 
+export function printBulkInvoices(orders: Order[], settings?: LabelInvoiceSettings) {
+  const s = settings ?? DEFAULT_LABEL_INVOICE_SETTINGS;
+  const nodes = orders.map((o) => createOrderLabelElement(o, s, { documentTitle: "Invoice" }));
+  openPrintWindowForLabelNodes(nodes, s, "Bulk invoices");
+}
+
 export async function downloadShippingLabelPdf(order: Order, settings?: LabelInvoiceSettings) {
   const s = settings ?? DEFAULT_LABEL_INVOICE_SETTINGS;
   await downloadOrderLabelPdf(order, s, `label-${order.id}.pdf`, "Shipping label");

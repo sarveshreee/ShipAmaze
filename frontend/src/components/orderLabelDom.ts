@@ -35,7 +35,40 @@ function lineUnitPrice(line: Line): string {
 }
 
 function lineProductCode(line: Line): string {
-  return dash(line.productCode ?? line.code ?? line.variant_id ?? line.variantSku);
+  return dash(
+    line.productCode ??
+      line.code ??
+      line.productId ??
+      line.variant_id ??
+      line.variantSku ??
+      line.sku ??
+      line.SKU ??
+      line.productSku
+  );
+}
+
+function orderRateCardShipping(order: Order): number {
+  const n = Number((order as { shippingCharges?: number }).shippingCharges ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function formatMoneyAmount(n: number): string {
+  return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "—";
+}
+
+function lineInvoiceRowTotal(line: Line, order: Order, lineIndex: number, lineCount: number): string {
+  let total = getFinalLineItemRowTotal(line);
+  if (lineIndex === lineCount - 1) {
+    total += orderRateCardShipping(order);
+  }
+  return formatMoneyAmount(total);
+}
+
+function orderCollectableTotal(order: Order): number {
+  const productTotal = orderLines(order).reduce((sum, line) => sum + getFinalLineItemRowTotal(line), 0);
+  const amount = Number(order.amount ?? 0);
+  const base = productTotal > 0 ? productTotal : Number.isFinite(amount) && amount > 0 ? amount : 0;
+  return Math.round((base + orderRateCardShipping(order)) * 100) / 100;
 }
 
 function lineSku(line: Line): string {
@@ -312,10 +345,11 @@ export function createOrderLabelElement(
 
   // --- Payment / Courier ---
   const pay = paymentLabel(order);
+  const collectable = orderCollectableTotal(order);
   const codText =
     pay === "COD"
       ? settings.showCodValue
-        ? `COD (Collectable Value: Rs. ${order.amount})`
+        ? `COD (Collectable Value: Rs. ${collectable})`
         : "COD"
       : "Prepaid";
   const payCell = el("div", { style: { flex: "1", fontWeight: "700" }, text: codText });
@@ -324,6 +358,23 @@ export function createOrderLabelElement(
     text: String(order.courierName || order.courier || "—").toUpperCase(),
   });
   host.appendChild(row([payCell, courierCell]));
+
+  const shipCharge = orderRateCardShipping(order);
+  if (shipCharge > 0) {
+    const billRow = el("div", {
+      style: {
+        borderBottom: SECTION_BORDER,
+        padding: "6px 0",
+        fontSize: "10px",
+        display: "flex",
+        justifyContent: "space-between",
+        fontWeight: "600",
+      },
+    });
+    billRow.appendChild(el("span", { text: "Shipping Charge (Rate Card)" }));
+    billRow.appendChild(el("span", { text: `Rs. ${shipCharge.toFixed(2)}` }));
+    host.appendChild(billRow);
+  }
 
   // --- Important note ---
   if (settings.invoiceNote.trim()) {
@@ -389,11 +440,12 @@ export function createOrderLabelElement(
     thead.appendChild(hr);
     tbl.appendChild(thead);
     const tb = document.createElement("tbody");
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
       const tr = document.createElement("tr");
       const cells: string[] = [];
       if (settings.showProductName) cells.push(lineName(line));
-      cells.push(lineProductCode(line), lineSku(line), lineQty(line), lineRowTotal(line));
+      cells.push(lineProductCode(line), lineSku(line), lineQty(line), lineInvoiceRowTotal(line, order, i, lines.length));
       for (const c of cells) {
         const td = document.createElement("td");
         td.textContent = c;

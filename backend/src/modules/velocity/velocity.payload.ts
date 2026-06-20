@@ -49,15 +49,19 @@ export type VelocityPreparedWarehouseInput = {
   gst_no?: string;
 };
 
-/** Build POST /custom/api/v1/rates body per Velocity contract. */
+/** Build POST /custom/api/v1/rates body per Velocity contract (dead_weight in grams). */
 export function buildVelocityRatesProviderPayload(payload: VelocityRatesRequest): Record<string, unknown> {
   const journey_type = payload.shipment_type === "return" ? "return" : "forward";
+
+  const weightRaw = Number(payload.weight);
+  const deadWeightGrams =
+    weightRaw > 0 && weightRaw <= 30 ? Math.max(1, Math.round(weightRaw * 1000)) : Math.max(1, Math.round(weightRaw));
 
   const out: Record<string, unknown> = {
     journey_type,
     origin_pincode: normalizePincode(payload.from),
     destination_pincode: normalizePincode(payload.to),
-    dead_weight: Number(payload.weight),
+    dead_weight: deadWeightGrams,
     length: Number(payload.length),
     width: Number(payload.width),
     height: Number(payload.height),
@@ -102,14 +106,26 @@ export function buildVelocityForwardOrchestrationPayload(
     tax: Number((item as unknown as { tax?: number }).tax ?? 0) || 0,
   }));
 
+  const paymentMethod = payload.payment_mode === "cod" ? "COD" : "PREPAID";
+  const subTotal = Number(payload.order_amount);
+  const codCollectible =
+    paymentMethod === "COD"
+      ? Number(payload.cod_amount ?? payload.order_amount ?? 0)
+      : 0;
+
+  const now = new Date();
+  const orderDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
   const out: Record<string, unknown> = {
     warehouse_id: payload.warehouse_id,
     order_id: payload.order_id,
-    payment_mode: payload.payment_mode,
-    order_amount: Number(payload.order_amount),
+    order_date: orderDate,
+    payment_method: paymentMethod,
+    sub_total: subTotal,
+    cod_collectible: codCollectible,
     weight: Number(payload.weight),
     length: Number(payload.length),
-    width: Number(payload.width),
+    breadth: Number(payload.width),
     height: Number(payload.height),
     billing_customer_name,
     billing_last_name: billing_last_name || undefined,
@@ -122,25 +138,11 @@ export function buildVelocityForwardOrchestrationPayload(
     billing_email: c.email?.trim() ? String(c.email).trim() : undefined,
     shipping_is_billing: true,
     print_label: true,
-    customer: {
-      name: fullName,
-      phone: String(c.phone ?? "").trim(),
-      email: c.email?.trim() || undefined,
-      address: String(c.address ?? "").trim(),
-      city: String(c.city ?? "").trim(),
-      state: String(c.state ?? "").trim(),
-      pincode: pinDigits,
-      country: (c.country && String(c.country).trim()) || "India",
-    },
-    items: payload.items,
     order_items,
   };
 
-  if (payload.payment_mode === "cod" && payload.cod_amount != null && Number(payload.cod_amount) > 0) {
-    out.cod_amount = Number(payload.cod_amount);
-  }
   if (payload.carrier_id !== undefined && payload.carrier_id !== null && String(payload.carrier_id) !== "") {
-    out.carrier_id = payload.carrier_id;
+    out.carrier_id = String(payload.carrier_id);
   }
 
   return out;

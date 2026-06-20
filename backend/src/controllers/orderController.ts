@@ -34,6 +34,11 @@ import {
 import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddleware.js";
 import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 import { mapToPublicTracking } from "../utils/publicTracking.js";
+import { bookForwardShipmentForOrder } from "../modules/velocity/velocity.controller.js";
+import { syncPickupToVelocity } from "../modules/velocity/velocity.warehouseSync.js";
+import { velocityConfig } from "../modules/velocity/velocity.config.js";
+import { resolveVelocityCarrierId } from "../modules/velocity/velocity.resolveCarrier.js";
+import { CourierRateMaster } from "../models/CourierRateMaster.js";
 
 function normalizePickupAddressForClient(pickup: unknown): unknown {
   if (pickup == null) return pickup;
@@ -1093,9 +1098,9 @@ export const updateOrderStatus = asyncHandler(async (req: AuthRequest, res: Resp
   res.json(mapOrder(o));
 });
 
-function generateAwb() {
-  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `AWB-${Date.now()}-${suffix}`;
+
+function isVelocityConfigured(): boolean {
+  return Boolean(velocityConfig.username?.trim() && velocityConfig.password?.trim());
 }
 
 function normalizeOrderStatusKey(raw: string | undefined | null): string {
@@ -1168,6 +1173,15 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
 
   const shipmentMode = String(body.shipmentMode ?? "forward").toLowerCase();
   if (!["forward", "reverse"].includes(shipmentMode)) throw new AppError(400, "shipmentMode must be forward or reverse");
+  if (shipmentMode === "reverse") {
+    throw new AppError(400, "Reverse shipments must be created from the order shipment dialog.");
+  }
+  if (!isVelocityConfigured()) {
+    throw new AppError(
+      503,
+      "Velocity courier credentials are not configured. Set VELOCITY_USERNAME and VELOCITY_PASSWORD to book real AWBs."
+    );
+  }
 
   const weight = body.weight != null && String(body.weight).trim() !== "" ? Number(body.weight) : undefined;
   if (weight !== undefined && (!(weight > 0) || !Number.isFinite(weight))) throw new AppError(400, "weight must be > 0");
@@ -1190,17 +1204,48 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     .lean();
   if (!pickup) throw new AppError(404, "Pickup address not found");
 
+  const syncResult = await syncPickupToVelocity(pickupAddressId);
+  if ("error" in syncResult && syncResult.error) {
+    throw new AppError(422, `Pickup address is not linked to Velocity: ${syncResult.error}`);
+  }
+  const velocityWarehouseId =
+    ("warehouse_id" in syncResult && syncResult.warehouse_id?.trim()) ||
+    String(pickup.velocityWarehouseId ?? "").trim();
+  if (!velocityWarehouseId) {
+    throw new AppError(
+      422,
+      "Pickup address must be linked to a Velocity warehouse before booking shipments. Sync the pickup in Admin settings."
+    );
+  }
+
   const vendorIdFromPickup = await resolveVendorIdFromPickup(pickup);
 
   const pickupSnapshot = buildPickupSnapshotFromLean(
-    pickup,
+    { ...pickup, velocityWarehouseId: velocityWarehouseId || pickup.velocityWarehouseId },
     new mongoose.Types.ObjectId(pickupAddressId)
   ).snapshot;
+
+  let resolvedCarrierId =
+    body.carrierId != null && String(body.carrierId).trim() ? String(body.carrierId).trim() : undefined;
+  if (!autoCourier && !resolvedCarrierId && courierName) {
+    const rateMaster = await CourierRateMaster.findOne({
+      courierName: { $regex: new RegExp(`^${courierName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+    })
+      .select("carrierId")
+      .lean();
+    if (rateMaster?.carrierId?.trim()) {
+      resolvedCarrierId = rateMaster.carrierId.trim();
+    } else {
+      const courierDoc = await Courier.findOne({ name: courierName }).select("carrierId").lean();
+      if (courierDoc?.carrierId?.trim()) {
+        resolvedCarrierId = courierDoc.carrierId.trim();
+      }
+    }
+  }
 
   const orders = await Order.find({ orderId: { $in: ids } }).exec();
   if (orders.length !== ids.length) throw new AppError(404, "One or more orders were not found");
 
-  // Validate and assign per-order AWB → Pending Pickup
   const now = new Date();
   const updated = [];
   for (const o of orders) {
@@ -1212,19 +1257,17 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
       appendStatusHistory(o, "ready_to_ship", req.user._id, "Auto-moved via Process Selected");
     }
 
-    const awb = generateAwb();
-    o.awb = awb;
     o.courierName = autoCourier ? "Auto" : courierName;
     o.courier = autoCourier ? "Auto" : courierName;
     if (autoCourier) {
       o.courierCompanyId = undefined;
-    } else if (body.carrierId != null && String(body.carrierId).trim()) {
-      o.courierCompanyId = String(body.carrierId).trim();
+    } else if (resolvedCarrierId) {
+      o.courierCompanyId = resolvedCarrierId;
     }
     o.pickupAddressId = new mongoose.Types.ObjectId(pickupAddressId);
     o.pickupWarehouseId = pickupAddressId;
     o.pickupAddress = pickupSnapshot;
-    o.velocityWarehouseId = pickupSnapshot.velocityWarehouseId;
+    o.velocityWarehouseId = velocityWarehouseId;
     if (vendorIdFromPickup) {
       o.vendorId = vendorIdFromPickup;
     }
@@ -1239,13 +1282,53 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
       const w = o.width ?? o.breadth;
       o.dimensions = `${o.length}x${w}x${o.height} cm`;
     }
-    o.assignedDateTime = now;
-    o.status = "pending-pickup";
-    o.shipmentStatus = "pending_pickup";
     (o as unknown as { shipmentMode?: string }).shipmentMode = shipmentMode;
-    appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected");
     await o.save();
-    updated.push({ orderId: o.orderId, awb });
+
+    const bookingBody: Record<string, unknown> = {
+      orderId: o.orderId,
+      warehouseId: pickupAddressId,
+      weight,
+      length,
+      width,
+      height,
+    };
+    if (!autoCourier) {
+      bookingBody.courier_name = courierName;
+      let orderCarrierId = resolvedCarrierId;
+      if (!orderCarrierId) {
+        const fromRates = await resolveVelocityCarrierId(courierName, o, {
+          pickupPincode: pickupSnapshot.pincode,
+          weight,
+          length,
+          width,
+          height,
+        });
+        if (fromRates != null && String(fromRates).trim() !== "") {
+          orderCarrierId = String(fromRates).trim();
+        }
+      }
+      if (orderCarrierId) {
+        bookingBody.carrier_id = orderCarrierId;
+        o.courierCompanyId = orderCarrierId;
+      }
+    }
+
+    let booking;
+    try {
+      booking = await bookForwardShipmentForOrder(req, o, bookingBody);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Velocity booking failed";
+      throw new AppError(err instanceof AppError ? err.statusCode : 502, `Order ${o.orderId}: ${msg}`);
+    }
+
+    appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity)");
+    await o.save();
+    updated.push({
+      orderId: o.orderId,
+      awb: booking.awb_code,
+      carrier: booking.carrier_name,
+    });
   }
 
   res.json({ success: true, updatedCount: updated.length, updated });
