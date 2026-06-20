@@ -8,6 +8,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import type { Warehouse } from "@/hooks/useVendorWarehouses";
+import {
+  restrictCourierPersonNameInput,
+  restrictCourierWarehouseNameInput,
+} from "@/lib/courierNameInput";
 
 interface Props {
   open: boolean;
@@ -98,11 +102,22 @@ export default function WarehouseFormModal({ open, onOpenChange, initial, onSubm
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
           <div className="md:col-span-2">
             <Label>Warehouse Name *</Label>
-            <Input value={form.warehouseName} onChange={(e) => set("warehouseName", e.target.value)} />
+            <Input
+              value={form.warehouseName}
+              onChange={(e) => set("warehouseName", restrictCourierWarehouseNameInput(e.target.value))}
+              placeholder="Letters and numbers only"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              No special characters (&amp;, -, @, etc.) — required for courier booking.
+            </p>
           </div>
           <div>
             <Label>Contact Person Name *</Label>
-            <Input value={form.contactPerson} onChange={(e) => set("contactPerson", e.target.value)} />
+            <Input
+              value={form.contactPerson}
+              onChange={(e) => set("contactPerson", restrictCourierPersonNameInput(e.target.value))}
+              placeholder="Letters and spaces only"
+            />
           </div>
           <div>
             <Label>Phone Number *</Label>

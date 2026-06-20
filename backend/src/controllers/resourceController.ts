@@ -113,8 +113,8 @@ async function syncWarehouseToPickup(w: HydratedDocument<IWarehouse>): Promise<v
     }
 
     const vendor = w.vendorId ? await Vendor.findById(w.vendorId).select("name").lean() : null;
-    const vendorSuffix = vendor?.name ? ` — ${vendor.name}` : "";
-    const label = `${w.name} (Warehouse)${vendorSuffix}`;
+    const vendorSuffix = vendor?.name ? ` — ${sanitizeCourierWarehouseName(vendor.name, "")}` : "";
+    const label = `${sanitizeCourierWarehouseName(w.name || "", "Warehouse")} (Warehouse)${vendorSuffix}`;
 
     const notDeletedClause = { $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }] };
 
@@ -418,8 +418,34 @@ export const listWarehouses = asyncHandler(async (req: AuthRequest, res: Respons
   res.json([]);
 });
 
+function sanitizeWarehouseFields(body: Record<string, unknown>): void {
+  if (body.name !== undefined || body.warehouseName !== undefined) {
+    const rawName = trimStr(body.name ?? body.warehouseName);
+    if (rawName) {
+      const name = sanitizeCourierWarehouseName(rawName, "");
+      if (!name) {
+        throw new AppError(400, "Warehouse name may only contain letters, numbers, and spaces");
+      }
+      body.name = name;
+    }
+    delete body.warehouseName;
+  }
+  if (body.contactName !== undefined || body.contactPerson !== undefined) {
+    const rawContact = trimStr(body.contactName ?? body.contactPerson);
+    if (rawContact) {
+      const contactName = sanitizeCourierPersonName(rawContact, "");
+      if (!contactName) {
+        throw new AppError(400, "Contact person may only contain letters and spaces");
+      }
+      body.contactName = contactName;
+    }
+    delete body.contactPerson;
+  }
+}
+
 export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  sanitizeWarehouseFields(req.body as Record<string, unknown>);
 
   let w: HydratedDocument<IWarehouse>;
 
@@ -477,6 +503,7 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
 
 export const updateWarehouse = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  sanitizeWarehouseFields(req.body as Record<string, unknown>);
 
   let w: HydratedDocument<IWarehouse> | null;
 
