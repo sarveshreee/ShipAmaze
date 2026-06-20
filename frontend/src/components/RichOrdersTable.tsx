@@ -771,7 +771,9 @@ export function RichOrdersTable({
                   processSelectedDisabled
                     ? selected.size === 0
                       ? "Select at least one order"
-                      : "Selected orders must not be junk and must not already have an AWB or shipment"
+                      : activeTab === "all" || activeTab === "junk"
+                        ? "Select orders to process (junk orders will be restored and booked)"
+                        : "Selected orders must not already have an AWB or shipment"
                     : undefined
                 }
                 onClick={() => {
@@ -1402,11 +1404,13 @@ export function RichOrdersTable({
                               <Truck className="h-3 w-3" /> Move To Ready
                             </Button>
                           )}
-                          <Button variant="outline" size="sm"
-                            className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
-                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
-                            <Ban className="h-3 w-3" /> Junk
-                          </Button>
+                          {!o.isJunk && (
+                            <Button variant="outline" size="sm"
+                              className="h-7 text-xs gap-1 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                              onClick={(e) => { e.stopPropagation(); e.preventDefault(); setJunkConfirmId(o.id); }}>
+                              <Ban className="h-3 w-3" /> Junk
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>

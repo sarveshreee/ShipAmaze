@@ -36,6 +36,7 @@ const READY_OR_PENDING_PICKUP = [
 const FULFILLMENT_PIPELINE_STATUSES = [
   ...READY_OR_PENDING_PICKUP,
   "picked_up",
+  "picked-up",
   "in-transit",
   "in_transit",
   "shipped",
@@ -44,15 +45,49 @@ const FULFILLMENT_PIPELINE_STATUSES = [
   "delivered",
   "failed",
   "ndr",
+  "not_picked",
+  "not-picked",
   "rto",
   "reship",
 ];
 
+const IN_TRANSIT_STATUSES = ["in-transit", "in_transit", "shipped", "picked_up", "picked-up"];
+const FAILED_STATUSES = ["failed", "ndr", "not_picked", "not-picked"];
+const OUT_FOR_DELIVERY_STATUSES = ["out-for-delivery", "out_for_delivery"];
+
+/** Shopify today; any non-empty externalSource (except manual) counts as channel for future platforms. */
+function channelSourceFilter(): Record<string, unknown> {
+  return {
+    $or: [
+      { externalSource: "shopify" },
+      { channel: "Shopify" },
+      {
+        $and: [
+          { externalSource: { $exists: true, $nin: [null, ""] } },
+          { externalSource: { $ne: "manual" } },
+        ],
+      },
+    ],
+  };
+}
+
+function manualSourceFilter(): Record<string, unknown> {
+  return {
+    $nor: [
+      { externalSource: "shopify" },
+      { channel: "Shopify" },
+      {
+        $and: [
+          { externalSource: { $exists: true, $nin: [null, ""] } },
+          { externalSource: { $ne: "manual" } },
+        ],
+      },
+    ],
+  };
+}
+
 function channelManualBaseQuery(channelOrManual: "channel" | "manual"): Record<string, unknown> {
-  const sourceFilter =
-    channelOrManual === "channel"
-      ? { $or: [{ externalSource: "shopify" }, { channel: "Shopify" }] }
-      : { $nor: [{ externalSource: "shopify" }, { channel: "Shopify" }] };
+  const sourceFilter = channelOrManual === "channel" ? channelSourceFilter() : manualSourceFilter();
   return {
     $and: [
       { isJunk: { $ne: true } },
@@ -64,18 +99,21 @@ function channelManualBaseQuery(channelOrManual: "channel" | "manual"): Record<s
   };
 }
 
-/** Tab filters aligned with frontend OrdersPageWithTabs.filterByTab */
+/**
+ * Tab filters aligned with Orders dashboard business rules:
+ * - ALL: every order including Junk and Reship (master list)
+ * - CHANNEL / MANUAL: pre–Ready to Ship only (not yet pushed to fulfillment)
+ * - READY TO SHIP → PENDING PICKUP → IN TRANSIT → OUT FOR DELIVERY → DELIVERED
+ * - RESHIP: cancelled from Pending Pickup+ (AWB cleared); re-book from here
+ * - FAILED: serviceability, address, pincode, NDR, etc.
+ * - JUNK: cancelled from ALL / Channel / Manual / Ready to Ship (separate junk view)
+ */
 export function buildTabQuery(tab: string): Record<string, unknown> | undefined {
   const t = tab.toLowerCase();
   if (t === "junk") return undefined;
 
-  // All includes every non-junk order. Channel / Manual show only pre-fulfillment orders
-  // (not yet in Ready to Ship, Pending Pickup, or later stages).
   if (t === "all") {
-    return {
-      isJunk: { $ne: true },
-      status: { $ne: "reship" },
-    };
+    return undefined;
   }
   if (t === "channel") {
     return channelManualBaseQuery("channel");
@@ -103,19 +141,19 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
     };
   }
   if (t === "in-transit" || t === "in_transit") {
-    return { isJunk: { $ne: true }, status: { $in: ["in-transit", "in_transit", "shipped"] } };
+    return { isJunk: { $ne: true }, status: { $in: IN_TRANSIT_STATUSES } };
   }
   if (t === "out-for-delivery" || t === "out_for_delivery") {
-    return { isJunk: { $ne: true }, status: { $in: ["out-for-delivery", "out_for_delivery"] } };
+    return { isJunk: { $ne: true }, status: { $in: OUT_FOR_DELIVERY_STATUSES } };
   }
   if (t === "delivered") {
     return { isJunk: { $ne: true }, status: "delivered" };
   }
   if (t === "reship") {
-    return { status: "reship" };
+    return { isJunk: { $ne: true }, status: "reship" };
   }
   if (t === "failed") {
-    return { isJunk: { $ne: true }, status: "failed" };
+    return { isJunk: { $ne: true }, status: { $in: FAILED_STATUSES } };
   }
   return undefined;
 }
@@ -305,9 +343,9 @@ export function buildOrderListFiltersQuery(pq: ParsedOrderListQuery): Record<str
     parts.push({ $or: [{ courier: rx }, { courierName: rx }] });
   }
   if (pq.source === "shopify" || pq.source === "channel") {
-    parts.push({ $or: [{ externalSource: "shopify" }, { channel: "Shopify" }] });
+    parts.push(channelSourceFilter());
   } else if (pq.source === "manual") {
-    parts.push({ $nor: [{ externalSource: "shopify" }, { channel: "Shopify" }] });
+    parts.push(manualSourceFilter());
   }
   if (pq.fulfillment) {
     const esc = escapeRegex(pq.fulfillment);

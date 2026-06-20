@@ -28,6 +28,7 @@ import {
 import * as orderService from "@/services/orderService";
 import type { OrderListFilterValues } from "@/services/orderService";
 import { errorMessageFromUnknown } from "@/lib/errorMessage";
+import { orderMatchesTab } from "@/lib/orderTabFilters";
 import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
 import { OrderListAdvancedFilters } from "@/components/OrderListAdvancedFilters";
 import { Badge } from "@/components/ui/badge";
@@ -242,49 +243,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     Boolean(advancedFilters.dateFrom) ||
     Boolean(advancedFilters.dateTo);
 
-  const filterByTab = (o: Order, tab: string) => {
-    const status = (o as any).status;
-    const isReship = status === "reship";
-    const isJunk = Boolean((o as any).isJunk);
-    const hasAwb = Boolean(String(o.awb ?? "").trim());
-    const shipmentCreated = Boolean((o as { shipmentCreated?: boolean }).shipmentCreated);
-    const st = String(status ?? "").toLowerCase().replace(/-/g, "_");
-    const channel = ((o as any).channel as string | undefined) ?? "";
-    const externalSource = ((o as any).externalSource as string | undefined) ?? "";
-    const fulfillmentPipeline = new Set([
-      "ready_to_ship",
-      "pending_pickup",
-      "pickup_scheduled",
-      "picked_up",
-      "in_transit",
-      "shipped",
-      "out_for_delivery",
-      "delivered",
-      "failed",
-      "ndr",
-      "rto",
-      "reship",
-    ]);
-    const isPreFulfillment = !fulfillmentPipeline.has(st) && !hasAwb && !shipmentCreated;
-    if (tab === "all") return !isJunk && !isReship;
-    if (tab === "channel") {
-      return (channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship && isPreFulfillment;
-    }
-    if (tab === "manual") {
-      return !(channel === "Shopify" || externalSource === "shopify") && !isJunk && !isReship && isPreFulfillment;
-    }
-    if (tab === "ready-to-ship") {
-      return !isJunk && !isReship && st === "ready_to_ship" && !hasAwb;
-    }
-    if (tab === "pending-pickup") {
-      if (isJunk || isReship) return false;
-      if (st === "pending_pickup" || st === "pickup_scheduled") return true;
-      return hasAwb && st === "ready_to_ship";
-    }
-    if (tab === "reship") return isReship;
-    if (tab === "junk") return isJunk;
-    return status === tab;
-  };
+  const filterByTab = (o: Order, tab: string) => orderMatchesTab(o, tab);
 
   const filtered = orders;
 
@@ -302,7 +261,11 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       if (activeTab === "junk") {
         return Boolean((o as { isJunk?: boolean }).isJunk);
       }
-      if ((o as { isJunk?: boolean }).isJunk) return false;
+      if (activeTab === "all") {
+        if ((o as { isJunk?: boolean }).isJunk) return true;
+      } else if ((o as { isJunk?: boolean }).isJunk) {
+        return false;
+      }
       if (o.shipmentCreated) return false;
       if (String(o.awb ?? "").trim()) return false;
       return true;

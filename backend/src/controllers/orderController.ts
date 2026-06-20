@@ -342,8 +342,11 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
   const visibility = await buildOrderVisibilityQuery(req.user);
 
   let query: Record<string, unknown> = { ...visibility };
-  if (view === "junk") query = mergeQueries(query, { isJunk: true });
-  else query = mergeQueries(query, { isJunk: { $ne: true } });
+  if (view === "junk") {
+    query = mergeQueries(query, { isJunk: true });
+  } else if (String(pq.tab ?? "").toLowerCase() !== "all") {
+    query = mergeQueries(query, { isJunk: { $ne: true } });
+  }
 
   if (view !== "junk" && pq.tab) {
     const tq = buildTabQuery(pq.tab);
@@ -369,7 +372,10 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
     ];
     tabCounts = {};
     for (const tab of tabList) {
-      let q2: Record<string, unknown> = { ...visibility, isJunk: { $ne: true } };
+      let q2: Record<string, unknown> = { ...visibility };
+      if (tab !== "all") {
+        q2 = mergeQueries(q2, { isJunk: { $ne: true } });
+      }
       const tq = buildTabQuery(tab);
       if (tq) q2 = mergeQueries(q2, tq);
       if (listFilters) q2 = mergeQueries(q2, listFilters);
@@ -1035,6 +1041,37 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
   });
 });
 
+function assertOrderEligibleForJunk(order: IOrder): void {
+  if (order.isJunk) throw new AppError(400, "Order is already in Junk");
+  const st = normalizeOrderStatusKey(order.status);
+  if (st === "reship") return;
+  if (String(order.awb ?? "").trim() || order.shipmentCreated) {
+    throw new AppError(
+      400,
+      "Orders with an AWB cannot be moved to Junk. Use Cancel to move to Reship instead."
+    );
+  }
+  const blocked = new Set([
+    "pending_pickup",
+    "pickup_scheduled",
+    "picked_up",
+    "in_transit",
+    "shipped",
+    "out_for_delivery",
+    "delivered",
+    "failed",
+    "ndr",
+    "rto",
+    "cancelled",
+  ]);
+  if (blocked.has(st)) {
+    throw new AppError(
+      400,
+      "Only orders from All, Channel, Manual, or Ready to Ship can be moved to Junk."
+    );
+  }
+}
+
 export const markOrderJunk = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   const { id } = req.params;
@@ -1042,7 +1079,7 @@ export const markOrderJunk = asyncHandler(async (req: AuthRequest, res: Response
   const order = await Order.findOne({ orderId: id });
   if (!order) throw new AppError(404, "Order not found");
   await assertOrderAccess(req.user, order);
-
+  assertOrderEligibleForJunk(order);
   order.isJunk = true;
   order.junkedAt = new Date();
   order.junkReason = junkReason?.trim() || order.junkReason;
@@ -1217,11 +1254,8 @@ function restoreOrderFromJunkForProcess(order: InstanceType<typeof Order>): void
   order.junkedAt = undefined;
   order.junkReason = undefined;
   clearOrderShipmentForRebook(order);
-  const st = normalizeOrderStatusKey(order.status);
-  if (st === "junk" || st === "reship") {
-    order.status = "ready_to_ship";
-    order.shipmentStatus = "ready_to_ship";
-  }
+  order.status = "ready_to_ship";
+  order.shipmentStatus = "ready_to_ship";
 }
 
 function assertOrderEligibleForProcessSelected(o: IOrder): void {
