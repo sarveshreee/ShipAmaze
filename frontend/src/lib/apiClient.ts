@@ -47,6 +47,38 @@ async function parseBody(res: Response): Promise<unknown> {
   }
 }
 
+function coerceApiErrorText(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value.map(coerceApiErrorText).filter(Boolean).join("; ");
+  }
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    for (const key of ["message", "error", "detail", "description", "reason", "msg"]) {
+      const nested = coerceApiErrorText(o[key]);
+      if (nested) return nested;
+    }
+    if (o.errors && typeof o.errors === "object") {
+      const parts = Object.entries(o.errors as Record<string, unknown>).flatMap(([field, v]) => {
+        const m = coerceApiErrorText(v);
+        return m ? [`${field}: ${m}`] : [];
+      });
+      if (parts.length) return parts.join("; ");
+    }
+    try {
+      const json = JSON.stringify(value);
+      if (json && json !== "{}") {
+        return json.length > 400 ? `${json.slice(0, 397)}…` : json;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return "";
+}
+
 function shouldAttachAuthToken(path: string): boolean {
   const p = path.startsWith("/") ? path : `/${path}`;
   if (
@@ -103,9 +135,13 @@ export async function apiRequest<T>(
   if (!res.ok) {
     let msg = res.statusText || "Request failed";
     if (typeof data === "object" && data !== null) {
-      const o = data as { message?: string; error?: string };
-      if (typeof o.message === "string" && o.message.trim()) msg = o.message;
-      else if (typeof o.error === "string" && o.error.trim()) msg = o.error;
+      const o = data as { message?: unknown; error?: unknown; providerError?: unknown };
+      const fromMessage = coerceApiErrorText(o.message ?? o.error);
+      if (fromMessage) msg = fromMessage;
+      else {
+        const fromProvider = coerceApiErrorText(o.providerError);
+        if (fromProvider) msg = fromProvider;
+      }
     }
     throw new ApiError(res.status, msg, data);
   }
@@ -137,8 +173,8 @@ export async function downloadAuthenticatedFile(path: string, fallbackName: stri
     const data = await parseBody(res);
     let msg = res.statusText || "Download failed";
     if (typeof data === "object" && data !== null) {
-      const o = data as { message?: string };
-      if (typeof o.message === "string" && o.message.trim()) msg = o.message;
+      const fromMessage = coerceApiErrorText((data as { message?: unknown }).message);
+      if (fromMessage) msg = fromMessage;
     }
     throw new ApiError(res.status, msg, data);
   }

@@ -11,8 +11,10 @@ import {
   normalizeRatesResponse,
   sanitizeForVelocityLog,
   buildVelocityForwardOrchestrationPayload,
+  buildVelocityProviderOrderId,
   buildVelocityWarehouseProviderPayload,
   parseWarehouseCreateResponse,
+  VELOCITY_PROVIDER_ORDER_ID_MAX,
   type VelocityPreparedWarehouseInput,
 } from "./velocity.payload.js";
 import type {
@@ -76,6 +78,16 @@ export async function createWarehouseInVelocity(input: VelocityPreparedWarehouse
   return parseWarehouseCreateResponse(raw);
 }
 
+/** Best-effort update of an existing Velocity warehouse (e.g. sanitize contact name for Ekart). */
+export async function updateWarehouseInVelocity(
+  warehouseId: string,
+  input: VelocityPreparedWarehouseInput
+) {
+  const body = buildVelocityWarehouseProviderPayload(input, { warehouseId: warehouseId.trim() });
+  const raw = await velocityPost<Record<string, unknown>>("/custom/api/v1/warehouse", body);
+  return parseWarehouseCreateResponse(raw);
+}
+
 // ─── Serviceability ──────────────────────────────────────
 
 export async function checkServiceability(payload: VelocityServiceabilityRequest) {
@@ -110,7 +122,12 @@ export async function getRates(payload: VelocityRatesRequest) {
 // ─── Forward shipment (all-in-one) ───────────────────────
 
 export async function createForwardShipment(payload: VelocityForwardOrderRequest) {
-  const providerBody = buildVelocityForwardOrchestrationPayload(payload);
+  const safeOrderId =
+    String(payload.order_id ?? "").trim().length <= VELOCITY_PROVIDER_ORDER_ID_MAX
+      ? String(payload.order_id ?? "").trim()
+      : buildVelocityProviderOrderId(String(payload.order_id ?? "").trim());
+  const safePayload = { ...payload, order_id: safeOrderId };
+  const providerBody = buildVelocityForwardOrchestrationPayload(safePayload);
   if (velocityConfig.debugLogs) {
     console.info(
       `[velocity] POST /custom/api/v1/forward-order-orchestration payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`

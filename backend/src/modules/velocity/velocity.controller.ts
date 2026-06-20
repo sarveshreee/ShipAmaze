@@ -16,7 +16,7 @@ import { Pickup } from "../../models/Pickup.js";
 import * as velocityService from "./velocity.service.js";
 import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.mapper.js";
 import { normalizeOrderStatus } from "../../utils/orderStatus.js";
-import { normalizePincode, sanitizeForVelocityLog } from "./velocity.payload.js";
+import { buildVelocityProviderOrderId, normalizePincode, sanitizeForVelocityLog } from "./velocity.payload.js";
 import {
   syncPickupToVelocity,
   syncVendorWarehouseToVelocity,
@@ -617,7 +617,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
   }
 
   if (!merged.order_id && localOrder) {
-    merged.order_id = `${localOrder.orderId}-${Date.now()}`;
+    merged.order_id = buildVelocityProviderOrderId(localOrder.orderId);
   }
   const payload = buildForwardPayload(merged, localOrder);
   validateForwardPayload(payload, localOrder);
@@ -712,7 +712,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       } catch {
         if (!localOrder?.awb) {
           const retryOrderIdBase = localOrder?.orderId || payload.order_id;
-          const retryOrderId = `${retryOrderIdBase}-${Date.now()}`;
+          const retryOrderId = buildVelocityProviderOrderId(retryOrderIdBase);
           const retryPayload: VelocityForwardOrderRequest = { ...payload, order_id: retryOrderId };
           devLog.info(
             "[velocity:forward] duplicate_order_retry",
@@ -1685,7 +1685,7 @@ export async function bookForwardShipmentForOrder(
   }
 
   if (!merged.order_id) {
-    merged.order_id = `${localOrder.orderId}-${Date.now()}`;
+    merged.order_id = buildVelocityProviderOrderId(localOrder.orderId);
   }
 
   const payload = buildForwardPayload(merged, localOrder);
@@ -1700,7 +1700,7 @@ export async function bookForwardShipmentForOrder(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.toLowerCase().includes("order already exists")) {
-      const retryOrderId = `${localOrder.orderId}-${Date.now()}`;
+      const retryOrderId = buildVelocityProviderOrderId(localOrder.orderId);
       const retryPayload: VelocityForwardOrderRequest = { ...payload, order_id: retryOrderId };
       result = await velocityService.createForwardShipment(retryPayload);
       usedPayloadOrderId = retryOrderId;

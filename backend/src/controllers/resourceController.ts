@@ -23,6 +23,10 @@ import {
   pickupAddressFingerprint,
   assertIndianPhonesDistinct,
 } from "../utils/pickupValidation.js";
+import {
+  sanitizeCourierPersonName,
+  sanitizeCourierWarehouseName,
+} from "../modules/velocity/velocity.payload.js";
 import { Warehouse, type IWarehouse } from "../models/Warehouse.js";
 import type { HydratedDocument } from "mongoose";
 import { Courier } from "../models/Courier.js";
@@ -1158,8 +1162,8 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     ownerRole = req.user.role;
   }
 
-  const label = pickupLabelFromBody(b);
-  const contactName = pickupContactFromBody(b);
+  const label = sanitizeCourierWarehouseName(pickupLabelFromBody(b), "");
+  const contactName = sanitizeCourierPersonName(pickupContactFromBody(b), "");
   const addressLine1 = trimStr(b.addressLine1);
   const addressLine2 = trimStr(b.addressLine2);
   const landmark = trimStr(b.landmark);
@@ -1292,17 +1296,23 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   const b = req.body as Record<string, unknown>;
   const patch: Record<string, unknown> = {};
   if (b.label !== undefined || b.pickupName !== undefined || b.warehouseName !== undefined) {
-    patch.label = pickupLabelFromBody({
-      label: b.label,
-      pickupName: b.pickupName,
-      warehouseName: b.warehouseName,
-    } as Record<string, unknown>);
+    patch.label = sanitizeCourierWarehouseName(
+      pickupLabelFromBody({
+        label: b.label,
+        pickupName: b.pickupName,
+        warehouseName: b.warehouseName,
+      } as Record<string, unknown>),
+      ""
+    );
   }
   if (b.contactName !== undefined || b.contactPerson !== undefined) {
-    patch.contactName = pickupContactFromBody({
-      contactName: b.contactName,
-      contactPerson: b.contactPerson,
-    } as Record<string, unknown>);
+    patch.contactName = sanitizeCourierPersonName(
+      pickupContactFromBody({
+        contactName: b.contactName,
+        contactPerson: b.contactPerson,
+      } as Record<string, unknown>),
+      ""
+    );
   }
   if (b.phone !== undefined) patch.phone = normalizePhoneInput(trimStr(b.phone));
   if (b.alternatePhone !== undefined) patch.alternatePhone = normalizePhoneInput(trimStr(b.alternatePhone));
@@ -1327,8 +1337,8 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
 
   Object.assign(existing, patch);
 
-  const label = trimStr(existing.label);
-  const contactName = trimStr(existing.contactName);
+  const label = sanitizeCourierWarehouseName(trimStr(existing.label), "");
+  const contactName = sanitizeCourierPersonName(trimStr(existing.contactName), "");
   const addressLine1 = trimStr(existing.addressLine1);
   const addressLine2 = trimStr(existing.addressLine2 ?? "");
   const landmark = trimStr(existing.landmark ?? "");

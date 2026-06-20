@@ -4,6 +4,7 @@
  */
 
 import { AppError } from "../../middleware/errorMiddleware.js";
+import { createHash } from "crypto";
 import type {
   VelocityRatesRequest,
   VelocityRatesResponse,
@@ -34,6 +35,50 @@ export function assertValidEmail(email: string): string {
   const e = email.trim().toLowerCase();
   if (!EMAIL_RE.test(e)) throw new AppError(400, "email must be a valid address");
   return e;
+}
+
+/** Ekart/Velocity provider order_id max length (courier API limit). */
+export const VELOCITY_PROVIDER_ORDER_ID_MAX = 50;
+
+/**
+ * Unique Velocity order_id that fits courier limits (Shopify ids + timestamp can exceed 50 chars).
+ * ShipAmaze orderId stays unchanged on the Order document; this is only for Velocity booking.
+ */
+export function buildVelocityProviderOrderId(shipAmazeOrderId: string): string {
+  const base = String(shipAmazeOrderId ?? "").trim() || "order";
+  const suffix = Date.now().toString(36);
+  const direct = `${base}-${suffix}`;
+  if (direct.length <= VELOCITY_PROVIDER_ORDER_ID_MAX) return direct;
+  const hash = createHash("sha256").update(base).digest("hex").slice(0, 10);
+  const compact = `SA-${hash}-${suffix}`;
+  return compact.length <= VELOCITY_PROVIDER_ORDER_ID_MAX
+    ? compact
+    : compact.slice(0, VELOCITY_PROVIDER_ORDER_ID_MAX);
+}
+
+/** Ekart and similar couriers reject special characters in person first names. */
+export function sanitizeCourierPersonName(raw: string, fallback = "Contact"): string {
+  const cleaned = String(raw ?? "")
+    .replace(/[^a-zA-Z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || fallback;
+}
+
+/** First token only — used for warehouse contact_person mapped to courier firstName. */
+export function sanitizeCourierFirstName(raw: string, fallback = "Contact"): string {
+  const full = sanitizeCourierPersonName(raw, fallback);
+  const first = full.split(/\s+/).filter(Boolean)[0];
+  return first || fallback;
+}
+
+/** Warehouse label sent to Velocity — letters, digits, and spaces only. */
+export function sanitizeCourierWarehouseName(raw: string, fallback = "Warehouse"): string {
+  const cleaned = String(raw ?? "")
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || fallback;
 }
 
 export type VelocityPreparedWarehouseInput = {
@@ -90,7 +135,7 @@ export function buildVelocityForwardOrchestrationPayload(
   payload: VelocityForwardOrderRequest
 ): Record<string, unknown> {
   const c = payload.customer;
-  const fullName = String(c.name ?? "").trim() || "Customer";
+  const fullName = sanitizeCourierPersonName(String(c.name ?? "").trim() || "Customer", "Customer");
   const parts = fullName.split(/\s+/).filter(Boolean);
   const billing_customer_name = parts[0] ?? fullName;
   const billing_last_name = parts.length > 1 ? parts.slice(1).join(" ") : "";
@@ -149,12 +194,15 @@ export function buildVelocityForwardOrchestrationPayload(
 }
 
 /** Build POST /custom/api/v1/warehouse body per Velocity contract. */
-export function buildVelocityWarehouseProviderPayload(input: VelocityPreparedWarehouseInput): Record<string, unknown> {
+export function buildVelocityWarehouseProviderPayload(
+  input: VelocityPreparedWarehouseInput,
+  opts?: { warehouseId?: string }
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    name: input.name.trim(),
+    name: sanitizeCourierWarehouseName(input.name),
     phone_number: input.phone_number,
     email: input.email.trim().toLowerCase(),
-    contact_person: input.contact_person.trim(),
+    contact_person: sanitizeCourierPersonName(input.contact_person),
     address_attributes: {
       street_address: input.street_address.trim(),
       zip: normalizePincode(input.zip),
@@ -165,6 +213,8 @@ export function buildVelocityWarehouseProviderPayload(input: VelocityPreparedWar
   };
   const gst = input.gst_no?.trim();
   if (gst && gst.length > 0) body.gst_no = gst.toUpperCase();
+  const whId = opts?.warehouseId?.trim();
+  if (whId) body.warehouse_id = whId;
   return body;
 }
 

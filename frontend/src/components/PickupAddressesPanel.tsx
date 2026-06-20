@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import {
+  restrictCourierPersonNameInput,
+  restrictCourierWarehouseNameInput,
+} from "@/lib/courierNameInput";
 import type { PickupAddress } from "@/types/logistics";
 import * as pickupService from "@/services/pickupService";
 import { toast } from "sonner";
@@ -411,11 +415,29 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
             <div className="sm:col-span-2">
               <Label>Warehouse / address name</Label>
-              <Input className="mt-1" value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="e.g. Mumbai warehouse" />
+              <Input
+                className="mt-1"
+                value={form.label}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, label: restrictCourierWarehouseNameInput(e.target.value) }))
+                }
+                placeholder="e.g. Mumbai warehouse (letters and numbers only)"
+              />
+              <p className="text-[11px] text-text-muted mt-1">
+                No special characters (&amp;, -, @, etc.) — required for Ekart and other couriers.
+              </p>
             </div>
             <div>
               <Label>Contact person</Label>
-              <Input className="mt-1" value={form.contactName} onChange={(e) => setForm((f) => ({ ...f, contactName: e.target.value }))} />
+              <Input
+                className="mt-1"
+                value={form.contactName}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, contactName: restrictCourierPersonNameInput(e.target.value) }))
+                }
+                placeholder="Letters only"
+              />
+              <p className="text-[11px] text-text-muted mt-1">Letters and spaces only (courier requirement).</p>
             </div>
             <div>
               <Label>Mobile</Label>

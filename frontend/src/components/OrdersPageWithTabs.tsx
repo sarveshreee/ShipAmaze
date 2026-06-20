@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import * as orderService from "@/services/orderService";
 import type { OrderListFilterValues } from "@/services/orderService";
+import { errorMessageFromUnknown } from "@/lib/errorMessage";
 import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
 import { OrderListAdvancedFilters } from "@/components/OrderListAdvancedFilters";
 import { Badge } from "@/components/ui/badge";
@@ -673,8 +674,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
             setSelected(new Set());
             await refetch();
           } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Process selected failed";
-            toast.error(msg);
+            toast.error(errorMessageFromUnknown(err, "Process selected failed"));
           } finally {
             setProcessSubmitting(false);
           }

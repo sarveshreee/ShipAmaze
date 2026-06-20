@@ -12,10 +12,12 @@ import { Pickup } from "../../models/Pickup.js";
 import { Warehouse } from "../../models/Warehouse.js";
 import { User } from "../../models/User.js";
 import { velocityConfig } from "./velocity.config.js";
-import { createWarehouseInVelocity } from "./velocity.service.js";
+import { createWarehouseInVelocity, updateWarehouseInVelocity } from "./velocity.service.js";
 import {
   normalizePhoneNumber10Digit,
   normalizePincode,
+  sanitizeCourierPersonName,
+  sanitizeCourierWarehouseName,
   type VelocityPreparedWarehouseInput,
 } from "./velocity.payload.js";
 
@@ -70,11 +72,12 @@ export function pickupToVelocityWarehouseInput(
   fallbackEmail: string
 ): VelocityPreparedWarehouseInput {
   const email = (pickup.email ?? "").trim() || fallbackEmail.trim();
+  const contactRaw = pickup.contactName.trim() || pickup.label.trim();
   return {
-    name: pickup.label.trim(),
+    name: sanitizeCourierWarehouseName(pickup.label.trim()),
     phone_number: safePhone(pickup.phone),
     email,
-    contact_person: pickup.contactName.trim(),
+    contact_person: sanitizeCourierPersonName(contactRaw),
     street_address: buildStreetAddress(pickup.addressLine1, pickup.addressLine2, pickup.landmark),
     zip: safePincode(pickup.pincode),
     city: pickup.city.trim(),
@@ -99,10 +102,10 @@ export function warehouseDocToVelocityInput(
   fallbackEmail: string
 ): VelocityPreparedWarehouseInput {
   return {
-    name: wh.name.trim(),
+    name: sanitizeCourierWarehouseName(wh.name.trim()),
     phone_number: safePhone(wh.phone ?? ""),
     email: fallbackEmail.trim(),
-    contact_person: (wh.contactName ?? wh.name).trim(),
+    contact_person: sanitizeCourierPersonName((wh.contactName ?? wh.name).trim()),
     street_address: buildStreetAddress(wh.addressLine1, wh.addressLine2),
     zip: safePincode(wh.pincode),
     city: wh.city.trim(),
@@ -128,7 +131,27 @@ export async function syncPickupToVelocity(
   }
 
   if (pickup.velocityWarehouseId?.trim()) {
-    return { linked: true, warehouse_id: pickup.velocityWarehouseId.trim() };
+    const whId = pickup.velocityWarehouseId.trim();
+    let fallbackEmail = "";
+    try {
+      const owner = await User.findById(pickup.userId).select("email").lean();
+      fallbackEmail = owner?.email ?? "";
+    } catch {
+      /* non-fatal */
+    }
+    const email = (pickup.email ?? "").trim() || fallbackEmail;
+    if (email) {
+      try {
+        const input = pickupToVelocityWarehouseInput(
+          pickup as Parameters<typeof pickupToVelocityWarehouseInput>[0],
+          fallbackEmail
+        );
+        await updateWarehouseInVelocity(whId, input);
+      } catch {
+        /* Velocity may not support update; sanitized names apply on next warehouse create */
+      }
+    }
+    return { linked: true, warehouse_id: whId };
   }
 
   // Load owner email as fallback when pickup email is empty

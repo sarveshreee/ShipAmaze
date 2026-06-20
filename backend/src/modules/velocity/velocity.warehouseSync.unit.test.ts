@@ -117,4 +117,17 @@ describe("warehouseDocToVelocityInput", () => {
     );
     expect(out.street_address).toBe("Plot 5, Okhla Phase II, Building B");
   });
+
+  it("strips special characters from warehouse name and contact for couriers", () => {
+    const out = pickupToVelocityWarehouseInput(
+      {
+        ...base,
+        label: "ART & SOUL EVENT NEW",
+        contactName: "Ravi-Kumar",
+      },
+      ""
+    );
+    expect(out.name).toBe("ART SOUL EVENT NEW");
+    expect(out.contact_person).toBe("Ravi Kumar");
+  });
 });

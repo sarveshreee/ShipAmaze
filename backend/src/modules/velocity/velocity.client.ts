@@ -8,6 +8,7 @@ import type { VelocityAuthResponse, VelocityProviderError } from "./velocity.typ
 import { AppError } from "../../middleware/errorMiddleware.js";
 import { sanitizeForVelocityLog } from "./velocity.payload.js";
 import { isRetryableVelocityHttpStatus, isTransientNetworkMessage } from "./velocity.errors.js";
+import { extractProviderErrorMessage } from "../../utils/errorMessage.js";
 
 interface TokenCache {
   token: string;
@@ -179,7 +180,7 @@ async function velocityPostOnce<T>(endpoint: string, body: unknown): Promise<T> 
     }
     const providerError: VelocityProviderError = {
       success: false,
-      message: extractVelocityMessage(data) || `Velocity error ${res.status}`,
+      message: extractProviderErrorMessage(data) || `Velocity error ${res.status}`,
       provider: "velocity",
       providerStatusCode: res.status,
       providerError: data,
@@ -193,18 +194,6 @@ async function velocityPostOnce<T>(endpoint: string, body: unknown): Promise<T> 
 }
 
 // ─── Helpers ─────────────────────────────────────────────
-
-function extractVelocityMessage(data: unknown): string {
-  if (typeof data === "string") return data;
-  if (typeof data === "object" && data !== null) {
-    const d = data as Record<string, unknown>;
-    const meta = d.meta as Record<string, unknown> | undefined;
-    const metaMsg = meta?.message != null ? String(meta.message).trim() : "";
-    if (metaMsg) return metaMsg;
-    return String(d.message || d.error || d.detail || "");
-  }
-  return "";
-}
 
 function mapHttpStatus(velocityStatus: number): number {
   if (velocityStatus === 400) return 400;

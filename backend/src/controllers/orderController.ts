@@ -36,6 +36,7 @@ import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddlew
 import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 import { mapToPublicTracking } from "../utils/publicTracking.js";
 import { bookForwardShipmentForOrder } from "../modules/velocity/velocity.controller.js";
+import { formatErrorMessage } from "../utils/errorMessage.js";
 import { syncPickupToVelocity } from "../modules/velocity/velocity.warehouseSync.js";
 import { velocityConfig } from "../modules/velocity/velocity.config.js";
 import { resolveVelocityCarrierId } from "../modules/velocity/velocity.resolveCarrier.js";
@@ -1434,7 +1435,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     try {
       booking = await bookForwardShipmentForOrder(req, o, bookingBody);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Velocity booking failed";
+      const msg = formatErrorMessage(err, "Velocity booking failed");
       throw new AppError(err instanceof AppError ? err.statusCode : 502, `Order ${o.orderId}: ${msg}`);
     }
 
