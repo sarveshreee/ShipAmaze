@@ -60,7 +60,7 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
   const [shipmentValue, setShipmentValue] = useState("");
   const [calculating, setCalculating] = useState(false);
   const [courierRates, setCourierRates] = useState<CourierRate[] | null>(null);
-  const [calcSummary, setCalcSummary] = useState<{ pickup: string; delivery: string; zone: string; weight: string; zoneIsEstimate: boolean } | null>(null);
+  const [calcSummary, setCalcSummary] = useState<{ pickup: string; delivery: string; weight: string } | null>(null);
 
   const pickupNorm = normalizePin(pickupPin);
   const deliveryNorm = normalizePin(deliveryPin);
@@ -122,24 +122,25 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
       return;
     }
 
-    const zoneRecord = pincodeByPin.get(delivery);
-    const mappedZone = zoneRecord?.zone?.trim() ?? "";
-    // Default to Zone A if delivery pincode zone is not in our database
-    const zone = mappedZone || "A";
-    const zoneIsEstimate = !mappedZone;
-
     setCalculating(true);
     setCourierRates(null);
     setCalcSummary(null);
     try {
       const rateCard = await approvalService.getShippingRateCard(calcPaymentType);
       const rows = (rateCard?.courierZoneRows ?? []).filter((r) => r.active !== false);
+      const displayRowsByCourier = new Map<string, (typeof rows)[number]>();
+      rows.forEach((row) => {
+        const key = row.courier.toLowerCase();
+        const existing = displayRowsByCourier.get(key);
+        if (!existing || normalizeZoneCode(row.zone) === "A") {
+          displayRowsByCourier.set(key, row);
+        }
+      });
 
       const results: CourierRate[] = [];
       const { slabIdx, multiplier } = weightSlabMultiplier(DEFAULT_WEIGHTS, charged);
 
-      for (const row of rows) {
-        if (normalizeZoneCode(row.zone) !== normalizeZoneCode(zone)) continue;
+      for (const row of displayRowsByCourier.values()) {
         const baseFreight = Number(row.rates[slabIdx] ?? 0);
         if (!(baseFreight > 0)) continue;
         const freight = baseFreight * multiplier;
@@ -147,7 +148,7 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
         const total = freight + (codCharge ?? 0);
         results.push({
           courier: row.courier,
-          zone,
+          zone: row.zone,
           freightCharge: freight,
           codCharge: codCharge && codCharge > 0 ? codCharge : undefined,
           totalCharge: total,
@@ -163,9 +164,7 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
         setCalcSummary({
           pickup,
           delivery,
-          zone,
           weight: chargedWeightSlabLabel(DEFAULT_WEIGHTS, charged),
-          zoneIsEstimate,
         });
       }
     } catch (e) {
@@ -234,7 +233,6 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
               <p className="text-xs text-text-muted flex items-center gap-1">
                 <MapPin className="h-3 w-3 shrink-0" />
                 {deliveryInfo.city}, {deliveryInfo.state}
-                {deliveryInfo.zone ? ` · Zone ${deliveryInfo.zone}` : ""}
               </p>
             )}
           </div>
@@ -343,13 +341,8 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
               <Badge variant="outline" className="text-[10px]">Rate Card</Badge>
             </div>
             <p className="text-xs text-text-muted mt-0.5">
-              {calcSummary.pickup} → {calcSummary.delivery} · Zone {calcSummary.zone}{calcSummary.zoneIsEstimate ? " (est.)" : ""} · {calcSummary.weight} · {calcPaymentType}
+              {calcSummary.pickup} → {calcSummary.delivery} · {calcSummary.weight} · {calcPaymentType}
             </p>
-            {calcSummary.zoneIsEstimate && (
-              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
-                Delivery pincode zone not mapped — showing Zone A rates as estimate
-              </p>
-            )}
           </div>
           <div className="divide-y divide-border max-h-[420px] overflow-y-auto">
             {courierRates.map((q, idx) => (
@@ -357,7 +350,6 @@ export function AdminRateCalculatorPanel({ pincodeByPin }: Props) {
                 <Truck className="h-5 w-5 text-primary shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-text-primary">{q.courier}</p>
-                  <p className="text-xs text-text-muted">Zone {q.zone}</p>
                   {q.multiplier && q.multiplier > 1 && (
                     <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
                       {q.multiplier}× slab rate (weight exceeds max slab)

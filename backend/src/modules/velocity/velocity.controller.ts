@@ -16,7 +16,12 @@ import { Pickup } from "../../models/Pickup.js";
 import * as velocityService from "./velocity.service.js";
 import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.mapper.js";
 import { normalizeOrderStatus } from "../../utils/orderStatus.js";
-import { buildVelocityProviderOrderId, normalizePincode, sanitizeForVelocityLog } from "./velocity.payload.js";
+import {
+  buildVelocityProviderOrderId,
+  normalizePincode,
+  normalizeVelocityProviderOrderId,
+  sanitizeForVelocityLog,
+} from "./velocity.payload.js";
 import {
   syncPickupToVelocity,
   syncVendorWarehouseToVelocity,
@@ -620,6 +625,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     merged.order_id = buildVelocityProviderOrderId(localOrder.orderId);
   }
   const payload = buildForwardPayload(merged, localOrder);
+  payload.order_id = normalizeVelocityProviderOrderId(payload.order_id);
   validateForwardPayload(payload, localOrder);
   await enforceServiceabilityLaneIfRequested(merged as PickupPinMerged, payload, body);
   await precheckForwardShipmentWallet(localOrder);
@@ -828,6 +834,7 @@ export const createForwardOrderOnly = asyncHandler(async (req: AuthRequest, res:
 
   const merged = await mergeVelocityWarehouse(req, body, localOrder);
   const payload = buildForwardPayload(merged, localOrder);
+  payload.order_id = normalizeVelocityProviderOrderId(payload.order_id);
   validateForwardPayload(payload, localOrder);
 
   const result = await velocityService.createForwardOrderOnly(payload);
@@ -1689,6 +1696,7 @@ export async function bookForwardShipmentForOrder(
   }
 
   const payload = buildForwardPayload(merged, localOrder);
+  payload.order_id = normalizeVelocityProviderOrderId(payload.order_id);
 
   validateForwardPayload(payload, localOrder);
   await precheckForwardShipmentWallet(localOrder);

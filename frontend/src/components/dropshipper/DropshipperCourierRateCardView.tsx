@@ -10,7 +10,7 @@ import {
   DEFAULT_WEIGHTS,
   type CourierZoneRow,
 } from "@/lib/courierPricingUtils";
-import { formatRateAmount } from "@/lib/shippingRateCardUtils";
+import { formatRateAmount, normalizeZoneCode } from "@/lib/shippingRateCardUtils";
 
 type Props = {
   paymentType: "COD" | "Prepaid";
@@ -40,15 +40,27 @@ export function DropshipperCourierRateCardView({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
+  const displayRows = useMemo(() => {
+    const byCourier = new Map<string, CourierZoneRow>();
+    rows.forEach((row) => {
+      if (row.active === false) return;
+      const key = row.courier.toLowerCase();
+      const existing = byCourier.get(key);
+      if (!existing || normalizeZoneCode(row.zone) === "A") {
+        byCourier.set(key, row);
+      }
+    });
+    return [...byCourier.values()];
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (r.active === false) return false;
+    return displayRows.filter((r) => {
       if (courierFilter !== "all" && r.courier !== courierFilter) return false;
-      if (q && !`${r.courier} ${r.zone}`.toLowerCase().includes(q)) return false;
+      if (q && !r.courier.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [rows, courierFilter, search]);
+  }, [displayRows, courierFilter, search]);
 
   const courierOptions = couriersInData.length ? couriersInData : [...DEFAULT_COURIERS];
 
@@ -109,7 +121,7 @@ export function DropshipperCourierRateCardView({
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-text-muted" />
               <Input
                 className="pl-8 h-9"
-                placeholder="Courier or zone…"
+                placeholder="Courier…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -144,11 +156,10 @@ export function DropshipperCourierRateCardView({
         <div className="p-8 text-center text-sm text-text-muted">No courier rates configured yet.</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[720px]">
+          <table className="w-full text-sm min-w-[640px]">
             <thead>
               <tr className="border-b border-border bg-surface-2/50">
                 <th className="p-3 text-left font-medium text-text-secondary sticky left-0 bg-surface-2/95 z-10">Courier</th>
-                <th className="p-3 text-left font-medium text-text-secondary">Zone</th>
                 {DEFAULT_WEIGHTS.map((w, i) => (
                   <th
                     key={w}
@@ -167,9 +178,8 @@ export function DropshipperCourierRateCardView({
             </thead>
             <tbody>
               {filteredRows.map((row, i) => (
-                <tr key={`${row.courier}-${row.zone}`} className={cn("border-b border-border", i % 2 === 0 && "bg-surface-2/20")}>
+                <tr key={row.courier} className={cn("border-b border-border", i % 2 === 0 && "bg-surface-2/20")}>
                   <td className="p-3 font-medium text-text-primary sticky left-0 bg-card z-[1]">{row.courier}</td>
-                  <td className="p-3 text-text-primary">Zone {row.zone}</td>
                   {DEFAULT_WEIGHTS.map((_, wi) => (
                     <td
                       key={wi}

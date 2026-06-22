@@ -39,6 +39,7 @@ export function assertValidEmail(email: string): string {
 
 /** Ekart/Velocity provider order_id max length (courier API limit). */
 export const VELOCITY_PROVIDER_ORDER_ID_MAX = 50;
+const VELOCITY_READABLE_ORDER_ID_MAX = 30;
 
 /**
  * Unique Velocity order_id that fits courier limits (Shopify ids + timestamp can exceed 50 chars).
@@ -54,6 +55,36 @@ export function buildVelocityProviderOrderId(shipAmazeOrderId: string): string {
   return compact.length <= VELOCITY_PROVIDER_ORDER_ID_MAX
     ? compact
     : compact.slice(0, VELOCITY_PROVIDER_ORDER_ID_MAX);
+}
+
+/**
+ * Provider-safe order id. Shopify ids are kept on our Order, but courier APIs are
+ * stricter about length/characters and may reject long marketplace references.
+ */
+export function normalizeVelocityProviderOrderId(raw: string): string {
+  const base =
+    String(raw ?? "")
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "") || "order";
+  const withSuffixWouldOverflow = `${base}-${Date.now().toString(36)}`.length > VELOCITY_PROVIDER_ORDER_ID_MAX;
+  const marketplaceId = /^shopify-/i.test(base);
+  if (marketplaceId || base.length > VELOCITY_READABLE_ORDER_ID_MAX || withSuffixWouldOverflow) {
+    return buildVelocityProviderOrderId(base);
+  }
+  return base;
+}
+
+/** Delhivery/Ekart JSON bridges are fragile with Unicode punctuation and pipes in line-item text. */
+export function sanitizeCourierLineItemText(raw: string, fallback = "Item"): string {
+  const cleaned = String(raw ?? "")
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/[\\|"']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || fallback;
 }
 
 /** Ekart and similar couriers reject special characters in person first names. */
@@ -143,8 +174,8 @@ export function buildVelocityForwardOrchestrationPayload(
   const pinDigits = String(c.pincode ?? "").replace(/\D/g, "").slice(0, 6);
 
   const order_items = payload.items.map((item, idx) => ({
-    name: String(item.name ?? "Item"),
-    sku: item.sku ? String(item.sku) : `SKU-${idx + 1}`,
+    name: sanitizeCourierLineItemText(String(item.name ?? "Item"), "Item"),
+    sku: item.sku ? sanitizeCourierLineItemText(String(item.sku), `SKU-${idx + 1}`) : `SKU-${idx + 1}`,
     units: Number(item.qty ?? 1) > 0 ? Number(item.qty) : 1,
     selling_price: Number(item.price ?? 1) > 0 ? Number(item.price) : 1,
     discount: Number((item as unknown as { discount?: number }).discount ?? 0) || 0,

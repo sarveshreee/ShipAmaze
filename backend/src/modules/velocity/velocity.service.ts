@@ -11,10 +11,9 @@ import {
   normalizeRatesResponse,
   sanitizeForVelocityLog,
   buildVelocityForwardOrchestrationPayload,
-  buildVelocityProviderOrderId,
+  normalizeVelocityProviderOrderId,
   buildVelocityWarehouseProviderPayload,
   parseWarehouseCreateResponse,
-  VELOCITY_PROVIDER_ORDER_ID_MAX,
   type VelocityPreparedWarehouseInput,
 } from "./velocity.payload.js";
 import type {
@@ -122,11 +121,7 @@ export async function getRates(payload: VelocityRatesRequest) {
 // ─── Forward shipment (all-in-one) ───────────────────────
 
 export async function createForwardShipment(payload: VelocityForwardOrderRequest) {
-  const safeOrderId =
-    String(payload.order_id ?? "").trim().length <= VELOCITY_PROVIDER_ORDER_ID_MAX
-      ? String(payload.order_id ?? "").trim()
-      : buildVelocityProviderOrderId(String(payload.order_id ?? "").trim());
-  const safePayload = { ...payload, order_id: safeOrderId };
+  const safePayload = { ...payload, order_id: normalizeVelocityProviderOrderId(payload.order_id) };
   const providerBody = buildVelocityForwardOrchestrationPayload(safePayload);
   if (velocityConfig.debugLogs) {
     console.info(
@@ -144,7 +139,8 @@ export async function createForwardShipment(payload: VelocityForwardOrderRequest
 // ─── Forward order only (no AWB yet) ─────────────────────
 
 export async function createForwardOrderOnly(payload: VelocityForwardOrderRequest) {
-  const providerBody = buildVelocityForwardOrchestrationPayload(payload);
+  const safePayload = { ...payload, order_id: normalizeVelocityProviderOrderId(payload.order_id) };
+  const providerBody = buildVelocityForwardOrchestrationPayload(safePayload);
   if (velocityConfig.debugLogs) {
     console.info(
       `[velocity] POST /custom/api/v1/forward-order payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`

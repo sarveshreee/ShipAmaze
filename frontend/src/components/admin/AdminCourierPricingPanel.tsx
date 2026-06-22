@@ -31,7 +31,7 @@ import {
   Truck,
 } from "lucide-react";
 import { toast } from "sonner";
-import { formatRateAmount, parseRateCellInput } from "@/lib/shippingRateCardUtils";
+import { formatRateAmount, normalizeZoneCode, parseRateCellInput } from "@/lib/shippingRateCardUtils";
 import {
   DEFAULT_COURIERS,
   DEFAULT_WEIGHTS,
@@ -83,7 +83,7 @@ export function AdminCourierPricingPanel({
   onSave,
   matrixOnly = false,
   title = "Courier Rate Card",
-  subtitle = "Enterprise pricing matrix — saves sync dropshipper zone rates from Delhivery.",
+  subtitle = "Courier-wise pricing matrix synced to dropshippers.",
 }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("matrix");
   const [courierFilter, setCourierFilter] = useState<string>("all");
@@ -102,16 +102,27 @@ export function AdminCourierPricingPanel({
       enterpriseRows: matrixOnly ? [] : initialEnterpriseRows,
     });
 
+  const matrixDisplayRows = useMemo(() => {
+    const byCourier = new Map<string, { row: CourierZoneRow; index: number }>();
+    courierZoneRows.forEach((row, index) => {
+      const key = row.courier.toLowerCase();
+      const existing = byCourier.get(key);
+      if (!existing || normalizeZoneCode(row.zone) === "A") {
+        byCourier.set(key, { row, index });
+      }
+    });
+    return [...byCourier.values()];
+  }, [courierZoneRows]);
+
   const filteredMatrixRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return courierZoneRows
-      .map((row, index) => ({ row, index }))
+    return matrixDisplayRows
       .filter(({ row }) => {
         if (courierFilter !== "all" && row.courier !== courierFilter) return false;
-        if (q && !`${row.courier} ${row.zone}`.toLowerCase().includes(q)) return false;
+        if (q && !row.courier.toLowerCase().includes(q)) return false;
         return true;
       });
-  }, [courierZoneRows, courierFilter, search]);
+  }, [matrixDisplayRows, courierFilter, search]);
 
   const filteredEnterpriseRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -138,9 +149,11 @@ export function AdminCourierPricingPanel({
       return;
     }
     if (editing.view === "matrix") {
+      const target = courierZoneRows[editing.row];
+      const targetCourier = target?.courier;
       onCourierZoneRowsChange(
         courierZoneRows.map((r, i) => {
-          if (i !== editing.row) return r;
+          if (!targetCourier || r.courier !== targetCourier) return r;
           if (editing.field === "cod") return { ...r, codCharge: num };
           const rates = [...r.rates];
           rates[editing.wi] = num;
@@ -161,13 +174,14 @@ export function AdminCourierPricingPanel({
   }, [editing, editValue, courierZoneRows, enterpriseRows, onCourierZoneRowsChange, onEnterpriseRowsChange]);
 
   const toggleMatrixActive = (rowIndex: number, active: boolean) => {
-    onCourierZoneRowsChange(courierZoneRows.map((r, i) => (i === rowIndex ? { ...r, active } : r)));
+    const targetCourier = courierZoneRows[rowIndex]?.courier;
+    onCourierZoneRowsChange(courierZoneRows.map((r, i) => (r.courier === targetCourier || i === rowIndex ? { ...r, active } : r)));
   };
 
   const runCopyZoneA = () => {
     const courier = bulkCourier === "all" ? undefined : bulkCourier;
     onCourierZoneRowsChange(copyZoneAToAll(courierZoneRows, courier));
-    toast.success(courier ? `Zone A copied for ${courier}` : "Zone A copied for all couriers");
+    toast.success(courier ? `Displayed rates copied for ${courier}` : "Displayed rates copied for all couriers");
   };
 
   const runCopyCourier = () => {
@@ -204,6 +218,7 @@ export function AdminCourierPricingPanel({
   };
 
   const slabHighlight = slabFilter === "all" ? -1 : Number(slabFilter);
+  const showAdvancedRateViews = false;
 
   return (
     <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
@@ -244,11 +259,11 @@ export function AdminCourierPricingPanel({
               {t}
             </button>
           ))}
-          {!matrixOnly && (
+          {showAdvancedRateViews && !matrixOnly && (
           <div className="flex rounded-lg border border-border overflow-hidden ml-auto">
             {(
               [
-                { id: "matrix" as const, label: "Zone Matrix" },
+                { id: "matrix" as const, label: "Rate Matrix" },
                 { id: "enterprise" as const, label: "FWD / RTO / REV" },
               ] as const
             ).map((v) => (
@@ -293,7 +308,7 @@ export function AdminCourierPricingPanel({
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-text-muted" />
               <Input
                 className="pl-8 h-9"
-                placeholder="Courier, zone, type…"
+                placeholder="Courier or type…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -344,7 +359,7 @@ export function AdminCourierPricingPanel({
                 </div>
                 <DropdownMenuItem onClick={runCopyZoneA}>
                   <Copy className="h-4 w-4 mr-2" />
-                  Copy Zone A → all zones
+                  Copy displayed rates to all lanes
                 </DropdownMenuItem>
                 <div className="px-2 py-2 space-y-2">
                   <Label className="text-xs">Copy to courier</Label>
@@ -400,11 +415,10 @@ export function AdminCourierPricingPanel({
         </div>
       ) : viewMode === "matrix" || matrixOnly ? (
         <div className="overflow-x-auto max-h-[min(70vh,720px)]">
-          <table className="w-full text-sm min-w-[900px]">
+          <table className="w-full text-sm min-w-[760px]">
             <thead className="sticky top-0 z-10 bg-surface-2/95 dark:bg-muted/90 backdrop-blur-sm">
               <tr className="border-b border-border">
                 <th className="p-2 text-left font-medium text-text-secondary">Courier</th>
-                <th className="p-2 text-left font-medium text-text-secondary">Zone</th>
                 {DEFAULT_WEIGHTS.map((w, i) => (
                   <th
                     key={w}
@@ -416,7 +430,9 @@ export function AdminCourierPricingPanel({
                     {w.replace(" kg", "kg")}
                   </th>
                 ))}
-                <th className="p-2 text-center font-medium text-text-secondary">COD Charge</th>
+                {paymentType === "COD" && (
+                  <th className="p-2 text-center font-medium text-text-secondary">COD Charge</th>
+                )}
                 <th className="p-2 text-center font-medium text-text-secondary">Active</th>
               </tr>
             </thead>
@@ -434,7 +450,6 @@ export function AdminCourierPricingPanel({
                     )}
                   >
                     <td className="p-2 font-medium text-text-primary whitespace-nowrap">{row.courier}</td>
-                    <td className="p-2 font-semibold text-primary">Zone {row.zone}</td>
                     {row.rates.map((rate, wi) => {
                       const isEditing =
                         editing?.view === "matrix" &&
@@ -473,30 +488,32 @@ export function AdminCourierPricingPanel({
                         </td>
                       );
                     })}
-                    <td className="p-1 text-center">
-                      {editing?.view === "matrix" &&
-                      editing.row === rowIndex &&
-                      editing.field === "cod" ? (
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={commitEdit}
-                          autoFocus
-                          className="w-16 h-8 text-center text-xs rounded-md border-2 border-primary bg-background outline-none"
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => startEdit({ view: "matrix", row: rowIndex, field: "cod" }, row.codCharge)}
-                          className="w-full h-8 rounded-md text-xs font-medium hover:bg-primary/10"
-                        >
-                          ₹{formatRateAmount(row.codCharge)}
-                        </button>
-                      )}
-                    </td>
+                    {paymentType === "COD" && (
+                      <td className="p-1 text-center">
+                        {editing?.view === "matrix" &&
+                        editing.row === rowIndex &&
+                        editing.field === "cod" ? (
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={commitEdit}
+                            autoFocus
+                            className="w-16 h-8 text-center text-xs rounded-md border-2 border-primary bg-background outline-none"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => startEdit({ view: "matrix", row: rowIndex, field: "cod" }, row.codCharge)}
+                            className="w-full h-8 rounded-md text-xs font-medium hover:bg-primary/10"
+                          >
+                            ₹{formatRateAmount(row.codCharge)}
+                          </button>
+                        )}
+                      </td>
+                    )}
                     <td className="p-2 text-center">
                       <Switch checked={row.active} onCheckedChange={(v) => toggleMatrixActive(rowIndex, v)} />
                     </td>

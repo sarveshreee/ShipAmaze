@@ -8,8 +8,6 @@ import {
 import {
   formatRateAmount,
   normalizeZoneCode,
-  rateForZoneWeight,
-  weightSlabIndex,
   weightSlabMultiplier,
 } from "@/lib/shippingRateCardUtils";
 
@@ -60,23 +58,6 @@ function rateFromCourierZoneRow(
   return base;
 }
 
-function zoneRowRate(
-  rows: CourierZoneRow[],
-  courier: string,
-  zone: string,
-  weightKg: number,
-  payment: "prepaid" | "cod"
-): number | null {
-  const row = rows.find(
-    (r) =>
-      r.active !== false &&
-      normalizeCourierName(r.courier) === normalizeCourierName(courier) &&
-      normalizeZoneCode(r.zone) === normalizeZoneCode(zone)
-  );
-  if (!row) return null;
-  return rateFromCourierZoneRow(row, weightKg, payment);
-}
-
 function masterRate(
   master: CourierRateMaster,
   weightKg: number,
@@ -93,8 +74,6 @@ export async function buildDropshipperRateQuotes(
   input: BuildRateQuotesInput
 ): Promise<DropshipperRateQuote[]> {
   const paymentType = input.paymentMode === "cod" ? "COD" : "Prepaid";
-  // Default to Zone A when delivery zone is not mapped in our database
-  const zone = normalizeZoneCode(input.deliveryZone || "A");
 
   const [mastersResp, rateCard] = await Promise.all([
     listPublicCourierRateMasters().catch(() => ({ items: [] as CourierRateMaster[] })),
@@ -103,15 +82,18 @@ export async function buildDropshipperRateQuotes(
 
   const masters = (mastersResp.items ?? []).filter((m) => m.active !== false);
   const courierZoneRows = (rateCard?.courierZoneRows ?? []).filter((r) => r.active !== false);
-  const legacyMatrix = rateCard?.rates ?? [];
-  const legacyZones = rateCard?.zones ?? ["A", "B", "C", "D", "E"];
-  const legacyWeights = rateCard?.weights ?? DEFAULT_WEIGHTS;
+  const displayRowsByCourier = new Map<string, CourierZoneRow>();
+  for (const row of courierZoneRows) {
+    const key = normalizeCourierName(row.courier);
+    const existing = displayRowsByCourier.get(key);
+    if (!existing || normalizeZoneCode(row.zone) === "A") {
+      displayRowsByCourier.set(key, row);
+    }
+  }
 
   const courierNames = new Set<string>();
   for (const m of masters) courierNames.add(m.courierName);
-  for (const r of courierZoneRows) {
-    if (normalizeZoneCode(r.zone) === normalizeZoneCode(zone)) courierNames.add(r.courier);
-  }
+  for (const r of displayRowsByCourier.values()) courierNames.add(r.courier);
 
   const quotes: DropshipperRateQuote[] = [];
 
@@ -122,7 +104,6 @@ export async function buildDropshipperRateQuotes(
       quotes.push({
         courier: master!.courierName,
         carrierId: master!.carrierId,
-        zone,
         freightCharge: masterTotal,
         totalCharge: masterTotal,
         source: "rate_master",
@@ -131,20 +112,15 @@ export async function buildDropshipperRateQuotes(
       continue;
     }
 
-    const zoneTotal = zoneRowRate(courierZoneRows, courier, zone, input.applicableWeightKg, input.paymentMode);
-    if (zoneTotal != null && zoneTotal > 0) {
-      const row = courierZoneRows.find(
-        (r) =>
-          normalizeCourierName(r.courier) === normalizeCourierName(courier) &&
-          normalizeZoneCode(r.zone) === normalizeZoneCode(zone)
-      );
+    const row = displayRowsByCourier.get(normalizeCourierName(courier));
+    const zoneTotal = row ? rateFromCourierZoneRow(row, input.applicableWeightKg, input.paymentMode) : null;
+    if (row && zoneTotal != null && zoneTotal > 0) {
       const { slabIdx, multiplier } = weightSlabMultiplier(DEFAULT_WEIGHTS, input.applicableWeightKg);
       const baseFreight = Number(row?.rates[slabIdx] ?? zoneTotal);
       const freight = baseFreight * multiplier;
       const codCharge = input.paymentMode === "cod" ? Number(row?.codCharge ?? 0) : undefined;
       quotes.push({
         courier,
-        zone,
         freightCharge: freight,
         codCharge,
         totalCharge: freight + (codCharge ?? 0),
@@ -152,19 +128,6 @@ export async function buildDropshipperRateQuotes(
         multiplier: multiplier > 1 ? multiplier : undefined,
       });
       continue;
-    }
-  }
-
-  if (!quotes.length && legacyMatrix.length) {
-    const legacyRate = rateForZoneWeight(legacyMatrix, legacyZones, zone, input.applicableWeightKg, legacyWeights);
-    if (legacyRate != null && legacyRate > 0) {
-      quotes.push({
-        courier: "Standard",
-        zone,
-        freightCharge: legacyRate,
-        totalCharge: legacyRate,
-        source: "zone_card",
-      });
     }
   }
 

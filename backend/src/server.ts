@@ -39,6 +39,19 @@ async function main() {
   const app = createApp();
   const server = http.createServer(app);
 
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      devLog.warn(`[server] Port ${PORT} in use, retrying in 1 s…`);
+      setTimeout(() => {
+        server.close();
+        server.listen(PORT);
+      }, 1000);
+    } else {
+      console.error("[server] Unhandled server error", err);
+      process.exit(1);
+    }
+  });
+
   server.listen(PORT, () => {
     const mongoSafe = redactMongoUri(MONGODB_URI);
     devLog.info(`[server] listening on port ${PORT}`);

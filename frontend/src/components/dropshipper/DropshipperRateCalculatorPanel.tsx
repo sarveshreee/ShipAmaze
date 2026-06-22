@@ -55,8 +55,6 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
   const [summary, setSummary] = useState<{
     pickupPin: string;
     deliveryPin: string;
-    zone: string;
-    zoneIsEstimate: boolean;
     applicableWeight: number;
     chargedSlab: string;
   } | null>(null);
@@ -121,10 +119,6 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
       return;
     }
 
-    const zoneRecord = pincodeByPin.get(delivery);
-    const mappedZone = zoneRecord?.zone?.trim() ?? "";
-    const zoneIsEstimate = !mappedZone;
-
     setCalculating(true);
     setQuotes(null);
     try {
@@ -135,7 +129,7 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
         paymentMode,
         shipmentType,
         shipmentValue: paymentMode === "cod" ? Number(shipmentValue) : undefined,
-        deliveryZone: mappedZone,
+        deliveryZone: "",
         lengthCm: hasAnyDim ? l : undefined,
         widthCm: hasAnyDim ? w : undefined,
         heightCm: hasAnyDim ? h : undefined,
@@ -144,8 +138,6 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
       setSummary({
         pickupPin: pickup,
         deliveryPin: delivery,
-        zone: mappedZone || "A",
-        zoneIsEstimate,
         applicableWeight: charged,
         chargedSlab: chargedWeightSlabLabel(DEFAULT_WEIGHTS, charged),
       });
@@ -223,7 +215,6 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
                 <p className="text-xs text-text-muted flex items-center gap-1">
                   <MapPin className="h-3 w-3 shrink-0" />
                   {deliveryInfo.city}, {deliveryInfo.state}
-                  {deliveryInfo.zone ? ` · Zone ${deliveryInfo.zone}` : ""}
                 </p>
               )}
             </div>
@@ -326,14 +317,9 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
             {summary && (
               <>
                 <p className="text-xs text-text-muted mt-1">
-                  {summary.pickupPin} → {summary.deliveryPin} · Zone {summary.zone}{summary.zoneIsEstimate ? " (est.)" : ""} · {summary.applicableWeight.toFixed(2)} kg (
+                  {summary.pickupPin} → {summary.deliveryPin} · {summary.applicableWeight.toFixed(2)} kg (
                   {summary.chargedSlab}) · {paymentMode === "cod" ? "COD" : "Prepaid"} · {shipmentType === "return" ? "Return" : "Forward"}
                 </p>
-                {summary.zoneIsEstimate && (
-                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
-                    Pincode zone not mapped — showing Zone A rates as estimate
-                  </p>
-                )}
               </>
             )}
           </div>
@@ -351,10 +337,7 @@ export function DropshipperRateCalculatorPanel({ pincodeByPin }: Props) {
                         {rateQuoteSourceLabel(q.source)}
                       </Badge>
                     </div>
-                    <p className="text-xs text-text-muted">
-                      {q.zone ? `Zone ${q.zone}` : "—"}
-                      {q.tat ? ` · ${q.tat}` : ""}
-                    </p>
+                    {q.tat ? <p className="text-xs text-text-muted">{q.tat}</p> : null}
                     {q.multiplier && q.multiplier > 1 && (
                       <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
                         {q.multiplier}× slab rate (weight exceeds max slab)

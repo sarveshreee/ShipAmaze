@@ -145,8 +145,8 @@ export default function AdminRates() {
       <PageHeader title="Rates & Shipping" breadcrumb={["Admin", "Rates"]} />
 
       <p className="text-sm text-text-muted mb-4">
-        Configure courier-wise zone pricing and click <strong>Save Rates</strong> to publish. Dropshipper zone
-        rates sync from Delhivery matrix. Vendor changes still require{" "}
+        Configure courier-wise pricing and click <strong>Save Rates</strong> to publish. Dropshipper
+        rates sync from the saved matrix. Vendor changes still require{" "}
         <a href="/admin/approvals" className="text-primary underline">
           Pending Approvals
         </a>

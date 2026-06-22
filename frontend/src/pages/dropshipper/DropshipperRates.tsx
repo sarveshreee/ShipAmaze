@@ -436,13 +436,7 @@ export default function DropshipperRates() {
 
                       <span className="text-text-primary">{c.carrier_name}</span>
 
-                      <span className="text-text-muted">
-
-                        Zone {c.zone}
-
-                        {c.tat ? ` · ${c.tat}` : ""}
-
-                      </span>
+                      <span className="text-text-muted">{c.tat || "Available"}</span>
 
                     </div>
 
