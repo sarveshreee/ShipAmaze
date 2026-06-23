@@ -66,4 +66,36 @@ describe("buildVelocityProviderOrderId", () => {
       }),
     ]);
   });
+
+  it("sanitizes customer address fields before sending courier payloads", () => {
+    const payload = buildVelocityForwardOrchestrationPayload({
+      warehouse_id: "WHZBRR",
+      order_id: "ORD-12346",
+      payment_mode: "prepaid",
+      order_amount: 499,
+      weight: 0.5,
+      length: 1,
+      width: 1,
+      height: 1,
+      customer: {
+        name: "Riya Customer",
+        phone: "9999999999",
+        address: "House 12\\B | Near \"Main\" Road\nBlock — A",
+        city: "New\\Delhi",
+        state: "Delhi | NCR",
+        pincode: "110001",
+        country: "India",
+      },
+      items: [{ name: "Shipment Item", sku: "SKU-1", qty: 1, price: 499 }],
+    });
+
+    expect(payload).toEqual(
+      expect.objectContaining({
+        billing_address: "House 12 B Near Main Road Block A",
+        billing_city: "New Delhi",
+        billing_state: "Delhi NCR",
+      })
+    );
+    expect(JSON.stringify(payload)).not.toContain("\\");
+  });
 });

@@ -119,7 +119,8 @@ export function warehouseDocToVelocityInput(
  * Idempotent — does nothing if already linked.
  */
 export async function syncPickupToVelocity(
-  pickupId: Types.ObjectId | string
+  pickupId: Types.ObjectId | string,
+  opts?: { forceRecreate?: boolean }
 ): Promise<VelocityWarehouseSyncResult> {
   if (!isVelocityConfigured()) {
     return { linked: false, skipped: true, reason: "Velocity credentials not configured" };
@@ -130,7 +131,11 @@ export async function syncPickupToVelocity(
     return { linked: false, error: "Pickup address not found" };
   }
 
-  if (pickup.velocityWarehouseId?.trim()) {
+  if (pickup.velocityWarehouseId?.trim() && opts?.forceRecreate) {
+    await Pickup.findByIdAndUpdate(pickupId, { $unset: { velocityWarehouseId: 1 } });
+  }
+
+  if (pickup.velocityWarehouseId?.trim() && !opts?.forceRecreate) {
     const whId = pickup.velocityWarehouseId.trim();
     let fallbackEmail = "";
     try {
@@ -141,14 +146,26 @@ export async function syncPickupToVelocity(
     }
     const email = (pickup.email ?? "").trim() || fallbackEmail;
     if (email) {
+      let updateOk = false;
       try {
         const input = pickupToVelocityWarehouseInput(
           pickup as Parameters<typeof pickupToVelocityWarehouseInput>[0],
           fallbackEmail
         );
         await updateWarehouseInVelocity(whId, input);
+        updateOk = true;
       } catch {
-        /* Velocity may not support update; sanitized names apply on next warehouse create */
+        /* update failed — fall through to re-create fresh */
+      }
+      if (!updateOk) {
+        // Warehouse no longer exists in Velocity (e.g. WAREHOUSE_NOT_FOUND from Delhivery).
+        // Clear the stale ID so the create path below registers a fresh warehouse.
+        await Pickup.findByIdAndUpdate(pickupId, { $unset: { velocityWarehouseId: 1 } });
+        // Reload the pickup without the stale ID and fall through to creation.
+        const reloaded = await Pickup.findById(pickupId).lean();
+        if (!reloaded) return { linked: false, error: "Pickup address not found after re-sync attempt" };
+        // Re-enter with the cleared pickup.
+        return syncPickupToVelocity(pickupId);
       }
     }
     return { linked: true, warehouse_id: whId };
@@ -191,7 +208,8 @@ export async function syncPickupToVelocity(
  */
 export async function syncVendorWarehouseToVelocity(
   warehouseId: Types.ObjectId | string,
-  ownerUserId?: Types.ObjectId | string
+  ownerUserId?: Types.ObjectId | string,
+  opts?: { forceRecreate?: boolean }
 ): Promise<VelocityWarehouseSyncResult> {
   if (!isVelocityConfigured()) {
     return { linked: false, skipped: true, reason: "Velocity credentials not configured" };
@@ -202,7 +220,11 @@ export async function syncVendorWarehouseToVelocity(
     return { linked: false, error: "Warehouse not found" };
   }
 
-  if (wh.velocityWarehouseId?.trim()) {
+  if (wh.velocityWarehouseId?.trim() && opts?.forceRecreate) {
+    await Warehouse.findByIdAndUpdate(warehouseId, { $unset: { velocityWarehouseId: 1 } });
+  }
+
+  if (wh.velocityWarehouseId?.trim() && !opts?.forceRecreate) {
     return { linked: true, warehouse_id: wh.velocityWarehouseId.trim() };
   }
 

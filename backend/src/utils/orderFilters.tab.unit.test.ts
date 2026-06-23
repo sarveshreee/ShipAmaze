@@ -30,6 +30,19 @@ describe("buildTabQuery", () => {
     expect(JSON.stringify(q)).toContain("picked_up");
   });
 
+  it("in-transit checks saved Velocity shipmentStatus aliases", () => {
+    const q = buildTabQuery("in-transit");
+    expect(JSON.stringify(q)).toContain("shipmentStatus");
+    expect(JSON.stringify(q)).toContain("In Transit");
+    expect(JSON.stringify(q)).toContain("In-transit");
+  });
+
+  it("delivered checks saved Velocity shipmentStatus aliases", () => {
+    const q = buildTabQuery("delivered");
+    expect(JSON.stringify(q)).toContain("shipmentStatus");
+    expect(JSON.stringify(q)).toContain("Delivered");
+  });
+
   it("failed includes ndr and not_picked", () => {
     const q = buildTabQuery("failed");
     expect(JSON.stringify(q)).toContain("failed");

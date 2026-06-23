@@ -76,15 +76,19 @@ export function normalizeVelocityProviderOrderId(raw: string): string {
   return base;
 }
 
-/** Delhivery/Ekart JSON bridges are fragile with Unicode punctuation and pipes in line-item text. */
-export function sanitizeCourierLineItemText(raw: string, fallback = "Item"): string {
+/** Delhivery/Ekart JSON bridges are fragile with Unicode punctuation, backslashes, quotes, and pipes. */
+export function sanitizeCourierFreeText(raw: string, fallback: string): string {
   const cleaned = String(raw ?? "")
     .normalize("NFKD")
-    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/[^\x20-\x7E]/g, " ")
     .replace(/[\\|"']/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   return cleaned || fallback;
+}
+
+export function sanitizeCourierLineItemText(raw: string, fallback = "Item"): string {
+  return sanitizeCourierFreeText(raw, fallback);
 }
 
 /** Ekart and similar couriers reject special characters in person first names. */
@@ -205,11 +209,11 @@ export function buildVelocityForwardOrchestrationPayload(
     height: Number(payload.height),
     billing_customer_name,
     billing_last_name: billing_last_name || undefined,
-    billing_address: String(c.address ?? "").trim(),
-    billing_city: String(c.city ?? "").trim(),
-    billing_state: String(c.state ?? "").trim(),
+    billing_address: sanitizeCourierFreeText(String(c.address ?? ""), "Address"),
+    billing_city: sanitizeCourierFreeText(String(c.city ?? ""), "City"),
+    billing_state: sanitizeCourierFreeText(String(c.state ?? ""), "State"),
     billing_pincode: pinDigits,
-    billing_country: (c.country && String(c.country).trim()) || "India",
+    billing_country: sanitizeCourierFreeText(String(c.country ?? ""), "India"),
     billing_phone: String(c.phone ?? "").trim(),
     billing_email: c.email?.trim() ? String(c.email).trim() : undefined,
     shipping_is_billing: true,
@@ -235,11 +239,11 @@ export function buildVelocityWarehouseProviderPayload(
     email: input.email.trim().toLowerCase(),
     contact_person: sanitizeCourierPersonName(input.contact_person),
     address_attributes: {
-      street_address: input.street_address.trim(),
+      street_address: sanitizeCourierFreeText(input.street_address, "Address"),
       zip: normalizePincode(input.zip),
-      city: input.city.trim(),
-      state: input.state.trim(),
-      country: input.country.trim() || "India",
+      city: sanitizeCourierFreeText(input.city, "City"),
+      state: sanitizeCourierFreeText(input.state, "State"),
+      country: sanitizeCourierFreeText(input.country || "India", "India"),
     },
   };
   const gst = input.gst_no?.trim();

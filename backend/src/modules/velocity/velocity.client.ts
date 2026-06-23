@@ -178,9 +178,19 @@ async function velocityPostOnce<T>(endpoint: string, body: unknown): Promise<T> 
     } else {
       console.error(`[velocity] ${endpoint} error ${res.status}`);
     }
+    const rawMsg = extractProviderErrorMessage(data) || `Velocity error ${res.status}`;
+    const isWarehouseNotFound = /WAREHOUSE_NOT_FOUND/i.test(rawMsg) ||
+      (() => {
+        try {
+          return /WAREHOUSE_NOT_FOUND/i.test(JSON.stringify(data));
+        } catch { return false; }
+      })();
+    const friendlyMsg = isWarehouseNotFound
+      ? "Pickup address not registered with Delhivery. Please go to Settings → Pickup Addresses, open the pickup address, and click \"Re-sync to Velocity\" to fix this."
+      : rawMsg;
     const providerError: VelocityProviderError = {
       success: false,
-      message: extractProviderErrorMessage(data) || `Velocity error ${res.status}`,
+      message: friendlyMsg,
       provider: "velocity",
       providerStatusCode: res.status,
       providerError: data,

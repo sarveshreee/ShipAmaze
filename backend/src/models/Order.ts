@@ -94,6 +94,10 @@ export interface IOrder extends Document {
   velocityWarehouseId?: string;
   assignedDateTime?: Date;
   movedToReadyAt?: Date;
+  /** Date the courier actually picked up the parcel (from Velocity tracking API). */
+  pickupDate?: Date;
+  /** Estimated Delivery Date synced from Velocity tracking (pickup_date + courier transit days). */
+  edd?: Date;
   customerEmail?: string;
   customerPhone?: string;
   shippingAddress1?: string;
@@ -194,6 +198,8 @@ const orderSchema = new Schema<IOrder>(
     velocityWarehouseId: { type: String },
     assignedDateTime: { type: Date },
     movedToReadyAt: { type: Date },
+    pickupDate: { type: Date },
+    edd: { type: Date },
     customerEmail: { type: String },
     customerPhone: { type: String },
     shippingAddress1: { type: String },

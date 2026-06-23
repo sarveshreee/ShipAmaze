@@ -53,3 +53,11 @@ export function isProduction(): boolean {
 export function isVelocityEnabledFlag(): boolean {
   return truthyVelocityEnabled();
 }
+
+/**
+ * Returns true when Velocity credentials are configured, regardless of the VELOCITY_ENABLED flag.
+ * Used to gate background sync — if credentials exist, we can sync even in dev/staging.
+ */
+export function isVelocityConfigured(): boolean {
+  return !!(process.env.VELOCITY_USERNAME?.trim() && process.env.VELOCITY_PASSWORD?.trim());
+}

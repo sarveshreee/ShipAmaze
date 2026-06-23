@@ -194,6 +194,10 @@ export interface VelocityTrackingResponse {
   order_id?: string;
   shipment_track_activities: VelocityTrackingActivity[];
   message?: string;
+  /** ISO-ish date string when courier picked up the parcel, e.g. "2026-06-22 14:12:33" */
+  pickup_date?: string;
+  /** ISO-ish date string when parcel was delivered (null if not yet delivered) */
+  delivered_date?: string;
 }
 
 // Reverse / Return

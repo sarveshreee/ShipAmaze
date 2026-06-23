@@ -29,9 +29,26 @@ const velocityToInternalStatus: Record<string, string> = {
   return_ndr_raised: "ndr",
 };
 
+function normalizeVelocityStatusKey(velocityStatus: unknown): string {
+  const raw = typeof velocityStatus === "string" ? velocityStatus : String(velocityStatus ?? "");
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function normalizeInternalStatusKey(internalStatus: unknown): string {
+  return String(internalStatus || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 export function mapVelocityStatus(velocityStatus: unknown): string {
   const raw = typeof velocityStatus === "string" ? velocityStatus : String(velocityStatus ?? "");
-  const normalised = raw.toLowerCase().replace(/\s+/g, "_").trim();
+  const normalised = normalizeVelocityStatusKey(raw);
   return velocityToInternalStatus[normalised] ?? raw;
 }
 
@@ -39,18 +56,15 @@ const TERMINAL_INTERNAL = new Set(["delivered", "cancelled", "rto"]);
 
 /** Higher = later in typical forward journey (used to avoid status regression on sync). */
 export function internalShipmentProgressRank(internalStatus: string): number {
-  const s = String(internalStatus || "")
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .trim();
+  const s = normalizeInternalStatusKey(internalStatus);
   if (TERMINAL_INTERNAL.has(s)) return 100;
   if (s === "ndr") return 65;
-  if (s === "out-for-delivery") return 55;
-  if (s === "picked-up") return 48;
-  if (s === "in-transit") return 45;
-  if (s === "pickup-scheduled") return 38;
-  if (s === "not-picked") return 36;
-  if (s === "ready-to-ship") return 32;
+  if (s === "out_for_delivery") return 55;
+  if (s === "picked_up") return 48;
+  if (s === "in_transit") return 45;
+  if (s === "pickup_scheduled") return 38;
+  if (s === "not_picked") return 36;
+  if (s === "ready_to_ship") return 32;
   if (s === "pending") return 10;
   return 20;
 }
@@ -60,14 +74,8 @@ export function internalShipmentProgressRank(internalStatus: string): number {
  * Blocks downgrades after terminal states; allows forward progress and NDR oscillation within non-terminal band.
  */
 export function shouldApplyInternalStatusUpdate(currentInternal: string, incomingMapped: string): boolean {
-  const cur = String(currentInternal || "")
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .trim();
-  const inc = String(incomingMapped || "")
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .trim();
+  const cur = normalizeInternalStatusKey(currentInternal);
+  const inc = normalizeInternalStatusKey(incomingMapped);
   if (!inc) return false;
   if (inc === cur) return true;
 
@@ -107,6 +115,6 @@ export function velocityStatusLabel(velocityStatus: unknown): string {
     return_ndr_raised: "Return NDR",
   };
   const raw = typeof velocityStatus === "string" ? velocityStatus : String(velocityStatus ?? "");
-  const normalised = raw.toLowerCase().replace(/\s+/g, "_").trim();
+  const normalised = normalizeVelocityStatusKey(raw);
   return labels[normalised] ?? raw;
 }

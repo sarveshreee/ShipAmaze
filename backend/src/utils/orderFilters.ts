@@ -26,10 +26,13 @@ export async function buildOrderVisibilityQuery(user: IUser): Promise<Record<str
 const READY_OR_PENDING_PICKUP = [
   "ready-to-ship",
   "ready_to_ship",
+  "Ready to Ship",
   "pending-pickup",
   "pending_pickup",
+  "Pending Pickup",
   "pickup_scheduled",
   "pickup-scheduled",
+  "Pickup Scheduled",
 ];
 
 /** Orders that have entered the fulfillment pipeline — hidden from Channel / Manual tabs. */
@@ -37,23 +40,91 @@ const FULFILLMENT_PIPELINE_STATUSES = [
   ...READY_OR_PENDING_PICKUP,
   "picked_up",
   "picked-up",
+  "Picked Up",
   "in-transit",
   "in_transit",
+  "In Transit",
+  "In transit",
+  "In-Transit",
+  "In-transit",
   "shipped",
+  "Shipped",
   "out-for-delivery",
   "out_for_delivery",
+  "Out For Delivery",
+  "Out for Delivery",
+  "Out-For-Delivery",
+  "Out-for-delivery",
   "delivered",
+  "Delivered",
   "failed",
+  "Failed",
   "ndr",
+  "NDR",
   "not_picked",
   "not-picked",
+  "Not Picked",
   "rto",
+  "RTO",
   "reship",
 ];
 
-const IN_TRANSIT_STATUSES = ["in-transit", "in_transit", "shipped", "picked_up", "picked-up"];
-const FAILED_STATUSES = ["failed", "ndr", "not_picked", "not-picked"];
-const OUT_FOR_DELIVERY_STATUSES = ["out-for-delivery", "out_for_delivery"];
+const READY_TO_SHIP_STATUSES = ["ready-to-ship", "ready_to_ship", "Ready to Ship"];
+const PENDING_PICKUP_STATUSES = [
+  "pending-pickup",
+  "pending_pickup",
+  "Pending Pickup",
+  "pickup_scheduled",
+  "pickup-scheduled",
+  "Pickup Scheduled",
+];
+const IN_TRANSIT_STATUSES = [
+  "in-transit",
+  "in_transit",
+  "In Transit",
+  "In transit",
+  "In-Transit",
+  "In-transit",
+  "shipped",
+  "Shipped",
+  "picked_up",
+  "picked-up",
+  "Picked Up",
+];
+const FAILED_STATUSES = ["failed", "Failed", "ndr", "NDR", "not_picked", "not-picked", "Not Picked"];
+const OUT_FOR_DELIVERY_STATUSES = [
+  "out-for-delivery",
+  "out_for_delivery",
+  "Out For Delivery",
+  "Out for Delivery",
+  "Out-For-Delivery",
+  "Out-for-delivery",
+];
+const DELIVERED_STATUSES = ["delivered", "Delivered"];
+const CLOSED_STATUSES = [...DELIVERED_STATUSES, "rto", "RTO", "cancelled", "canceled", "Cancelled", "Canceled"];
+const AFTER_READY_TO_SHIP_STATUSES = [
+  ...PENDING_PICKUP_STATUSES,
+  ...IN_TRANSIT_STATUSES,
+  ...OUT_FOR_DELIVERY_STATUSES,
+  ...DELIVERED_STATUSES,
+  ...FAILED_STATUSES,
+  ...CLOSED_STATUSES,
+];
+const AFTER_PENDING_PICKUP_STATUSES = [
+  ...IN_TRANSIT_STATUSES,
+  ...OUT_FOR_DELIVERY_STATUSES,
+  ...DELIVERED_STATUSES,
+  ...FAILED_STATUSES,
+  ...CLOSED_STATUSES,
+];
+const AFTER_IN_TRANSIT_STATUSES = [
+  ...OUT_FOR_DELIVERY_STATUSES,
+  ...DELIVERED_STATUSES,
+  ...FAILED_STATUSES,
+  ...CLOSED_STATUSES,
+];
+const AFTER_OUT_FOR_DELIVERY_STATUSES = [...DELIVERED_STATUSES, ...FAILED_STATUSES, ...CLOSED_STATUSES];
+const AFTER_FAILED_STATUSES = [...DELIVERED_STATUSES, ...CLOSED_STATUSES];
 
 /** Shopify today; any non-empty externalSource (except manual) counts as channel for future platforms. */
 function channelSourceFilter(): Record<string, unknown> {
@@ -92,9 +163,28 @@ function channelManualBaseQuery(channelOrManual: "channel" | "manual"): Record<s
     $and: [
       { isJunk: { $ne: true } },
       { status: { $ne: "reship", $nin: FULFILLMENT_PIPELINE_STATUSES } },
+      { shipmentStatus: { $nin: FULFILLMENT_PIPELINE_STATUSES } },
       { shipmentCreated: { $ne: true } },
       { $or: [{ awb: { $exists: false } }, { awb: null }, { awb: "" }] },
       sourceFilter,
+    ],
+  };
+}
+
+function statusOrShipmentStatusIn(statuses: string[]): Record<string, unknown> {
+  return {
+    $or: [
+      { status: { $in: statuses } },
+      { shipmentStatus: { $in: statuses } },
+    ],
+  };
+}
+
+function neitherStatusNorShipmentStatusIn(statuses: string[]): Record<string, unknown> {
+  return {
+    $and: [
+      { status: { $nin: statuses } },
+      { shipmentStatus: { $nin: statuses } },
     ],
   };
 }
@@ -124,36 +214,62 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
   if (t === "ready-to-ship" || t === "ready_to_ship") {
     return {
       isJunk: { $ne: true },
-      status: { $in: ["ready-to-ship", "ready_to_ship"] },
-      $or: [{ awb: { $exists: false } }, { awb: null }, { awb: "" }],
+      $and: [
+        statusOrShipmentStatusIn(READY_TO_SHIP_STATUSES),
+        neitherStatusNorShipmentStatusIn(AFTER_READY_TO_SHIP_STATUSES),
+        { $or: [{ awb: { $exists: false } }, { awb: null }, { awb: "" }] },
+      ],
     };
   }
   if (t === "pending-pickup" || t === "pending_pickup") {
     return {
       isJunk: { $ne: true },
-      $or: [
-        { status: { $in: ["pending-pickup", "pending_pickup", "pickup_scheduled", "pickup-scheduled"] } },
+      $and: [
         {
-          status: { $in: ["ready-to-ship", "ready_to_ship"] },
-          awb: { $regex: /\S/ },
+          $or: [
+            statusOrShipmentStatusIn(PENDING_PICKUP_STATUSES),
+            {
+              ...statusOrShipmentStatusIn(READY_TO_SHIP_STATUSES),
+              awb: { $regex: /\S/ },
+            },
+          ],
         },
+        neitherStatusNorShipmentStatusIn(AFTER_PENDING_PICKUP_STATUSES),
       ],
     };
   }
   if (t === "in-transit" || t === "in_transit") {
-    return { isJunk: { $ne: true }, status: { $in: IN_TRANSIT_STATUSES } };
+    return {
+      isJunk: { $ne: true },
+      $and: [
+        statusOrShipmentStatusIn(IN_TRANSIT_STATUSES),
+        neitherStatusNorShipmentStatusIn(AFTER_IN_TRANSIT_STATUSES),
+      ],
+    };
   }
   if (t === "out-for-delivery" || t === "out_for_delivery") {
-    return { isJunk: { $ne: true }, status: { $in: OUT_FOR_DELIVERY_STATUSES } };
+    return {
+      isJunk: { $ne: true },
+      $and: [
+        statusOrShipmentStatusIn(OUT_FOR_DELIVERY_STATUSES),
+        neitherStatusNorShipmentStatusIn(AFTER_OUT_FOR_DELIVERY_STATUSES),
+      ],
+    };
   }
   if (t === "delivered") {
-    return { isJunk: { $ne: true }, status: "delivered" };
+    return { isJunk: { $ne: true }, ...statusOrShipmentStatusIn(DELIVERED_STATUSES) };
   }
   if (t === "reship") {
     return { isJunk: { $ne: true }, status: "reship" };
   }
   if (t === "failed") {
-    return { isJunk: { $ne: true }, status: { $in: FAILED_STATUSES } };
+    return {
+      isJunk: { $ne: true },
+      $and: [
+        statusOrShipmentStatusIn(FAILED_STATUSES),
+        neitherStatusNorShipmentStatusIn(AFTER_FAILED_STATUSES),
+      ],
+    };
   }
   return undefined;
 }

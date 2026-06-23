@@ -205,7 +205,7 @@ export async function unlinkVelocityWarehouse(warehouseId: string) {
 }
 
 /** Auto-create warehouse in Velocity from local Pickup or vendor Warehouse doc. */
-export async function syncVelocityWarehouse(params: { pickupId?: string; warehouseId?: string }) {
+export async function syncVelocityWarehouse(params: { pickupId?: string; warehouseId?: string; forceRecreate?: boolean }) {
   return apiClient.post<{
     success: boolean;
     data: { linked: boolean; warehouse_id?: string; skipped?: boolean; reason?: string };
@@ -292,4 +292,17 @@ export async function getVelocityReports(params?: Record<string, unknown>) {
     "/velocity/reports",
     params ?? {}
   );
+}
+
+export interface StatusSyncResult {
+  success: boolean;
+  processed: number;
+  updated: number;
+  errors: number;
+  skipped: number;
+  errorDetails?: string[];
+}
+
+export async function syncShipmentStatuses(batchSize = 100) {
+  return apiClient.post<StatusSyncResult>("/velocity/sync-statuses", { batchSize });
 }

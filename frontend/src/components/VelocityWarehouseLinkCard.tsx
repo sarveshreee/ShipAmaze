@@ -74,8 +74,8 @@ export function VelocityWarehouseLinkCard({
     setSaving(true);
     try {
       const params = kind === "warehouse"
-        ? { warehouseId: mongoId }
-        : { pickupId: mongoId };
+        ? { warehouseId: mongoId, forceRecreate: true }
+        : { pickupId: mongoId, forceRecreate: true };
       const resp = await velocityService.syncVelocityWarehouse(params);
       if (resp.data.skipped) {
         toast.warning(resp.data.reason ?? "Velocity sync skipped — credentials may not be configured.");

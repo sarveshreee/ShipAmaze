@@ -198,8 +198,99 @@ export async function cancelShipment(payload: VelocityCancelRequest) {
 
 // ─── Tracking ────────────────────────────────────────────
 
+/**
+ * Normalize the raw Velocity tracking API response into a consistent shape.
+ *
+ * Velocity's tracking endpoint may differ from the forward-order endpoint:
+ * - Status can be in `shipment_status` OR `status`
+ * - Response may be wrapped in `{ payload: {...} }` or `{ data: [{...}] }`
+ *
+ * Mirrors the same resilience as `normalizeForwardOrderResponse`.
+ */
+function normalizeTrackingResponse(raw: unknown): VelocityTrackingResponse {
+  let data = (raw != null && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+
+  // Unwrap { payload: { ... } } — same as forward-order responses
+  if (data.payload != null && typeof data.payload === "object") {
+    data = data.payload as Record<string, unknown>;
+  }
+
+  // Unwrap { result: { [awb]: { tracking_data: { shipment_status, shipment_track_activities, ... } } } }
+  // This is the actual format returned by Velocity's /order-tracking endpoint.
+  if (data.result != null && typeof data.result === "object" && !Array.isArray(data.result)) {
+    const resultObj = data.result as Record<string, unknown>;
+    const firstKey = Object.keys(resultObj)[0];
+    if (firstKey) {
+      const entry = resultObj[firstKey];
+      if (entry != null && typeof entry === "object") {
+        const entryObj = entry as Record<string, unknown>;
+        const trackingData =
+          entryObj.tracking_data != null && typeof entryObj.tracking_data === "object"
+            ? (entryObj.tracking_data as Record<string, unknown>)
+            : entryObj;
+        // current_status from shipment_track[0] is the most reliable field
+        const shipmentTrackFirst =
+          Array.isArray(trackingData.shipment_track) && trackingData.shipment_track.length > 0
+            ? (trackingData.shipment_track[0] as Record<string, unknown>)
+            : null;
+        data = {
+          awb: firstKey,
+          ...trackingData,
+          shipment_status:
+            trackingData.shipment_status ??
+            shipmentTrackFirst?.current_status ??
+            "",
+          // Hoist pickup/delivered dates from shipment_track[0] for easy access
+          pickup_date: trackingData.pickup_date ?? shipmentTrackFirst?.pickup_date,
+          delivered_date: trackingData.delivered_date ?? shipmentTrackFirst?.delivered_date,
+        };
+      }
+    }
+  }
+
+  // Unwrap list-style { data: [{ ... }] } — some Velocity endpoints return arrays
+  if (Array.isArray(data.data) && data.data.length > 0) {
+    const first = data.data[0];
+    if (first != null && typeof first === "object") {
+      data = first as Record<string, unknown>;
+    }
+  }
+
+  // Activities: may live at shipment_track_activities or tracking_activities
+  const activities =
+    Array.isArray(data.shipment_track_activities)
+      ? (data.shipment_track_activities as { date: string; activity: string; location: string }[])
+      : Array.isArray(data.tracking_activities)
+        ? (data.tracking_activities as { date: string; activity: string; location: string }[])
+        : [];
+
+  const pickupDateStr =
+    typeof data.pickup_date === "string" && data.pickup_date
+      ? data.pickup_date
+      : typeof data.pickup_date === "number"
+        ? String(data.pickup_date)
+        : undefined;
+  const deliveredDateStr =
+    typeof data.delivered_date === "string" && data.delivered_date
+      ? data.delivered_date
+      : undefined;
+
+  return {
+    awb: String(data.awb ?? data.awb_code ?? ""),
+    // Accept shipment_status (Velocity's forward-order field name) OR status
+    status: String(data.shipment_status ?? data.status ?? ""),
+    carrier_name: typeof data.carrier_name === "string" ? data.carrier_name : undefined,
+    order_id: typeof data.order_id === "string" ? data.order_id : undefined,
+    shipment_track_activities: activities,
+    message: typeof data.message === "string" ? data.message : undefined,
+    pickup_date: pickupDateStr,
+    delivered_date: deliveredDateStr,
+  };
+}
+
 export async function trackShipment(payload: VelocityTrackingRequest) {
-  return velocityPost<VelocityTrackingResponse>("/custom/api/v1/order-tracking", payload);
+  const raw = await velocityPost<unknown>("/custom/api/v1/order-tracking", payload);
+  return normalizeTrackingResponse(raw);
 }
 
 // ─── Lists / Reports ─────────────────────────────────────

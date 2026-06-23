@@ -135,6 +135,8 @@ function mapOrder(o: {
   shopifyTags?: string;
   lastShopifySyncAt?: Date;
   adminRemark?: string;
+  pickupDate?: Date;
+  edd?: Date;
 }) {
   const items = (o.orderItems ?? o.items ?? o.products ?? []) as unknown[];
   const productsOut = Array.isArray(o.products) && o.products.length > 0 ? o.products : items;
@@ -213,6 +215,8 @@ function mapOrder(o: {
     shopifyNote: o.shopifyNote,
     shopifyTags: o.shopifyTags,
     adminRemark: o.adminRemark,
+    pickupDate: o.pickupDate instanceof Date ? o.pickupDate.toISOString() : o.pickupDate ? String(o.pickupDate) : undefined,
+    edd: o.edd instanceof Date ? o.edd.toISOString() : o.edd ? String(o.edd) : undefined,
     lastShopifySyncAt:
       o.lastShopifySyncAt instanceof Date ? o.lastShopifySyncAt.toISOString() : o.lastShopifySyncAt
         ? String(o.lastShopifySyncAt)

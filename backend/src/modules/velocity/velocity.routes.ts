@@ -72,4 +72,7 @@ router.post("/shipments", requireRoles("admin"), vc.listVelocityShipments);
 router.post("/returns", requireRoles("admin"), vc.listVelocityReturns);
 router.post("/reports", requireRoles("admin"), vc.getVelocityReports);
 
+// Admin-only: bulk status refresh from Velocity
+router.post("/sync-statuses", requireRoles("admin"), vc.syncShipmentStatuses);
+
 export default router;

@@ -11,7 +11,7 @@ import type { Order } from "@/types/logistics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Search, Download, Package, SlidersHorizontal, X } from "lucide-react";
+import { Search, Download, Package, SlidersHorizontal, X, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import * as orderService from "@/services/orderService";
+import { syncShipmentStatuses } from "@/services/velocityService";
 import type { OrderListFilterValues } from "@/services/orderService";
 import { errorMessageFromUnknown } from "@/lib/errorMessage";
 import { orderMatchesTab } from "@/lib/orderTabFilters";
@@ -281,6 +282,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   }, [selectedOrders, activeTab, RELAXED_PROCESS_TABS]);
 
   const [processSubmitting, setProcessSubmitting] = useState(false);
+  const [refreshingStatuses, setRefreshingStatuses] = useState(false);
 
   const getCount = useCallback(
     (filter: string) => {
@@ -372,6 +374,33 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     }
   };
 
+  const handleRefreshStatuses = async () => {
+    if (refreshingStatuses) return;
+    setRefreshingStatuses(true);
+    try {
+      const result = await syncShipmentStatuses(150);
+      if (result.errors > 0 && result.updated === 0) {
+        // All orders failed — surface the error detail so the admin can diagnose
+        const detail = result.errorDetails?.[0] ?? "Check server logs for details";
+        toast.error(`Tracking sync failed for ${result.errors} order${result.errors !== 1 ? "s" : ""} — ${detail}`);
+      } else if (result.updated > 0 && result.errors > 0) {
+        toast.warning(
+          `Updated ${result.updated} status${result.updated !== 1 ? "es" : ""} · ${result.errors} failed (see server logs)`
+        );
+        await refetch();
+      } else if (result.updated > 0) {
+        toast.success(`Updated ${result.updated} shipment status${result.updated !== 1 ? "es" : ""} from Velocity`);
+        await refetch();
+      } else {
+        toast.info(`All ${result.processed} shipment statuses are already up to date`);
+      }
+    } catch (err) {
+      toast.error(errorMessageFromUnknown(err) || "Failed to refresh shipment statuses");
+    } finally {
+      setRefreshingStatuses(false);
+    }
+  };
+
   const handleExport = () => {
     const data = selected.size > 0 ? filtered.filter(o => selected.has(o.id)) : filtered;
     downloadCSV("orders_export", ["ID","Customer","City","Status","Payment","Amount","Date","AWB","Courier"], data.map(o => [o.id, o.customer, o.city, o.status, o.payment, o.amount, o.date, o.awb, o.courier]));
@@ -383,6 +412,23 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       <PageHeader title="All Orders" breadcrumb={[breadcrumbPrefix, "All Orders"]}
         actions={
           <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 hidden sm:flex"
+                    onClick={handleRefreshStatuses}
+                    disabled={refreshingStatuses}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${refreshingStatuses ? "animate-spin" : ""}`} />
+                    {refreshingStatuses ? "Refreshing…" : "Refresh Tracking"}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Sync latest shipment statuses from Velocity (In Transit, Delivered, etc.)</TooltipContent>
+              </Tooltip>
+            )}
             {showActions && (
               <Button onClick={handleExport} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2 hidden sm:flex"><Download className="h-4 w-4" />Export CSV</Button>
             )}

@@ -26,6 +26,7 @@ import {
   syncPickupToVelocity,
   syncVendorWarehouseToVelocity,
 } from "./velocity.warehouseSync.js";
+import { syncActiveShipmentStatuses } from "./velocity.statusSync.js";
 import { devLog } from "../../utils/devLog.js";
 import type {
   VelocityCustomer,
@@ -485,6 +486,7 @@ export const syncWarehouse = asyncHandler(async (req: AuthRequest, res: Response
   const body = req.body as Record<string, unknown>;
   const rawPickupId = body.pickupId != null ? String(body.pickupId).trim() : "";
   const rawWarehouseId = body.warehouseId != null ? String(body.warehouseId).trim() : "";
+  const forceRecreate = body.forceRecreate === true || String(body.forceRecreate ?? "").toLowerCase() === "true";
 
   if (!rawPickupId && !rawWarehouseId) {
     throw new AppError(400, "Provide either pickupId or warehouseId");
@@ -492,14 +494,14 @@ export const syncWarehouse = asyncHandler(async (req: AuthRequest, res: Response
 
   if (rawPickupId) {
     if (!mongoose.isValidObjectId(rawPickupId)) throw new AppError(400, "Invalid pickupId");
-    const result = await syncPickupToVelocity(rawPickupId);
+    const result = await syncPickupToVelocity(rawPickupId, { forceRecreate });
     if ("error" in result) throw new AppError(422, result.error);
     res.json({ success: true, data: result });
     return;
   }
 
   if (!mongoose.isValidObjectId(rawWarehouseId)) throw new AppError(400, "Invalid warehouseId");
-  const result = await syncVendorWarehouseToVelocity(rawWarehouseId, req.user._id);
+  const result = await syncVendorWarehouseToVelocity(rawWarehouseId, req.user._id, { forceRecreate });
   if ("error" in result) throw new AppError(422, result.error);
   res.json({ success: true, data: result });
 });
@@ -1198,6 +1200,16 @@ export const getVelocityReports = asyncHandler(async (req: AuthRequest, res: Res
 
   const result = await velocityService.getReports(req.body as Record<string, unknown>);
   res.json({ success: true, data: result.data ?? [] });
+});
+
+// ─── Bulk status sync (admin-triggered or background job) ─
+export const syncShipmentStatuses = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+
+  const batchSize = Math.min(200, Math.max(1, Number((req.body as Record<string, unknown>).batchSize ?? 100)));
+  const syncResult = await syncActiveShipmentStatuses(batchSize);
+  res.json({ success: true, ...syncResult });
 });
 
 // ─── Helpers ─────────────────────────────────────────────

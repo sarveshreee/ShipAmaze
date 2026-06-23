@@ -2,13 +2,14 @@ import "dotenv/config";
 import http from "node:http";
 import { createApp } from "./app.js";
 import { connectDb, disconnectDb } from "./config/db.js";
-import { isVelocityEnabledFlag, redactMongoUri, validateEnv } from "./config/env.js";
+import { isVelocityEnabledFlag, isVelocityConfigured, redactMongoUri, validateEnv } from "./config/env.js";
 import { getMailTransportStatus } from "./services/mail.js";
 import { brevoApiKeyHint, isLikelyBrevoV3ApiKey } from "./services/email/emailApiTransport.js";
 import { devLog } from "./utils/devLog.js";
 import { ShopifyStoreConnection } from "./models/ShopifyStoreConnection.js";
 import { performShopifyOrderSyncForUser } from "./services/shopifySyncRunner.js";
 import { Courier } from "./models/Courier.js";
+import { syncActiveShipmentStatuses } from "./modules/velocity/velocity.statusSync.js";
 
 validateEnv();
 
@@ -39,13 +40,17 @@ async function main() {
   const app = createApp();
   const server = http.createServer(app);
 
+  let _retrying = false;
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      devLog.warn(`[server] Port ${PORT} in use, retrying in 1 s…`);
+      if (_retrying) return;
+      _retrying = true;
+      devLog.warn(`[server] Port ${PORT} in use, retrying in 1.5 s…`);
       setTimeout(() => {
+        _retrying = false;
         server.close();
         server.listen(PORT);
-      }, 1000);
+      }, 1500);
     } else {
       console.error("[server] Unhandled server error", err);
       process.exit(1);
@@ -93,6 +98,38 @@ async function main() {
       console.info(`[server] ShipAmaze API ready on port ${PORT}`);
     }
   });
+
+  // Background Velocity shipment status sync — runs every 5 minutes.
+  // Updates `status`, `shipmentStatus`, `pickupDate`, and `edd` for all active AWB orders
+  // so that In Transit / Out for Delivery / Delivered tabs and EDD stay current automatically.
+  // Runs whenever Velocity credentials are configured (VELOCITY_USERNAME + VELOCITY_PASSWORD),
+  // regardless of the VELOCITY_ENABLED flag so dev/staging environments sync correctly too.
+  const velocityBgSync = setInterval(async () => {
+    try {
+      if (!isVelocityConfigured()) return;
+      const r = await syncActiveShipmentStatuses(150);
+      devLog.info(
+        `[velocity:bg-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}`
+      );
+    } catch (e: unknown) {
+      devLog.warn("[velocity:bg-sync] error", e instanceof Error ? e.message : e);
+    }
+  }, 5 * 60 * 1000);
+  velocityBgSync.unref();
+
+  // Run an initial sync 30 seconds after startup so statuses are fresh on first page load.
+  if (isVelocityConfigured()) {
+    setTimeout(async () => {
+      try {
+        const r = await syncActiveShipmentStatuses(150);
+        devLog.info(
+          `[velocity:startup-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}`
+        );
+      } catch (e: unknown) {
+        devLog.warn("[velocity:startup-sync] error", e instanceof Error ? e.message : e);
+      }
+    }, 30_000).unref();
+  }
 
   // Background Shopify order sync — runs every 5 minutes as a fallback for any webhook misses
   const shopifyBgSync = setInterval(async () => {
