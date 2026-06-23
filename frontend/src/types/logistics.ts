@@ -112,6 +112,10 @@ export interface Order {
   trackingActivities?: TrackingActivity[];
   velocityWarehouseId?: string;
   assignedDateTime?: string;
+  /** Courier pickup date synced from Velocity tracking. */
+  pickupDate?: string;
+  /** Estimated Delivery Date synced from Velocity shipment milestones. */
+  edd?: string;
   channel?: string;
   externalSource?: string;
   externalOrderName?: string;

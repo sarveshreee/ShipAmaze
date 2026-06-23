@@ -187,6 +187,8 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     rtoCharges: o.rtoCharges !== undefined && o.rtoCharges !== null ? Number(o.rtoCharges) : undefined,
     trackingUrl: o.trackingUrl != null ? String(o.trackingUrl) : undefined,
     trackingActivities: (o.trackingActivities as Order["trackingActivities"]) || undefined,
+    pickupDate: o.pickupDate != null ? String(o.pickupDate) : undefined,
+    edd: o.edd != null ? String(o.edd) : undefined,
     statusHistory: (o.statusHistory as Order["statusHistory"]) || undefined,
     sourceType: o.sourceType != null ? String(o.sourceType) : undefined,
     shopifyOrderNumericId: o.shopifyOrderNumericId != null ? String(o.shopifyOrderNumericId) : undefined,

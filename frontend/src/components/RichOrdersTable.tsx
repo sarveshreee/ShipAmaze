@@ -1308,20 +1308,24 @@ export function RichOrdersTable({
                   {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (
                     <td className="p-3">
                       {(() => {
-                        const courierName = o.courier || (o as any).courier_name || "-";
-                        const eddDate = (o as any).edd ? new Date((o as any).edd) : (() => { const d = o.date ? new Date(o.date) : new Date(); d.setDate(d.getDate() + 4); return d; })();
+                        const courierName = o.courier || (o as any).courierName || (o as any).courier_name || "-";
+                        const rawEdd = (o as any).edd;
+                        const eddDate = rawEdd ? new Date(rawEdd) : null;
+                        const showEdd = activeTab !== "pending-pickup" && eddDate && !Number.isNaN(eddDate.getTime());
                         const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-                        const eddStr = `${eddDate.getDate()} ${months[eddDate.getMonth()]} '${String(eddDate.getFullYear()).slice(2)}`;
+                        const eddStr = showEdd ? `${eddDate.getDate()} ${months[eddDate.getMonth()]} '${String(eddDate.getFullYear()).slice(2)}` : "";
                         return (
                           <div className="space-y-1.5">
                             <div className="flex items-center gap-1.5">
                               <Truck className="h-3 w-3 text-text-muted shrink-0" />
                               <p className="text-xs font-semibold text-text-primary">{courierName}</p>
                             </div>
-                            <div className="flex items-center gap-1.5">
-                              <Calendar className="h-3 w-3 text-text-muted shrink-0" />
-                              <span className="text-[11px] text-text-secondary">EDD: {eddStr}</span>
-                            </div>
+                            {showEdd && (
+                              <div className="flex items-center gap-1.5">
+                                <Calendar className="h-3 w-3 text-text-muted shrink-0" />
+                                <span className="text-[11px] text-text-secondary">EDD: {eddStr}</span>
+                              </div>
+                            )}
                           </div>
                         );
                       })()}

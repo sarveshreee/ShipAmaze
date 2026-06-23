@@ -10,7 +10,7 @@
  */
 
 import { Order } from "../../models/Order.js";
-import { trackShipment } from "./velocity.service.js";
+import { listShipments, trackShipment } from "./velocity.service.js";
 import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.mapper.js";
 import { normalizeOrderStatus } from "../../utils/orderStatus.js";
 import { devLog } from "../../utils/devLog.js";
@@ -50,20 +50,34 @@ export interface StatusSyncResult {
   errorDetails?: string[];
 }
 
-/**
- * Returns estimated transit days for a courier.
- * Used to compute EDD = pickup_date + transit_days when Velocity does not return EDD directly.
- */
-function estimateTransitDays(courierName: string | undefined): number {
-  const name = (courierName ?? "").toLowerCase();
-  if (name.includes("bluedart")) return 4;
-  if (name.includes("delhivery")) return 5;
-  if (name.includes("xpressbees")) return 5;
-  if (name.includes("shadowfax")) return 5;
-  if (name.includes("dtdc")) return 5;
-  if (name.includes("ekart")) return 6;
-  if (name.includes("amazon")) return 7;
-  return 7;
+function extractVelocityShipmentEdd(row: unknown): string | undefined {
+  const obj = row != null && typeof row === "object" ? (row as Record<string, unknown>) : {};
+  const attrs =
+    obj.attributes != null && typeof obj.attributes === "object"
+      ? (obj.attributes as Record<string, unknown>)
+      : obj;
+
+  const milestones = Array.isArray(attrs.shipment_milestones)
+    ? (attrs.shipment_milestones as Record<string, unknown>[])
+    : [];
+  const original = milestones.find((m) => String(m.milestone ?? "") === "original_expected_delivery_date");
+  const current = milestones.find((m) => String(m.milestone ?? "") === "expected_delivery_date");
+  const value = original?.milestone_at ?? current?.milestone_at;
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+async function getVelocityDeliveryDateForAwb(awb: string): Promise<string | undefined> {
+  const result = await listShipments({ search: awb });
+  const rows = Array.isArray(result.data) ? result.data : [];
+  const row = rows.find((r) => {
+    const obj = r != null && typeof r === "object" ? (r as Record<string, unknown>) : {};
+    const attrs =
+      obj.attributes != null && typeof obj.attributes === "object"
+        ? (obj.attributes as Record<string, unknown>)
+        : obj;
+    return String(attrs.tracking_number ?? attrs.awb ?? attrs.awb_code ?? "") === awb;
+  });
+  return extractVelocityShipmentEdd(row);
 }
 
 function appendHistoryEntry(
@@ -156,13 +170,18 @@ export async function syncActiveShipmentStatuses(
             doc.pickupDate = pickupD;
             changed = true;
           }
-          // Compute EDD = pickup_date + courier transit days (only set if not already populated
-          // or the existing EDD is the old order.date+4 fallback which would be earlier than pickup).
-          const transitDays = estimateTransitDays(lean.courierName as string | undefined);
-          const eddMs = pickupMs + transitDays * 24 * 60 * 60 * 1000;
-          const eddD = new Date(eddMs);
-          if (!doc.edd || Math.abs(doc.edd.getTime() - eddD.getTime()) > 12 * 60 * 60 * 1000) {
-            doc.edd = eddD;
+        }
+      }
+
+      // Velocity's UI Delivery Date is returned by /shipments search under
+      // shipment_milestones.original_expected_delivery_date, not by /order-tracking.
+      const velocityEdd = await getVelocityDeliveryDateForAwb(awb).catch(() => undefined);
+      if (velocityEdd) {
+        const velocityEddMs = Date.parse(velocityEdd);
+        if (!isNaN(velocityEddMs)) {
+          const velocityEddDate = new Date(velocityEddMs);
+          if (!doc.edd || doc.edd.getTime() !== velocityEddDate.getTime()) {
+            doc.edd = velocityEddDate;
             changed = true;
           }
         }

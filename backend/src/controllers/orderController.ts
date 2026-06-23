@@ -396,8 +396,10 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
     Order.countDocuments(query),
   ]);
 
+  const mappedRows = rows.map((o) => mapOrder(o));
+
   res.json({
-    orders: rows.map((o) => mapOrder(o)),
+    orders: mappedRows,
     total,
     page: pq.page,
     pageSize: pq.pageSize,

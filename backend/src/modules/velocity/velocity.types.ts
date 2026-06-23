@@ -231,6 +231,8 @@ export interface VelocityShipmentsRequest {
   from_date?: string;
   to_date?: string;
   status?: string;
+  /** Velocity list search, supports AWB/tracking number lookup. */
+  search?: string;
   page?: number;
   per_page?: number;
 }
