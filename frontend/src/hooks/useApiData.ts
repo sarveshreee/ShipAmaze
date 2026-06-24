@@ -103,6 +103,13 @@ function useApiQuery<T>(key: string, queryFn: () => Promise<T[]>): SimpleQueryRe
     };
   }, [key, queryFn]);
 
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [load]);
+
   return useMemo(
     () => ({
       data,
@@ -271,6 +278,8 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
     amountMax,
     hasAwb,
     shipmentCreated,
+    dropshipperId,
+    vendorId,
   } = opts;
 
   const adv: OrderListFilterValues = {
@@ -289,6 +298,8 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
     amountMax,
     hasAwb,
     shipmentCreated,
+    dropshipperId,
+    vendorId,
   };
 
   const [data, setData] = useState<Order[]>([]);
@@ -363,6 +374,8 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
     amountMax,
     hasAwb,
     shipmentCreated,
+    dropshipperId,
+    vendorId,
   ]);
 
   useEffect(() => {
@@ -381,6 +394,13 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 30_000);
+    return () => window.clearInterval(id);
   }, [load]);
 
   return useMemo(

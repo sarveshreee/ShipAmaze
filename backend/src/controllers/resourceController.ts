@@ -36,6 +36,8 @@ import { Transaction } from "../models/Transaction.js";
 import { Invoice } from "../models/Invoice.js";
 import { NDR } from "../models/NDR.js";
 import { ReturnOrder } from "../models/ReturnOrder.js";
+import { Order } from "../models/Order.js";
+import { buildOrderVisibilityQuery } from "../utils/orderFilters.js";
 import { WeightDispute } from "../models/WeightDispute.js";
 import { Manifest } from "../models/Manifest.js";
 import { Pickup } from "../models/Pickup.js";
@@ -963,8 +965,19 @@ export const listInvoices = asyncHandler(async (req: AuthRequest, res: Response)
   });
 });
 
-export const listNdr = asyncHandler(async (_req: AuthRequest, res: Response) => {
-  const rows = await NDR.find().sort({ createdAt: -1 }).lean();
+export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  let q: Record<string, unknown> = {};
+  if (req.user.role !== "admin") {
+    const visibility = await buildOrderVisibilityQuery(req.user);
+    const visibleOrders = await Order.find(visibility).select("awb trackingId").lean();
+    const awbs = visibleOrders
+      .flatMap((o) => [o.awb, o.trackingId])
+      .map((v) => String(v ?? "").trim())
+      .filter(Boolean);
+    q = { awb: { $in: awbs } };
+  }
+  const rows = await NDR.find(q).sort({ updatedAt: -1, createdAt: -1 }).lean();
   res.json(
     rows.map((n) => ({
       awb: n.awb,
@@ -981,7 +994,18 @@ export const listNdr = asyncHandler(async (_req: AuthRequest, res: Response) => 
 });
 
 export const updateNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
   const { awb } = req.params;
+  if (req.user.role !== "admin") {
+    const visibility = await buildOrderVisibilityQuery(req.user);
+    const order = await Order.findOne({
+      $and: [
+        visibility,
+        { $or: [{ awb }, { trackingId: awb }] },
+      ],
+    }).select("_id").lean();
+    if (!order) throw new AppError(403, "Forbidden");
+  }
   const n = await NDR.findOneAndUpdate({ awb }, { $set: req.body }, { new: true });
   if (!n) throw new AppError(404, "NDR not found");
   res.json(n);

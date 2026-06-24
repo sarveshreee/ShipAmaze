@@ -28,6 +28,8 @@ export type OrderListFilterValues = {
   amountMax?: string;
   hasAwb?: string;
   shipmentCreated?: string;
+  dropshipperId?: string;
+  vendorId?: string;
 };
 
 export type ListOrdersParams = OrderListFilterValues & {
@@ -74,6 +76,8 @@ function buildQueryString(params: ListOrdersParams): string {
   setIfTrim(sp, "amountMax", params.amountMax);
   setIfTrim(sp, "hasAwb", params.hasAwb);
   setIfTrim(sp, "shipmentCreated", params.shipmentCreated);
+  setIfTrim(sp, "dropshipperId", params.dropshipperId);
+  setIfTrim(sp, "vendorId", params.vendorId);
   const s = sp.toString();
   return s ? `?${s}` : "";
 }

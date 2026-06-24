@@ -26,6 +26,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+const BULK_LABEL_PRINT_TABS = new Set([
+  "pending-pickup",
+  "in-transit",
+  "out-for-delivery",
+  "delivered",
+  "reship",
+  "failed",
+]);
+
 const INDIAN_STATES = [
   "Andaman and Nicobar Islands","Andhra Pradesh","Arunachal Pradesh","Assam","Bihar",
   "Chandigarh","Chhattisgarh","Dadra and Nagar Haveli","Daman and Diu","Delhi","Goa",
@@ -434,6 +443,7 @@ export function RichOrdersTable({
   const { canEditSku, canProcessOrders } = useDropshipperAccess();
   const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
   const [bulkDeleteJunkConfirmOpen, setBulkDeleteJunkConfirmOpen] = useState(false);
+  const showBulkPrintActions = BULK_LABEL_PRINT_TABS.has(activeTab ?? "") && selected.size > 0;
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
   const [addressFilter, setAddressFilter] = useState({ open: false, search: "", selectedStates: new Set<string>(), validPincodes: false, invalidPincodes: false, invalidContact: false });
@@ -784,7 +794,7 @@ export function RichOrdersTable({
                 <CheckSquare className="h-3.5 w-3.5" /> Process Selected
               </Button>
             )}
-            {activeTab === "pending-pickup" && selected.size > 0 && (
+            {showBulkPrintActions && (
               <>
                 <Button
                   variant="outline"

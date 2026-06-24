@@ -323,6 +323,8 @@ export type ParsedOrderListQuery = {
   amountMax?: number;
   hasAwb?: "yes" | "no";
   shipmentCreated?: "yes" | "no";
+  dropshipperId?: string;
+  vendorId?: string;
 };
 
 export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderListQuery {
@@ -359,6 +361,8 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
 
   const hasAwb = parseYesNo(q.hasAwb);
   const shipmentCreated = parseYesNo(q.shipmentCreated);
+  const dropshipperId = clip(String(q.dropshipperId ?? ""), 40) || undefined;
+  const vendorId = clip(String(q.vendorId ?? ""), 40) || undefined;
 
   let dateFrom: Date | undefined;
   let dateTo: Date | undefined;
@@ -396,6 +400,8 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
     amountMax,
     hasAwb,
     shipmentCreated,
+    dropshipperId,
+    vendorId,
   };
 }
 
@@ -534,6 +540,13 @@ export function buildOrderListFiltersQuery(pq: ParsedOrderListQuery): Record<str
     parts.push({ shipmentCreated: true });
   } else if (pq.shipmentCreated === "no") {
     parts.push({ $or: [{ shipmentCreated: false }, { shipmentCreated: { $exists: false } }] });
+  }
+  if (pq.dropshipperId && mongoose.Types.ObjectId.isValid(pq.dropshipperId)) {
+    const id = new mongoose.Types.ObjectId(pq.dropshipperId);
+    parts.push({ $or: [{ ownerUserId: id }, { createdBy: id }, { dropshipperId: id }] });
+  }
+  if (pq.vendorId && mongoose.Types.ObjectId.isValid(pq.vendorId)) {
+    parts.push({ vendorId: new mongoose.Types.ObjectId(pq.vendorId) });
   }
 
   if (parts.length === 0) return undefined;

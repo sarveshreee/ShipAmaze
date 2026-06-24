@@ -61,9 +61,12 @@ const emptyDraft: OrderListFilterValues = {
   amountMax: "",
   hasAwb: "",
   shipmentCreated: "",
+  dropshipperId: "",
+  vendorId: "",
 };
 
 export type CourierOption = { id: string; name: string };
+export type OwnerFilterOption = { id: string; label: string };
 
 interface OrderListAdvancedFiltersProps {
   open: boolean;
@@ -71,6 +74,8 @@ interface OrderListAdvancedFiltersProps {
   value: OrderListFilterValues;
   onApply: (next: OrderListFilterValues) => void;
   couriers: CourierOption[];
+  dropshippers?: OwnerFilterOption[];
+  vendors?: OwnerFilterOption[];
   /** When true, payment is controlled elsewhere (e.g. Channel tab). */
   hidePayment?: boolean;
 }
@@ -81,6 +86,8 @@ export function OrderListAdvancedFilters({
   value,
   onApply,
   couriers,
+  dropshippers = [],
+  vendors = [],
   hidePayment,
 }: OrderListAdvancedFiltersProps) {
   const [draft, setDraft] = useState<OrderListFilterValues>(emptyDraft);
@@ -106,6 +113,8 @@ export function OrderListAdvancedFilters({
         amountMax: value.amountMax ?? "",
         hasAwb: value.hasAwb ?? "",
         shipmentCreated: value.shipmentCreated ?? "",
+        dropshipperId: value.dropshipperId ?? "",
+        vendorId: value.vendorId ?? "",
       });
     }
   }, [open, value]);
@@ -200,6 +209,37 @@ export function OrderListAdvancedFilters({
                   <SelectItem value="channel">Channel (Shopify)</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Dropshipper</Label>
+                <Select value={draft.dropshipperId || "__any__"} onValueChange={(v) => setField("dropshipperId", v === "__any__" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Any dropshipper" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__any__">Any dropshipper</SelectItem>
+                    {dropshippers.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Vendor</Label>
+                <Select value={draft.vendorId || "__any__"} onValueChange={(v) => setField("vendorId", v === "__any__" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Any vendor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__any__">Any vendor</SelectItem>
+                    {vendors.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

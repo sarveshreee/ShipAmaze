@@ -3,14 +3,13 @@ import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import * as dropshipperService from "@/services/dropshipperService";
 import {
-  Shield, Building2, CheckCircle2, Clock, AlertCircle,
+  CheckCircle2, Clock, AlertCircle,
   Upload, FileCheck, X, User, Briefcase
 } from "lucide-react";
 
@@ -268,38 +267,12 @@ function KycTab({ userId }: { userId: string | null }) {
 
 export default function VendorSettings() {
   const { userId } = useAuth();
-  const [tab, setTab] = useState("kyc");
 
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="Vendor Settings" breadcrumb={["Vendor", "Settings"]} />
       <p className="-mt-3 mb-5 text-sm text-text-muted">Manage your KYC and account settings.</p>
-
-      <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 h-auto p-1 bg-surface-2 rounded-xl mb-5">
-          <TabsTrigger value="kyc" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
-            <Shield className="h-4 w-4" /> KYC
-          </TabsTrigger>
-          <TabsTrigger value="general" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
-            <Building2 className="h-4 w-4" /> General
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="kyc" className="mt-0">
-          <KycTab userId={userId} />
-        </TabsContent>
-
-        <TabsContent value="general" className="mt-0">
-          <div className="rounded-lg bg-card shadow-card p-6 max-w-xl space-y-4">
-            <h3 className="text-lg font-semibold text-text-primary">General Settings</h3>
-            <div><Label>Warehouse Name</Label><Input defaultValue="Mumbai Central Hub" /></div>
-            <div><Label>Contact Person</Label><Input defaultValue="Rajesh Kumar" /></div>
-            <div><Label>Phone</Label><Input defaultValue="+91 98000 11111" /></div>
-            <div><Label>Address</Label><Input defaultValue="Plot 42, MIDC, Andheri East, Mumbai" /></div>
-            <Button className="bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => toast.success("Settings saved successfully")}>Save Changes</Button>
-          </div>
-        </TabsContent>
-      </Tabs>
+      <KycTab userId={userId} />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { useOrders, useNdrOrders } from "@/hooks/useApiData";
+import { useNdrOrders, useOrdersQuery } from "@/hooks/useApiData";
 import {
   Package,
   CheckCircle2,
@@ -29,23 +29,29 @@ const dayName = (offset: number) => {
 
 export default function DropshipperDashboard() {
   const navigate = useNavigate();
-  const { data: orders = [], isLoading: ordersLoading } = useOrders();
+  const { data: orders = [], total, tabCounts, isLoading: ordersLoading } = useOrdersQuery({
+    page: 1,
+    pageSize: 100,
+    counts: true,
+  });
   const { data: ndrRows = [], isLoading: ndrLoading } = useNdrOrders();
   const activeNDR = useMemo(() => ndrRows.filter((n) => n.status === "Active").length, [ndrRows]);
   const [showNDRBanner, setShowNDRBanner] = useState(activeNDR > 0);
 
   const stats = useMemo(() => {
-    const total = orders.length;
-    const delivered = orders.filter((o) => o.status === "delivered").length;
-    const inTransit = orders.filter((o) => o.status === "in-transit" || o.status === "out-for-delivery").length;
-    const pending = orders.filter(
-      (o) => o.status === "pending" || o.status === "ready-to-ship" || o.status === "not-picked"
-    ).length;
+    const visibleTotal = total || orders.length;
+    const delivered = tabCounts?.delivered ?? orders.filter((o) => o.status === "delivered").length;
+    const inTransit = tabCounts
+      ? (tabCounts["in-transit"] ?? 0) + (tabCounts["out-for-delivery"] ?? 0)
+      : orders.filter((o) => o.status === "in-transit" || o.status === "out-for-delivery").length;
+    const pending = tabCounts
+      ? (tabCounts.channel ?? 0) + (tabCounts.manual ?? 0) + (tabCounts["ready-to-ship"] ?? 0) + (tabCounts["pending-pickup"] ?? 0)
+      : orders.filter((o) => o.status === "pending" || o.status === "ready-to-ship" || o.status === "not-picked").length;
     const amountSum = orders.reduce((s, o) => s + (o.amount || 0), 0);
     const codPending = orders.filter((o) => o.payment === "COD" && o.status !== "delivered");
     const codAmt = codPending.reduce((s, o) => s + o.amount, 0);
-    return { total, delivered, inTransit, pending, amountSum, codAmt };
-  }, [orders]);
+    return { total: visibleTotal, delivered, inTransit, pending, amountSum, codAmt };
+  }, [orders, tabCounts, total]);
 
   const weeklyOrders = useMemo(() => {
     const counts = [0, 0, 0, 0, 0, 0, 0];

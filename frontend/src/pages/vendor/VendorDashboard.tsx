@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { useOrders } from "@/hooks/useApiData";
+import { useOrdersQuery } from "@/hooks/useApiData";
 import { Package, Clock, Truck, CheckCircle2, ScanLine, Printer, FileDown, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Order } from "@/types/logistics";
@@ -10,13 +10,25 @@ import type { Order } from "@/types/logistics";
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function VendorDashboard() {
-  const { data: orders = [], isLoading } = useOrders();
+  const { data: orders = [], tabCounts, isLoading } = useOrdersQuery({
+    page: 1,
+    pageSize: 15,
+    counts: true,
+  });
 
   const toProcess = useMemo(
-    () => orders.filter((o) => o.status === "pending" || o.status === "ready-to-ship" || o.status === "on-process").length,
-    [orders]
+    () => tabCounts
+      ? (tabCounts.manual ?? 0) + (tabCounts.channel ?? 0) + (tabCounts["ready-to-ship"] ?? 0)
+      : orders.filter((o) => o.status === "pending" || o.status === "ready-to-ship" || o.status === "on-process").length,
+    [orders, tabCounts]
   );
-  const inTransit = useMemo(() => orders.filter((o) => o.status === "in-transit" || o.status === "out-for-delivery").length, [orders]);
+  const pickupsPending = tabCounts?.["pending-pickup"] ?? orders.filter((o) => String(o.status) === "pending-pickup").length;
+  const inTransit = useMemo(
+    () => tabCounts
+      ? (tabCounts["in-transit"] ?? 0) + (tabCounts["out-for-delivery"] ?? 0)
+      : orders.filter((o) => o.status === "in-transit" || o.status === "out-for-delivery").length,
+    [orders, tabCounts]
+  );
   const deliveredToday = useMemo(
     () => orders.filter((o) => o.status === "delivered" && o.date && o.date.startsWith(today())).length,
     [orders]
@@ -32,7 +44,7 @@ export default function VendorDashboard() {
       <PageHeader title="Dashboard" breadcrumb={["Vendor", "Dashboard"]} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KPICard icon={Package} label="Orders to Process" value={String(toProcess)} color="primary" />
-        <KPICard icon={Clock} label="Pickups Pending" value="—" color="warning" />
+        <KPICard icon={Clock} label="Pickups Pending" value={String(pickupsPending)} color="warning" />
         <KPICard icon={Truck} label="In Transit" value={String(inTransit)} color="secondary" />
         <KPICard icon={CheckCircle2} label="Delivered Today" value={String(deliveredToday)} color="success" />
       </div>

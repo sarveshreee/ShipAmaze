@@ -34,6 +34,8 @@ import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
 import { OrderListAdvancedFilters } from "@/components/OrderListAdvancedFilters";
 import { Badge } from "@/components/ui/badge";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
+import * as userService from "@/services/userService";
+import * as vendorService from "@/services/vendorService";
 
 const tabs: { label: string; filter: string }[] = [
   { label: "All", filter: "all" },
@@ -118,6 +120,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const { data: platformPickups = [] } = usePickupAddresses({ scope: "platform" });
   const { warehouses: vendorWarehouses } = useVendorWarehouses();
   const { role } = useAuth();
+  const [dropshipperOptions, setDropshipperOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [vendorOptions, setVendorOptions] = useState<Array<{ id: string; label: string }>>([]);
 
   const linkedWarehouseOptions = useMemo(() => {
     if (role === "dropshipper") {
@@ -155,6 +159,28 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const isAdmin = role === "admin";
   const { canProcessOrders } = useDropshipperAccess();
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    void Promise.all([
+      userService.listUsersByRole("dropshipper"),
+      vendorService.listVendors(),
+    ]).then(([dropshippers, vendors]) => {
+      if (cancelled) return;
+      setDropshipperOptions(dropshippers.map((d) => ({
+        id: d.user_id,
+        label: d.full_name || d.business_name || d.user_id,
+      })));
+      setVendorOptions(vendors.map((v) => ({
+        id: v.id,
+        label: v.name || v.id,
+      })));
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
 
   /** Admin: show Process Selected on every tab including Junk. */
   const ADMIN_PROCESS_TABS = useMemo(() => new Set(tabs.map((t) => t.filter)), []);
@@ -221,6 +247,22 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         onRemove: () => setAdvancedFilters((p) => ({ ...p, shipmentCreated: undefined })),
       });
     }
+    if (af.dropshipperId?.trim()) {
+      const label = dropshipperOptions.find((d) => d.id === af.dropshipperId)?.label ?? af.dropshipperId;
+      tags.push({
+        id: "dropshipperId",
+        label: `Dropshipper: ${label}`,
+        onRemove: () => setAdvancedFilters((p) => ({ ...p, dropshipperId: undefined })),
+      });
+    }
+    if (af.vendorId?.trim()) {
+      const label = vendorOptions.find((v) => v.id === af.vendorId)?.label ?? af.vendorId;
+      tags.push({
+        id: "vendorId",
+        label: `Vendor: ${label}`,
+        onRemove: () => setAdvancedFilters((p) => ({ ...p, vendorId: undefined })),
+      });
+    }
     if (activeTab === "channel" && channelPayment?.trim()) {
       tags.push({
         id: "__chPay",
@@ -236,7 +278,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       });
     }
     return tags;
-  }, [advancedFilters, activeTab, channelPayment, channelFulfillment]);
+  }, [advancedFilters, activeTab, channelPayment, channelFulfillment, dropshipperOptions, vendorOptions]);
 
   const hasListFilters =
     Boolean(debouncedSearch) ||
@@ -593,6 +635,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         value={advancedFilters}
         onApply={setAdvancedFilters}
         couriers={couriers.map((c) => ({ id: c.id, name: c.name }))}
+        dropshippers={isAdmin ? dropshipperOptions : []}
+        vendors={isAdmin ? vendorOptions : []}
         hidePayment={activeTab === "channel"}
       />
 

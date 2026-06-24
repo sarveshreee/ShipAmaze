@@ -648,8 +648,16 @@ function escapeHtml(s: string): string {
 export async function openLabelNodesAsPdf(
   nodes: HTMLElement[],
   settings: LabelInvoiceSettings,
-  _title: string
+  title: string
 ): Promise<void> {
+  const tab = window.open("", "_blank");
+  if (!tab) throw new Error("Popup blocked — please allow popups for this site");
+  tab.document.open();
+  tab.document.write(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body style="font-family:system-ui,Segoe UI,Arial,sans-serif;padding:24px;">Preparing PDF...</body></html>`
+  );
+  tab.document.close();
+
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
   const mm = labelPdfDimensionsMm(settings.labelSize);
   const px = labelPixelBox(settings.labelSize);
@@ -684,8 +692,7 @@ export async function openLabelNodesAsPdf(
 
   const blob = pdf.output("blob");
   const blobUrl = URL.createObjectURL(blob);
-  const tab = window.open(blobUrl, "_blank");
-  if (!tab) throw new Error("Popup blocked — please allow popups for this site");
+  tab.location.href = blobUrl;
   setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
 }
 
