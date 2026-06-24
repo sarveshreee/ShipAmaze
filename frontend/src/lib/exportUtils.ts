@@ -1,9 +1,15 @@
 // CSV and PDF export utilities
 
-export function downloadCSV(filename: string, headers: string[], rows: (string | number)[][]) {
+type CsvCell = string | number | boolean | null | undefined;
+
+function csvCell(cell: CsvCell): string {
+  return `"${String(cell ?? "").replace(/"/g, '""')}"`;
+}
+
+export function downloadCSV(filename: string, headers: string[], rows: CsvCell[][]) {
   const csvContent = [
-    headers.join(','),
-    ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    headers.map(csvCell).join(','),
+    ...rows.map(row => row.map(csvCell).join(','))
   ].join('\n');
   
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

@@ -453,7 +453,7 @@ export default function ProductsPage() {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <Stat label="SKU" value={detailsFor.sku || "—"} />
               <Stat label="Product Cost" value={formatProductPriceInr(detailsFor.price)} />
-              <Stat label="Shipping" value={formatProductPriceInr(detailsFor.shipping_charge)} />
+              <Stat label="Our Commission" value={formatProductPriceInr(detailsFor.our_commission)} />
               <Stat label="Final Price" value={formatProductPriceInr(getFinalProductPrice(detailsFor))} />
               <Stat label="Selling Price" value={formatProductPriceInr(detailsFor.selling_price)} />
               <Stat label="Stock" value={detailsFor.stock} />

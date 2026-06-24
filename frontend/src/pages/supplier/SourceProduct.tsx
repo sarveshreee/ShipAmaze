@@ -37,7 +37,7 @@ const emptyForm = {
   name: "", sku: "", categories: [] as string[], brand: "",
   short_description: "", long_description: "",
   status: "draft", tags: "", unit: "pcs", min_order_qty: 1,
-  price: 0, selling_price: 0, stock: 0, hsn: "",
+  price: 0, selling_price: 0, our_commission: 40, stock: 0, hsn: "",
   images: [] as string[], primary_image_index: 0,
   weight: "", length_cm: "", width_cm: "", height_cm: "",
   shipping_class: "standard", shipping_charge: 0, pickup_location_id: "",
@@ -148,6 +148,7 @@ export default function SourceProduct() {
       width_cm: p.width_cm ?? p.widthCm ?? "",
       height_cm: p.height_cm ?? p.heightCm ?? "",
       shipping_charge: Number(p.shippingCharge ?? p.shipping_charge ?? p.shippingCharges ?? 0),
+      our_commission: Number(p.ourCommission ?? p.our_commission ?? p.commission ?? 40),
       shipping_class: p.shipping_class ?? p.shippingClass ?? "standard",
     });
   };
@@ -285,6 +286,7 @@ export default function SourceProduct() {
         minOrderQty: form.min_order_qty,
         price: form.price,
         sellingPrice: form.selling_price,
+        ourCommission: form.our_commission,
         stock: form.stock,
         hsn: form.hsn || undefined,
         weight: form.weight || undefined,
@@ -483,6 +485,17 @@ export default function SourceProduct() {
               <div><Label>Unit</Label><Input value={form.unit} onChange={e => update({ unit: e.target.value })} placeholder="pcs / kg" /></div>
               <div><Label>Min Order Qty</Label><Input type="number" value={form.min_order_qty} onChange={e => update({ min_order_qty: Number(e.target.value) || 1 })} /></div>
               <div><Label>Price (₹)</Label><Input type="number" value={form.price} onChange={e => update({ price: Number(e.target.value) || 0 })} /></div>
+              {role === "admin" && (
+                <div>
+                  <Label>Our Commission (₹)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.our_commission}
+                    onChange={e => update({ our_commission: Number(e.target.value) || 0 })}
+                  />
+                </div>
+              )}
               <div><Label>Selling Price (₹) *</Label><Input type="number" value={form.selling_price} onChange={e => update({ selling_price: Number(e.target.value) || 0 })} /></div>
               <div><Label>Stock</Label><Input type="number" value={form.stock} onChange={e => update({ stock: Number(e.target.value) || 0 })} /></div>
             </div>

@@ -27,6 +27,7 @@ import { DropshipperShippingOverride } from "../models/DropshipperShippingOverri
 import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotifications.js";
 import mongoose from "mongoose";
 import { assertOwnerAdmin, isStaffAdmin } from "../utils/staffPermissions.js";
+import { resolveOurCommission } from "../utils/productPricing.js";
 
 function assertAdmin(req: AuthRequest): void {
   if (!req.user) throw new AppError(401, "Unauthorized");
@@ -499,8 +500,9 @@ export async function createProductPriceChangeRequest(
     submittedByName: req.user.name,
   });
 
-  const prevFinal = num(product.price) + num(product.shippingCharge);
-  const nextFinal = doc.pendingPrice + doc.pendingShippingCharge;
+  const commission = resolveOurCommission(product.toObject() as unknown as Record<string, unknown>);
+  const prevFinal = num(product.price) + commission;
+  const nextFinal = doc.pendingPrice + commission;
 
   await notifyAllAdmins(
     "approval_pending",

@@ -547,6 +547,7 @@ export type CatalogueProductRow = {
   price: number;
   sellingPrice: number;
   shippingCharge: number;
+  ourCommission: number;
   stock: number;
   hsn: string;
   dimensions: string;
@@ -564,6 +565,7 @@ export function useProducts() {
       price: Number(p.price ?? 0),
       sellingPrice: Number(p.sellingPrice ?? p.selling_price ?? 0),
       shippingCharge: Number(p.shippingCharge ?? p.shipping_charge ?? p.shippingCharges ?? 0),
+      ourCommission: Number(p.ourCommission ?? p.our_commission ?? p.commission ?? 40),
       stock: Number(p.stock ?? 0),
       hsn: String(p.hsn ?? ""),
       dimensions: String(p.dimensions ?? ""),

@@ -9,6 +9,7 @@ export type CatalogueProductRow = {
   price?: number;
   sellingPrice?: number;
   shippingCharge?: number;
+  ourCommission?: number;
   finalPrice?: number;
   stock?: number;
   status?: string;

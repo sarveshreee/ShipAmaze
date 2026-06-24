@@ -51,6 +51,93 @@ const tabs: { label: string; filter: string }[] = [
   { label: "Junk", filter: "junk" },
 ];
 
+const ORDER_EXPORT_HEADERS = [
+  "Order Account",
+  "OrderId",
+  "Channel Order Number",
+  "Channel Order Date",
+  "WayBill Number",
+  "Pre Generated WayBill",
+  "Order Date",
+  "Ref.Invoice #",
+  "Mode",
+  "Express",
+  "Pickup Warehouse",
+  "Consignee Name",
+  "Consignee Contact",
+  "Alternate Number",
+  "Address",
+  "City",
+  "State",
+  "Pincode",
+  "Product Name",
+  "SKU",
+  "Product Qty",
+  "Product Value",
+  "Order Amount",
+  "Extra Charges",
+  "Total Amount",
+  "COD Amount",
+  "Dimensions",
+  "Weight",
+  "Fulfilled By",
+  "Status",
+  "Added On",
+  "Delivered Date",
+  "RTS Date",
+  "Client Order ID",
+];
+
+function text(value: unknown): string {
+  return value == null ? "" : String(value);
+}
+
+function firstText(...values: unknown[]): string {
+  return text(values.find((value) => text(value).trim() !== ""));
+}
+
+function extra(order: Order, key: string): unknown {
+  return (order as unknown as Record<string, unknown>)[key];
+}
+
+function pickupObject(order: Order, pickupOptions: Array<Record<string, unknown>>) {
+  if (order.pickupAddress && typeof order.pickupAddress === "object") {
+    return order.pickupAddress as unknown as Record<string, unknown>;
+  }
+  const pickupId = firstText(order.pickupAddressId, extra(order, "pickupWarehouseId"));
+  return pickupOptions.find((pickup) => firstText(pickup.id, pickup._id) === pickupId) ?? null;
+}
+
+function orderProducts(order: Order): Array<Record<string, unknown>> {
+  const candidates = [
+    order.products,
+    order.items,
+    order.orderItems,
+    extra(order, "shopifyLineItems"),
+  ];
+  const found = candidates.find((value) => Array.isArray(value) && value.length > 0);
+  return Array.isArray(found) ? (found as Array<Record<string, unknown>>) : [];
+}
+
+function productValue(order: Order, keys: string[]): string {
+  return orderProducts(order)
+    .map((product) => firstText(...keys.map((key) => product[key])))
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function numberValue(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function productTotal(order: Order, keys: string[]): number {
+  return orderProducts(order).reduce((total, product) => {
+    const value = keys.map((key) => product[key]).find((v) => numberValue(v) > 0);
+    return total + numberValue(value);
+  }, 0);
+}
+
 interface Props {
   breadcrumbPrefix: string;
   showActions?: boolean;
@@ -445,7 +532,57 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const handleExport = () => {
     const data = selected.size > 0 ? filtered.filter(o => selected.has(o.id)) : filtered;
-    downloadCSV("orders_export", ["ID","Customer","City","Status","Payment","Amount","Date","AWB","Courier"], data.map(o => [o.id, o.customer, o.city, o.status, o.payment, o.amount, o.date, o.awb, o.courier]));
+    const pickupOptions = [...pickupAddresses, ...platformPickups, ...vendorWarehouses] as unknown as Array<Record<string, unknown>>;
+    downloadCSV("orders_export", ORDER_EXPORT_HEADERS, data.map((o) => {
+      const pickup = pickupObject(o, pickupOptions);
+      const courier = firstText(o.courierName, o.courier, extra(o, "addedCourier"));
+      const totalAmount = Number(o.amount || 0);
+      const codAmount = o.payment === "COD" ? totalAmount : firstText(extra(o, "codAmount"), o.codCharges);
+      const extraCharges = numberValue(o.shippingCharges) + numberValue(o.codCharges);
+      const productPriceTotal = productTotal(o, ["price", "productPrice", "value", "productValue"]);
+
+      return [
+        firstText(o.shopifyShopDomain, o.externalSource, extra(o, "orderAccount")),
+        firstText(o.externalOrderName, o.id),
+        firstText(o.externalOrderName, o.shopifyOrderNumericId, extra(o, "channelOrderNumber")),
+        firstText(extra(o, "channelOrderDate"), o.lastShopifySyncAt, o.date),
+        firstText(o.awb, o.trackingId),
+        firstText(extra(o, "preGeneratedWaybill"), o.trackingId),
+        o.date,
+        firstText(o.shopifyOrderNumericId, extra(o, "invoiceNumber"), extra(o, "refInvoice")),
+        o.payment,
+        firstText(extra(o, "express"), extra(o, "serviceType")),
+        firstText(
+          typeof o.pickupAddress === "string" ? o.pickupAddress : "",
+          pickup?.label,
+          pickup?.warehouseName,
+          pickup?.pickupName
+        ),
+        o.customer,
+        firstText(o.customerPhone, o.phone),
+        firstText(extra(o, "customerNumber2"), extra(o, "phone2"), extra(o, "alternatePhone")),
+        firstText(o.shippingAddress1, o.address),
+        firstText(o.shippingCity, o.city),
+        firstText(o.shippingState, o.state),
+        firstText(o.shippingPincode, o.pincode),
+        productValue(o, ["productName", "name"]),
+        productValue(o, ["sku", "productCode"]),
+        productValue(o, ["qty", "quantity"]),
+        productPriceTotal || productValue(o, ["price", "productPrice", "value", "productValue"]),
+        totalAmount,
+        extraCharges || "",
+        totalAmount + extraCharges,
+        codAmount,
+        firstText(o.dimensions, [o.length, o.breadth ?? o.width, o.height].filter(Boolean).join("x")),
+        o.weight,
+        firstText(extra(o, "fulfilledBy"), courier),
+        firstText(o.shopifyFulfillmentStatus, o.shipmentStatus, o.status),
+        firstText(extra(o, "createdAt"), o.movedToReadyAt, o.updatedAt, o.date),
+        firstText(extra(o, "deliveryDate"), extra(o, "deliveredAt"), o.edd),
+        firstText(extra(o, "rtsDate"), extra(o, "rtsAt")),
+        firstText(extra(o, "clientOrderId"), o.externalOrderName, o.shopifyOrderNumericId),
+      ];
+    }));
     toast.success(`Exported ${data.length} orders as CSV`);
   };
 

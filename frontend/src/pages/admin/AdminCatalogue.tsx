@@ -25,7 +25,7 @@ import { toast } from "sonner";
 import { EmptyState } from "@/components/EmptyState";
 import { Layers, Loader2, Plus, RefreshCw, Star } from "lucide-react";
 import { ApiError } from "@/lib/apiClient";
-import { getFinalProductPrice } from "@/lib/pricing";
+import { getFinalProductPrice, resolveOurCommission } from "@/lib/pricing";
 
 export default function AdminCatalogue() {
   const { can } = useProductPermissions();
@@ -145,9 +145,9 @@ export default function AdminCatalogue() {
   const patchProduct = async (id: string, patch: Record<string, unknown>) => {
     setSaving(true);
     try {
-      await adminWorkflowService.adminPatchCatalogueProduct(id, patch);
+      const updated = await adminWorkflowService.adminPatchCatalogueProduct(id, patch);
       toast.success("Product updated");
-      setDetail((d) => (d && d.id === id ? { ...d, ...patch } : d));
+      setDetail((d) => (d && d.id === id ? { ...d, ...updated } : d));
       await load();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Update failed");
@@ -358,7 +358,7 @@ export default function AdminCatalogue() {
         />
       ) : (
         <div className="rounded-lg bg-card shadow-card overflow-x-auto border border-border">
-          <table className="w-full text-sm min-w-[800px]">
+          <table className="w-full text-sm min-w-[1000px]">
             <thead>
               <tr className="border-b border-border bg-surface-2/50">
                 <th className="p-2 w-10">
@@ -371,6 +371,9 @@ export default function AdminCatalogue() {
                 <th className="p-3 text-left font-medium text-text-secondary">Product</th>
                 <th className="p-3 text-left font-medium text-text-secondary">SKU</th>
                 <th className="p-3 text-left font-medium text-text-secondary">Vendor</th>
+                <th className="p-3 text-right font-medium text-text-secondary">Vendor price</th>
+                <th className="p-3 text-right font-medium text-text-secondary">Our commission</th>
+                <th className="p-3 text-right font-medium text-text-secondary">Final price</th>
                 <th className="p-3 text-left font-medium text-text-secondary">Stock</th>
                 <th className="p-3 text-left font-medium text-text-secondary">Status</th>
                 <th className="p-3 text-left font-medium text-text-secondary">Created</th>
@@ -395,6 +398,9 @@ export default function AdminCatalogue() {
                   </td>
                   <td className="p-3 font-mono text-xs text-text-secondary">{p.sku || "—"}</td>
                   <td className="p-3 text-text-secondary max-w-[140px] truncate">{p.vendorName || "—"}</td>
+                  <td className="p-3 text-right tabular-nums">₹{p.price ?? 0}</td>
+                  <td className="p-3 text-right tabular-nums">₹{resolveOurCommission(p)}</td>
+                  <td className="p-3 text-right font-semibold tabular-nums">₹{getFinalProductPrice(p)}</td>
                   <td className="p-3 tabular-nums">{p.stock ?? "—"}</td>
                   <td className="p-3">
                     <span
@@ -467,9 +473,36 @@ export default function AdminCatalogue() {
                   )}
                 </p>
                 <p>
-                  <span className="text-text-muted">Cost / Shipping / Final:</span> ₹{detail.price ?? 0} + ₹
-                  {detail.shippingCharge ?? 0} = <span className="font-semibold">₹{getFinalProductPrice(detail)}</span>
+                  <span className="text-text-muted">Vendor Price / Our Commission / Final:</span> ₹{detail.price ?? 0} + ₹
+                  {resolveOurCommission(detail)} = <span className="font-semibold">₹{getFinalProductPrice(detail)}</span>
                 </p>
+                <div className="rounded-md border border-border bg-surface-2/40 p-3 space-y-2">
+                  <label className="text-text-muted text-xs font-medium" htmlFor="admin-catalogue-commission">
+                    Our Commission
+                  </label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="admin-catalogue-commission"
+                      type="number"
+                      min={0}
+                      value={resolveOurCommission(detail)}
+                      onChange={(e) =>
+                        setDetail((d) =>
+                          d ? { ...d, ourCommission: Number(e.target.value) || 0 } : d
+                        )
+                      }
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={saving}
+                      onClick={() => void patchProduct(detail.id, { ourCommission: resolveOurCommission(detail) })}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
                 <p>
                   <span className="text-text-muted">Selling price:</span> ₹{detail.sellingPrice ?? 0}
                 </p>

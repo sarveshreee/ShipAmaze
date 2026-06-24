@@ -10,6 +10,7 @@ export interface IProduct extends Document {
   price: number;
   sellingPrice?: number;
   shippingCharge?: number;
+  ourCommission?: number;
   stock?: number;
   hsn?: string;
   dimensions?: string;
@@ -32,6 +33,7 @@ const productSchema = new Schema<IProduct>(
     price: { type: Number, default: 0 },
     sellingPrice: Number,
     shippingCharge: { type: Number, default: 0 },
+    ourCommission: { type: Number, default: 40, min: 0 },
     stock: { type: Number, default: 0 },
     hsn: String,
     dimensions: String,

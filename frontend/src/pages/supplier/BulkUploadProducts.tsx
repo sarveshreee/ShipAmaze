@@ -15,15 +15,15 @@ import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 const TEMPLATE_HEADERS = [
   "name","sku","category","brand","short_description","long_description",
-  "status","tags","unit","min_order_qty","price","selling_price","shipping_charge","stock",
+  "status","tags","unit","min_order_qty","price","selling_price","our_commission","shipping_charge","stock",
   "hsn","weight","length_cm","width_cm","height_cm","shipping_class",
   "cod_available","returnable","fragile","gst_percent","country_of_origin",
   "warranty","manufacturer","care_instructions","seo_title","seo_description","image_urls"
 ];
 
 const SAMPLE_ROWS = [
-  ["Cotton T-Shirt","TSHIRT-001","Apparel","ShipAmaze","Soft cotton tee","100% combed cotton, pre-shrunk","active","cotton,casual,unisex","pcs","1","499","399","80","100","6109","0.25","30","25","2","standard","true","true","false","5","India","NA","Self","Machine wash cold","Cotton T-Shirt | ShipAmaze","Premium cotton tees online","https://example.com/img1.jpg|https://example.com/img2.jpg"],
-  ["Wireless Earbuds","EAR-002","Electronics","SoundX","Bluetooth 5.3 earbuds","ENC mic, 24h playtime, IPX5","draft","audio,wireless","pcs","1","2999","1799","0","50","8518","0.18","12","8","4","standard","true","true","true","18","India","1 year","SoundX Pvt Ltd","Keep dry","Wireless Earbuds | SoundX","Best earbuds under 2000",""],
+  ["Cotton T-Shirt","TSHIRT-001","Apparel","ShipAmaze","Soft cotton tee","100% combed cotton, pre-shrunk","active","cotton,casual,unisex","pcs","1","499","399","40","80","100","6109","0.25","30","25","2","standard","true","true","false","5","India","NA","Self","Machine wash cold","Cotton T-Shirt | ShipAmaze","Premium cotton tees online","https://example.com/img1.jpg|https://example.com/img2.jpg"],
+  ["Wireless Earbuds","EAR-002","Electronics","SoundX","Bluetooth 5.3 earbuds","ENC mic, 24h playtime, IPX5","draft","audio,wireless","pcs","1","2999","1799","40","0","50","8518","0.18","12","8","4","standard","true","true","true","18","India","1 year","SoundX Pvt Ltd","Keep dry","Wireless Earbuds | SoundX","Best earbuds under 2000",""],
 ];
 
 // Tiny CSV parser supporting quoted fields and embedded commas
@@ -136,6 +136,8 @@ export default function BulkUploadProducts() {
         price: toNum(raw.price),
         selling_price: sp,
         sellingPrice: sp,
+        our_commission: raw.our_commission === "" ? 40 : toNum(raw.our_commission),
+        ourCommission: raw.our_commission === "" ? 40 : toNum(raw.our_commission),
         shipping_charge: toNum(raw.shipping_charge),
         shippingCharge: toNum(raw.shipping_charge),
         stock: toNum(raw.stock),
@@ -306,7 +308,7 @@ export default function BulkUploadProducts() {
                       <td className="px-2 py-1.5 max-w-[200px] truncate" title={r.raw.name}>{r.raw.name || "—"}</td>
                       <td className="px-2 py-1.5 font-mono">{r.raw.sku || "—"}</td>
                       <td className="px-2 py-1.5">{r.raw.category || "—"}</td>
-                      <td className="px-2 py-1.5">{formatProductPriceInr(getFinalProductPrice({ price: toNum(r.raw.price), shipping_charge: toNum(r.raw.shipping_charge) }))}</td>
+                      <td className="px-2 py-1.5">{formatProductPriceInr(getFinalProductPrice({ price: toNum(r.raw.price), our_commission: r.raw.our_commission === "" ? 40 : toNum(r.raw.our_commission) }))}</td>
                       <td className="px-2 py-1.5">{r.raw.stock || 0}</td>
                       <td className="px-2 py-1.5 text-danger text-[11px]">{r.errors.join(", ")}</td>
                     </tr>

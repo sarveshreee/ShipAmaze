@@ -17,7 +17,7 @@ import { SupportTicket, type SupportTicketPriority, type SupportTicketStatus } f
 import mongoose from "mongoose";
 import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotifications.js";
 import { randomBytes } from "crypto";
-import { getFinalProductPrice, resolveShippingCharge } from "../utils/productPricing.js";
+import { getFinalProductPrice, resolveOurCommission, resolveShippingCharge } from "../utils/productPricing.js";
 import { assertProductPermission, PRODUCT_PERMISSIONS } from "../utils/productPermissions.js";
 
 function assertAdmin(req: AuthRequest): void {
@@ -370,6 +370,7 @@ function escapeRegex(s: string): string {
 function mapProductLean(p: Record<string, unknown>) {
   const price = Number(p.price ?? 0);
   const shippingCharge = resolveShippingCharge(p);
+  const ourCommission = resolveOurCommission(p);
   return {
     _id: String(p._id),
     id: String(p._id),
@@ -379,6 +380,7 @@ function mapProductLean(p: Record<string, unknown>) {
     price,
     sellingPrice: p.sellingPrice,
     shippingCharge,
+    ourCommission,
     finalPrice: getFinalProductPrice(p),
     stock: p.stock,
     status: p.status,
@@ -398,7 +400,7 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
   const id = req.params.id;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const body = req.body as Record<string, unknown>;
-  const allowed = ["status", "name", "sku", "category", "price", "sellingPrice", "shippingCharge", "stock", "isFeatured"];
+  const allowed = ["status", "name", "sku", "category", "price", "sellingPrice", "shippingCharge", "ourCommission", "stock", "isFeatured"];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) {
     if (body[k] !== undefined) patch[k] = body[k];
@@ -412,6 +414,13 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
     const sku = String(patch.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");
     patch.sku = sku;
+  }
+  for (const key of ["price", "sellingPrice", "shippingCharge", "ourCommission", "stock"]) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      const value = Number(patch[key]);
+      if (!Number.isFinite(value) || value < 0) throw new AppError(400, `${key} must be a non-negative number`);
+      patch[key] = value;
+    }
   }
   if (Object.keys(patch).length === 0) throw new AppError(400, "No valid fields");
   const p = await Product.findByIdAndUpdate(id, { $set: patch }, { new: true }).lean();

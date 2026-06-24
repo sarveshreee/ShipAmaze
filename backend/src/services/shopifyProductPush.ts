@@ -4,6 +4,7 @@ import { ShopifyProductPush } from "../models/ShopifyProductPush.js";
 import { ShopifyStoreConnection } from "../models/ShopifyStoreConnection.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { decrypt } from "../utils/crypto.js";
+import { getFinalProductPrice } from "../utils/productPricing.js";
 import * as shopifyService from "./shopify.service.js";
 import type { ShopifyProductInput } from "./shopify.service.js";
 
@@ -63,9 +64,7 @@ function resolveSellingPrice(product: Record<string, unknown>, override?: number
   if (override != null && Number.isFinite(override) && override > 0) return override;
   const sp = Number(product.sellingPrice ?? product.selling_price ?? 0);
   if (Number.isFinite(sp) && sp > 0) return sp;
-  const cost = Number(product.price ?? 0);
-  const shipping = Number(product.shippingCharge ?? product.shipping_charge ?? 0);
-  const total = (Number.isFinite(cost) ? cost : 0) + (Number.isFinite(shipping) ? shipping : 0);
+  const total = getFinalProductPrice(product);
   if (total > 0) return total;
   throw new AppError(400, "Enter a valid selling price before pushing to Shopify.");
 }

@@ -1556,6 +1556,16 @@ export const listProducts = asyncHandler(async (req: AuthRequest, res: Response)
   res.json(rows);
 });
 
+function normalizeProductCommission(body: Record<string, unknown>): void {
+  const raw = body.ourCommission ?? body.our_commission ?? body.commission;
+  if (raw === undefined) return;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) throw new AppError(400, "ourCommission must be a non-negative number");
+  body.ourCommission = value;
+  delete body.our_commission;
+  delete body.commission;
+}
+
 export const createProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   if (req.user.role === "admin") {
@@ -1563,6 +1573,8 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
   }
   const vendor = await Vendor.findOne({ userId: req.user._id });
   const body = { ...req.body, uploadedBy: req.user._id, uploadedByRole: req.user.role } as Record<string, unknown>;
+  normalizeProductCommission(body);
+  if (req.user.role !== "admin") delete body.ourCommission;
   if (vendor) Object.assign(body, { vendorId: vendor._id, vendorName: vendor.name });
   if (req.user.role === "admin" && body.vendorId) {
     const assignedVendor = await Vendor.findById(String(body.vendorId)).lean();
@@ -1581,6 +1593,7 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   const p = await Product.findById(req.params.id);
   if (!p) throw new AppError(404, "Product not found");
   const body = { ...req.body } as Record<string, unknown>;
+  normalizeProductCommission(body);
   if (Object.prototype.hasOwnProperty.call(body, "sku")) {
     const sku = String(body.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");
@@ -1592,6 +1605,7 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     res.json(p);
     return;
   }
+  delete body.ourCommission;
   if (req.user.role === "vendor") {
     const v = await Vendor.findOne({ userId: req.user._id });
     if (!v || String(p.vendorId) !== String(v._id)) throw new AppError(403, "Forbidden");

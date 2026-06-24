@@ -13,7 +13,7 @@ interface PreviewVariant {
   sku?: string; price?: number; stock?: number; image?: string;
 }
 
-interface PreviewProduct {
+interface PreviewProduct extends Record<string, unknown> {
   name: string;
   sku?: string;
   brand?: string;
@@ -23,6 +23,7 @@ interface PreviewProduct {
   price?: number;
   selling_price?: number;
   shipping_charge?: number;
+  our_commission?: number;
   stock?: number;
   tags?: string[];
   images: string[];
@@ -69,6 +70,7 @@ export default function ProductPreview() {
               price: mrp,
               selling_price: selling || mrp,
               shipping_charge: Number(p.shippingCharge ?? p.shipping_charge ?? p.shippingCharges ?? 0),
+              our_commission: Number(p.ourCommission ?? p.our_commission ?? p.commission ?? 40),
               stock: Number(p.stock ?? 0),
               tags: (Array.isArray(p.tags) ? p.tags : []) as string[],
               images: Array.isArray(p.images) ? (p.images as string[]) : [],

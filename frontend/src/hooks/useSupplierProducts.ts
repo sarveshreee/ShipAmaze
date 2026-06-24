@@ -12,6 +12,7 @@ export type SupplierProduct = {
   price: number;
   selling_price: number;
   shipping_charge: number;
+  our_commission: number;
   stock: number;
   weight: string;
   dimensions: string;
@@ -59,6 +60,7 @@ export function mapApiToSupplierProduct(r: Record<string, unknown>): SupplierPro
     price: Number(r.price ?? 0),
     selling_price: Number(r.selling_price ?? r.sellingPrice ?? 0),
     shipping_charge: Number(r.shipping_charge ?? r.shippingCharge ?? r.shippingCharges ?? 0),
+    our_commission: Number(r.our_commission ?? r.ourCommission ?? r.commission ?? 40),
     stock: Number(r.stock ?? 0),
     weight: String(r.weight ?? ""),
     dimensions: String(r.dimensions ?? ""),
