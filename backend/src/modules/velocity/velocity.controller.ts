@@ -53,6 +53,7 @@ import {
   type MergedForwardContext,
 } from "./velocity.warehouseMerge.js";
 import { resolveVelocityCarrierId } from "./velocity.resolveCarrier.js";
+import { mirrorShopifyFulfillmentStatus, pushShopifyFulfillmentUpdate } from "../../services/shopifyFulfillmentMirror.js";
 
 async function applyCourierPriorityRules(
   merged: Record<string, unknown>,
@@ -579,7 +580,9 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       applyVelocityMappedOrderStatus(localOrder, later.status, "pending-pickup", "velocity_assign_awb");
       localOrder.shipmentCreated = true;
       if (later.awb_code) localOrder.trackingId = later.awb_code;
+      mirrorShopifyFulfillmentStatus(localOrder);
       await localOrder.save();
+      void pushShopifyFulfillmentUpdate(localOrder);
       devLog.info(
         "[velocity:forward] create_shipment_success",
         JSON.stringify({
@@ -705,7 +708,9 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           applyVelocityMappedOrderStatus(localOrder, later.status, "pending-pickup", "velocity_forward_dup_retry");
           localOrder.shipmentCreated = true;
           if (later.awb_code) localOrder.trackingId = later.awb_code;
+          mirrorShopifyFulfillmentStatus(localOrder);
           await localOrder.save();
+          void pushShopifyFulfillmentUpdate(localOrder);
         }
         const wExtra = localOrder ? await forwardShipmentWalletPayload(localOrder, later.shipping_charges) : {};
         res.status(201).json({
@@ -787,7 +792,9 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_forward_create");
     localOrder.shipmentCreated = true;
     if (result.awb_code) localOrder.trackingId = result.awb_code;
+    mirrorShopifyFulfillmentStatus(localOrder);
     await localOrder.save();
+    void pushShopifyFulfillmentUpdate(localOrder);
   }
 
   const walletExtraMain = await forwardShipmentWalletPayload(localOrder, result?.shipping_charges);
@@ -903,7 +910,9 @@ export const createForwardShipmentLater = asyncHandler(async (req: AuthRequest, 
     localOrder.shipmentStatus = result.status;
     localOrder.assignedDateTime = new Date();
     applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_forward_awb_later");
+    mirrorShopifyFulfillmentStatus(localOrder);
     await localOrder.save();
+    void pushShopifyFulfillmentUpdate(localOrder);
   }
 
   const wExtra = await forwardShipmentWalletPayload(localOrder, result.shipping_charges);
@@ -946,7 +955,9 @@ export const createReverseShipment = asyncHandler(async (req: AuthRequest, res: 
     localOrder.shipmentStatus = result.status;
     applyVelocityMappedOrderStatus(localOrder, result.status, "rto", "velocity_reverse_create");
     if (partial.warehouse_id) localOrder.velocityWarehouseId = String(partial.warehouse_id);
+    mirrorShopifyFulfillmentStatus(localOrder);
     await localOrder.save();
+    void pushShopifyFulfillmentUpdate(localOrder);
   }
 
   res.status(201).json({ success: true, data: result });
@@ -1043,7 +1054,9 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
       localOrder.status = "cancelled";
       localOrder.shipmentStatus = "cancelled";
       appendStatusHistoryEntry(localOrder, "cancelled", "velocity_cancel");
+      mirrorShopifyFulfillmentStatus(localOrder);
       await localOrder.save();
+      void pushShopifyFulfillmentUpdate(localOrder);
     }
   }
 
@@ -1081,7 +1094,9 @@ export const trackShipment = asyncHandler(async (req: AuthRequest, res: Response
       appendStatusHistoryEntry(localOrder, internalStatus, "velocity_track");
       localOrder.status = internalStatus;
     }
+    mirrorShopifyFulfillmentStatus(localOrder);
     await localOrder.save();
+    void pushShopifyFulfillmentUpdate(localOrder);
   }
 
   res.json({
@@ -1143,7 +1158,9 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
         appendStatusHistoryEntry(doc, internalStatus, "velocity_public_track");
         doc.status = internalStatus;
       }
+      mirrorShopifyFulfillmentStatus(doc);
       await doc.save();
+      void pushShopifyFulfillmentUpdate(doc);
     }
 
     res.json({
@@ -1750,7 +1767,9 @@ export async function bookForwardShipmentForOrder(
   applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_process_selected");
   localOrder.shipmentCreated = true;
   if (result.awb_code) localOrder.trackingId = result.awb_code;
+  mirrorShopifyFulfillmentStatus(localOrder);
   await localOrder.save();
+  void pushShopifyFulfillmentUpdate(localOrder);
   await forwardShipmentWalletPayload(localOrder, result.shipping_charges);
 
   if (!result.awb_code?.trim()) {
@@ -1765,3 +1784,101 @@ export async function bookForwardShipmentForOrder(
     shipment_id: result.shipment_id,
   };
 }
+
+/**
+ * GET /velocity/label-pdf/:orderId
+ * Proxies the Velocity-provided label PDF through the backend, handling
+ * expired S3 presigned URLs by attempting a re-fetch from Velocity.
+ */
+export const getLabelPdf = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const { orderId } = req.params;
+
+  const orderQuery =
+    req.user.role === "admin"
+      ? { orderId }
+      : { orderId, $or: [{ createdBy: req.user._id }, { ownerUserId: req.user._id }] };
+
+  const order = await Order.findOne(orderQuery);
+  if (!order) throw new AppError(404, "Order not found");
+
+  const cachedPdf = String(order.labelPdfBase64 ?? "").trim();
+  if (cachedPdf) {
+    const contentType = String(order.labelPdfContentType || "application/pdf");
+    res.set("Content-Type", contentType);
+    res.set("Content-Disposition", `inline; filename="label-${order.orderId ?? order._id}.pdf"`);
+    res.set("Cache-Control", "no-store");
+    res.send(Buffer.from(cachedPdf, "base64"));
+    return;
+  }
+
+  const labelUrl = String(order.labelUrl || order.manifestUrl || "").trim();
+  if (!labelUrl) {
+    throw new AppError(404, "No label URL found for this order. Re-create the shipment in Velocity to generate a new label.");
+  }
+
+  // Try the stored URL first
+  let pdfBuffer: Buffer | null = null;
+  let finalContentType = "application/pdf";
+
+  const tryFetch = async (url: string) => {
+    const r = await fetch(url);
+    if (!r.ok) return false;
+    const ct = r.headers.get("content-type") || "application/pdf";
+    if (!ct.includes("pdf") && !ct.includes("octet-stream")) return false;
+    finalContentType = ct;
+    pdfBuffer = Buffer.from(await r.arrayBuffer());
+    return true;
+  };
+
+  const storedOk = await tryFetch(labelUrl).catch(() => false);
+
+  if (!storedOk) {
+    // URL may be expired — try Velocity listShipments to get a fresh label_url
+    const awb = String(order.awb || order.trackingId || "").trim();
+    if (awb) {
+      try {
+        const result = await velocityService.listShipments({ search: awb });
+        const rows = Array.isArray(result.data) ? (result.data as Record<string, unknown>[]) : [];
+        const row = rows.find((r) => {
+          const attrs = (r.attributes != null && typeof r.attributes === "object" ? r.attributes : r) as Record<string, unknown>;
+          return (
+            String(attrs.tracking_number ?? attrs.awb ?? attrs.awb_code ?? "") === awb ||
+            String(attrs.awb_code ?? "") === awb
+          );
+        });
+        if (row) {
+          const attrs = (row.attributes != null && typeof row.attributes === "object" ? row.attributes : row) as Record<string, unknown>;
+          // Look for any URL field that could be the label
+          const freshUrl = String(
+            attrs.label_url ?? attrs.amazon_label_url ?? attrs.labelUrl ??
+            attrs.shipping_label_url ?? attrs.pdf_url ?? attrs.label ?? ""
+          ).trim();
+          if (freshUrl) {
+            await tryFetch(freshUrl).catch(() => false);
+          }
+        }
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  if (!pdfBuffer) {
+    throw new AppError(
+      502,
+      "Amazon label URL has expired and Velocity's shipment details API does not return a fresh label PDF URL. Ask Velocity for a download/regenerate-label API by AWB/shipment_id, or recreate the shipment to generate a new label."
+    );
+  }
+
+  const finalPdfBuffer = pdfBuffer as Buffer;
+  order.labelPdfBase64 = finalPdfBuffer.toString("base64");
+  order.labelPdfContentType = finalContentType;
+  order.labelPdfCachedAt = new Date();
+  await order.save().catch(() => undefined);
+
+  res.set("Content-Type", finalContentType);
+  res.set("Content-Disposition", `inline; filename="label-${order.orderId ?? order._id}.pdf"`);
+  res.set("Cache-Control", "no-store");
+  res.send(finalPdfBuffer);
+});

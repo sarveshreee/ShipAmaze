@@ -146,7 +146,7 @@ export default function AdminKyc() {
           <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="border-b border-border bg-surface-2/50">
-                <th className="p-3 text-left">Dropshipper</th>
+                <th className="p-3 text-left">Account</th>
                 <th className="p-3 text-left">Business / PAN</th>
                 <th className="p-3 text-left">Type</th>
                 <th className="p-3 text-left">Status</th>
@@ -160,6 +160,7 @@ export default function AdminKyc() {
                   <td className="p-3">
                     <p className="font-medium text-text-primary">{r.name}</p>
                     <p className="text-xs text-text-muted">{r.email}</p>
+                    {r.role && <p className="text-[11px] text-text-muted capitalize">{r.role}</p>}
                   </td>
                   <td className="p-3">
                     <p>{r.business_name || r.full_name || "—"}</p>
@@ -239,14 +240,29 @@ export default function AdminKyc() {
                     auth_id: "Authorized Person ID",
                   };
 
+                  const normalizeDocUrl = (raw: string) => {
+                    const url = String(raw ?? "").trim();
+                    if (!url) return "";
+                    if (url.startsWith("data:") || /^https?:\/\//i.test(url)) return url;
+                    if (/^\/\//.test(url)) return `https:${url}`;
+                    if (/^[A-Za-z0-9+/=\s]+$/.test(url) && url.length > 100) {
+                      const compact = url.replace(/\s/g, "");
+                      const mime = compact.startsWith("JVBER") ? "application/pdf" : "image/jpeg";
+                      return `data:${mime};base64,${compact}`;
+                    }
+                    return url;
+                  };
+
                   const openDoc = (url: string, label: string) => {
+                    const src = normalizeDocUrl(url);
                     const win = window.open("", "_blank");
                     if (!win) return;
+                    const isPdf = src.startsWith("data:application/pdf") || /\.pdf($|\?)/i.test(src);
                     win.document.write(
                       `<!DOCTYPE html><html><head><title>${label}</title>` +
-                      `<style>*{margin:0;padding:0;}body{background:#111;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;}` +
-                      `img{max-width:100%;height:auto;display:block;}</style></head>` +
-                      `<body><img src="${url}" alt="${label}" /></body></html>`
+                      `<style>*{box-sizing:border-box}body{margin:0;background:#111;min-height:100vh;display:flex;justify-content:center;align-items:flex-start;padding:16px;}` +
+                      `img,iframe{max-width:100%;width:100%;height:auto;min-height:90vh;background:#fff;border:0;object-fit:contain;}</style></head>` +
+                      `<body>${isPdf ? `<iframe src="${src}" title="${label}"></iframe>` : `<img src="${src}" alt="${label}" />`}</body></html>`
                     );
                     win.document.close();
                   };
@@ -255,7 +271,8 @@ export default function AdminKyc() {
                   if (entries.length === 0) return <p className="text-text-muted text-xs">No documents uploaded.</p>;
                   return entries.map(([key, url]) => {
                     const label = docLabels[key] ?? key;
-                    const isViewable = url.startsWith("data:") || url.startsWith("http") || url.length > 100;
+                    const normalizedUrl = normalizeDocUrl(url);
+                    const isViewable = normalizedUrl.startsWith("data:") || normalizedUrl.startsWith("http") || normalizedUrl.length > 100;
                     return (
                       <div key={key} className="flex items-center justify-between gap-2 rounded border border-border p-2.5 bg-surface-2/30">
                         <span className="font-medium text-text-primary">{label}</span>

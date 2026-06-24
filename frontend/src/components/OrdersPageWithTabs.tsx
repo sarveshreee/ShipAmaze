@@ -479,6 +479,10 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               <SelectItem value="fulfilled">Fulfilled</SelectItem>
               <SelectItem value="partial">Partial</SelectItem>
               <SelectItem value="unfulfilled">Unfulfilled</SelectItem>
+              <SelectItem value="Pending Pickup">Pending Pickup</SelectItem>
+              <SelectItem value="In Transit">In Transit</SelectItem>
+              <SelectItem value="Out For Delivery">Out For Delivery</SelectItem>
+              <SelectItem value="Delivered">Delivered</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -613,7 +617,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onClearSelection={() => setSelected(new Set())}
           onMarkJunk={handleMarkJunk}
           onMarkReship={handleMarkReship}
-          onBulkJunk={activeTab === "junk" ? handleBulkDeleteJunk : handleBulkJunk}
+          onBulkJunk={role === "vendor" ? undefined : activeTab === "junk" ? handleBulkDeleteJunk : handleBulkJunk}
           bulkJunkLabel={activeTab === "junk" ? "Bulk Delete" : "Bulk Junk"}
           onOpenProcessModal={() => setProcessModalOpen(true)}
           onBulkMoveToReady={handleBulkMoveToReady}
@@ -627,7 +631,9 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           showBulkMoveToReady={showBulkMoveToReady}
           couriers={couriers}
           warehouses={linkedWarehouseOptions}
-          onOrdersChanged={refetch}
+          onOrdersChanged={async () => {
+            await refetch();
+          }}
           onCreateShipment={
             canProcessOrders
               ? async (payload) => {

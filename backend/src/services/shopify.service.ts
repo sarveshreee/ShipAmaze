@@ -64,6 +64,11 @@ export interface ShopifyProduct {
   variants: Array<{ id: number; price: string; sku: string; inventory_quantity: number }>;
 }
 
+export interface ShopifyFulfillmentOrder {
+  id: number;
+  status: string;
+}
+
 function shopifyApiVersion(): string {
   return process.env.SHOPIFY_API_VERSION?.trim() || "2026-01";
 }
@@ -330,6 +335,238 @@ export async function getProducts(
   );
   return data.products;
 }
+
+export async function getFulfillmentOrders(
+  accessToken: string,
+  shop: string,
+  orderId: number | string
+): Promise<ShopifyFulfillmentOrder[]> {
+  const data = await shopifyRequest<{ fulfillment_orders?: ShopifyFulfillmentOrder[] }>(
+    "GET",
+    `${shopifyBaseUrl(shop)}/orders/${orderId}/fulfillment_orders.json`,
+    accessToken
+  );
+  return Array.isArray(data.fulfillment_orders) ? data.fulfillment_orders : [];
+}
+
+export async function createFulfillment(
+  accessToken: string,
+  shop: string,
+  input: {
+    fulfillmentOrderIds: Array<number | string>;
+    trackingNumber?: string;
+    trackingUrl?: string;
+    trackingCompany?: string;
+  }
+): Promise<unknown> {
+  const lineItems = input.fulfillmentOrderIds.map((id) => ({ fulfillment_order_id: Number(id) }));
+  return shopifyRequest<unknown>(
+    "POST",
+    `${shopifyBaseUrl(shop)}/fulfillments.json`,
+    accessToken,
+    {
+      fulfillment: {
+        line_items_by_fulfillment_order: lineItems,
+        notify_customer: false,
+        tracking_info: {
+          number: input.trackingNumber,
+          url: input.trackingUrl,
+          company: input.trackingCompany,
+        },
+      },
+    }
+  );
+}
+
+/** Fetch a Shopify order's line items (requires read_orders scope). */
+export async function getOrderLineItems(
+  accessToken: string,
+  shop: string,
+  orderId: string | number
+): Promise<Array<{ id: number; fulfillable_quantity: number }>> {
+  try {
+    const data = await shopifyFetch<{ order?: { line_items?: Array<{ id: number; fulfillable_quantity: number }> } }>(
+      `${shopifyBaseUrl(shop)}/orders/${orderId}.json?fields=id,line_items`,
+      accessToken
+    );
+    return Array.isArray(data.order?.line_items) ? (data.order!.line_items as Array<{ id: number; fulfillable_quantity: number }>) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch active store locations (requires read_locations scope). */
+export async function getLocations(
+  accessToken: string,
+  shop: string
+): Promise<Array<{ id: number; name: string; active: boolean }>> {
+  try {
+    const data = await shopifyFetch<{ locations?: Array<{ id: number; name: string; active: boolean }> }>(
+      `${shopifyBaseUrl(shop)}/locations.json`,
+      accessToken
+    );
+    return Array.isArray(data.locations) ? data.locations : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Attempt A: POST /fulfillments.json with old body format (location_id + line_items).
+ * Shopify may accept this with write_fulfillments scope (without needing fulfillment_order_ids).
+ */
+export async function createFulfillmentNewEndpointOldFormat(
+  accessToken: string,
+  shop: string,
+  input: {
+    locationId: number;
+    lineItemIds: number[];
+    trackingNumber?: string;
+    trackingUrl?: string;
+    trackingCompany?: string;
+  }
+): Promise<unknown> {
+  const body: Record<string, unknown> = {
+    location_id: input.locationId,
+    notify_customer: false,
+    ...(input.trackingNumber ? { tracking_number: input.trackingNumber } : {}),
+    ...(input.trackingCompany ? { tracking_company: input.trackingCompany } : {}),
+    ...(input.trackingUrl ? { tracking_url: input.trackingUrl } : {}),
+    ...(input.lineItemIds.length > 0 ? { line_items: input.lineItemIds.map((id) => ({ id })) } : {}),
+  };
+  return shopifyRequest<unknown>(
+    "POST",
+    `${shopifyBaseUrl(shop)}/fulfillments.json`,
+    accessToken,
+    { fulfillment: body }
+  );
+}
+
+/**
+ * Attempt B: GET existing fulfillments for an order (requires read_orders only).
+ * Returns fulfillment IDs + statuses.
+ */
+export async function getOrderFulfillments(
+  accessToken: string,
+  shop: string,
+  orderId: string | number
+): Promise<Array<{ id: number; status: string; tracking_number?: string }>> {
+  try {
+    const data = await shopifyFetch<{ fulfillments?: Array<{ id: number; status: string; tracking_number?: string }> }>(
+      `${shopifyBaseUrl(shop)}/orders/${orderId}/fulfillments.json`,
+      accessToken
+    );
+    return Array.isArray(data.fulfillments) ? data.fulfillments : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Attempt C: PUT /fulfillments/{id}.json — update tracking on an existing fulfillment.
+ * Works with write_fulfillments scope.
+ */
+export async function updateFulfillmentTracking(
+  accessToken: string,
+  shop: string,
+  fulfillmentId: number,
+  input: {
+    trackingNumber?: string;
+    trackingUrl?: string;
+    trackingCompany?: string;
+    notifyCustomer?: boolean;
+  }
+): Promise<unknown> {
+  return shopifyRequest<unknown>(
+    "PUT",
+    `${shopifyBaseUrl(shop)}/fulfillments/${fulfillmentId}/update_tracking.json`,
+    accessToken,
+    {
+      fulfillment: {
+        notify_customer: input.notifyCustomer ?? false,
+        tracking_info: {
+          number: input.trackingNumber,
+          url: input.trackingUrl,
+          company: input.trackingCompany,
+        },
+      },
+    }
+  );
+}
+
+/**
+ * Kept for reference but deprecated — use createFulfillmentNewEndpointOldFormat instead.
+ * POST /orders/{id}/fulfillments.json is removed in Shopify API 2022-07+ (returns 406).
+ */
+export async function createFulfillmentLegacyWithLocation(
+  accessToken: string,
+  shop: string,
+  input: {
+    orderId: string | number;
+    locationId: number;
+    lineItemIds: number[];
+    trackingNumber?: string;
+    trackingUrl?: string;
+    trackingCompany?: string;
+  }
+): Promise<unknown> {
+  const body: Record<string, unknown> = {
+    location_id: input.locationId,
+    notify_customer: false,
+    ...(input.trackingNumber ? { tracking_number: input.trackingNumber } : {}),
+    ...(input.trackingCompany ? { tracking_company: input.trackingCompany } : {}),
+    ...(input.trackingUrl ? { tracking_url: input.trackingUrl } : {}),
+    ...(input.lineItemIds.length > 0 ? { line_items: input.lineItemIds.map((id) => ({ id })) } : {}),
+  };
+  return shopifyRequest<unknown>(
+    "POST",
+    `${shopifyBaseUrl(shop)}/orders/${input.orderId}/fulfillments.json`,
+    accessToken,
+    { fulfillment: body }
+  );
+}
+
+/**
+ * Update an order's note_attributes and tags (requires write_orders scope only).
+ * Used as a fallback when fulfillment scopes are missing — adds tracking
+ * visibility in the Shopify admin order detail page.
+ */
+export async function updateOrderTrackingNote(
+  accessToken: string,
+  shop: string,
+  orderId: string | number,
+  params: {
+    awb: string;
+    status: string;
+    trackingUrl?: string;
+    courierName?: string;
+    existingTags?: string;
+  }
+): Promise<void> {
+  const statusTag = `ShipAmaze-${params.status.replace(/\s+/g, "-")}`;
+  const shipAmazeTagPattern = /ShipAmaze-[A-Za-z0-9_-]+/g;
+  const cleanedTags = (params.existingTags ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t && !shipAmazeTagPattern.test(t))
+    .join(", ");
+  const newTags = [cleanedTags, statusTag].filter(Boolean).join(", ");
+
+  const noteAttributes = [
+    { name: "ShipAmaze AWB", value: params.awb },
+    { name: "ShipAmaze Status", value: params.status },
+    ...(params.trackingUrl ? [{ name: "ShipAmaze Tracking", value: params.trackingUrl }] : []),
+    ...(params.courierName ? [{ name: "ShipAmaze Courier", value: params.courierName }] : []),
+  ];
+
+  await shopifyRequest<unknown>(
+    "PUT",
+    `${shopifyBaseUrl(shop)}/orders/${orderId}.json`,
+    accessToken,
+    { order: { id: Number(orderId), note_attributes: noteAttributes, tags: newTags } }
+  );
+}
+
 
 export type ShopifyProductInput = {
   title: string;

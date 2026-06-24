@@ -1,13 +1,17 @@
 /** Admin API scopes requested during OAuth and shown in the Channels setup guide. */
 export const DEFAULT_SHOPIFY_OAUTH_SCOPES = [
+  "read_customers",
+  "write_customers",
+  "read_fulfillments",
+  "write_fulfillments",
+  "write_locations",
+  "read_locations",
+  "read_merchant_managed_fulfillment_orders",
+  "write_merchant_managed_fulfillment_orders",
   "read_orders",
   "write_orders",
   "read_products",
   "write_products",
-  "read_locations",
-  "write_locations",
-  "read_customers",
-  "write_customers",
 ] as const;
 
 export function shopifyOAuthScopesString(): string {

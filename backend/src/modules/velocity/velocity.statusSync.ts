@@ -14,6 +14,7 @@ import { listShipments, trackShipment } from "./velocity.service.js";
 import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.mapper.js";
 import { normalizeOrderStatus } from "../../utils/orderStatus.js";
 import { devLog } from "../../utils/devLog.js";
+import { mirrorShopifyFulfillmentStatus, pushShopifyFulfillmentUpdate } from "../../services/shopifyFulfillmentMirror.js";
 
 /** Shipment statuses that need live tracking refreshed from Velocity. */
 const STALE_STATUSES = [
@@ -201,7 +202,9 @@ export async function syncActiveShipmentStatuses(
       }
 
       if (changed) {
+        mirrorShopifyFulfillmentStatus(doc);
         await doc.save();
+        void pushShopifyFulfillmentUpdate(doc);
         result.updated++;
         devLog.info(
           `[velocity:status-sync] updated orderId=${lean.orderId} awb=${awb} ` +

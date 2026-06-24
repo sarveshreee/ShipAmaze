@@ -12,6 +12,7 @@ import {
   type IKycProfile,
 } from "../models/KycProfile.js";
 import { Dropshipper } from "../models/Dropshipper.js";
+import { Vendor } from "../models/Vendor.js";
 import { User } from "../models/User.js";
 import { assertOwnerAdmin } from "../utils/staffPermissions.js";
 import { createInAppNotification } from "../services/inAppNotifications.js";
@@ -266,7 +267,7 @@ export const listKycForAdmin = asyncHandler(async (req: AuthRequest, res: Respon
   const rows = await KycProfile.find(filter).sort({ updatedAt: -1 }).limit(200).lean();
   const userIds = rows.map((r) => r.userId);
   const users = await User.find({ _id: { $in: userIds } })
-    .select("name email companyName phone status")
+    .select("name email companyName phone status role")
     .lean();
   const userMap = new Map(users.map((u) => [String(u._id), u]));
 
@@ -278,6 +279,7 @@ export const listKycForAdmin = asyncHandler(async (req: AuthRequest, res: Respon
       email: u?.email ?? "",
       companyName: u?.companyName ?? "",
       phone: u?.phone ?? "",
+      role: u?.role ?? "",
       userStatus: u?.status ?? "active",
       ...mapKycResponse(r as unknown as IKycProfile),
       submittedAt: r.updatedAt,
@@ -302,7 +304,7 @@ export const getKycForAdmin = asyncHandler(async (req: AuthRequest, res: Respons
   const userId = req.params.userId;
   if (!mongoose.isValidObjectId(userId)) throw new AppError(400, "Invalid userId");
   const k = await KycProfile.findOne({ userId }).lean();
-  const u = await User.findById(userId).select("name email companyName phone status").lean();
+  const u = await User.findById(userId).select("name email companyName phone status role").lean();
   if (!k && !u) throw new AppError(404, "Not found");
   res.json({
     userId,
@@ -310,6 +312,7 @@ export const getKycForAdmin = asyncHandler(async (req: AuthRequest, res: Respons
     email: u?.email ?? "",
     companyName: u?.companyName ?? "",
     phone: u?.phone ?? "",
+    role: u?.role ?? "",
     userStatus: u?.status ?? "active",
     ...mapKycResponse(k as unknown as IKycProfile),
   });
@@ -331,11 +334,16 @@ export const approveKyc = asyncHandler(async (req: AuthRequest, res: Response) =
   k.data = { ...(k.data ?? {}), status: "verified" };
   await k.save();
 
-  await Dropshipper.findOneAndUpdate(
-    { userId },
-    { kycVerified: true, accessType: "FULL", status: "Active" },
-    { upsert: true }
-  );
+  const approvedUser = await User.findById(userId).select("role").lean();
+  if (approvedUser?.role === "vendor") {
+    await Vendor.findOneAndUpdate({ userId }, { status: "Active" });
+  } else {
+    await Dropshipper.findOneAndUpdate(
+      { userId },
+      { kycVerified: true, accessType: "FULL", status: "Active" },
+      { upsert: true }
+    );
+  }
   await User.findByIdAndUpdate(userId, { status: "active" });
 
   await createInAppNotification(

@@ -254,9 +254,8 @@ function AppRoutes() {
       ))}
       <Route path="/vendor/products" element={<RoleProtectedRoute allow={["vendor"]}><VendorProducts /></RoleProtectedRoute>} />
       <Route path="/dropshipper/products" element={<RoleProtectedRoute allow={["dropshipper"]}><ProductsPage /></RoleProtectedRoute>} />
-      {(["vendor","dropshipper"] as const).map(r => (
-        <Route key={`${r}-requests`} path={`/${r}/product-requests`} element={<RoleProtectedRoute allow={[r]}><NewProductRequest /></RoleProtectedRoute>} />
-      ))}
+      <Route path="/vendor/requested-products" element={<RoleProtectedRoute allow={["vendor"]}><NewProductRequest /></RoleProtectedRoute>} />
+      <Route path="/vendor/product-requests" element={<Navigate to="/vendor/requested-products" replace />} />
       {(["vendor","dropshipper"] as const).map(r => (
         <Route key={`${r}-bulk-products`} path={`/${r}/bulk-upload-products`} element={<RoleProtectedRoute allow={[r]}><BulkUploadProducts /></RoleProtectedRoute>} />
       ))}

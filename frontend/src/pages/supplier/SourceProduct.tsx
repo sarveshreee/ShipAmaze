@@ -130,11 +130,13 @@ export default function SourceProduct() {
 
   const hydrate = (p: any) => {
     const sp = p.sellingPrice ?? p.selling_price;
+    const existingVendorId = String(p.vendorId ?? p.vendor_id ?? "").trim();
     const categories: string[] = Array.isArray(p.categories) && p.categories.length > 0
       ? p.categories.map((c: unknown) => String(c)).filter(Boolean)
       : p.category
         ? [String(p.category)]
         : [];
+    if (existingVendorId) setVendorId(existingVendorId);
     setForm({
       ...emptyForm,
       ...p,

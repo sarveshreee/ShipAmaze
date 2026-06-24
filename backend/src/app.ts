@@ -111,7 +111,7 @@ export function createApp() {
       void shopifyController.handleWebhook(req, res).catch(next);
     }
   );
-  const jsonLimit = process.env.JSON_BODY_LIMIT?.trim() || (isProd ? "1mb" : "10mb");
+  const jsonLimit = process.env.JSON_BODY_LIMIT?.trim() || (isProd ? "10mb" : "10mb");
   app.use(express.json({ limit: jsonLimit }));
 
   const api = express.Router();

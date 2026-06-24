@@ -1394,7 +1394,7 @@ export function RichOrdersTable({
                         </Button>
                       ) : (
                         <div className="flex flex-col gap-1.5">
-                          {!o.isJunk && o.status !== "ready_to_ship" && !o.awb && onMoveToReady && (
+                          {!o.isJunk && String(o.status) !== "ready_to_ship" && !o.awb && onMoveToReady && (
                             <Button
                               variant="outline"
                               size="sm"

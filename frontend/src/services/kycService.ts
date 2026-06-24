@@ -28,6 +28,7 @@ export interface AdminKycRow extends KycProfileResponse {
   email: string;
   companyName?: string;
   phone?: string;
+  role?: "admin" | "vendor" | "dropshipper" | string;
   userStatus?: string;
   submittedAt?: string;
 }

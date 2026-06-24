@@ -194,7 +194,7 @@ export function createOrderLabelElement(
       boxSizing: "border-box",
       width: `${px.w}px`,
       minHeight: `${px.h}px`,
-      padding: "10px 12px",
+      padding: "3mm",
       background: "#ffffff",
       color: "#000000",
       fontFamily: "system-ui, Segoe UI, Arial, sans-serif",
@@ -459,6 +459,137 @@ export function createOrderLabelElement(
   return host;
 }
 
+export function createAmazonTransportationLabelElement(order: Order): HTMLElement {
+  const page = labelPageSizeCss("4x6");
+  const st = shipBlock(order);
+  const awb = dash(order.awb || order.trackingId || order.velocityShipmentId);
+  const shipDate = order.date ? new Date(order.date) : new Date();
+  const shipDateText = Number.isNaN(shipDate.getTime())
+    ? dash(order.date)
+    : `${String(shipDate.getDate()).padStart(2, "0")}/${String(shipDate.getMonth() + 1).padStart(2, "0")}`;
+  const payment = paymentLabel(order).toUpperCase();
+
+  const host = el("div", {
+    className: "shipamaze-order-label shipamaze-amazon-label",
+    style: {
+      boxSizing: "border-box",
+      width: page.width,
+      minHeight: page.minHeight,
+      padding: "4mm",
+      background: "#ffffff",
+      color: "#000000",
+      fontFamily: "Arial, Helvetica, sans-serif",
+      fontSize: "11px",
+      lineHeight: "1.15",
+      colorScheme: "light",
+    },
+  });
+
+  const top = el("div", { style: { display: "grid", gridTemplateColumns: "1fr 28mm", gap: "3mm", alignItems: "start" } });
+  const left = el("div");
+  const awbBarcode = barcodePngDataUrl(awb);
+  if (awbBarcode) {
+    const img = document.createElement("img");
+    img.src = awbBarcode;
+    img.style.width = "48mm";
+    img.style.maxHeight = "22mm";
+    img.style.objectFit = "contain";
+    left.appendChild(img);
+  }
+  left.appendChild(el("div", { style: { textAlign: "center", fontWeight: "700", fontSize: "10px", marginTop: "-2mm" }, text: `AWB ${awb}` }));
+  top.appendChild(left);
+
+  const right = el("div", { style: { display: "grid", gap: "1.5mm" } });
+  const rightBox = (text: string, invert = false) =>
+    el("div", {
+      style: {
+        border: "2px solid #000",
+        padding: "1.5mm",
+        textAlign: "center",
+        fontWeight: "800",
+        fontSize: "16px",
+        lineHeight: "1",
+        background: invert ? "#000" : "#fff",
+        color: invert ? "#fff" : "#000",
+      },
+      text,
+    });
+  right.appendChild(rightBox(String(order.zone || "SUR").slice(0, 8).toUpperCase()));
+  right.appendChild(rightBox(`${dash(order.weight || "0.5")} kg`.replace(/kg kg/i, "kg"), false));
+  right.appendChild(rightBox(payment, false));
+  top.appendChild(right);
+  host.appendChild(top);
+
+  const shipTo = el("div", { style: { marginTop: "3mm", fontWeight: "700" }, text: "Ship To:" });
+  host.appendChild(shipTo);
+  host.appendChild(el("div", { style: { fontWeight: "700", fontSize: "12px" }, text: st.name }));
+  st.lines.forEach((ln) => host.appendChild(el("div", { style: { fontWeight: "700" }, text: ln })));
+  if (st.phone !== "—") host.appendChild(el("div", { style: { fontWeight: "700" }, text: `Phone: ${st.phone}` }));
+
+  const orderMeta = el("div", {
+    style: { marginTop: "3mm", borderBottom: "1px solid #000", paddingBottom: "2mm", fontWeight: "700" },
+  });
+  orderMeta.appendChild(el("div", { text: `Order Id: ${dash(order.externalOrderName || order.id)}` }));
+  orderMeta.appendChild(el("div", { text: `Ship Date: ${shipDateText}` }));
+  host.appendChild(orderMeta);
+
+  const qrRow = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "4mm", padding: "4mm 0", borderBottom: "1px solid #000" } });
+  [awb, order.id, st.phone, String(order.amount ?? "")].forEach((value) => {
+    const src = barcodePngDataUrl(value);
+    const box = el("div", { style: { border: "2px solid #000", height: "18mm", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" } });
+    if (src) {
+      const img = document.createElement("img");
+      img.src = src;
+      img.style.width = "100%";
+      img.style.transform = "rotate(90deg) scale(1.25)";
+      box.appendChild(img);
+    }
+    qrRow.appendChild(box);
+  });
+  host.appendChild(qrRow);
+
+  const pickup = typeof order.pickupAddress === "object" && order.pickupAddress
+    ? order.pickupAddress
+    : null;
+  const shipFromLines = [
+    "Ship From:",
+    pickup?.label || "Seller",
+    pickup?.address || "",
+    [pickup?.city, pickup?.state, pickup?.pincode].filter(Boolean).join(", "),
+  ].filter(Boolean);
+  const fromBlock = el("div", { style: { padding: "2mm 0", fontSize: "9px", fontWeight: "700", borderBottom: "1px solid #000" } });
+  shipFromLines.forEach((line) => fromBlock.appendChild(el("div", { text: line })));
+  host.appendChild(fromBlock);
+
+  const table = document.createElement("table");
+  table.style.width = "100%";
+  table.style.borderCollapse = "collapse";
+  table.style.marginTop = "2mm";
+  table.style.fontSize = "9px";
+  ["SELLER", "GSTIN", "INVOICE", "DATE", "ITEM TYPE"].forEach((h) => {
+    const th = document.createElement("th");
+    th.textContent = h;
+    th.style.border = "1px solid #000";
+    th.style.padding = "1mm";
+    table.appendChild(th);
+  });
+  const tr = document.createElement("tr");
+  ["", "", dash(order.id), shipDateText, lineName(orderLines(order)[0] ?? {})].forEach((v) => {
+    const td = document.createElement("td");
+    td.textContent = v;
+    td.style.border = "1px solid #000";
+    td.style.padding = "1mm";
+    tr.appendChild(td);
+  });
+  table.appendChild(tr);
+  host.appendChild(table);
+
+  host.dataset.pageSize = page.page;
+  host.dataset.pageWidth = page.width;
+  host.dataset.pageMinHeight = page.minHeight;
+  return host;
+}
+
 export function openPrintWindowForLabel(order: Order, settings: LabelInvoiceSettings, title: string): void {
   openPrintWindowForLabelNodes([createOrderLabelElement(order, settings, { documentTitle: title })], settings, title);
 }
@@ -470,14 +601,25 @@ export function openPrintWindowForLabelNodes(
   title: string
 ): void {
   const page = labelPageSizeCss(settings.labelSize);
+  const px = labelPixelBox(settings.labelSize);
   const styles = `
-    @page { size: ${page.page}; margin: 4mm; }
-    html, body { margin: 0; padding: 0; background: #fff !important; color: #000 !important; }
+    @page { size: ${page.page}; margin: 0; }
+    html, body { margin: 0; padding: 0; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .shipamaze-order-label { margin: 0 auto; page-break-after: always; }
+    .shipamaze-order-label { margin: 0; page-break-after: always; break-after: page; }
     .shipamaze-order-label:last-child { page-break-after: auto; }
+    @media print {
+      html, body { background: #fff !important; color: #000 !important; width: ${page.width}; min-height: ${page.minHeight}; }
+    }
+    @media screen {
+      html, body { background: #f0f0f0; }
+      body { display: flex; flex-direction: column; align-items: center; padding: 20px; min-height: 100vh; }
+      .shipamaze-order-label { box-shadow: 0 2px 8px rgba(0,0,0,0.18); margin: 8px 0; background: #fff; }
+    }
   `;
-  const w = window.open("", "_blank", "width=520,height=760");
+  const winW = px.w + 60;
+  const winH = Math.min(px.h + 120, 900);
+  const w = window.open("", "_blank", `width=${winW},height=${winH}`);
   if (!w) return;
   w.document.open();
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${styles}</style></head><body></body></html>`);
@@ -497,6 +639,54 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Renders label nodes to a multi-page PDF and opens it in a new browser tab.
+ * The user can save/share/print the PDF from the browser's native PDF viewer.
+ */
+export async function openLabelNodesAsPdf(
+  nodes: HTMLElement[],
+  settings: LabelInvoiceSettings,
+  _title: string
+): Promise<void> {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
+  const mm = labelPdfDimensionsMm(settings.labelSize);
+  const px = labelPixelBox(settings.labelSize);
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: [mm.w, mm.h] });
+
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    node.style.position = "fixed";
+    node.style.left = "-99999px";
+    node.style.top = "0";
+    node.style.zIndex = "-1";
+    node.style.pointerEvents = "none";
+    node.style.width = `${px.w}px`;
+    node.style.minHeight = `${px.h}px`;
+    document.body.appendChild(node);
+    try {
+      const canvas = await html2canvas(node, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        width: px.w,
+        height: px.h,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      if (i > 0) pdf.addPage([mm.w, mm.h]);
+      pdf.addImage(imgData, "PNG", 0, 0, mm.w, mm.h, undefined, "FAST");
+    } finally {
+      document.body.removeChild(node);
+    }
+  }
+
+  const blob = pdf.output("blob");
+  const blobUrl = URL.createObjectURL(blob);
+  const tab = window.open(blobUrl, "_blank");
+  if (!tab) throw new Error("Popup blocked — please allow popups for this site");
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
 }
 
 export async function downloadOrderLabelPdf(

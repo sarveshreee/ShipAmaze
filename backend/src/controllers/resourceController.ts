@@ -1638,27 +1638,37 @@ export const listProductRequests = asyncHandler(async (req: AuthRequest, res: Re
   const q =
     req.user.role === "admin"
       ? {}
+      : req.user.role === "vendor"
+        ? { role: "admin" }
       : { userId: req.user._id };
   const rows = await ProductRequest.find(q).sort({ createdAt: -1 }).lean();
   res.json(
     rows.map((r) => ({
       id: String(r._id),
+      request_id: `REQ-${String(r._id).slice(-6).toUpperCase()}`,
+      requested_by_role: r.role,
       ...((r.payload as object) || {}),
       status: r.status,
       created_at: r.createdAt,
+      updated_at: r.updatedAt,
     }))
   );
 });
 
 export const createProductRequest = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Only admin can create product requests");
+  const body = req.body as Record<string, unknown>;
+  const status = String(body.status ?? "pending");
+  const payload = { ...body };
+  delete payload.status;
   const doc = await ProductRequest.create({
     userId: req.user._id,
     role: req.user.role,
-    payload: req.body,
-    status: "pending",
+    payload,
+    status,
   });
-  res.status(201).json({ id: String(doc._id), ...req.body, status: doc.status });
+  res.status(201).json({ id: String(doc._id), request_id: `REQ-${String(doc._id).slice(-6).toUpperCase()}`, ...payload, status: doc.status });
 });
 
 export const updateProductRequest = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -1668,10 +1678,38 @@ export const updateProductRequest = asyncHandler(async (req: AuthRequest, res: R
   const { assertProductRequestAccess } = await import("../utils/productRequestAccess.js");
   assertProductRequestAccess(req.user, pr);
   const body = req.body as Record<string, unknown>;
-  if (body.payload !== undefined) pr.payload = body.payload as Record<string, unknown>;
-  if (body.status !== undefined) pr.status = String(body.status);
+  if (req.user.role === "vendor" && pr.role === "admin") {
+    const nextStatus = String(body.status ?? "");
+    if (nextStatus !== "approved" && nextStatus !== "rejected") {
+      throw new AppError(400, "Vendors can only approve or reject admin product requests");
+    }
+    pr.status = nextStatus;
+    pr.payload = {
+      ...((pr.payload as Record<string, unknown>) ?? {}),
+      supplier_remarks: body.supplier_remarks,
+      vendor_id: String(req.user._id),
+      vendor_name: body.vendor_name,
+      responded_at: new Date().toISOString(),
+    };
+  } else {
+    if (body.payload !== undefined) {
+      pr.payload = body.payload as Record<string, unknown>;
+    } else {
+      const patch = { ...body };
+      delete patch.status;
+      pr.payload = { ...((pr.payload as Record<string, unknown>) ?? {}), ...patch };
+    }
+    if (body.status !== undefined) pr.status = String(body.status);
+  }
   await pr.save();
-  res.json(pr);
+  res.json({
+    id: String(pr._id),
+    request_id: `REQ-${String(pr._id).slice(-6).toUpperCase()}`,
+    ...((pr.payload as object) || {}),
+    status: pr.status,
+    created_at: pr.createdAt,
+    updated_at: pr.updatedAt,
+  });
 });
 
 export const deleteProductRequest = asyncHandler(async (req: AuthRequest, res: Response) => {

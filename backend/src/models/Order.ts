@@ -82,6 +82,9 @@ export interface IOrder extends Document {
   courierCompanyId?: number | string;
   courierName?: string;
   labelUrl?: string;
+  labelPdfBase64?: string;
+  labelPdfContentType?: string;
+  labelPdfCachedAt?: Date;
   manifestUrl?: string;
   shippingCharges?: number;
   /** Actual Velocity/courier freight (internal); dropshipper is billed via shippingCharges. */
@@ -187,6 +190,9 @@ const orderSchema = new Schema<IOrder>(
     courierCompanyId: { type: Schema.Types.Mixed },
     courierName: { type: String },
     labelUrl: { type: String },
+    labelPdfBase64: { type: String },
+    labelPdfContentType: { type: String },
+    labelPdfCachedAt: { type: Date },
     manifestUrl: { type: String },
     shippingCharges: { type: Number },
     velocityFreightCost: { type: Number },
