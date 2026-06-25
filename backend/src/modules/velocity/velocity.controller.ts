@@ -119,6 +119,30 @@ function appendStatusHistoryEntry(order: IOrder, status: string, note: string) {
   order.statusHistory = [...prev, { status, at: new Date(), note }].slice(-50);
 }
 
+function isVelocityCancellationStatus(status: unknown): boolean {
+  return normalizeOrderStatus(mapVelocityStatus(status)) === "cancelled";
+}
+
+function moveExternallyCancelledShipmentToReship(order: IOrder, note: string) {
+  order.isJunk = false;
+  order.junkedAt = undefined;
+  order.junkReason = undefined;
+  order.shipmentCreated = false;
+  order.awb = "";
+  order.trackingId = undefined;
+  order.shipmentId = undefined;
+  order.velocityOrderId = undefined;
+  order.velocityShipmentId = undefined;
+  order.velocityReturnId = undefined;
+  order.labelUrl = undefined;
+  order.manifestUrl = undefined;
+  order.trackingUrl = undefined;
+  order.trackingActivities = undefined;
+  if (order.status !== "reship") appendStatusHistoryEntry(order, "reship", note);
+  order.status = "reship";
+  order.shipmentStatus = "reship";
+}
+
 function applyVelocityMappedOrderStatus(
   order: IOrder,
   velocityRawStatus: string | undefined,
@@ -1085,18 +1109,25 @@ export const trackShipment = asyncHandler(async (req: AuthRequest, res: Response
   if (localOrder) {
     localOrder.shipmentStatus = result.status;
     localOrder.trackingActivities = result.shipment_track_activities ?? localOrder.trackingActivities;
-    const internalStatus = mapVelocityStatus(result.status);
-    if (
-      internalStatus &&
-      shouldApplyInternalStatusUpdate(localOrder.status, internalStatus) &&
-      localOrder.status !== internalStatus
-    ) {
-      appendStatusHistoryEntry(localOrder, internalStatus, "velocity_track");
-      localOrder.status = internalStatus;
+    if (isVelocityCancellationStatus(result.status)) {
+      moveExternallyCancelledShipmentToReship(localOrder, "velocity_track_cancelled_to_reship");
+      mirrorShopifyFulfillmentStatus(localOrder);
+      await localOrder.save();
+      void pushShopifyFulfillmentUpdate(localOrder);
+    } else {
+      const internalStatus = mapVelocityStatus(result.status);
+      if (
+        internalStatus &&
+        shouldApplyInternalStatusUpdate(localOrder.status, internalStatus) &&
+        localOrder.status !== internalStatus
+      ) {
+        appendStatusHistoryEntry(localOrder, internalStatus, "velocity_track");
+        localOrder.status = internalStatus;
+      }
+      mirrorShopifyFulfillmentStatus(localOrder);
+      await localOrder.save();
+      void pushShopifyFulfillmentUpdate(localOrder);
     }
-    mirrorShopifyFulfillmentStatus(localOrder);
-    await localOrder.save();
-    void pushShopifyFulfillmentUpdate(localOrder);
   }
 
   res.json({
@@ -1149,18 +1180,25 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
     if (doc) {
       doc.shipmentStatus = result.status;
       doc.trackingActivities = result.shipment_track_activities ?? doc.trackingActivities;
-      const internalStatus = mapVelocityStatus(result.status);
-      if (
-        internalStatus &&
-        shouldApplyInternalStatusUpdate(doc.status, internalStatus) &&
-        doc.status !== internalStatus
-      ) {
-        appendStatusHistoryEntry(doc, internalStatus, "velocity_public_track");
-        doc.status = internalStatus;
+      if (isVelocityCancellationStatus(result.status)) {
+        moveExternallyCancelledShipmentToReship(doc, "velocity_public_track_cancelled_to_reship");
+        mirrorShopifyFulfillmentStatus(doc);
+        await doc.save();
+        void pushShopifyFulfillmentUpdate(doc);
+      } else {
+        const internalStatus = mapVelocityStatus(result.status);
+        if (
+          internalStatus &&
+          shouldApplyInternalStatusUpdate(doc.status, internalStatus) &&
+          doc.status !== internalStatus
+        ) {
+          appendStatusHistoryEntry(doc, internalStatus, "velocity_public_track");
+          doc.status = internalStatus;
+        }
+        mirrorShopifyFulfillmentStatus(doc);
+        await doc.save();
+        void pushShopifyFulfillmentUpdate(doc);
       }
-      mirrorShopifyFulfillmentStatus(doc);
-      await doc.save();
-      void pushShopifyFulfillmentUpdate(doc);
     }
 
     res.json({

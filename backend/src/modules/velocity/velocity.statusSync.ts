@@ -93,6 +93,25 @@ function appendHistoryEntry(
   ].slice(-50);
 }
 
+function isVelocityCancellationStatus(status: unknown): boolean {
+  const mapped = normalizeOrderStatus(mapVelocityStatus(status));
+  return mapped === "cancelled";
+}
+
+function clearShipmentForReship(order: InstanceType<typeof Order>) {
+  order.shipmentCreated = false;
+  order.awb = "";
+  order.trackingId = undefined;
+  order.shipmentId = undefined;
+  order.velocityOrderId = undefined;
+  order.velocityShipmentId = undefined;
+  order.velocityReturnId = undefined;
+  order.labelUrl = undefined;
+  order.manifestUrl = undefined;
+  order.trackingUrl = undefined;
+  order.trackingActivities = undefined;
+}
+
 /**
  * Refresh all active orders whose `shipmentStatus` (or `status`) indicates
  * they are somewhere between Pickup Scheduled and Out for Delivery.
@@ -151,6 +170,23 @@ export async function syncActiveShipmentStatuses(
       if (doc.shipmentStatus !== trackResult.status && trackResult.status) {
         doc.shipmentStatus = trackResult.status;
         changed = true;
+      }
+
+      if (isVelocityCancellationStatus(trackResult.status)) {
+        clearShipmentForReship(doc);
+        if (doc.status !== "reship") {
+          appendHistoryEntry(doc, "reship", "velocity_cancelled_to_reship");
+          doc.status = "reship";
+        }
+        doc.shipmentStatus = "reship";
+        mirrorShopifyFulfillmentStatus(doc);
+        await doc.save();
+        void pushShopifyFulfillmentUpdate(doc);
+        result.updated++;
+        devLog.info(
+          `[velocity:status-sync] moved cancelled Velocity order to reship orderId=${lean.orderId} awb=${awb}`
+        );
+        continue;
       }
 
       // Persist tracking activities if available

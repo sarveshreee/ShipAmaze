@@ -97,6 +97,23 @@ export default function SourceProduct() {
     })();
   }, [role]);
 
+  useEffect(() => {
+    if (editId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { sku } = await productService.getNextProductSku();
+        if (cancelled || !sku) return;
+        setForm((current) => (current.sku.trim() ? current : { ...current, sku }));
+      } catch {
+        /* SKU can still be typed manually if auto-fill is unavailable. */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editId]);
+
   // Load existing product if editing
   useEffect(() => {
     if (!editId) return;
@@ -470,7 +487,7 @@ export default function SourceProduct() {
                 )}
               </div>
               <div><Label>Product Name *</Label><Input value={form.name} onChange={e => update({ name: e.target.value })} placeholder="e.g. Cotton T-Shirt" /></div>
-              <div><Label>Product Main SKU</Label><Input value={form.sku} onChange={e => update({ sku: e.target.value })} placeholder="SKU-001" /></div>
+              <div><Label>Product Main SKU</Label><Input value={form.sku} onChange={e => update({ sku: e.target.value })} placeholder="SA0000001" /></div>
               <div><Label>Brand</Label><Input value={form.brand} onChange={e => update({ brand: e.target.value })} /></div>
               <div>
                 <Label>Status</Label>

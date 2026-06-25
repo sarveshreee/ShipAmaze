@@ -8,6 +8,10 @@ export async function listMarketplaceProducts() {
   return apiClient.get<unknown[]>("/products/marketplace");
 }
 
+export async function getNextProductSku() {
+  return apiClient.get<{ sku: string }>("/products/next-sku");
+}
+
 export async function getProductById(id: string) {
   return apiClient.get<unknown>(`/products/detail/${encodeURIComponent(id)}`);
 }

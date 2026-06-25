@@ -1556,6 +1556,40 @@ export const listProducts = asyncHandler(async (req: AuthRequest, res: Response)
   res.json(rows);
 });
 
+function nextProductSkuFromRows(rows: Array<{ sku?: unknown }>): string {
+  const prefix = "SA";
+  let max = 0;
+  let width = 7;
+
+  for (const row of rows) {
+    const sku = String(row.sku ?? "").trim().toUpperCase();
+    const match = /^SA(\d+)$/.exec(sku);
+    if (!match) continue;
+    width = Math.max(width, match[1].length);
+    max = Math.max(max, Number(match[1]));
+  }
+
+  return `${prefix}${String(max + 1).padStart(width, "0")}`;
+}
+
+async function assertUniqueProductSku(sku: string, excludeId?: string): Promise<void> {
+  const normalized = sku.trim();
+  if (!normalized) return;
+  const query: Record<string, unknown> = { sku: { $regex: new RegExp(`^${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } };
+  if (excludeId) query._id = { $ne: excludeId };
+  const existing = await Product.findOne(query).select("_id").lean();
+  if (existing) throw new AppError(400, `SKU "${normalized}" already exists`);
+}
+
+export const getNextProductSku = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role === "admin") {
+    assertProductPermission(req.user, PRODUCT_PERMISSIONS.CREATE);
+  }
+  const rows = await Product.find({ sku: { $regex: /^SA\d+$/i } }).select("sku").lean();
+  res.json({ sku: nextProductSkuFromRows(rows) });
+});
+
 function normalizeProductCommission(body: Record<string, unknown>): void {
   const raw = body.ourCommission ?? body.our_commission ?? body.commission;
   if (raw === undefined) return;
@@ -1584,6 +1618,11 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (Object.prototype.hasOwnProperty.call(body, "sku") && !String(body.sku ?? "").trim()) {
     throw new AppError(400, "SKU cannot be empty");
   }
+  if (!String(body.sku ?? "").trim()) {
+    const rows = await Product.find({ sku: { $regex: /^SA\d+$/i } }).select("sku").lean();
+    body.sku = nextProductSkuFromRows(rows);
+  }
+  await assertUniqueProductSku(String(body.sku ?? ""));
   const p = await Product.create(body);
   res.status(201).json(p);
 });
@@ -1597,6 +1636,8 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (Object.prototype.hasOwnProperty.call(body, "sku")) {
     const sku = String(body.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");
+    await assertUniqueProductSku(sku, req.params.id);
+    body.sku = sku;
   }
   if (req.user.role === "admin") {
     assertProductPermission(req.user, PRODUCT_PERMISSIONS.EDIT);

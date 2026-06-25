@@ -180,6 +180,7 @@ export function createApp() {
   );
 
   api.get("/products/marketplace", authMiddleware, resourceController.listMarketplaceProducts);
+  api.get("/products/next-sku", authMiddleware, resourceController.getNextProductSku);
   api.get("/products", authMiddleware, resourceController.listProducts);
   api.post("/products", authMiddleware, resourceController.createProduct);
   api.put("/products/:id", authMiddleware, resourceController.updateProduct);
