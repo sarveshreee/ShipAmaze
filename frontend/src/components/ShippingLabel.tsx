@@ -2,6 +2,7 @@ import type { Order } from "@/types/logistics";
 import { DEFAULT_LABEL_INVOICE_SETTINGS, type LabelInvoiceSettings } from "@/types/labelInvoice";
 import {
   createOrderLabelElement,
+  displayOrderNumber,
   downloadOrderLabelPdf,
   openLabelNodesAsPdf,
 } from "@/components/orderLabelDom";
@@ -44,8 +45,9 @@ export function printShippingLabel(order: Order, settings?: LabelInvoiceSettings
     return;
   }
   const s = settings ?? DEFAULT_LABEL_INVOICE_SETTINGS;
-  const node = createOrderLabelElement(order, s, { documentTitle: `Shipping label · ${order.id}` });
-  openLabelNodesAsPdf([node], s, `Shipping label · ${order.id}`).catch((e: unknown) => {
+  const visibleOrderNumber = displayOrderNumber(order);
+  const node = createOrderLabelElement(order, s, { documentTitle: `Shipping label · ${visibleOrderNumber}` });
+  openLabelNodesAsPdf([node], s, `Shipping label · ${visibleOrderNumber}`).catch((e: unknown) => {
     toast.error(e instanceof Error ? e.message : "Failed to open label PDF");
   });
 }
@@ -68,7 +70,7 @@ export function printBulkInvoices(orders: Order[], settings?: LabelInvoiceSettin
 
 export async function downloadShippingLabelPdf(order: Order, settings?: LabelInvoiceSettings) {
   const s = settings ?? DEFAULT_LABEL_INVOICE_SETTINGS;
-  await downloadOrderLabelPdf(order, s, `label-${order.id}.pdf`, "Shipping label");
+  await downloadOrderLabelPdf(order, s, `label-${displayOrderNumber(order)}.pdf`, "Shipping label");
 }
 
 export async function downloadInvoicePdf(order: Order, settings?: LabelInvoiceSettings) {

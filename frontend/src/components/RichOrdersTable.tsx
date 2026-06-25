@@ -70,6 +70,17 @@ function displayShipmentStatusLabel(o: Order): string {
   return String(o.shipmentStatus || o.status || "Shipped");
 }
 
+function displayOrderNumber(order: Order): string {
+  const shopifyNumeric = String(order.shopifyOrderNumericId ?? "").trim();
+  if (shopifyNumeric) return shopifyNumeric;
+
+  const rawId = String(order.id ?? "").trim();
+  const shopifyTail = /^shopify-.+-(\d{8,})$/i.exec(rawId);
+  if (shopifyTail?.[1]) return shopifyTail[1];
+
+  return rawId || "—";
+}
+
 function normalizeStatusKey(status: unknown): string {
   return String(status ?? "").toLowerCase().replace(/[-\s]+/g, "_");
 }
@@ -1172,6 +1183,7 @@ export function RichOrdersTable({
               const products = o.products || [];
               const orderEmail = (o as any).email || `${(o.customer || '').toLowerCase().replace(/\s/g, '')}@email.com`;
               const orderTimestamp = orderTimestampForTab(o, activeTab);
+              const visibleOrderNumber = displayOrderNumber(o);
               return (
                 <tr key={o.id} className={cn("border-b border-border last:border-0 align-top transition-colors hover:bg-surface-2/40", selected.has(o.id) && "bg-primary-light/30")}>
                   <td className="p-3 align-middle">
@@ -1182,12 +1194,12 @@ export function RichOrdersTable({
                   <td className="p-3">
                     <div className="relative">
                       <div className="space-y-1.5">
-                        <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-semibold text-sm hover:underline">{o.id}</button>
+                        <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-semibold text-sm hover:underline">{visibleOrderNumber}</button>
                         <div className="flex items-center gap-1 text-text-muted">
                           <Clock className="h-3 w-3" />
                           <span className="text-[11px]">{orderTimestamp.label}: {formatOrderTimestamp(orderTimestamp.date)}</span>
                         </div>
-                        <p className="text-xs text-text-secondary">Order #{o.id.replace(/\D/g, '') || o.id}</p>
+                        <p className="text-xs text-text-secondary">Order #{visibleOrderNumber}</p>
                         <div className="border-t border-border pt-1.5 mt-1.5">
                           <p className="text-xs"><span className="text-text-muted">Tag Status : </span><span className={cn("font-semibold", o.payment === "COD" ? "text-primary" : "text-success")}>{o.payment}</span></p>
                         </div>

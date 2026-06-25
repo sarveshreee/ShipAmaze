@@ -77,6 +77,17 @@ function paymentLabel(order: Order): "COD" | "Prepaid" {
   return p === "COD" ? "COD" : "Prepaid";
 }
 
+export function displayOrderNumber(order: Order): string {
+  const shopifyNumeric = String(order.shopifyOrderNumericId ?? "").trim();
+  if (shopifyNumeric) return shopifyNumeric;
+
+  const rawId = String(order.id ?? "").trim();
+  const shopifyTail = /^shopify-.+-(\d{8,})$/i.exec(rawId);
+  if (shopifyTail?.[1]) return shopifyTail[1];
+
+  return rawId || "—";
+}
+
 function barcodePngDataUrl(value: string): string | null {
   const v = value.trim();
   if (!v || v === "—") return null;
@@ -375,9 +386,10 @@ export function createOrderLabelElement(
   const sumLeft = el("div", { style: { flex: "1" }, text: `Number of SKUs: ${numSkus || "—"}` });
   const sumMid = el("div", { style: { flex: "1", textAlign: "center" }, text: `Total Quantity: ${totalQty || "—"}` });
   const sumRight = el("div", { style: { flex: "1", textAlign: "right", minWidth: "0" } });
-  sumRight.appendChild(el("div", { style: { fontWeight: "700", fontSize: "10px" }, text: `Order Id: ${dash(order.id)}` }));
-  if (settings.showBarcode && dash(order.id) !== "—") {
-    const src = barcodePngDataUrl(String(order.id));
+  const visibleOrderNumber = displayOrderNumber(order);
+  sumRight.appendChild(el("div", { style: { fontWeight: "700", fontSize: "10px" }, text: `Order Id: ${dash(visibleOrderNumber)}` }));
+  if (settings.showBarcode && dash(visibleOrderNumber) !== "—") {
+    const src = barcodePngDataUrl(String(visibleOrderNumber));
     if (src) {
       const img = document.createElement("img");
       img.src = src;
@@ -529,12 +541,13 @@ export function createAmazonTransportationLabelElement(order: Order): HTMLElemen
   const orderMeta = el("div", {
     style: { marginTop: "3mm", borderBottom: "1px solid #000", paddingBottom: "2mm", fontWeight: "700" },
   });
-  orderMeta.appendChild(el("div", { text: `Order Id: ${dash(order.externalOrderName || order.id)}` }));
+  const visibleOrderNumber = displayOrderNumber(order);
+  orderMeta.appendChild(el("div", { text: `Order Id: ${dash(visibleOrderNumber)}` }));
   orderMeta.appendChild(el("div", { text: `Ship Date: ${shipDateText}` }));
   host.appendChild(orderMeta);
 
   const qrRow = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "4mm", padding: "4mm 0", borderBottom: "1px solid #000" } });
-  [awb, order.id, st.phone, String(order.amount ?? "")].forEach((value) => {
+  [awb, visibleOrderNumber, st.phone, String(order.amount ?? "")].forEach((value) => {
     const src = barcodePngDataUrl(value);
     const box = el("div", { style: { border: "2px solid #000", height: "18mm", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" } });
     if (src) {
@@ -574,7 +587,7 @@ export function createAmazonTransportationLabelElement(order: Order): HTMLElemen
     table.appendChild(th);
   });
   const tr = document.createElement("tr");
-  ["", "", dash(order.id), shipDateText, lineName(orderLines(order)[0] ?? {})].forEach((v) => {
+  ["", "", dash(visibleOrderNumber), shipDateText, lineName(orderLines(order)[0] ?? {})].forEach((v) => {
     const td = document.createElement("td");
     td.textContent = v;
     td.style.border = "1px solid #000";
