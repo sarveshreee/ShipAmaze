@@ -51,6 +51,8 @@ export default function ProductsPage() {
   const [bulkCategoryOpen, setBulkCategoryOpen] = useState(false);
   const [bulkCategoryValue, setBulkCategoryValue] = useState("");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [inlinePriceEdit, setInlinePriceEdit] = useState<{ id: string; value: string } | null>(null);
+  const [savingInlinePriceId, setSavingInlinePriceId] = useState<string | null>(null);
   const categories = useMemo(() => Array.from(new Set(data.map(p => p.category).filter(Boolean))), [data]);
   const vendors = useMemo(() => {
     const map = new Map<string, string>();
@@ -94,6 +96,46 @@ export default function ProductsPage() {
       refetch();
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Update failed");
+    }
+  };
+
+  const startInlinePriceEdit = (p: SupplierProduct) => {
+    if (!isAdmin || !productCan.edit) return;
+    setInlinePriceEdit({ id: p.id, value: String(getFinalProductPrice(p)) });
+  };
+
+  const cancelInlinePriceEdit = () => {
+    setInlinePriceEdit(null);
+  };
+
+  const saveInlinePriceEdit = async (p: SupplierProduct) => {
+    if (!inlinePriceEdit || inlinePriceEdit.id !== p.id) return;
+    const nextFinalPrice = Number(inlinePriceEdit.value);
+    if (!Number.isFinite(nextFinalPrice) || nextFinalPrice < 0) {
+      toast.error("Enter a valid price");
+      return;
+    }
+
+    const vendorPrice = Number(p.price) || 0;
+    if (nextFinalPrice < vendorPrice) {
+      toast.error(`Final price cannot be below vendor price ${formatProductPriceInr(vendorPrice)}`);
+      return;
+    }
+
+    const nextCommission = Math.round((nextFinalPrice - vendorPrice) * 100) / 100;
+    setSavingInlinePriceId(p.id);
+    try {
+      await productService.updateProduct(p.id, {
+        ourCommission: nextCommission,
+        sellingPrice: nextFinalPrice,
+      });
+      toast.success(`Price updated to ${formatProductPriceInr(nextFinalPrice)}`);
+      setInlinePriceEdit(null);
+      await refetch();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Price update failed");
+    } finally {
+      setSavingInlinePriceId(null);
     }
   };
 
@@ -355,6 +397,9 @@ export default function ProductsPage() {
             {pageData.map(p => {
               const img = p.images[p.primary_image_index] || p.images[0];
               const isSel = selected.has(p.id);
+              const isEditingPrice = inlinePriceEdit?.id === p.id;
+              const canInlineEditPrice = isAdmin && productCan.edit;
+              const savingPrice = savingInlinePriceId === p.id;
               return (
                 <div key={p.id} className={cn("group rounded-xl bg-card shadow-card hover:shadow-card-lg transition-shadow overflow-hidden flex flex-col", isSel && "ring-2 ring-primary")}>
                   <div className="relative aspect-square bg-surface-2 flex items-center justify-center">
@@ -379,7 +424,57 @@ export default function ProductsPage() {
                   </div>
                   <div className="p-3 flex flex-col flex-1">
                     <h3 className="font-semibold text-sm text-warning-dark truncate">{p.name}</h3>
-                    <p className="font-bold text-text-primary mt-1">{formatProductPriceInr(getFinalProductPrice(p))}</p>
+                    <div className="mt-1">
+                      {isEditingPrice ? (
+                        <div className="rounded-md border border-primary/30 bg-primary/5 p-2 space-y-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-text-muted">₹</span>
+                            <Input
+                              type="number"
+                              min={p.price}
+                              step="0.01"
+                              className="h-8 text-sm font-semibold"
+                              value={inlinePriceEdit.value}
+                              onChange={(e) => setInlinePriceEdit({ id: p.id, value: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") void saveInlinePriceEdit(p);
+                                if (e.key === "Escape") cancelInlinePriceEdit();
+                              }}
+                              autoFocus
+                            />
+                          </div>
+                          <p className="text-[10px] text-text-muted">
+                            Vendor: {formatProductPriceInr(p.price)} · Commission: {formatProductPriceInr(Math.max(0, (Number(inlinePriceEdit.value) || 0) - p.price))}
+                          </p>
+                          <div className="flex gap-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-7 text-[11px] bg-primary text-primary-foreground hover:bg-primary-dark"
+                              disabled={savingPrice}
+                              onClick={() => void saveInlinePriceEdit(p)}
+                            >
+                              {savingPrice ? "Saving…" : "Save changes"}
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" disabled={savingPrice} onClick={cancelInlinePriceEdit}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className={cn(
+                            "font-bold text-text-primary rounded px-1 -mx-1 text-left",
+                            canInlineEditPrice && "hover:bg-primary-light hover:text-primary cursor-pointer"
+                          )}
+                          title={canInlineEditPrice ? "Click to edit price" : undefined}
+                          onClick={() => startInlinePriceEdit(p)}
+                        >
+                          {formatProductPriceInr(getFinalProductPrice(p))}
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-center justify-between text-xs text-text-muted mt-1">
                       <span className="font-mono">{p.sku || "—"}</span>
                       <span>{p.brand || "Self"}</span>
