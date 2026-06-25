@@ -15,16 +15,17 @@ const STATUS_STYLES: Record<VelocityWarehouseLinkStatus, string> = {
 type Props = {
   velocityWarehouseId?: string;
   className?: string;
+  labels?: Partial<Record<VelocityWarehouseLinkStatus, string>>;
 };
 
-export function VelocityWarehouseLinkStatusBadge({ velocityWarehouseId, className }: Props) {
+export function VelocityWarehouseLinkStatusBadge({ velocityWarehouseId, className, labels }: Props) {
   const status = getVelocityWarehouseLinkStatus(velocityWarehouseId);
   return (
     <Badge
       variant="outline"
       className={cn("text-[10px] font-medium px-2 py-0 h-5", STATUS_STYLES[status], className)}
     >
-      {VELOCITY_LINK_STATUS_LABEL[status]}
+      {labels?.[status] ?? VELOCITY_LINK_STATUS_LABEL[status]}
     </Badge>
   );
 }

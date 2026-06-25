@@ -146,7 +146,7 @@ export default function VendorWarehouse() {
                 <TableHead>Email</TableHead>
                 <TableHead>Address</TableHead>
                 <TableHead>Warehouse Type</TableHead>
-                <TableHead className="min-w-[220px]">Velocity</TableHead>
+                <TableHead className="min-w-[220px]">Shipping link</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -162,7 +162,7 @@ export default function VendorWarehouse() {
                       </div>
                       <div>
                         <p className="font-medium">No warehouses added yet</p>
-                        <p className="text-sm text-muted-foreground">Add a warehouse to link Velocity and ship from your location</p>
+                        <p className="text-sm text-muted-foreground">Add a warehouse to enable shipping from your location</p>
                       </div>
                       <Button onClick={openAdd}><Plus className="h-4 w-4" /> Add Warehouse</Button>
                     </div>
@@ -177,10 +177,10 @@ export default function VendorWarehouse() {
                         {w.isDefault && <Badge variant="secondary" className="text-xs">Default</Badge>}
                         {w.velocityWarehouseId?.trim() ? (
                           <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
-                            Velocity: {w.velocityWarehouseId}
+                            Shipping linked
                           </Badge>
                         ) : (
-                          <Badge variant="secondary" className="text-[10px]">Velocity not linked</Badge>
+                          <Badge variant="secondary" className="text-[10px]">Shipping not linked</Badge>
                         )}
                       </div>
                     </TableCell>
@@ -199,6 +199,7 @@ export default function VendorWarehouse() {
                         onUpdated={() => void refetchWarehouses()}
                         kind="warehouse"
                         forbiddenHint="warehouse"
+                        showProviderBrand={false}
                       />
                     </TableCell>
                     <TableCell className="text-right">

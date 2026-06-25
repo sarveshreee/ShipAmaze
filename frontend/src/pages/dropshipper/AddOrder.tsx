@@ -115,7 +115,7 @@ export default function AddOrder() {
     });
   }, [products]);
 
-  // Step 5 — Velocity rates (optional); blank carrier_id = auto assign
+  // Step 5 — courier rates (optional); blank carrier_id = auto assign
   const [velocityRates, setVelocityRates] = useState<VelocityRate[]>([]);
   const [ratesLoading, setRatesLoading] = useState(false);
   /** Empty string = auto-assign by Velocity */
@@ -449,13 +449,13 @@ export default function AddOrder() {
 
     const pickupAddr = allAddresses.find((a) => a.id === selectedPickup);
     if (pickupAddr && !pickupAddr.velocityWarehouseId?.trim()) {
-      toast.warning("This pickup address is not linked to Velocity. Link it before generating AWB.");
+      toast.warning("This pickup address is not linked for shipping. Link it before generating AWB.");
     }
 
     const courierName =
       selectedCarrierId === ""
-        ? "Auto assign (Velocity)"
-        : velocityRates.find((r) => String(r.carrier_id) === selectedCarrierId)?.carrier_name || "Velocity";
+        ? "Auto assign"
+        : velocityRates.find((r) => String(r.carrier_id) === selectedCarrierId)?.carrier_name || "Auto assign";
 
     const totalWeight = packageDetails.reduce((sum, pd) => sum + (Number(pd.weight) || 0), 0);
     const firstPackage = packageDetails[0] || { length: "", width: "", height: "" };
@@ -705,7 +705,7 @@ export default function AddOrder() {
                                   <span className="rounded-full bg-text-muted/20 px-2 py-0.5 text-[10px] font-medium text-text-muted">Inactive</span>
                                 ) : a.velocityWarehouseId?.trim() ? (
                                   <Badge variant="outline" className="text-[10px] border-success/40 text-success">
-                                    Velocity linked
+                                    Shipping linked
                                   </Badge>
                                 ) : (
                                   <Badge variant="secondary" className="text-[10px]">
@@ -1099,13 +1099,13 @@ export default function AddOrder() {
             </div>
           )}
 
-          {/* Step 5 — Velocity couriers / auto assign */}
+          {/* Step 5 — couriers / auto assign */}
           {currentStep === 5 && (
             <div className="rounded-lg border border-border bg-card p-6 space-y-5">
               <div>
                 <h3 className="font-semibold text-text-primary">Carrier & rates</h3>
                 <p className="text-sm text-text-muted mt-1">
-                  Rates come from Velocity for your pickup and destination. Leave as auto assign or pick a service.
+                  Rates come from your shipping setup for this pickup and destination. Leave as auto assign or pick a service.
                 </p>
               </div>
 
@@ -1117,11 +1117,11 @@ export default function AddOrder() {
                   selectedCarrierId === "" ? "border-primary bg-primary-light/50 ring-1 ring-primary/30" : "border-border hover:border-primary/40"
                 )}
               >
-                <p className="font-semibold text-text-primary">Auto assign by Velocity</p>
+                <p className="font-semibold text-text-primary">Auto assign</p>
                 <p className="text-xs text-text-muted mt-1">Carrier will be chosen when you create shipment / AWB.</p>
               </button>
 
-              {ratesLoading && <p className="text-sm text-text-muted">Loading rates from Velocity…</p>}
+              {ratesLoading && <p className="text-sm text-text-muted">Loading rates…</p>}
 
               {!ratesLoading && velocityRates.length === 0 && (
                 <p className="text-sm text-text-muted">

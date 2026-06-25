@@ -519,6 +519,7 @@ export function RichOrdersTable({
   const navigate = useNavigate();
   const { role } = useAuth();
   const { canEditSku, canProcessOrders } = useDropshipperAccess();
+  const showProviderBrand = role === "admin";
   const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
   const [bulkDeleteJunkConfirmOpen, setBulkDeleteJunkConfirmOpen] = useState(false);
   const showBulkPrintActions = BULK_LABEL_PRINT_TABS.has(activeTab ?? "") && selected.size > 0;
@@ -1360,7 +1361,7 @@ export function RichOrdersTable({
                                 </p>
                                 {pickupVelocityWh && (
                                   <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-success-light text-success-dark border border-success/30 mt-1">
-                                    Velocity Linked {pickupVelocityWh}
+                                    {showProviderBrand ? `Velocity Linked ${pickupVelocityWh}` : "Shipping linked"}
                                   </span>
                                 )}
                               </div>
@@ -1587,7 +1588,7 @@ export function RichOrdersTable({
                   <AlertTitle>Delivery details incomplete</AlertTitle>
                   <AlertDescription className="space-y-2 pt-1">
                     <p className="text-xs text-text-primary">
-                      Velocity needs a full delivery address, pincode, weight, and dimensions. Fix these before creating a shipment.
+                      {showProviderBrand ? "Velocity needs" : "The shipping provider needs"} a full delivery address, pincode, weight, and dimensions. Fix these before creating a shipment.
                     </p>
                     <ul className="list-disc pl-4 text-xs text-text-primary space-y-0.5">
                       {blockers.map((msg, i) => (
@@ -1677,7 +1678,7 @@ export function RichOrdersTable({
                 <div className="space-y-2">
                   {modalOrderWh ? (
                     <div className="rounded-lg border border-success/30 bg-success-light/30 p-3 text-xs text-success-dark">
-                      Order linked to Velocity warehouse:{" "}
+                      {showProviderBrand ? "Order linked to Velocity warehouse:" : "Order linked to shipping warehouse:"}{" "}
                       <span className="font-mono font-semibold">{modalOrderWh}</span>
                     </div>
                   ) : null}
@@ -1696,7 +1697,7 @@ export function RichOrdersTable({
                             {w.warehouseName}
                             {w.city ? ` — ${w.city}` : ""}
                             {vid ? ` — ${vid}` : ""}
-                            {!vid ? " (not Velocity-linked)" : ""}
+                            {!vid ? (showProviderBrand ? " (not Velocity-linked)" : " (not linked)") : ""}
                           </option>
                         );
                       })}
@@ -1712,7 +1713,7 @@ export function RichOrdersTable({
                 value={selectedCourierId}
                 onChange={(e) => setSelectedCourierId(e.target.value)}
               >
-                <option value="">Auto — Velocity assigns best carrier</option>
+                <option value="">Auto — {showProviderBrand ? "Velocity assigns" : "system assigns"} best carrier</option>
                 {_couriers.map((c) => (
                   <option key={`local-${c.id}`} value={`name:${c.name}`}>
                     {c.name} (manual)
@@ -1725,7 +1726,7 @@ export function RichOrdersTable({
                 ))}
               </select>
               <p className="text-[11px] text-text-muted mt-1">
-                {couriersLoading ? "Loading Velocity couriers…" : "Choose Auto or pick a specific courier for this shipment."}
+                {couriersLoading ? (showProviderBrand ? "Loading Velocity couriers…" : "Loading couriers…") : "Choose Auto or pick a specific courier for this shipment."}
               </p>
             </div>
           </div>
@@ -1749,7 +1750,7 @@ export function RichOrdersTable({
                 }
                 const selectedPickup = warehouses.find((w) => w.id === selectedWarehouseId);
                 if (!selectedPickup?.velocityWarehouseId?.trim()) {
-                  toast.error("Selected pickup is not linked to Velocity");
+                  toast.error(showProviderBrand ? "Selected pickup is not linked to Velocity" : "Selected pickup is not linked for shipping");
                   return;
                 }
                 setShipmentSubmitting(true);
@@ -1773,7 +1774,7 @@ export function RichOrdersTable({
                   const lines = [
                     `AWB: ${d.awb_code}`,
                     d.carrier_name && `Courier: ${d.carrier_name}`,
-                    d.shipment_id && `Velocity shipment: ${d.shipment_id}`,
+                    d.shipment_id && `${showProviderBrand ? "Velocity shipment" : "Shipment"}: ${d.shipment_id}`,
                     d.status && `Status: ${d.status}`,
                     d.label_url && "Label URL saved on order",
                     d.shipping_charges != null && `Charges: ₹${d.shipping_charges}`,

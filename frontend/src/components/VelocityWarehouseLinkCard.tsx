@@ -23,6 +23,8 @@ type Props = {
   kind?: "pickup" | "warehouse";
   /** Used for friendlier 403 copy when the API returns a generic "Forbidden". */
   forbiddenHint?: "pickup" | "warehouse";
+  /** Hide third-party provider branding from vendor-facing screens. */
+  showProviderBrand?: boolean;
 };
 
 function formatVelocityError(
@@ -46,10 +48,20 @@ export function VelocityWarehouseLinkCard({
   onUpdated,
   kind = "pickup",
   forbiddenHint,
+  showProviderBrand = true,
 }: Props) {
   const storedCode = normalizeVelocityWarehouseCode(velocityWarehouseId);
   const linkStatus = getVelocityWarehouseLinkStatus(velocityWarehouseId);
   const linked = linkStatus === "linked";
+  const providerName = showProviderBrand ? "Velocity" : "shipping provider";
+  const warehouseName = showProviderBrand ? "Velocity warehouse" : "courier warehouse";
+  const linkedLabels = showProviderBrand
+    ? undefined
+    : {
+        linked: "Linked",
+        not_linked: "Not linked",
+        invalid: "Link invalid",
+      };
 
   const [value, setValue] = useState(storedCode);
   const [error, setError] = useState("");
@@ -78,13 +90,13 @@ export function VelocityWarehouseLinkCard({
         : { pickupId: mongoId, forceRecreate: true };
       const resp = await velocityService.syncVelocityWarehouse(params);
       if (resp.data.skipped) {
-        toast.warning(resp.data.reason ?? "Velocity sync skipped — credentials may not be configured.");
+        toast.warning(resp.data.reason ?? `${providerName} sync skipped — credentials may not be configured.`);
       } else if (resp.data.linked && resp.data.warehouse_id) {
-        toast.success(`Velocity warehouse linked: ${resp.data.warehouse_id}`);
+        toast.success(`${warehouseName} linked: ${resp.data.warehouse_id}`);
         await onUpdated();
       }
     } catch (e) {
-      toast.error(formatVelocityError(e, forbiddenHint, "Could not sync warehouse to Velocity"));
+      toast.error(formatVelocityError(e, forbiddenHint, `Could not sync warehouse to ${providerName}`));
     } finally {
       setSaving(false);
     }
@@ -107,8 +119,8 @@ export function VelocityWarehouseLinkCard({
       });
       toast.success(
         linked && code !== storedCode
-          ? `Velocity warehouse updated to ${code}`
-          : `Velocity warehouse linked: ${code}`
+          ? `${warehouseName} updated to ${code}`
+          : `${warehouseName} linked: ${code}`
       );
       await onUpdated();
     } catch (e) {
@@ -122,7 +134,7 @@ export function VelocityWarehouseLinkCard({
     setSaving(true);
     try {
       await velocityService.unlinkVelocityWarehouse(mongoId);
-      toast.success("Velocity warehouse unlinked");
+      toast.success(`${warehouseName} unlinked`);
       setValue("");
       setError("");
       await onUpdated();
@@ -159,15 +171,15 @@ export function VelocityWarehouseLinkCard({
             <Zap className="h-4 w-4 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-text-primary">Velocity warehouse link</p>
+            <p className="text-sm font-semibold text-text-primary">{showProviderBrand ? "Velocity warehouse link" : "Shipping warehouse link"}</p>
             <p className="text-[11px] text-text-muted">
               {linked
-                ? "Warehouse synced with Velocity. Shipments can be booked using this address."
-                : "Sync this address to Velocity to enable shipment booking."}
+                ? `Warehouse synced with ${providerName}. Shipments can be booked using this address.`
+                : `Sync this address with the ${providerName} to enable shipment booking.`}
             </p>
           </div>
         </div>
-        <VelocityWarehouseLinkStatusBadge velocityWarehouseId={velocityWarehouseId} className="shrink-0" />
+        <VelocityWarehouseLinkStatusBadge velocityWarehouseId={velocityWarehouseId} labels={linkedLabels} className="shrink-0" />
       </div>
 
       {displayCode ? (
@@ -181,7 +193,7 @@ export function VelocityWarehouseLinkCard({
         <Alert className="border-warning/40 bg-warning-light/40 py-2.5 [&>svg]:text-warning-dark">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription className="text-xs text-warning-dark">
-            This address is not linked to a Velocity warehouse. Click <strong>Sync to Velocity</strong> to register it
+            This address is not linked to a {warehouseName}. Click <strong>{showProviderBrand ? "Sync to Velocity" : "Sync warehouse"}</strong> to register it
             automatically, or link a pre-existing warehouse manually.
           </AlertDescription>
         </Alert>
@@ -191,7 +203,7 @@ export function VelocityWarehouseLinkCard({
         <Alert variant="destructive" className="py-2.5">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription className="text-xs">
-            Stored warehouse code &ldquo;{storedCode}&rdquo; is invalid. Click <strong>Sync to Velocity</strong> to
+            Stored warehouse code &ldquo;{storedCode}&rdquo; is invalid. Click <strong>{showProviderBrand ? "Sync to Velocity" : "Sync warehouse"}</strong> to
             re-register, or enter a valid code (e.g. WHZBRR) below.
           </AlertDescription>
         </Alert>
@@ -207,7 +219,7 @@ export function VelocityWarehouseLinkCard({
           onClick={() => void syncToVelocity()}
         >
           <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${saving ? "animate-spin" : ""}`} />
-          Sync to Velocity
+          {showProviderBrand ? "Sync to Velocity" : "Sync warehouse"}
         </Button>
       ) : null}
 
@@ -224,7 +236,7 @@ export function VelocityWarehouseLinkCard({
 
       {manualVisible ? (
         <div className="space-y-1.5">
-          <Label className="text-xs text-text-muted">Velocity warehouse ID</Label>
+          <Label className="text-xs text-text-muted">{showProviderBrand ? "Velocity warehouse ID" : "Courier warehouse ID"}</Label>
           <Input
             value={value}
             onChange={(e) => {
@@ -269,10 +281,12 @@ export function VelocityWarehouseLinkCard({
             Re-sync
           </Button>
         ) : null}
-        <Button type="button" size="sm" variant="outline" disabled={saving} onClick={openVelocityDashboard}>
-          <ExternalLink className="h-3.5 w-3.5 mr-1" />
-          Open Velocity Dashboard
-        </Button>
+        {showProviderBrand ? (
+          <Button type="button" size="sm" variant="outline" disabled={saving} onClick={openVelocityDashboard}>
+            <ExternalLink className="h-3.5 w-3.5 mr-1" />
+            Open Velocity Dashboard
+          </Button>
+        ) : null}
       </div>
     </div>
   );
