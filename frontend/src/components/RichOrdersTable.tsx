@@ -70,6 +70,84 @@ function displayShipmentStatusLabel(o: Order): string {
   return String(o.shipmentStatus || o.status || "Shipped");
 }
 
+function normalizeStatusKey(status: unknown): string {
+  return String(status ?? "").toLowerCase().replace(/[-\s]+/g, "_");
+}
+
+function validDate(value: unknown): Date | null {
+  if (value == null || value === "") return null;
+  const d = new Date(String(value));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function latestStatusTime(order: Order, statuses: string[]): Date | null {
+  const wanted = new Set(statuses.map(normalizeStatusKey));
+  const matches = (order.statusHistory ?? [])
+    .filter((event) => wanted.has(normalizeStatusKey(event.status)))
+    .map((event) => validDate(event.at))
+    .filter((date): date is Date => Boolean(date));
+  if (matches.length === 0) return null;
+  return matches.reduce((latest, date) => (date > latest ? date : latest), matches[0]);
+}
+
+function formatOrderTimestamp(date: Date): string {
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const hrs = date.getHours();
+  const mins = String(date.getMinutes()).padStart(2, "0");
+  const ampm = hrs >= 12 ? "pm" : "am";
+  const h12 = hrs % 12 || 12;
+  return `${date.getDate()} ${months[date.getMonth()]}' ${String(date.getFullYear()).slice(2)} ${h12}:${mins} ${ampm}`;
+}
+
+function orderTimestampForTab(order: Order, activeTab?: string): { label: string; date: Date } {
+  const tab = normalizeStatusKey(activeTab);
+  const createdAt = validDate(order.createdAt) ?? validDate(order.date) ?? validDate(order.updatedAt) ?? new Date();
+
+  if (tab === "pending_pickup") {
+    return {
+      label: "Pending Pickup",
+      date:
+        latestStatusTime(order, ["pending_pickup", "pending-pickup", "pickup_scheduled", "pickup-scheduled"]) ??
+        validDate(order.assignedDateTime) ??
+        validDate(order.movedToReadyAt) ??
+        createdAt,
+    };
+  }
+
+  if (tab === "in_transit") {
+    return {
+      label: "In Transit",
+      date:
+        latestStatusTime(order, ["in_transit", "in-transit", "picked_up", "picked-up"]) ??
+        validDate(order.pickupDate) ??
+        createdAt,
+    };
+  }
+
+  if (tab === "out_for_delivery") {
+    return {
+      label: "Out For Delivery",
+      date: latestStatusTime(order, ["out_for_delivery", "out-for-delivery"]) ?? createdAt,
+    };
+  }
+
+  if (tab === "delivered") {
+    return {
+      label: "Delivered",
+      date: latestStatusTime(order, ["delivered"]) ?? createdAt,
+    };
+  }
+
+  if (tab === "failed") {
+    return {
+      label: "Failed",
+      date: latestStatusTime(order, ["failed", "rto", "ndr", "cancelled"]) ?? createdAt,
+    };
+  }
+
+  return { label: "Created", date: createdAt };
+}
+
 interface FilterPopoverProps {
   open: boolean;
   onClose: () => void;
@@ -572,11 +650,11 @@ export function RichOrdersTable({
     }
     // Order Details filter
     if (orderDetailsFilter.dateFrom) {
-      const orderDate = o.date ? new Date(o.date) : new Date();
+      const orderDate = orderTimestampForTab(o, activeTab).date;
       if (orderDate < new Date(orderDetailsFilter.dateFrom)) return false;
     }
     if (orderDetailsFilter.dateTo) {
-      const orderDate = o.date ? new Date(o.date) : new Date();
+      const orderDate = orderTimestampForTab(o, activeTab).date;
       if (orderDate > new Date(orderDetailsFilter.dateTo)) return false;
     }
     if (orderDetailsFilter.paymentType) {
@@ -1091,7 +1169,8 @@ export function RichOrdersTable({
               </td></tr>
             ) : filteredOrders.map(o => {
               const products = o.products || [];
-            const orderEmail = (o as any).email || `${(o.customer || '').toLowerCase().replace(/\s/g, '')}@email.com`;
+              const orderEmail = (o as any).email || `${(o.customer || '').toLowerCase().replace(/\s/g, '')}@email.com`;
+              const orderTimestamp = orderTimestampForTab(o, activeTab);
               return (
                 <tr key={o.id} className={cn("border-b border-border last:border-0 align-top transition-colors hover:bg-surface-2/40", selected.has(o.id) && "bg-primary-light/30")}>
                   <td className="p-3 align-middle">
@@ -1105,17 +1184,7 @@ export function RichOrdersTable({
                         <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-semibold text-sm hover:underline">{o.id}</button>
                         <div className="flex items-center gap-1 text-text-muted">
                           <Clock className="h-3 w-3" />
-                          <span className="text-[11px]">{(() => {
-                            const d = o.date ? new Date(o.date) : new Date();
-                            const day = d.getDate();
-                            const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-                            const yr = String(d.getFullYear()).slice(2);
-                            const hrs = d.getHours();
-                            const mins = String(d.getMinutes()).padStart(2, '0');
-                            const ampm = hrs >= 12 ? 'pm' : 'am';
-                            const h12 = hrs % 12 || 12;
-                            return `${day} ${months[d.getMonth()]}' ${yr} ${h12}:${mins} ${ampm}`;
-                          })()}</span>
+                          <span className="text-[11px]">{orderTimestamp.label}: {formatOrderTimestamp(orderTimestamp.date)}</span>
                         </div>
                         <p className="text-xs text-text-secondary">Order #{o.id.replace(/\D/g, '') || o.id}</p>
                         <div className="border-t border-border pt-1.5 mt-1.5">

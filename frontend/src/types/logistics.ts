@@ -111,6 +111,7 @@ export interface Order {
   trackingUrl?: string;
   trackingActivities?: TrackingActivity[];
   velocityWarehouseId?: string;
+  createdAt?: string;
   assignedDateTime?: string;
   /** Courier pickup date synced from Velocity tracking. */
   pickupDate?: string;

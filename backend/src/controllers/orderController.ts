@@ -1021,16 +1021,15 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
   const prevStatusByOrderId = new Map(orders.map((o) => [o.orderId, String(o.status ?? "")]));
 
   const now = new Date();
-  const result = await Order.updateMany(
-    { orderId: { $in: ids } },
-    {
-      $set: {
-        status: "ready_to_ship",
-        shipmentStatus: "ready_to_ship",
-        movedToReadyAt: now,
-      },
-    }
-  );
+  let updatedCount = 0;
+  for (const order of orders) {
+    order.status = "ready_to_ship";
+    order.shipmentStatus = "ready_to_ship";
+    order.movedToReadyAt = now;
+    appendStatusHistory(order, "ready_to_ship", req.user._id, "Bulk moved to Ready to Ship");
+    await order.save();
+    updatedCount++;
+  }
 
   const refreshed = await Order.find({ orderId: { $in: ids } }).lean();
   const { sendOrderTrackingEmail } = await import("../services/email/emailService.js");
@@ -1043,7 +1042,7 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
 
   res.json({
     success: true,
-    updatedCount: result.matchedCount ?? ids.length,
+    updatedCount,
   });
 });
 

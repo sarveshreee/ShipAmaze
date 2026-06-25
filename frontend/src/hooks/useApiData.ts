@@ -26,6 +26,8 @@ import type { WalletSummary } from "@/services/walletService";
 
 type QueryStatus = "pending" | "success" | "error";
 
+const AUTO_REFETCH_INTERVAL_MS = 10 * 60 * 1000;
+
 interface SimpleQueryResult<T> {
   data: T[];
   error: Error | null;
@@ -39,6 +41,13 @@ interface SimpleQueryResult<T> {
 
 function toError(error: unknown) {
   return error instanceof Error ? error : new Error("Failed to load data");
+}
+
+function toIsoDateString(value: unknown): string | undefined {
+  if (value == null || value === "") return undefined;
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
 }
 
 function useApiQuery<T>(key: string, queryFn: () => Promise<T[]>): SimpleQueryResult<T> {
@@ -106,7 +115,7 @@ function useApiQuery<T>(key: string, queryFn: () => Promise<T[]>): SimpleQueryRe
   useEffect(() => {
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
-    }, 30_000);
+    }, AUTO_REFETCH_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [load]);
 
@@ -179,6 +188,8 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     velocityWarehouseId: o.velocityWarehouseId != null ? String(o.velocityWarehouseId) : undefined,
     velocityOrderId: o.velocityOrderId != null ? String(o.velocityOrderId) : undefined,
     velocityShipmentId: o.velocityShipmentId != null ? String(o.velocityShipmentId) : undefined,
+    createdAt: toIsoDateString(o.createdAt),
+    assignedDateTime: toIsoDateString(o.assignedDateTime),
     courierCompanyId:
       o.courierCompanyId !== undefined && o.courierCompanyId !== null
         ? typeof o.courierCompanyId === "number"
@@ -194,8 +205,8 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     rtoCharges: o.rtoCharges !== undefined && o.rtoCharges !== null ? Number(o.rtoCharges) : undefined,
     trackingUrl: o.trackingUrl != null ? String(o.trackingUrl) : undefined,
     trackingActivities: (o.trackingActivities as Order["trackingActivities"]) || undefined,
-    pickupDate: o.pickupDate != null ? String(o.pickupDate) : undefined,
-    edd: o.edd != null ? String(o.edd) : undefined,
+    pickupDate: toIsoDateString(o.pickupDate),
+    edd: toIsoDateString(o.edd),
     statusHistory: (o.statusHistory as Order["statusHistory"]) || undefined,
     sourceType: o.sourceType != null ? String(o.sourceType) : undefined,
     shopifyOrderNumericId: o.shopifyOrderNumericId != null ? String(o.shopifyOrderNumericId) : undefined,
@@ -205,14 +216,9 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     shopifyNote: o.shopifyNote != null ? String(o.shopifyNote) : undefined,
     shopifyTags: o.shopifyTags != null ? String(o.shopifyTags) : undefined,
     adminRemark: o.adminRemark != null ? String(o.adminRemark) : undefined,
-    lastShopifySyncAt: o.lastShopifySyncAt != null ? String(o.lastShopifySyncAt) : undefined,
+    lastShopifySyncAt: toIsoDateString(o.lastShopifySyncAt),
     items: (o.items as Order["products"]) || (o.orderItems as Order["products"]) || undefined,
-    updatedAt:
-      o.updatedAt != null
-        ? typeof o.updatedAt === "string"
-          ? o.updatedAt
-          : new Date(o.updatedAt as Date).toISOString()
-        : undefined,
+    updatedAt: toIsoDateString(o.updatedAt),
   };
 }
 
@@ -399,7 +405,7 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
   useEffect(() => {
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
-    }, 30_000);
+    }, AUTO_REFETCH_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [load]);
 
