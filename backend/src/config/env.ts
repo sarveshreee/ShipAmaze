@@ -21,13 +21,12 @@ export function validateEnv(): void {
 
   if (isProd) {
     if (!process.env.JWT_SECRET?.trim()) missing.push("JWT_SECRET");
-    if (!process.env.CORS_ORIGIN?.trim()) missing.push("CORS_ORIGIN");
     if (!process.env.ENCRYPTION_SECRET?.trim()) missing.push("ENCRYPTION_SECRET");
 
     const frontendUrl = process.env.FRONTEND_URL?.trim();
     const corsFirst = process.env.CORS_ORIGIN?.split(",")[0]?.trim();
     if (!frontendUrl && !corsFirst) {
-      missing.push("FRONTEND_URL (or set CORS_ORIGIN to your frontend HTTPS origin)");
+      missing.push("CORS_ORIGIN or FRONTEND_URL");
     }
 
     if (!process.env.SHOPIFY_REDIRECT_URI?.trim()) missing.push("SHOPIFY_REDIRECT_URI");

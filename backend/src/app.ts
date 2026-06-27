@@ -42,10 +42,28 @@ import {
 import * as kycController from "./controllers/kycController.js";
 import * as categoryController from "./controllers/categoryController.js";
 
+function normalizeCorsOrigin(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+function parseDelimitedOrigins(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw.split(",").map(normalizeCorsOrigin).filter((origin): origin is string => Boolean(origin));
+}
+
 function parseCorsOrigins(): string[] {
-  const raw = process.env.CORS_ORIGIN?.trim();
-  if (!raw) return [];
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return Array.from(
+    new Set([
+      ...parseDelimitedOrigins(process.env.CORS_ORIGIN),
+      ...parseDelimitedOrigins(process.env.FRONTEND_URL),
+    ])
+  );
 }
 
 /** localhost / 127.0.0.1 on any port — browser origin may differ from http://localhost:8080. */
