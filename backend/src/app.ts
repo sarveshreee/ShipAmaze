@@ -170,6 +170,15 @@ export function createApp() {
 
   const api = express.Router();
 
+  api.get("/health", (_req, res) => {
+    res.json({
+      ok: true,
+      service: "shipamaze-api",
+      gitCommit: process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? null,
+      imageRoute: true,
+    });
+  });
+
   api.post("/auth/register", authRouteLimiter, authController.register);
   api.post("/auth/login", authRouteLimiter, authController.login);
   api.post("/auth/send-otp", emailOtpSendLimiter, authController.sendOtp);
