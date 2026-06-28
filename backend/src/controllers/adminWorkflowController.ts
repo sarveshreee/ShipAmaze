@@ -294,6 +294,7 @@ export const adminListCatalogueProducts = asyncHandler(async (req: AuthRequest, 
       $or: [
         { name: { $regex: escapeRegex(search), $options: "i" } },
         { sku: { $regex: escapeRegex(search), $options: "i" } },
+        { vendorSku: { $regex: escapeRegex(search), $options: "i" } },
         { vendorName: { $regex: escapeRegex(search), $options: "i" } },
       ],
     });
@@ -351,7 +352,7 @@ export const adminListCatalogueProducts = asyncHandler(async (req: AuthRequest, 
   else sort.createdAt = -1;
 
   const [rows, total] = await Promise.all([
-    Product.find(q).sort(sort).skip(skip).limit(limit).lean(),
+    Product.find(q).sort(sort).skip(skip).limit(limit).allowDiskUse(true).lean(),
     Product.countDocuments(q),
   ]);
 
@@ -376,6 +377,7 @@ function mapProductLean(p: Record<string, unknown>) {
     id: String(p._id),
     name: p.name,
     sku: p.sku,
+    vendorSku: p.vendorSku,
     category: p.category,
     price,
     sellingPrice: p.sellingPrice,
@@ -400,7 +402,8 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
   const id = req.params.id;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const body = req.body as Record<string, unknown>;
-  const allowed = ["status", "name", "sku", "category", "price", "sellingPrice", "shippingCharge", "ourCommission", "stock", "isFeatured"];
+  if (body.vendor_sku !== undefined && body.vendorSku === undefined) body.vendorSku = body.vendor_sku;
+  const allowed = ["status", "name", "sku", "vendorSku", "category", "price", "sellingPrice", "shippingCharge", "ourCommission", "stock", "isFeatured"];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) {
     if (body[k] !== undefined) patch[k] = body[k];
@@ -414,6 +417,10 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
     const sku = String(patch.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");
     patch.sku = sku;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "vendorSku")) {
+    const vendorSku = String(patch.vendorSku ?? "").trim();
+    patch.vendorSku = vendorSku || undefined;
   }
   for (const key of ["price", "sellingPrice", "shippingCharge", "ourCommission", "stock"]) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) {

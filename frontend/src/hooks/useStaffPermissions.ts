@@ -78,8 +78,8 @@ export function useStaffPermissions() {
   const { role, user } = useAuth();
   const permissions = user?.permissions ?? [];
 
-  const isOwnerAdmin = role === "admin" && permissions.length === 0;
-  const isStaffAdmin = role === "admin" && permissions.length > 0;
+  const isOwnerAdmin = role === "admin" && (user?.isOwnerAdmin ?? permissions.length === 0);
+  const isStaffAdmin = role === "admin" && (user?.isStaffAdmin ?? !isOwnerAdmin);
 
   const has = useCallback(
     (perm: StaffPermission | string): boolean => {

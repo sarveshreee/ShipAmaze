@@ -42,7 +42,13 @@ const SEED_USERS: SeedUser[] = [
 
 async function ensureUser(u: SeedUser) {
   const existing = await User.findOne({ email: u.email });
-  if (existing) return { user: existing, created: false };
+  if (existing) {
+    if (u.role === "admin" && existing.permissions.length > 0) {
+      existing.permissions = [];
+      await existing.save();
+    }
+    return { user: existing, created: false };
+  }
 
   const passwordHash = await bcrypt.hash(u.password, 10);
   const user = await User.create({

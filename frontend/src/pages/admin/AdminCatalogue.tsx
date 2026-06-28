@@ -178,7 +178,7 @@ export default function AdminCatalogue() {
       <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-card">
         <div className="flex flex-col lg:flex-row gap-3 flex-wrap">
           <Input
-            placeholder="Search name, SKU, vendor…"
+            placeholder="Search name, SKU, Vendor SKU, vendor…"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -370,6 +370,7 @@ export default function AdminCatalogue() {
                 </th>
                 <th className="p-3 text-left font-medium text-text-secondary">Product</th>
                 <th className="p-3 text-left font-medium text-text-secondary">SKU</th>
+                <th className="p-3 text-left font-medium text-text-secondary">Vendor SKU</th>
                 <th className="p-3 text-left font-medium text-text-secondary">Vendor</th>
                 <th className="p-3 text-right font-medium text-text-secondary">Vendor price</th>
                 <th className="p-3 text-right font-medium text-text-secondary">Our commission</th>
@@ -397,6 +398,7 @@ export default function AdminCatalogue() {
                     </div>
                   </td>
                   <td className="p-3 font-mono text-xs text-text-secondary">{p.sku || "—"}</td>
+                  <td className="p-3 font-mono text-xs text-text-secondary">{p.vendorSku || "—"}</td>
                   <td className="p-3 text-text-secondary max-w-[140px] truncate">{p.vendorName || "—"}</td>
                   <td className="p-3 text-right tabular-nums">₹{p.price ?? 0}</td>
                   <td className="p-3 text-right tabular-nums">₹{resolveOurCommission(p)}</td>
@@ -463,6 +465,32 @@ export default function AdminCatalogue() {
                 <p>
                   <span className="text-text-muted">SKU:</span> {detail.sku || "—"}
                 </p>
+                <div className="rounded-md border border-border bg-surface-2/40 p-3 space-y-2">
+                  <label className="text-text-muted text-xs font-medium" htmlFor="admin-catalogue-vendor-sku">
+                    Vendor SKU
+                  </label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="admin-catalogue-vendor-sku"
+                      value={detail.vendorSku || ""}
+                      onChange={(e) =>
+                        setDetail((d) =>
+                          d ? { ...d, vendorSku: e.target.value } : d
+                        )
+                      }
+                      placeholder="Vendor internal SKU/reference"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={saving}
+                      onClick={() => void patchProduct(detail.id, { vendorSku: detail.vendorSku || "" })}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
                 <p>
                   <span className="text-text-muted">Category:</span> {detail.category || "—"}
                 </p>

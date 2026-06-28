@@ -5,6 +5,7 @@ export type CatalogueProductRow = {
   id: string;
   name: string;
   sku?: string;
+  vendorSku?: string;
   category?: string;
   price?: number;
   sellingPrice?: number;

@@ -226,7 +226,7 @@ function AdminStaffPermissionsPanel({
 
       <div className="rounded-lg border border-border bg-muted/30 p-4 text-xs text-text-muted space-y-2">
         <p>Finance, rates, couriers, billing, and platform settings are <strong>owner-only</strong> and cannot be assigned to staff.</p>
-        <p>Empty permissions = owner admin with full platform access. Any assigned permission enables staff mode.</p>
+        <p>Configured owner accounts always keep full platform access. For other admins, empty permissions = owner mode and any assigned permission enables staff mode.</p>
         <div className="flex flex-wrap gap-2 pt-1">
           {isOwnerAccess ? (
             <Button variant="outline" size="sm" disabled={saving === "mode"} onClick={() => void enableStaffMode()}>

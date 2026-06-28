@@ -89,6 +89,7 @@ import type { UserRole } from "@/services/authService";
 import { roleDashboardPath } from "@/services/authService";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
+import { AccessDenied } from "@/components/AccessDenied";
 
 function AuthLoadingScreen() {
   return (

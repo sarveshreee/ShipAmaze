@@ -3,6 +3,7 @@ import mongoose, { Schema, type Document, type Model, type Types } from "mongoos
 export interface IProduct extends Document {
   name: string;
   sku?: string;
+  vendorSku?: string;
   category?: string;
   /** Additional marketplace categories (first entry mirrors `category` for legacy filters). */
   categories?: string[];
@@ -27,6 +28,7 @@ const productSchema = new Schema<IProduct>(
   {
     name: { type: String, required: true },
     sku: String,
+    vendorSku: String,
     category: String,
     categories: [String],
     weight: String,
@@ -47,6 +49,13 @@ const productSchema = new Schema<IProduct>(
   },
   { strict: false, timestamps: true }
 );
+
+productSchema.index({ createdAt: -1 });
+productSchema.index({ status: 1, createdAt: -1 });
+productSchema.index({ vendorId: 1, createdAt: -1 });
+productSchema.index({ uploadedBy: 1, createdAt: -1 });
+productSchema.index({ sku: 1 });
+productSchema.index({ vendorSku: 1 });
 
 export const Product: Model<IProduct> =
   mongoose.models.Product || mongoose.model<IProduct>("Product", productSchema);

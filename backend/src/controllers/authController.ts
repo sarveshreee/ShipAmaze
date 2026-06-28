@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/authMiddleware.js";
-import { User } from "../models/User.js";
+import { User, type UserRole } from "../models/User.js";
 import { PasswordResetOtp } from "../models/PasswordResetOtp.js";
 import { sendPasswordResetOtp } from "../services/mail.js";
 import {
@@ -21,6 +21,7 @@ import { KycProfile } from "../models/KycProfile.js";
 import { TERMS_VERSION } from "./kycController.js";
 import { getKycState } from "../middleware/kycMiddleware.js";
 import { signToken } from "../utils/jwt.js";
+import { isOwnerAdmin, isStaffAdmin } from "../utils/staffPermissions.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { safeErrorMessage } from "../utils/logRedact.js";
@@ -54,7 +55,7 @@ async function toPublicUser(user: {
   _id: unknown;
   name: string;
   email: string;
-  role: string;
+  role: UserRole;
   permissions: string[];
   companyName: string;
   phone?: string;
@@ -83,6 +84,8 @@ async function toPublicUser(user: {
     email: user.email,
     role: user.role,
     permissions: user.permissions,
+    isOwnerAdmin: isOwnerAdmin(user),
+    isStaffAdmin: isStaffAdmin(user),
     companyName: user.companyName,
     phone: user.phone ?? "",
     emailVerified: user.emailVerified !== false,

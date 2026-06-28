@@ -1534,8 +1534,8 @@ export const listWeightDisputes = asyncHandler(async (_req: AuthRequest, res: Re
 
 export const listMarketplaceProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const rows = await Product.find({ status: "active" }).sort({ createdAt: -1 }).lean();
-  res.json(rows);
+  const rows = await Product.find({ status: "active" }).sort({ createdAt: -1 }).allowDiskUse(true).lean();
+  res.json(rows.map(stripVendorProductFields));
 });
 
 export const listProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -1552,9 +1552,16 @@ export const listProducts = asyncHandler(async (req: AuthRequest, res: Response)
   } else if (req.user.role === "dropshipper") {
     q = { uploadedBy: req.user._id };
   }
-  const rows = await Product.find(q).sort({ createdAt: -1 }).lean();
-  res.json(rows);
+  const rows = await Product.find(q).sort({ createdAt: -1 }).allowDiskUse(true).lean();
+  res.json(req.user.role === "dropshipper" ? rows.map(stripVendorProductFields) : rows);
 });
+
+function stripVendorProductFields<T extends Record<string, unknown>>(row: T): T {
+  const safe = { ...row };
+  delete safe.vendorSku;
+  delete safe.vendor_sku;
+  return safe;
+}
 
 function nextProductSkuFromRows(rows: Array<{ sku?: unknown }>): string {
   const prefix = "SA";
@@ -1600,6 +1607,14 @@ function normalizeProductCommission(body: Record<string, unknown>): void {
   delete body.commission;
 }
 
+function normalizeProductVendorSku(body: Record<string, unknown>): void {
+  const raw = body.vendorSku ?? body.vendor_sku;
+  if (raw === undefined) return;
+  const value = String(raw ?? "").trim();
+  body.vendorSku = value || undefined;
+  delete body.vendor_sku;
+}
+
 export const createProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   if (req.user.role === "admin") {
@@ -1608,6 +1623,7 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
   const vendor = await Vendor.findOne({ userId: req.user._id });
   const body = { ...req.body, uploadedBy: req.user._id, uploadedByRole: req.user.role } as Record<string, unknown>;
   normalizeProductCommission(body);
+  normalizeProductVendorSku(body);
   if (req.user.role !== "admin") delete body.ourCommission;
   if (vendor) Object.assign(body, { vendorId: vendor._id, vendorName: vendor.name });
   if (req.user.role === "admin" && body.vendorId) {
@@ -1633,6 +1649,7 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (!p) throw new AppError(404, "Product not found");
   const body = { ...req.body } as Record<string, unknown>;
   normalizeProductCommission(body);
+  normalizeProductVendorSku(body);
   if (Object.prototype.hasOwnProperty.call(body, "sku")) {
     const sku = String(body.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");

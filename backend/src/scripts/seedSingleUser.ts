@@ -54,6 +54,7 @@ async function upsertSingleUser() {
     user.emailVerified = true;
     user.name = user.name || "ShipAmaze Owner";
     user.companyName = user.companyName || "ShipAmaze";
+    user.permissions = [];
     await user.save();
   }
 

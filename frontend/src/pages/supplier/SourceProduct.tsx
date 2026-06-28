@@ -34,7 +34,7 @@ interface Variant {
 }
 
 const emptyForm = {
-  name: "", sku: "", categories: [] as string[], brand: "",
+  name: "", sku: "", vendor_sku: "", categories: [] as string[], brand: "",
   short_description: "", long_description: "",
   status: "draft", tags: "", unit: "pcs", min_order_qty: 1,
   price: 0, selling_price: 0, our_commission: 40, stock: 0, hsn: "",
@@ -158,6 +158,7 @@ export default function SourceProduct() {
       ...emptyForm,
       ...p,
       categories,
+      vendor_sku: p.vendor_sku ?? p.vendorSku ?? "",
       selling_price: typeof sp === "number" ? sp : Number(sp) || 0,
       tags: Array.isArray(p.tags) ? p.tags.join(", ") : p.tags || "",
       images: Array.isArray(p.images) ? p.images : [],
@@ -292,6 +293,7 @@ export default function SourceProduct() {
       const payload: Record<string, unknown> = {
         name: form.name,
         sku: form.sku || undefined,
+        vendorSku: form.vendor_sku.trim() || undefined,
         categories: form.categories,
         category: form.categories[0] || undefined,
         brand: form.brand || undefined,
@@ -488,6 +490,7 @@ export default function SourceProduct() {
               </div>
               <div><Label>Product Name *</Label><Input value={form.name} onChange={e => update({ name: e.target.value })} placeholder="e.g. Cotton T-Shirt" /></div>
               <div><Label>Product Main SKU</Label><Input value={form.sku} onChange={e => update({ sku: e.target.value })} placeholder="SA0000001" /></div>
+              <div><Label>Vendor SKU</Label><Input value={form.vendor_sku} onChange={e => update({ vendor_sku: e.target.value })} placeholder="Your internal SKU/reference" /></div>
               <div><Label>Brand</Label><Input value={form.brand} onChange={e => update({ brand: e.target.value })} /></div>
               <div>
                 <Label>Status</Label>

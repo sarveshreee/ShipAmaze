@@ -6,6 +6,7 @@ export type SupplierProduct = {
   id: string;
   name: string;
   sku: string;
+  vendor_sku: string;
   category: string;
   brand: string;
   status: "draft" | "active" | "inactive" | "pending";
@@ -54,6 +55,7 @@ export function mapApiToSupplierProduct(r: Record<string, unknown>): SupplierPro
     id,
     name: String(r.name ?? ""),
     sku: String(r.sku ?? ""),
+    vendor_sku: String(r.vendor_sku ?? r.vendorSku ?? ""),
     category: String(r.category ?? ""),
     brand: String(r.brand ?? ""),
     status: (r.status as SupplierProduct["status"]) || "draft",

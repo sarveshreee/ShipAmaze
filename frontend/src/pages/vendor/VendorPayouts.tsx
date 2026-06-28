@@ -81,7 +81,7 @@ export default function VendorPayouts() {
   const { role } = useAuth();
   const { canViewGST, canViewRemittance } = usePermissions();
   const { data: remittances = [], isLoading: remLoading, isError: remError, refetch: refetchRem } = useCodRemittances();
-  const { data: wallet, isLoading: walletLoading, isError: walletError, refetch: refetchWallet } = useWalletSummary();
+  const { data: wallet, isLoading: walletLoading, error: walletError, refetch: refetchWallet } = useWalletSummary();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");

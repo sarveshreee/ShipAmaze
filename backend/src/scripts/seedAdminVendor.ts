@@ -57,6 +57,7 @@ async function upsertUser(u: SeedUser) {
     user.emailVerified = true;
     user.name = u.name;
     user.companyName = u.companyName ?? user.companyName;
+    if (u.role === "admin") user.permissions = [];
     await user.save();
   }
 

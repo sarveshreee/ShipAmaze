@@ -548,6 +548,7 @@ export type CatalogueProductRow = {
   id: string;
   name: string;
   sku: string;
+  vendorSku: string;
   category: string;
   weight: string;
   price: number;
@@ -566,6 +567,7 @@ export function useProducts() {
       id: String(p._id ?? p.id ?? ""),
       name: String(p.name ?? ""),
       sku: String(p.sku ?? ""),
+      vendorSku: String(p.vendorSku ?? p.vendor_sku ?? ""),
       category: String(p.category ?? ""),
       weight: String(p.weight ?? ""),
       price: Number(p.price ?? 0),

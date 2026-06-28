@@ -15,11 +15,11 @@ import { downloadCSV } from "@/lib/exportUtils";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 interface ProductForm {
-  name: string; sku: string; category: string; weight: string;
+  name: string; sku: string; vendorSku: string; category: string; weight: string;
   price: string; sellingPrice: string; stock: string; hsn: string; dimensions: string;
 }
 
-const emptyForm: ProductForm = { name: "", sku: "", category: "", weight: "", price: "", sellingPrice: "", stock: "", hsn: "", dimensions: "" };
+const emptyForm: ProductForm = { name: "", sku: "", vendorSku: "", category: "", weight: "", price: "", sellingPrice: "", stock: "", hsn: "", dimensions: "" };
 
 export default function VendorCatalogue() {
   const [search, setSearch] = useState("");
@@ -30,12 +30,12 @@ export default function VendorCatalogue() {
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [saving, setSaving] = useState(false);
 
-  const filtered = products.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()));
+  const filtered = products.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()) || p.vendorSku.toLowerCase().includes(search.toLowerCase()));
 
   const openAdd = () => { setEditId(null); setForm(emptyForm); setDialogOpen(true); };
   const openEdit = (p: typeof products[0]) => {
     setEditId(p.id);
-    setForm({ name: p.name, sku: p.sku, category: p.category, weight: p.weight, price: String(p.price), sellingPrice: String(p.sellingPrice), stock: String(p.stock), hsn: p.hsn, dimensions: p.dimensions });
+    setForm({ name: p.name, sku: p.sku, vendorSku: p.vendorSku, category: p.category, weight: p.weight, price: String(p.price), sellingPrice: String(p.sellingPrice), stock: String(p.stock), hsn: p.hsn, dimensions: p.dimensions });
     setDialogOpen(true);
   };
 
@@ -44,7 +44,7 @@ export default function VendorCatalogue() {
     setSaving(true);
     try {
       const data = {
-        name: form.name, sku: form.sku || null, category: form.category || null,
+        name: form.name, sku: form.sku || null, vendorSku: form.vendorSku || null, category: form.category || null,
         weight: form.weight || null, price: parseFloat(form.price) || 0,
         selling_price: parseFloat(form.sellingPrice) || 0, stock: parseInt(form.stock) || 0,
         hsn: form.hsn || null, dimensions: form.dimensions || null,
@@ -80,8 +80,8 @@ export default function VendorCatalogue() {
 
   const handleExport = () => {
     downloadCSV("products_export",
-      ["Name", "SKU", "Category", "Weight", "Price", "Selling Price", "Stock", "HSN"],
-      filtered.map(p => [p.name, p.sku, p.category, p.weight, p.price, p.sellingPrice, p.stock, p.hsn])
+      ["Name", "SKU", "Vendor SKU", "Category", "Weight", "Price", "Selling Price", "Stock", "HSN"],
+      filtered.map(p => [p.name, p.sku, p.vendorSku, p.category, p.weight, p.price, p.sellingPrice, p.stock, p.hsn])
     );
     toast.success(`Exported ${filtered.length} products`);
   };
@@ -103,7 +103,7 @@ export default function VendorCatalogue() {
       <div className="mb-4">
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <Input placeholder="Search products..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+          <Input placeholder="Search products, SKU, or Vendor SKU..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
       </div>
       {filtered.length === 0 ? (
@@ -117,6 +117,7 @@ export default function VendorCatalogue() {
               </div>
               <h3 className="font-semibold text-text-primary truncate">{p.name}</h3>
               <p className="text-xs font-mono text-text-muted mt-0.5">{p.sku}</p>
+              {p.vendorSku && <p className="text-xs text-text-muted mt-0.5">Vendor SKU: <span className="font-mono">{p.vendorSku}</span></p>}
               <div className="flex items-center justify-between mt-2">
                 <p className="text-lg font-bold text-primary">{formatProductPriceInr(getFinalProductPrice(p))}</p>
                 <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", p.stock > 0 ? "bg-success-light text-success-dark" : "bg-danger-light text-danger-dark")}>
@@ -142,6 +143,7 @@ export default function VendorCatalogue() {
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2"><Label>Name *</Label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Cotton T-Shirt" /></div>
             <div><Label>SKU</Label><Input value={form.sku} onChange={e => setForm({...form, sku: e.target.value})} placeholder="SKU-001" /></div>
+            <div><Label>Vendor SKU</Label><Input value={form.vendorSku} onChange={e => setForm({...form, vendorSku: e.target.value})} placeholder="Your internal SKU" /></div>
             <div><Label>Category</Label><Input value={form.category} onChange={e => setForm({...form, category: e.target.value})} placeholder="Apparel" /></div>
             <div><Label>Price (₹)</Label><Input type="number" value={form.price} onChange={e => setForm({...form, price: e.target.value})} placeholder="499" /></div>
             <div><Label>Selling Price (₹)</Label><Input type="number" value={form.sellingPrice} onChange={e => setForm({...form, sellingPrice: e.target.value})} placeholder="399" /></div>

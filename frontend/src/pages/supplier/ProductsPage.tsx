@@ -17,7 +17,7 @@ import * as productService from "@/services/productService";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import { downloadCSV } from "@/lib/exportUtils";
-import { getFinalProductPrice, getFinalVariantPrice, formatProductPriceInr } from "@/lib/pricing";
+import { getFinalProductPrice, getFinalVariantPrice, formatProductPriceInr, resolveOurCommission } from "@/lib/pricing";
 
 export default function ProductsPage() {
   const navigate = useNavigate();
@@ -63,7 +63,13 @@ export default function ProductsPage() {
   const filtered = useMemo(() => {
     let arr = data.filter(p => {
       const q = search.toLowerCase();
-      const matchSearch = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.status.includes(q) || (p.vendor_name || "").toLowerCase().includes(q);
+      const matchSearch =
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        (!isDropshipper && p.vendor_sku.toLowerCase().includes(q)) ||
+        p.status.includes(q) ||
+        (p.vendor_name || "").toLowerCase().includes(q);
       const matchCat = categoryFilter === "all" || p.category === categoryFilter;
       const matchStatus = statusFilter === "all" || p.status === statusFilter;
       const matchVendor = vendorFilter === "all" || p.vendor_id === vendorFilter;
@@ -75,7 +81,7 @@ export default function ProductsPage() {
     if (sortBy === "price-desc") arr = [...arr].sort((a, b) => b.selling_price - a.selling_price);
     if (sortBy === "name") arr = [...arr].sort((a, b) => a.name.localeCompare(b.name));
     return arr;
-  }, [data, search, categoryFilter, statusFilter, vendorFilter, sortBy]);
+  }, [data, search, categoryFilter, statusFilter, vendorFilter, sortBy, isDropshipper]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageData = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -116,17 +122,17 @@ export default function ProductsPage() {
       return;
     }
 
-    const vendorPrice = Number(p.price) || 0;
-    if (nextFinalPrice < vendorPrice) {
-      toast.error(`Final price cannot be below vendor price ${formatProductPriceInr(vendorPrice)}`);
+    const commission = resolveOurCommission(p);
+    if (nextFinalPrice < commission) {
+      toast.error(`Final price cannot be below fixed commission ${formatProductPriceInr(commission)}`);
       return;
     }
 
-    const nextCommission = Math.round((nextFinalPrice - vendorPrice) * 100) / 100;
+    const nextVendorPrice = Math.round((nextFinalPrice - commission) * 100) / 100;
     setSavingInlinePriceId(p.id);
     try {
       await productService.updateProduct(p.id, {
-        ourCommission: nextCommission,
+        price: nextVendorPrice,
         sellingPrice: nextFinalPrice,
       });
       toast.success(`Price updated to ${formatProductPriceInr(nextFinalPrice)}`);
@@ -260,13 +266,13 @@ export default function ProductsPage() {
   const exportCSV = () => {
     if (!filtered.length) { toast.error("Nothing to export"); return; }
     const headers = [
-      "name","sku","category","brand","status","price","selling_price","stock","weight","hsn",
+      "name","sku","vendor_sku","category","brand","status","price","selling_price","stock","weight","hsn",
       "short_description","long_description","tags","unit","min_order_qty",
       "length_cm","width_cm","height_cm","shipping_class","cod_available","returnable","fragile",
       "gst_percent","country_of_origin","warranty","manufacturer","care_instructions","seo_title","seo_description"
     ];
     const rows = filtered.map(p => [
-      p.name, p.sku, p.category, p.brand, p.status, p.price, p.selling_price, p.stock, p.weight, p.hsn,
+      p.name, p.sku, p.vendor_sku, p.category, p.brand, p.status, p.price, p.selling_price, p.stock, p.weight, p.hsn,
       p.short_description, p.long_description, (p.tags || []).join("|"), p.unit, p.min_order_qty,
       p.length_cm ?? "", p.width_cm ?? "", p.height_cm ?? "", p.shipping_class,
       p.cod_available ? "true" : "false", p.returnable ? "true" : "false", p.fragile ? "true" : "false",
@@ -325,7 +331,7 @@ export default function ProductsPage() {
       <div className="rounded-xl bg-card shadow-card p-4 mb-4 flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[220px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <Input className="pl-9" placeholder="Search by name, SKU, or status..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          <Input className="pl-9" placeholder={isDropshipper ? "Search by name, SKU, or status..." : "Search by name, SKU, Vendor SKU, or status..."} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
         <Select value={categoryFilter} onValueChange={v => { setCategoryFilter(v); setPage(1); }}>
           <SelectTrigger className="w-[160px]"><SelectValue placeholder="Category" /></SelectTrigger>
@@ -431,7 +437,7 @@ export default function ProductsPage() {
                             <span className="text-xs font-semibold text-text-muted">₹</span>
                             <Input
                               type="number"
-                              min={p.price}
+                              min={resolveOurCommission(p)}
                               step="0.01"
                               className="h-8 text-sm font-semibold"
                               value={inlinePriceEdit.value}
@@ -444,7 +450,7 @@ export default function ProductsPage() {
                             />
                           </div>
                           <p className="text-[10px] text-text-muted">
-                            Vendor: {formatProductPriceInr(p.price)} · Commission: {formatProductPriceInr(Math.max(0, (Number(inlinePriceEdit.value) || 0) - p.price))}
+                            Vendor: {formatProductPriceInr(Math.max(0, (Number(inlinePriceEdit.value) || 0) - resolveOurCommission(p)))} · Commission fixed: {formatProductPriceInr(resolveOurCommission(p))}
                           </p>
                           <div className="flex gap-1.5">
                             <Button
@@ -479,6 +485,11 @@ export default function ProductsPage() {
                       <span className="font-mono">{p.sku || "—"}</span>
                       <span>{p.brand || "Self"}</span>
                     </div>
+                    {!isDropshipper && p.vendor_sku && (
+                      <p className="mt-1 text-[11px] text-text-muted">
+                        Vendor SKU: <span className="font-mono text-text-secondary">{p.vendor_sku}</span>
+                      </p>
+                    )}
                     {isAdmin && p.vendor_name && (
                       <div className="mt-2 text-[11px] text-text-muted border-t border-border pt-1.5">
                         <div className="flex items-center justify-between">
@@ -547,6 +558,7 @@ export default function ProductsPage() {
           {detailsFor && (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <Stat label="SKU" value={detailsFor.sku || "—"} />
+              {!isDropshipper && <Stat label="Vendor SKU" value={detailsFor.vendor_sku || "—"} />}
               <Stat label="Product Cost" value={formatProductPriceInr(detailsFor.price)} />
               <Stat label="Our Commission" value={formatProductPriceInr(detailsFor.our_commission)} />
               <Stat label="Final Price" value={formatProductPriceInr(getFinalProductPrice(detailsFor))} />

@@ -29,6 +29,8 @@ export interface AuthUser {
   email: string;
   role: UserRole;
   permissions: string[];
+  isOwnerAdmin?: boolean;
+  isStaffAdmin?: boolean;
   companyName: string;
   phone: string;
   address: string;

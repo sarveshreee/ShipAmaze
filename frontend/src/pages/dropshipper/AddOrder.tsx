@@ -386,7 +386,7 @@ export default function AddOrder() {
       window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses"));
       window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses_platform"));
       await refetchPickups();
-      setSelectedPickup(created.id);
+      if (created.data?.id) setSelectedPickup(created.data.id);
       setShowAddModal(false);
       toast.success("Pickup address saved");
     } catch (e: unknown) {
