@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,8 +43,10 @@ export default function AdminKyc() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [detail, setDetail] = useState<AdminKycRow | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [rejectUserId, setRejectUserId] = useState<string | null>(null);
   const [rejectRemark, setRejectRemark] = useState("");
+  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,16 +65,28 @@ export default function AdminKyc() {
     void load();
   }, [load]);
 
-  const filtered = rows.filter((r) => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
+  const filtered = useMemo(() => rows.filter((r) => {
+    if (!deferredSearch) return true;
     return (
-      r.name.toLowerCase().includes(q) ||
-      r.email.toLowerCase().includes(q) ||
-      (r.business_name ?? "").toLowerCase().includes(q) ||
-      (r.pan_number ?? "").toLowerCase().includes(q)
+      r.name.toLowerCase().includes(deferredSearch) ||
+      r.email.toLowerCase().includes(deferredSearch) ||
+      (r.business_name ?? "").toLowerCase().includes(deferredSearch) ||
+      (r.pan_number ?? "").toLowerCase().includes(deferredSearch)
     );
-  });
+  }), [rows, deferredSearch]);
+
+  const openDetail = async (row: AdminKycRow) => {
+    setDetail(row);
+    setDetailLoading(true);
+    try {
+      const full = await kycService.getAdminKyc(row.userId);
+      setDetail(full);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to load KYC details");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   const approve = async (userId: string) => {
     setActing(userId);
@@ -170,7 +184,7 @@ export default function AdminKyc() {
                   <td className="p-3">{statusBadge(r.kycStatus ?? r.status)}</td>
                   <td className="p-3 text-text-muted text-xs">{r.submittedAt ? new Date(r.submittedAt).toLocaleString() : "—"}</td>
                   <td className="p-3 text-right space-x-1">
-                    <Button size="sm" variant="ghost" onClick={() => setDetail(r)}><Eye className="h-4 w-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => void openDetail(r)}><Eye className="h-4 w-4" /></Button>
                     {(r.kycStatus === "pending_approval" || r.status === "pending") && (
                       <>
                         <Button size="sm" variant="outline" className="text-success" disabled={acting === r.userId} onClick={() => void approve(r.userId)}>
@@ -192,6 +206,11 @@ export default function AdminKyc() {
       <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>KYC Details</DialogTitle></DialogHeader>
+          {detailLoading && (
+            <div className="flex items-center gap-2 rounded-md bg-surface-2/50 p-3 text-sm text-text-muted">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading full KYC documents...
+            </div>
+          )}
           {detail && (
             <div className="space-y-4 text-sm">
               <div className="flex items-center justify-between gap-2">

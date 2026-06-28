@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, ChevronLeft, ChevronRight, Truck, Wallet, Users } from "lucide-react";
 import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
@@ -10,23 +10,27 @@ import { MarketplaceProductCard } from "@/components/marketplace/MarketplaceProd
 import { ProfitCalculatorModal } from "@/components/marketplace/ProfitCalculatorModal";
 import { ShopifyPushDrawer } from "@/components/marketplace/ShopifyPushDrawer";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
-import { useCategories } from "@/hooks/useCategories";
+
+const INITIAL_SECTION_COUNT = 6;
+const PRODUCTS_PER_SECTION = 12;
+const SEARCH_RESULT_LIMIT = 48;
 
 export default function MarketplaceHome() {
   const { role } = useAuth();
   const navigate = useNavigate();
-  const { products, grouped, categories, isLoading } = useMarketplaceProducts();
-  const { categories: adminCategories } = useCategories();
+  const { products, grouped, categories, categoryRows, isLoading, categoriesLoading } = useMarketplaceProducts();
   const [search, setSearch] = useState("");
+  const [visibleSectionCount, setVisibleSectionCount] = useState(INITIAL_SECTION_COUNT);
   const [calc, setCalc] = useState<SupplierProduct | null>(null);
   const [push, setPush] = useState<SupplierProduct | null>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   const sectionsOrder = useMemo(() => {
     const live = Array.from(grouped.keys());
     const liveSet = new Set(live);
     // Use admin-configured displayOrder from the Categories API
-    const ordered = adminCategories
+    const ordered = categoryRows
       .filter(c => c.enabled !== false)
       .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999))
       .map(c => c.name)
@@ -34,13 +38,15 @@ export default function MarketplaceHome() {
     const orderedSet = new Set(ordered);
     // Append any live categories not in admin list
     return [...ordered, ...live.filter(c => !orderedSet.has(c))];
-  }, [grouped, adminCategories]);
+  }, [grouped, categoryRows]);
+  const visibleSections = sectionsOrder.slice(0, visibleSectionCount);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return null;
-    const q = search.toLowerCase();
-    return products.filter(p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
-  }, [search, products]);
+    if (!deferredSearch) return null;
+    return products
+      .filter(p => p.name.toLowerCase().includes(deferredSearch) || p.sku.toLowerCase().includes(deferredSearch) || p.category.toLowerCase().includes(deferredSearch))
+      .slice(0, SEARCH_RESULT_LIMIT);
+  }, [deferredSearch, products]);
 
   const scrollSection = (id: string, dir: 1 | -1) => {
     const el = sectionRefs.current[id];
@@ -106,7 +112,7 @@ export default function MarketplaceHome() {
             <p className="text-sm text-muted-foreground py-8 text-center">No products match your search.</p>
           ) : (
             <div className="flex gap-4 overflow-x-auto pb-3">
-              {filtered.map(p => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} />)}
+              {filtered.map((p, index) => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} priority={index < 4} />)}
             </div>
           )}
         </section>
@@ -120,13 +126,13 @@ export default function MarketplaceHome() {
             <span className="text-xs text-primary font-medium">View all : {products.length}</span>
           </div>
           <div className="flex gap-4 overflow-x-auto pb-3 scrollbar-thin">
-            {products.slice(0, 10).map(p => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} />)}
+            {products.slice(0, 10).map((p, index) => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} priority={index < 4} />)}
           </div>
         </section>
       )}
 
       {/* Category sections */}
-      {!filtered && sectionsOrder.map(cat => {
+      {!filtered && visibleSections.map(cat => {
         const items = grouped.get(cat) || [];
         if (items.length === 0) return null;
         return (
@@ -140,13 +146,21 @@ export default function MarketplaceHome() {
               </div>
             </div>
             <div ref={el => (sectionRefs.current[cat] = el)} className="flex gap-4 overflow-x-auto pb-3 scrollbar-thin scroll-smooth">
-              {items.map(p => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} />)}
+              {items.slice(0, PRODUCTS_PER_SECTION).map(p => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} />)}
             </div>
           </section>
         );
       })}
+      {!filtered && visibleSectionCount < sectionsOrder.length && (
+        <div className="flex justify-center">
+          <Button variant="outline" onClick={() => setVisibleSectionCount((count) => count + INITIAL_SECTION_COUNT)}>
+            Load more categories
+          </Button>
+        </div>
+      )}
 
       {isLoading && <p className="text-center py-12 text-muted-foreground text-sm">Loading marketplace...</p>}
+      {!isLoading && categoriesLoading && <p className="text-center py-3 text-muted-foreground text-xs">Updating categories...</p>}
 
       <ProfitCalculatorModal open={!!calc} onOpenChange={(v) => !v && setCalc(null)} product={calc} onPushToShopify={() => { setPush(calc); setCalc(null); }} />
       <ShopifyPushDrawer open={!!push} onOpenChange={(v) => !v && setPush(null)} product={push} />

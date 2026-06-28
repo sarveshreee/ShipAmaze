@@ -16,6 +16,7 @@ import { Vendor } from "../models/Vendor.js";
 import { User } from "../models/User.js";
 import { assertOwnerAdmin } from "../utils/staffPermissions.js";
 import { createInAppNotification } from "../services/inAppNotifications.js";
+import { devLog } from "../utils/devLog.js";
 
 const TERMS_VERSION = "2026-06-01";
 
@@ -96,6 +97,30 @@ function mapKycResponse(k: IKycProfile | null | undefined) {
     address: k.address ?? (k.data?.address as string) ?? "",
     uploaded_docs: docs,
     documents: docs,
+    rejectionRemark: k.rejectionRemark ?? "",
+    termsAcceptedAt: k.termsAcceptedAt,
+    reviewedAt: k.reviewedAt,
+  };
+}
+
+function mapKycSummary(k: Partial<IKycProfile> | null | undefined) {
+  if (!k) return mapKycResponse(null);
+  return {
+    status: kycStatusToLegacy(k.status ?? "pending_kyc"),
+    kycStatus: k.status ?? "pending_kyc",
+    account_type: k.accountType ?? (k.data?.account_type as string) ?? "individual",
+    business_name: k.businessName ?? (k.data?.business_name as string) ?? "",
+    full_name: k.fullName ?? (k.data?.full_name as string) ?? "",
+    dob: k.dob ?? (k.data?.dob as string) ?? "",
+    gst_number: k.gstNumber ?? (k.data?.gst_number as string) ?? "",
+    pan_number: k.panNumber ?? (k.data?.pan_number as string) ?? "",
+    aadhaar_number: k.aadhaarNumber ?? (k.data?.aadhaar_number as string) ?? "",
+    cin_number: k.cinNumber ?? (k.data?.cin_number as string) ?? "",
+    authorized_person_name: k.authorizedPersonName ?? (k.data?.authorized_person_name as string) ?? "",
+    authorized_person_pan: k.authorizedPersonPan ?? (k.data?.authorized_person_pan as string) ?? "",
+    address: k.address ?? (k.data?.address as string) ?? "",
+    uploaded_docs: {},
+    documents: {},
     rejectionRemark: k.rejectionRemark ?? "",
     termsAcceptedAt: k.termsAcceptedAt,
     reviewedAt: k.reviewedAt,
@@ -264,7 +289,14 @@ export const listKycForAdmin = asyncHandler(async (req: AuthRequest, res: Respon
     filter.status = "pending_approval";
   }
 
-  const rows = await KycProfile.find(filter).sort({ updatedAt: -1 }).limit(200).lean();
+  const started = process.hrtime.bigint();
+  const rows = await KycProfile.find(filter)
+    .select("-documents -data.uploaded_docs -data.documents")
+    .sort({ updatedAt: -1 })
+    .limit(200)
+    .lean();
+  const queryMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+  devLog.info(`[kyc:list] status=${statusFilter || "pending_approval"} rows=${rows.length} query=${queryMs.toFixed(0)}ms`);
   const userIds = rows.map((r) => r.userId);
   const users = await User.find({ _id: { $in: userIds } })
     .select("name email companyName phone status role")
@@ -281,7 +313,7 @@ export const listKycForAdmin = asyncHandler(async (req: AuthRequest, res: Respon
       phone: u?.phone ?? "",
       role: u?.role ?? "",
       userStatus: u?.status ?? "active",
-      ...mapKycResponse(r as unknown as IKycProfile),
+      ...mapKycSummary(r as unknown as Partial<IKycProfile>),
       submittedAt: r.updatedAt,
     };
   });

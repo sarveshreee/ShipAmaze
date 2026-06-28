@@ -28,6 +28,8 @@ import {
   sanitizeCourierWarehouseName,
 } from "../modules/velocity/velocity.payload.js";
 import { Warehouse, type IWarehouse } from "../models/Warehouse.js";
+import { devLog } from "../utils/devLog.js";
+import { buildProductListPipeline } from "../utils/productListPayload.js";
 import type { HydratedDocument } from "mongoose";
 import { Courier } from "../models/Courier.js";
 import { PincodeServiceability } from "../models/PincodeServiceability.js";
@@ -1534,7 +1536,12 @@ export const listWeightDisputes = asyncHandler(async (_req: AuthRequest, res: Re
 
 export const listMarketplaceProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const rows = await Product.find({ status: "active" }).sort({ createdAt: -1 }).allowDiskUse(true).lean();
+  const started = process.hrtime.bigint();
+  const rows = await Product.aggregate(
+    buildProductListPipeline({ status: "active" }, { createdAt: -1 })
+  ).allowDiskUse(true);
+  const queryMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+  devLog.info(`[products:marketplace] rows=${rows.length} query=${queryMs.toFixed(0)}ms`);
   res.json(rows.map(stripVendorProductFields));
 });
 
@@ -1547,12 +1554,21 @@ export const listProducts = asyncHandler(async (req: AuthRequest, res: Response)
   if (req.user.role === "admin") {
     q = {};
   } else if (req.user.role === "vendor") {
-    const v = await Vendor.findOne({ userId: req.user._id });
+    const v = await Vendor.findOne({ userId: req.user._id }).select("_id").lean();
     if (v) q = { vendorId: v._id };
   } else if (req.user.role === "dropshipper") {
     q = { uploadedBy: req.user._id };
   }
-  const rows = await Product.find(q).sort({ createdAt: -1 }).allowDiskUse(true).lean();
+  const includeDescriptions =
+    req.query.includeDescriptions === "1" || req.query.export === "1";
+  const started = process.hrtime.bigint();
+  const rows = await Product.aggregate(
+    buildProductListPipeline(q, { createdAt: -1 }, { includeDescriptions })
+  ).allowDiskUse(true);
+  const queryMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+  devLog.info(
+    `[products:list] role=${req.user.role} rows=${rows.length} query=${queryMs.toFixed(0)}ms descriptions=${includeDescriptions}`
+  );
   res.json(req.user.role === "dropshipper" ? rows.map(stripVendorProductFields) : rows);
 });
 

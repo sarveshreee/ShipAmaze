@@ -49,11 +49,37 @@ export function useMarketplaceProducts() {
     [apiCategories]
   );
 
-  return { products, grouped, featured, isLoading: isLoading || categoriesLoading, refetch: load, categories };
+  return { products, grouped, featured, isLoading, categoriesLoading, refetch: load, categories, categoryRows: apiCategories };
 }
 
 export function useMarketplaceProduct(id: string | undefined) {
-  const { products, isLoading } = useMarketplaceProducts();
-  const product = useMemo(() => products.find((p) => p.id === id), [products, id]);
+  const [product, setProduct] = useState<SupplierProduct | null>(null);
+  const [isLoading, setIsLoading] = useState(Boolean(id));
+
+  useEffect(() => {
+    let active = true;
+    if (!id) {
+      setProduct(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    void productService.getProductById(id)
+      .then((row) => {
+        if (active) setProduct(mapApiToSupplierProduct(row as Record<string, unknown>));
+      })
+      .catch(() => {
+        if (active) setProduct(null);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
   return { product, isLoading };
 }

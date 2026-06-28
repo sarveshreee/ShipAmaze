@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, Upload, Search, Package, Pencil, Trash2, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import * as productService from "@/services/productService";
@@ -20,6 +20,7 @@ interface ProductForm {
 }
 
 const emptyForm: ProductForm = { name: "", sku: "", vendorSku: "", category: "", weight: "", price: "", sellingPrice: "", stock: "", hsn: "", dimensions: "" };
+const PAGE_SIZE = 24;
 
 export default function VendorCatalogue() {
   const [search, setSearch] = useState("");
@@ -29,8 +30,17 @@ export default function VendorCatalogue() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState(1);
+  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
-  const filtered = products.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()) || p.vendorSku.toLowerCase().includes(search.toLowerCase()));
+  const filtered = useMemo(() => products.filter(p => (
+    !deferredSearch ||
+    p.name.toLowerCase().includes(deferredSearch) ||
+    p.sku.toLowerCase().includes(deferredSearch) ||
+    p.vendorSku.toLowerCase().includes(deferredSearch)
+  )), [products, deferredSearch]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageProducts = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const openAdd = () => { setEditId(null); setForm(emptyForm); setDialogOpen(true); };
   const openEdit = (p: typeof products[0]) => {
@@ -103,14 +113,14 @@ export default function VendorCatalogue() {
       <div className="mb-4">
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <Input placeholder="Search products, SKU, or Vendor SKU..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+          <Input placeholder="Search products, SKU, or Vendor SKU..." className="pl-9" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
       </div>
       {filtered.length === 0 ? (
         <EmptyState icon={Package} title="No products found" description="Try adjusting your search or add a new product" actionLabel="Add Product" onAction={openAdd} />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(p => (
+          {pageProducts.map(p => (
             <div key={p.id} className="rounded-lg bg-card shadow-card p-4">
               <div className="flex h-32 items-center justify-center rounded-md bg-surface-2 mb-3">
                 <Package className="h-10 w-10 text-text-muted" />
@@ -134,6 +144,17 @@ export default function VendorCatalogue() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {filtered.length > PAGE_SIZE && (
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 px-1">
+          <p className="text-xs text-text-muted">
+            Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</Button>
+            <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</Button>
+          </div>
         </div>
       )}
 

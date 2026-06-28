@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,9 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProductPermissions } from "@/hooks/useProductPermissions";
-import { useSupplierProducts, type SupplierProduct } from "@/hooks/useSupplierProducts";
+import { useSupplierProducts, type SupplierProduct, mapApiToSupplierProduct } from "@/hooks/useSupplierProducts";
 import { ProductStatusBadge } from "@/components/supplier/StatusBadge";
+import { ProductThumbnail } from "@/components/products/ProductThumbnail";
 import * as productService from "@/services/productService";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkActionBar } from "@/components/BulkActionBar";
@@ -53,6 +54,7 @@ export default function ProductsPage() {
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [inlinePriceEdit, setInlinePriceEdit] = useState<{ id: string; value: string } | null>(null);
   const [savingInlinePriceId, setSavingInlinePriceId] = useState<string | null>(null);
+  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
   const categories = useMemo(() => Array.from(new Set(data.map(p => p.category).filter(Boolean))), [data]);
   const vendors = useMemo(() => {
     const map = new Map<string, string>();
@@ -62,7 +64,7 @@ export default function ProductsPage() {
 
   const filtered = useMemo(() => {
     let arr = data.filter(p => {
-      const q = search.toLowerCase();
+      const q = deferredSearch;
       const matchSearch =
         !q ||
         p.name.toLowerCase().includes(q) ||
@@ -81,7 +83,7 @@ export default function ProductsPage() {
     if (sortBy === "price-desc") arr = [...arr].sort((a, b) => b.selling_price - a.selling_price);
     if (sortBy === "name") arr = [...arr].sort((a, b) => a.name.localeCompare(b.name));
     return arr;
-  }, [data, search, categoryFilter, statusFilter, vendorFilter, sortBy, isDropshipper]);
+  }, [data, deferredSearch, categoryFilter, statusFilter, vendorFilter, sortBy, isDropshipper]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageData = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -263,24 +265,37 @@ export default function ProductsPage() {
   };
 
   // ===== CSV Export (matches bulk upload template) =====
-  const exportCSV = () => {
+  const exportCSV = async () => {
     if (!filtered.length) { toast.error("Nothing to export"); return; }
-    const headers = [
-      "name","sku","vendor_sku","category","brand","status","price","selling_price","stock","weight","hsn",
-      "short_description","long_description","tags","unit","min_order_qty",
-      "length_cm","width_cm","height_cm","shipping_class","cod_available","returnable","fragile",
-      "gst_percent","country_of_origin","warranty","manufacturer","care_instructions","seo_title","seo_description"
-    ];
-    const rows = filtered.map(p => [
-      p.name, p.sku, p.vendor_sku, p.category, p.brand, p.status, p.price, p.selling_price, p.stock, p.weight, p.hsn,
-      p.short_description, p.long_description, (p.tags || []).join("|"), p.unit, p.min_order_qty,
-      p.length_cm ?? "", p.width_cm ?? "", p.height_cm ?? "", p.shipping_class,
-      p.cod_available ? "true" : "false", p.returnable ? "true" : "false", p.fragile ? "true" : "false",
-      p.gst_percent, p.country_of_origin, p.warranty, p.manufacturer, p.care_instructions,
-      p.seo_title, p.seo_description
-    ] as (string|number)[]);
-    downloadCSV(`products-${new Date().toISOString().slice(0,10)}`, headers, rows);
-    toast.success(`Exported ${rows.length} product${rows.length>1?"s":""}`);
+    const loadingId = toast.loading("Preparing export…");
+    try {
+      const raw = await productService.listProductsForExport();
+      const exportMap = new Map(
+        (Array.isArray(raw) ? raw : []).map((row) => {
+          const p = mapApiToSupplierProduct(row as Record<string, unknown>);
+          return [p.id, p] as const;
+        })
+      );
+      const exportRows = filtered.map((p) => exportMap.get(p.id) ?? p);
+      const headers = [
+        "name","sku","vendor_sku","category","brand","status","price","selling_price","stock","weight","hsn",
+        "short_description","long_description","tags","unit","min_order_qty",
+        "length_cm","width_cm","height_cm","shipping_class","cod_available","returnable","fragile",
+        "gst_percent","country_of_origin","warranty","manufacturer","care_instructions","seo_title","seo_description"
+      ];
+      const rows = exportRows.map(p => [
+        p.name, p.sku, p.vendor_sku, p.category, p.brand, p.status, p.price, p.selling_price, p.stock, p.weight, p.hsn,
+        p.short_description, p.long_description, (p.tags || []).join("|"), p.unit, p.min_order_qty,
+        p.length_cm ?? "", p.width_cm ?? "", p.height_cm ?? "", p.shipping_class,
+        p.cod_available ? "true" : "false", p.returnable ? "true" : "false", p.fragile ? "true" : "false",
+        p.gst_percent, p.country_of_origin, p.warranty, p.manufacturer, p.care_instructions,
+        p.seo_title, p.seo_description
+      ] as (string|number)[]);
+      downloadCSV(`products-${new Date().toISOString().slice(0,10)}`, headers, rows);
+      toast.success(`Exported ${rows.length} product${rows.length>1?"s":""}`, { id: loadingId });
+    } catch {
+      toast.error("Export failed", { id: loadingId });
+    }
   };
 
   const allOnPageSelected = pageData.length > 0 && pageData.every(p => selected.has(p.id));
@@ -400,16 +415,24 @@ export default function ProductsPage() {
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {pageData.map(p => {
-              const img = p.images[p.primary_image_index] || p.images[0];
+            {pageData.map((p, index) => {
               const isSel = selected.has(p.id);
               const isEditingPrice = inlinePriceEdit?.id === p.id;
               const canInlineEditPrice = isAdmin && productCan.edit;
               const savingPrice = savingInlinePriceId === p.id;
               return (
                 <div key={p.id} className={cn("group rounded-xl bg-card shadow-card hover:shadow-card-lg transition-shadow overflow-hidden flex flex-col", isSel && "ring-2 ring-primary")}>
-                  <div className="relative aspect-square bg-surface-2 flex items-center justify-center">
-                    {img ? <img src={img} alt={p.name} className="w-full h-full object-cover" /> : <Package className="h-10 w-10 text-text-muted" />}
+                  <div className="relative aspect-square bg-surface-2 flex items-center justify-center overflow-hidden">
+                    <ProductThumbnail
+                      productId={p.id}
+                      images={p.images}
+                      hasImage={p.has_image}
+                      alt={p.name}
+                      className="w-full h-full object-cover"
+                      loading={index < 4 ? "eager" : "lazy"}
+                      fetchPriority={index < 4 ? "high" : "auto"}
+                      fallbackClassName="w-full h-full"
+                    />
                     <div className="absolute top-2 left-2 flex items-center gap-2">
                       {canManage && (
                         <div className={cn("h-6 w-6 rounded bg-card border border-border flex items-center justify-center transition-opacity", isSel ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>

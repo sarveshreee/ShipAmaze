@@ -33,6 +33,15 @@ export interface AdminKycRow extends KycProfileResponse {
   submittedAt?: string;
 }
 
+const ADMIN_KYC_CACHE_MS = 30_000;
+const adminKycCache = new Map<string, { rows: AdminKycRow[]; cachedAt: number }>();
+const adminKycPending = new Map<string, Promise<AdminKycRow[]>>();
+
+function clearAdminKycCache() {
+  adminKycCache.clear();
+  adminKycPending.clear();
+}
+
 export async function getMyKyc() {
   return apiClient.get<KycProfileResponse>("/account/kyc");
 }
@@ -47,7 +56,26 @@ export async function submitKyc(body: Record<string, unknown>) {
 
 export async function listAdminKyc(status?: string) {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
-  return apiClient.get<AdminKycRow[]>(`/admin/kyc${q}`);
+  const key = status || "";
+  const cached = adminKycCache.get(key);
+  if (cached && Date.now() - cached.cachedAt < ADMIN_KYC_CACHE_MS) return cached.rows;
+
+  if (!adminKycPending.has(key)) {
+    adminKycPending.set(
+      key,
+      apiClient.get<AdminKycRow[]>(`/admin/kyc${q}`).then((rows) => {
+        const list = Array.isArray(rows) ? rows : [];
+        adminKycCache.set(key, { rows: list, cachedAt: Date.now() });
+        adminKycPending.delete(key);
+        return list;
+      }).catch((error) => {
+        adminKycPending.delete(key);
+        throw error;
+      })
+    );
+  }
+
+  return adminKycPending.get(key)!;
 }
 
 export async function getAdminKyc(userId: string) {
@@ -55,11 +83,15 @@ export async function getAdminKyc(userId: string) {
 }
 
 export async function approveKyc(userId: string) {
-  return apiClient.post<{ ok: boolean }>(`/admin/kyc/${userId}/approve`, {});
+  const result = await apiClient.post<{ ok: boolean }>(`/admin/kyc/${userId}/approve`, {});
+  clearAdminKycCache();
+  return result;
 }
 
 export async function rejectKyc(userId: string, remark: string) {
-  return apiClient.post<{ ok: boolean }>(`/admin/kyc/${userId}/reject`, { remark });
+  const result = await apiClient.post<{ ok: boolean }>(`/admin/kyc/${userId}/reject`, { remark });
+  clearAdminKycCache();
+  return result;
 }
 
 export function kycStatusLabel(status?: KycStatus | KycLegacyStatus): string {

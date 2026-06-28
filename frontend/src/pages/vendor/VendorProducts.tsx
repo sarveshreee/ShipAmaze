@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSupplierProducts, type SupplierProduct } from "@/hooks/useSupplierProducts";
 import * as productService from "@/services/productService";
+import { ProductThumbnail } from "@/components/products/ProductThumbnail";
 import { downloadCSV } from "@/lib/exportUtils";
 import { getFinalVariantPrice, formatProductPriceInr } from "@/lib/pricing";
 
@@ -183,12 +184,22 @@ export default function VendorProducts() {
     toast.success(`Exported ${rows.length} products`);
   };
 
-  const openImageModal = (p: SupplierProduct) => {
-    if (!p.images || p.images.length === 0) {
-      toast.message("No images for this product");
+  const openImageModal = async (p: SupplierProduct) => {
+    if (p.images.length > 0) {
+      setImageModal({ product: p, index: p.primary_image_index || 0 });
       return;
     }
-    setImageModal({ product: p, index: p.primary_image_index || 0 });
+    try {
+      const full = (await productService.getProductById(p.id)) as Record<string, unknown>;
+      const images = Array.isArray(full.images) ? (full.images as string[]) : [];
+      if (!images.length) {
+        toast.error("No images for this product");
+        return;
+      }
+      setImageModal({ product: { ...p, images }, index: p.primary_image_index || 0 });
+    } catch {
+      toast.error("Could not load images");
+    }
   };
 
   return (
@@ -341,7 +352,6 @@ export default function VendorProducts() {
               </thead>
               <tbody>
                 {pageData.map((p) => {
-                  const img = p.images?.[p.primary_image_index] || p.images?.[0];
                   const isSelected = selectedIds.has(p.id);
                   const isActive = p.status === "active";
                   return (
@@ -360,14 +370,17 @@ export default function VendorProducts() {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
-                                onClick={() => openImageModal(p)}
+                                onClick={() => void openImageModal(p)}
                                 className="h-12 w-12 rounded-md bg-surface-2 border border-border flex items-center justify-center overflow-hidden hover:ring-2 hover:ring-primary transition"
                               >
-                                {img ? (
-                                  <img src={img} alt={p.name} className="h-full w-full object-cover" />
-                                ) : (
-                                  <Package className="h-5 w-5 text-text-muted" />
-                                )}
+                                <ProductThumbnail
+                                  productId={p.id}
+                                  images={p.images}
+                                  hasImage={p.has_image}
+                                  alt={p.name}
+                                  className="h-full w-full object-cover"
+                                  fallbackClassName="h-full w-full"
+                                />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>Click to see images</TooltipContent>

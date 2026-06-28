@@ -22,6 +22,20 @@ export default defineConfig(({ mode }) => {
     },
   },
   plugins: [react()],
+  build: {
+    cssCodeSplit: true,
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom", "react-router-dom"],
+          ui: ["@radix-ui/react-dialog", "@radix-ui/react-select", "@radix-ui/react-toast", "@radix-ui/react-tooltip"],
+          charts: ["recharts"],
+          documents: ["jspdf", "html2canvas", "jsbarcode"],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

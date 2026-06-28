@@ -10,7 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import * as dropshipperService from "@/services/dropshipperService";
 import {
   CheckCircle2, Clock, AlertCircle,
-  Upload, FileCheck, X, User, Briefcase
+  Upload, FileCheck, X, User, Briefcase, Loader2
 } from "lucide-react";
 
 type AccountType = "individual" | "company";
@@ -87,9 +87,24 @@ function FileUploadField({ label, value, onChange }: { label: string; value?: st
   );
 }
 
+function KycPendingBanner() {
+  return (
+    <div className="rounded-xl border border-warning/30 bg-warning-light/50 px-4 py-3 flex items-start gap-3">
+      <Clock className="h-5 w-5 text-warning-dark shrink-0 mt-0.5" />
+      <div>
+        <p className="font-medium text-text-primary text-sm">Submitted — awaiting admin approval</p>
+        <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+          Your KYC documents are under review. Please wait for admin approval before editing or resubmitting. This usually takes 1–2 business days.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function KycTab({ userId }: { userId: string | null }) {
   const [profile, setProfile] = useState<KycProfile>({ account_type: "individual", status: "draft", uploaded_docs: {} });
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -144,11 +159,13 @@ function KycTab({ userId }: { userId: string | null }) {
     }
     if (!profile.address) errs.push("Address");
     if (errs.length) { toast.error(`Missing: ${errs.join(", ")}`); return; }
+    setSubmitting(true);
     try {
       await dropshipperService.submitKyc({ ...profile, uploaded_docs: profile.uploaded_docs, documents: profile.uploaded_docs, termsAccepted: true } as unknown as Record<string, unknown>);
       setProfile(p => ({ ...p, status: "pending" as KycStatus }));
       toast.success("Submitted for admin approval");
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Submit failed"); }
+    finally { setSubmitting(false); }
   };
 
   const isLocked = profile.status === "pending" || profile.status === "verified";
@@ -171,6 +188,8 @@ function KycTab({ userId }: { userId: string | null }) {
           </div>
           <StatusPill status={profile.status} />
         </div>
+
+        {profile.status === "pending" && <KycPendingBanner />}
 
         <div>
           <Label className="mb-2 block">Account Type</Label>
@@ -229,11 +248,26 @@ function KycTab({ userId }: { userId: string | null }) {
         </fieldset>
 
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border">
-          <p className="text-xs text-text-muted">By submitting you agree to our verification policy.</p>
+          <p className="text-xs text-text-muted">
+            {submitting
+              ? "Uploading documents and submitting — please wait…"
+              : profile.status === "pending"
+                ? "Your submission is with our team for review."
+                : "By submitting you agree to our verification policy."}
+          </p>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => void saveDraft()} disabled={isLocked}>Save draft</Button>
-            <Button onClick={() => void submit()} disabled={isLocked} className="bg-primary text-primary-foreground hover:bg-primary-dark">
-              Submit for verification
+            <Button variant="outline" onClick={() => void saveDraft()} disabled={isLocked || submitting}>Save draft</Button>
+            <Button onClick={() => void submit()} disabled={isLocked || submitting} className="bg-primary text-primary-foreground hover:bg-primary-dark min-w-[180px]">
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Submitting…
+                </>
+              ) : profile.status === "pending" ? (
+                "Awaiting approval"
+              ) : (
+                "Submit for verification"
+              )}
             </Button>
           </div>
         </div>

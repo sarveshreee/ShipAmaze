@@ -4,20 +4,38 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
+import { ProductThumbnail } from "@/components/products/ProductThumbnail";
 
 interface Props {
   product: SupplierProduct;
   onCalculator: (p: SupplierProduct) => void;
   onPush: (p: SupplierProduct) => void;
+  priority?: boolean;
 }
 
-export function MarketplaceProductCard({ product, onCalculator, onPush }: Props) {
+function scoreForProduct(product: SupplierProduct) {
+  const seed = product.id || product.sku || product.name;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash + seed.charCodeAt(i) * (i + 1)) % 9;
+  return (4 + hash / 10).toFixed(1);
+}
+
+export function MarketplaceProductCard({ product, onCalculator, onPush, priority = false }: Props) {
   const { role } = useAuth();
-  const score = (4 + Math.random() * 0.9).toFixed(1);
+  const score = scoreForProduct(product);
   return (
     <div className="group flex flex-col w-[180px] sm:w-[200px] shrink-0">
       <Link to={`/${role}/home/product/${product.id}`} className="relative block aspect-square rounded-2xl overflow-hidden bg-muted border hover:shadow-lg transition-shadow">
-        <img src={product.images[0] || "/placeholder.svg"} alt={product.name} loading="lazy" className="h-full w-full object-cover group-hover:scale-105 transition-transform" />
+        <ProductThumbnail
+          productId={product.id}
+          images={product.images}
+          hasImage={product.has_image}
+          alt={product.name}
+          className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+          loading={priority ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : "auto"}
+          fallbackClassName="h-full w-full"
+        />
         <span className="absolute top-2 left-2 text-[10px] bg-background/90 backdrop-blur px-2 py-0.5 rounded-md font-medium">{product.sku}</span>
         <button onClick={(e) => { e.preventDefault(); onCalculator(product); }} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-background/90 backdrop-blur flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition" aria-label="Calculator">
           <Calculator className="h-3.5 w-3.5" />

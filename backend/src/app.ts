@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 import { errorMiddleware } from "./middleware/errorMiddleware.js";
 import { notFoundHandler } from "./middleware/notFound.js";
 import {
@@ -41,6 +42,7 @@ import {
 } from "./middleware/dropshipperAccessMiddleware.js";
 import * as kycController from "./controllers/kycController.js";
 import * as categoryController from "./controllers/categoryController.js";
+import { devLog } from "./utils/devLog.js";
 
 function normalizeCorsOrigin(value: string): string | null {
   const trimmed = value.trim();
@@ -77,6 +79,20 @@ function isLocalDevOrigin(origin: string): boolean {
   }
 }
 
+function apiTimingLogger(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const start = process.hrtime.bigint();
+  res.on("finish", () => {
+    const elapsedMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+    const length = res.getHeader("content-length");
+    const size = typeof length === "number" || typeof length === "string" ? ` ${length}b` : "";
+    const marker = elapsedMs >= 1_000 ? " SLOW" : "";
+    devLog.info(
+      `[api:timing]${marker} ${req.method} ${req.originalUrl} ${res.statusCode} ${elapsedMs.toFixed(0)}ms${size}`
+    );
+  });
+  next();
+}
+
 export function createApp() {
   const app = express();
   const isProd = process.env.NODE_ENV === "production";
@@ -84,6 +100,7 @@ export function createApp() {
 
   app.set("trust proxy", 1);
   app.use(helmet());
+  app.use(compression());
   app.get("/health", (_req, res) => {
     res.json({ ok: true, service: "shipamaze-api", uptimeSeconds: Math.floor(process.uptime()) });
   });
@@ -203,6 +220,7 @@ export function createApp() {
   api.post("/products", authMiddleware, resourceController.createProduct);
   api.put("/products/:id", authMiddleware, resourceController.updateProduct);
   api.delete("/products/:id", authMiddleware, resourceController.deleteProduct);
+  api.get("/products/:id/thumbnail", authMiddleware, productDetailController.getProductThumbnail);
   api.get("/products/:id/variants", authMiddleware, productDetailController.getProductVariants);
   api.get("/products/detail/:id", authMiddleware, productDetailController.getProductById);
 
@@ -618,9 +636,9 @@ export function createApp() {
   // Velocity Shipping courier integration
   api.use("/velocity", velocityRouter);
 
-  app.use("/api", api);
+  app.use("/api", apiTimingLogger, api);
   // Backward compatibility for older clients still using /api/v1/*.
-  app.use("/api/v1", api);
+  app.use("/api/v1", apiTimingLogger, api);
   app.use(notFoundHandler);
   app.use(errorMiddleware);
 

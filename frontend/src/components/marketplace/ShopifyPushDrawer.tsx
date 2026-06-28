@@ -8,6 +8,7 @@ import { Loader2, ExternalLink, Link2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
+import { ProductThumbnail } from "@/components/products/ProductThumbnail";
 import { useAuth } from "@/contexts/AuthContext";
 import * as shopifyService from "@/services/shopifyService";
 import type { ShopifyProductPushStatus } from "@/services/shopifyService";
@@ -176,10 +177,13 @@ export function ShopifyPushDrawer({ open, onOpenChange, product }: Props) {
           )}
 
           <div className="flex gap-3 p-3 rounded-xl bg-muted/40">
-            <img
-              src={product.images[0] || "/placeholder.svg"}
-              alt=""
+            <ProductThumbnail
+              productId={product.id}
+              images={product.images}
+              hasImage={product.has_image}
+              alt={product.name}
               className="h-16 w-16 rounded-lg object-cover"
+              fallbackClassName="h-16 w-16 rounded-lg"
             />
             <div className="min-w-0">
               <p className="font-medium truncate">{product.name}</p>

@@ -4,6 +4,7 @@ import type { CategoryRow } from "@/services/categoryService";
 
 let cached: CategoryRow[] | null = null;
 let cacheTs = 0;
+const pending = new Map<string, Promise<CategoryRow[]>>();
 const CACHE_MS = 60_000;
 
 export function useCategories(options?: { all?: boolean; enabledOnly?: boolean }) {
@@ -20,7 +21,16 @@ export function useCategories(options?: { all?: boolean; enabledOnly?: boolean }
         setCategories(cached);
         return cached;
       }
-      const rows = await categoryService.listCategories(options?.all === true);
+      const requestKey = options?.all === true ? "all" : "enabled";
+      if (!pending.has(requestKey)) {
+        pending.set(
+          requestKey,
+          categoryService.listCategories(options?.all === true).finally(() => {
+            pending.delete(requestKey);
+          })
+        );
+      }
+      const rows = await pending.get(requestKey)!;
       const list = Array.isArray(rows) ? rows : [];
       const filtered = options?.enabledOnly === false ? list : list.filter((c) => c.enabled !== false);
       if (!options?.all) {
@@ -54,4 +64,5 @@ export function hsnForCategoryName(categories: CategoryRow[], categoryName?: str
 export function invalidateCategoryCache() {
   cached = null;
   cacheTs = 0;
+  pending.clear();
 }

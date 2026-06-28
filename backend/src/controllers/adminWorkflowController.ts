@@ -19,6 +19,8 @@ import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotif
 import { randomBytes } from "crypto";
 import { getFinalProductPrice, resolveOurCommission, resolveShippingCharge } from "../utils/productPricing.js";
 import { assertProductPermission, PRODUCT_PERMISSIONS } from "../utils/productPermissions.js";
+import { devLog } from "../utils/devLog.js";
+import { buildProductListPipeline } from "../utils/productListPayload.js";
 
 function assertAdmin(req: AuthRequest): void {
   if (!req.user) throw new AppError(401, "Unauthorized");
@@ -351,13 +353,27 @@ export const adminListCatalogueProducts = asyncHandler(async (req: AuthRequest, 
   else if (sortParam === "profit_desc") { sort.sellingPrice = -1; }
   else sort.createdAt = -1;
 
-  const [rows, total] = await Promise.all([
-    Product.find(q).sort(sort).skip(skip).limit(limit).allowDiskUse(true).lean(),
-    Product.countDocuments(q),
-  ]);
+  const rowsStarted = process.hrtime.bigint();
+  const rowsPromise = Product.aggregate(
+    buildProductListPipeline(q, sort, { skip, limit })
+  )
+    .allowDiskUse(true)
+    .then((result) => {
+      const rowsMs = Number(process.hrtime.bigint() - rowsStarted) / 1_000_000;
+      devLog.info(`[admin:catalogue] rows=${result.length} query=${rowsMs.toFixed(0)}ms`);
+      return result;
+    });
+  const countStarted = process.hrtime.bigint();
+  const countPromise = (Object.keys(q).length === 0 ? Product.estimatedDocumentCount() : Product.countDocuments(q)).then((result) => {
+    const countMs = Number(process.hrtime.bigint() - countStarted) / 1_000_000;
+    devLog.info(`[admin:catalogue] total=${result} count=${countMs.toFixed(0)}ms`);
+    return result;
+  });
+
+  const [rows, total] = await Promise.all([rowsPromise, countPromise]);
 
   res.json({
-    items: rows.map(mapProductLean),
+    items: rows.map((p) => mapProductLean(p as Record<string, unknown>)),
     total,
     page,
     limit,
@@ -391,6 +407,7 @@ function mapProductLean(p: Record<string, unknown>) {
     uploadedBy: p.uploadedBy ? String(p.uploadedBy) : null,
     uploadedByRole: p.uploadedByRole,
     images: p.images,
+    hasImage: p.hasImage === true,
     isFeatured: p.isFeatured === true,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
@@ -480,9 +497,12 @@ export const adminListVendors = asyncHandler(async (req: AuthRequest, res: Respo
   else if (blocked === "false") userParts.push({ status: { $ne: "blocked" } });
   const userQuery = userParts.length > 1 ? { $and: userParts } : userParts[0];
 
+  const started = process.hrtime.bigint();
   const users = await User.find(userQuery).select("_id name email phone companyName status").lean();
   const userIds = users.map((u) => u._id);
-  let vendors = await Vendor.find({ userId: { $in: userIds } }).lean();
+  let vendors = await Vendor.find({ userId: { $in: userIds } })
+    .select("userId name city pin status assignedVendors ordersToday contactPerson phone email")
+    .lean();
 
   const userMap = new Map(users.map((u) => [String(u._id), u]));
 
@@ -515,18 +535,35 @@ export const adminListVendors = asyncHandler(async (req: AuthRequest, res: Respo
 
   const total = rows.length;
   const slice = rows.slice(skip, skip + limit);
+  const vendorIds = slice.map(({ v }) => v._id);
+  const sliceUserIds = slice.map(({ v }) => v.userId);
 
-  const out = await Promise.all(
-    slice.map(async ({ v, u }) => {
-      const wallet = await Wallet.findOne({ userId: v.userId }).lean();
-      const orderCount = await Order.countDocuments({ vendorId: v._id });
-      const shipmentCount = await Order.countDocuments({ vendorId: v._id, shipmentCreated: true });
-      const shop = await ShopifyStoreConnection.findOne({
-        ownerUserId: v.userId,
-        isActive: true,
-      })
-        .select("shopDomain lastSyncedAt syncCount")
-        .lean();
+  const [wallets, orderCounts, shops] = await Promise.all([
+    Wallet.find({ userId: { $in: sliceUserIds } }).select("userId balance").lean(),
+    Order.aggregate<{ _id: mongoose.Types.ObjectId; orderCount: number; shipmentCount: number }>([
+      { $match: { vendorId: { $in: vendorIds } } },
+      {
+        $group: {
+          _id: "$vendorId",
+          orderCount: { $sum: 1 },
+          shipmentCount: { $sum: { $cond: [{ $eq: ["$shipmentCreated", true] }, 1, 0] } },
+        },
+      },
+    ]),
+    ShopifyStoreConnection.find({ ownerUserId: { $in: sliceUserIds }, isActive: true })
+      .select("ownerUserId shopDomain lastSyncedAt syncCount")
+      .lean(),
+  ]);
+  const walletMap = new Map(wallets.map((wallet) => [String(wallet.userId), wallet]));
+  const orderCountMap = new Map(orderCounts.map((count) => [String(count._id), count]));
+  const shopMap = new Map(shops.map((shop) => [String(shop.ownerUserId), shop]));
+  const elapsedMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+  devLog.info(`[admin:vendors] users=${users.length} vendors=${vendors.length} pageRows=${slice.length} query=${elapsedMs.toFixed(0)}ms`);
+
+  const out = slice.map(({ v, u }) => {
+      const wallet = walletMap.get(String(v.userId));
+      const counts = orderCountMap.get(String(v._id));
+      const shop = shopMap.get(String(v.userId));
       return {
         id: String(v._id),
         userId: String(v.userId),
@@ -543,8 +580,8 @@ export const adminListVendors = asyncHandler(async (req: AuthRequest, res: Respo
         companyName: u?.companyName,
         accountStatus: u?.status,
         walletBalance: wallet?.balance ?? 0,
-        orderCount,
-        shipmentCount,
+        orderCount: counts?.orderCount ?? 0,
+        shipmentCount: counts?.shipmentCount ?? 0,
         shopify: shop
           ? {
               connected: true,
@@ -554,8 +591,7 @@ export const adminListVendors = asyncHandler(async (req: AuthRequest, res: Respo
             }
           : { connected: false },
       };
-    })
-  );
+    });
 
   res.json({ items: out, total, page, limit });
 });

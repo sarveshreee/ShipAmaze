@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Calculator, RotateCcw, Save } from "lucide-react";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
+import { ProductThumbnail } from "@/components/products/ProductThumbnail";
 import { useAuth } from "@/contexts/AuthContext";
 import { computeProfitCalculator } from "@/lib/profitCalculator";
 import {
@@ -148,7 +149,14 @@ export function ProfitCalculatorModal({ open, onOpenChange, product, onPushToSho
         </p>
 
         <div className="rounded-xl bg-muted/40 p-4 flex flex-wrap items-center gap-4">
-          <img src={product.images[0] || "/placeholder.svg"} alt="" className="h-16 w-16 rounded-lg object-cover" />
+          <ProductThumbnail
+            productId={product.id}
+            images={product.images}
+            hasImage={product.has_image}
+            alt={product.name}
+            className="h-16 w-16 rounded-lg object-cover"
+            fallbackClassName="h-16 w-16 rounded-lg"
+          />
           <div className="text-sm">
             <p className="text-muted-foreground text-xs">Sourcing cost (App price)</p>
             <p className="font-bold">{formatProductPriceInr(getFinalProductPrice(product))}</p>

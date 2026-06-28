@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Package, Eye, ShoppingBag, AlertCircle } from "lucide-react";
 import { useMarketplaceProducts } from "@/hooks/useMarketplace";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
+import { ProductThumbnail } from "@/components/products/ProductThumbnail";
 import { cn } from "@/lib/utils";
 
 export default function DropshipperCatalog() {
@@ -79,8 +80,15 @@ export default function DropshipperCatalog() {
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map((p) => (
             <div key={p.id} className="rounded-xl border border-border bg-card overflow-hidden shadow-card flex flex-col">
-              <div className="aspect-square bg-muted relative">
-                <img src={p.images[0] || "/placeholder.svg"} alt={p.name} className="h-full w-full object-cover" loading="lazy" />
+              <div className="aspect-square bg-muted relative overflow-hidden">
+                <ProductThumbnail
+                  productId={p.id}
+                  images={p.images}
+                  hasImage={p.has_image}
+                  alt={p.name}
+                  className="h-full w-full object-cover"
+                  fallbackClassName="h-full w-full"
+                />
                 <Badge className="absolute top-2 left-2 text-[10px]" variant="secondary">{p.sku || "—"}</Badge>
               </div>
               <div className="p-3 flex flex-col flex-1">

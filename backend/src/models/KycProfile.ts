@@ -86,6 +86,9 @@ const kycSchema = new Schema<IKycProfile>(
   { timestamps: true }
 );
 
+kycSchema.index({ status: 1, updatedAt: -1 });
+kycSchema.index({ updatedAt: -1 });
+
 export const KycProfile: Model<IKycProfile> =
   mongoose.models.KycProfile || mongoose.model<IKycProfile>("KycProfile", kycSchema);
 
