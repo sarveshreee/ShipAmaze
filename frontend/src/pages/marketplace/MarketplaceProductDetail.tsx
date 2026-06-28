@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useMarketplaceProduct } from "@/hooks/useMarketplace";
 import { ProfitCalculatorModal } from "@/components/marketplace/ProfitCalculatorModal";
 import { ShopifyPushDrawer } from "@/components/marketplace/ShopifyPushDrawer";
+import { ProductImageGallery, ProductThumbnail } from "@/components/products/ProductThumbnail";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
 
 export default function MarketplaceProductDetail() {
@@ -26,7 +27,7 @@ export default function MarketplaceProductDetail() {
     </div>
   );
 
-  const images = product.images.length ? product.images : ["/placeholder.svg"];
+  const images = product.images;
   const score = (4 + Math.random() * 0.9).toFixed(1);
 
   return (
@@ -36,19 +37,13 @@ export default function MarketplaceProductDetail() {
       </Link>
 
       <div className="grid md:grid-cols-[100px_1fr_1fr] gap-4 lg:gap-6 bg-card rounded-2xl border p-4 lg:p-6">
-        {/* Thumbnails */}
-        <div className="hidden md:flex flex-col gap-2 max-h-[500px] overflow-y-auto">
-          {images.map((src, i) => (
-            <button key={i} onClick={() => setActiveImg(i)} className={`h-20 w-20 rounded-lg overflow-hidden border-2 ${activeImg === i ? "border-primary" : "border-transparent"}`}>
-              <img src={src} alt={`thumb ${i}`} className="h-full w-full object-cover" />
-            </button>
-          ))}
-        </div>
-
-        {/* Main image */}
-        <div className="aspect-square rounded-xl overflow-hidden bg-muted">
-          <img src={images[activeImg]} alt={product.name} className="h-full w-full object-cover" />
-        </div>
+        <ProductImageGallery
+          productId={product.id}
+          images={images}
+          alt={product.name}
+          activeIndex={activeImg}
+          onSelect={setActiveImg}
+        />
 
         {/* Info */}
         <div className="space-y-4">
@@ -78,7 +73,15 @@ export default function MarketplaceProductDetail() {
             <p className="font-semibold text-sm mb-2">Variants</p>
             <div className="flex gap-2">
               <div className="h-20 w-20 rounded-lg overflow-hidden border-2 border-primary">
-                <img src={images[0]} alt="" className="h-full w-full object-cover" />
+                <ProductThumbnail
+                  productId={product.id}
+                  images={images.length ? [images[0]] : undefined}
+                  hasImage={product.has_image}
+                  alt={product.name}
+                  className="h-full w-full object-cover"
+                  fallbackClassName="h-full w-full"
+                  loading="lazy"
+                />
               </div>
             </div>
           </div>

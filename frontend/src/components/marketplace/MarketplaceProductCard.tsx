@@ -11,6 +11,7 @@ interface Props {
   onCalculator: (p: SupplierProduct) => void;
   onPush: (p: SupplierProduct) => void;
   priority?: boolean;
+  onOpen?: (p: SupplierProduct) => void;
 }
 
 function scoreForProduct(product: SupplierProduct) {
@@ -20,12 +21,16 @@ function scoreForProduct(product: SupplierProduct) {
   return (4 + hash / 10).toFixed(1);
 }
 
-export function MarketplaceProductCard({ product, onCalculator, onPush, priority = false }: Props) {
+export function MarketplaceProductCard({ product, onCalculator, onPush, priority = false, onOpen }: Props) {
   const { role } = useAuth();
   const score = scoreForProduct(product);
   return (
-    <div className="group flex flex-col w-[180px] sm:w-[200px] shrink-0">
-      <Link to={`/${role}/home/product/${product.id}`} className="relative block aspect-square rounded-2xl overflow-hidden bg-muted border hover:shadow-lg transition-shadow">
+    <div className="group flex flex-col w-[180px] sm:w-[200px] shrink-0" data-marketplace-product-id={product.id}>
+      <Link
+        to={`/${role}/home/product/${product.id}`}
+        onClick={() => onOpen?.(product)}
+        className="relative block aspect-square rounded-2xl overflow-hidden bg-muted border hover:shadow-lg transition-shadow"
+      >
         <ProductThumbnail
           productId={product.id}
           images={product.images}

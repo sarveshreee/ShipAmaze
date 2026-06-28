@@ -11,6 +11,7 @@
     "seed:single-user": "tsx src/scripts/seedSingleUser.ts",
     "seed:admin-vendor": "tsx src/scripts/seedAdminVendor.ts",
     "clear:test-orders": "tsx src/scripts/clearTestOrders.ts",
+    "migrate:product-images": "tsx src/scripts/migrateProductImages.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -26,6 +27,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.8.0",
     "nodemailer": "^6.9.16",
+    "sharp": "^0.35.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {

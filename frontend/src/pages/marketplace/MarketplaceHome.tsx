@@ -1,5 +1,5 @@
-import { useDeferredValue, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Search, ChevronLeft, ChevronRight, Truck, Wallet, Users } from "lucide-react";
 import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
 import { Input } from "@/components/ui/input";
@@ -10,20 +10,53 @@ import { MarketplaceProductCard } from "@/components/marketplace/MarketplaceProd
 import { ProfitCalculatorModal } from "@/components/marketplace/ProfitCalculatorModal";
 import { ShopifyPushDrawer } from "@/components/marketplace/ShopifyPushDrawer";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
+import { preloadProductImages } from "@/services/productService";
 
 const INITIAL_SECTION_COUNT = 6;
 const PRODUCTS_PER_SECTION = 12;
 const SEARCH_RESULT_LIMIT = 48;
+const FIRST_ROW_PRELOAD_COUNT = 6;
+const MARKETPLACE_SCROLL_KEY = "shipamaze:marketplace-scroll";
+
+type MarketplaceScrollState = {
+  pathname: string;
+  productId: string;
+  search: string;
+  visibleSectionCount: number;
+  mainScrollTop: number;
+  categoryScrollLeft: number;
+  featuredScrollLeft: number;
+  searchScrollLeft: number;
+  sectionScrollLeft: Record<string, number>;
+};
+
+function readMarketplaceScrollState(): MarketplaceScrollState | null {
+  try {
+    const raw = sessionStorage.getItem(MARKETPLACE_SCROLL_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<MarketplaceScrollState>;
+    return typeof parsed.productId === "string" && typeof parsed.pathname === "string"
+      ? (parsed as MarketplaceScrollState)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function MarketplaceHome() {
   const { role } = useAuth();
-  const navigate = useNavigate();
   const { products, grouped, categories, categoryRows, isLoading, categoriesLoading } = useMarketplaceProducts();
-  const [search, setSearch] = useState("");
-  const [visibleSectionCount, setVisibleSectionCount] = useState(INITIAL_SECTION_COUNT);
+  const savedScrollState = useRef<MarketplaceScrollState | null>(readMarketplaceScrollState());
+  const [search, setSearch] = useState(() => savedScrollState.current?.search ?? "");
+  const [visibleSectionCount, setVisibleSectionCount] = useState(() =>
+    Math.max(INITIAL_SECTION_COUNT, savedScrollState.current?.visibleSectionCount ?? INITIAL_SECTION_COUNT)
+  );
   const [calc, setCalc] = useState<SupplierProduct | null>(null);
   const [push, setPush] = useState<SupplierProduct | null>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const categoryRowRef = useRef<HTMLDivElement | null>(null);
+  const featuredRowRef = useRef<HTMLDivElement | null>(null);
+  const searchRowRef = useRef<HTMLDivElement | null>(null);
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   const sectionsOrder = useMemo(() => {
@@ -47,6 +80,63 @@ export default function MarketplaceHome() {
       .filter(p => p.name.toLowerCase().includes(deferredSearch) || p.sku.toLowerCase().includes(deferredSearch) || p.category.toLowerCase().includes(deferredSearch))
       .slice(0, SEARCH_RESULT_LIMIT);
   }, [deferredSearch, products]);
+
+  useEffect(() => {
+    if (isLoading || filtered) return;
+    const firstRow = products.slice(0, FIRST_ROW_PRELOAD_COUNT).map((p) => p.id).filter(Boolean);
+    if (firstRow.length > 0) preloadProductImages(firstRow);
+  }, [isLoading, filtered, products]);
+
+  useLayoutEffect(() => {
+    const saved = savedScrollState.current;
+    if (!saved || isLoading || products.length === 0) return;
+    if (saved.pathname !== window.location.pathname) return;
+    if (saved.search && !filtered) return;
+
+    const restore = () => {
+      const main = document.querySelector("main");
+      if (main) main.scrollTop = saved.mainScrollTop;
+      categoryRowRef.current?.scrollTo({ left: saved.categoryScrollLeft });
+      featuredRowRef.current?.scrollTo({ left: saved.featuredScrollLeft });
+      searchRowRef.current?.scrollTo({ left: saved.searchScrollLeft });
+      for (const [cat, left] of Object.entries(saved.sectionScrollLeft ?? {})) {
+        sectionRefs.current[cat]?.scrollTo({ left });
+      }
+      document
+        .querySelector(`[data-marketplace-product-id="${CSS.escape(saved.productId)}"]`)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      sessionStorage.removeItem(MARKETPLACE_SCROLL_KEY);
+      savedScrollState.current = null;
+    };
+
+    const frame = window.requestAnimationFrame(restore);
+    return () => window.cancelAnimationFrame(frame);
+  }, [isLoading, products.length, visibleSections.length, filtered]);
+
+  const saveMarketplacePosition = (product: SupplierProduct) => {
+    const main = document.querySelector("main");
+    const sectionScrollLeft = Object.fromEntries(
+      Object.entries(sectionRefs.current).map(([cat, el]) => [cat, el?.scrollLeft ?? 0])
+    );
+
+    const state: MarketplaceScrollState = {
+      pathname: `/${role}/home`,
+      productId: product.id,
+      search,
+      visibleSectionCount,
+      mainScrollTop: main?.scrollTop ?? 0,
+      categoryScrollLeft: categoryRowRef.current?.scrollLeft ?? 0,
+      featuredScrollLeft: featuredRowRef.current?.scrollLeft ?? 0,
+      searchScrollLeft: searchRowRef.current?.scrollLeft ?? 0,
+      sectionScrollLeft,
+    };
+
+    try {
+      sessionStorage.setItem(MARKETPLACE_SCROLL_KEY, JSON.stringify(state));
+    } catch {
+      /* ignore */
+    }
+  };
 
   const scrollSection = (id: string, dir: 1 | -1) => {
     const el = sectionRefs.current[id];
@@ -95,7 +185,7 @@ export default function MarketplaceHome() {
       </div>
 
       {/* Category circles */}
-      <div className="flex gap-4 overflow-x-auto scrollbar-thin pb-2">
+      <div ref={categoryRowRef} className="flex gap-4 overflow-x-auto scrollbar-thin pb-2">
         {categories.map(c => (
           <button key={c.slug} onClick={() => jumpToCategory(c.name)} className="group shrink-0 flex flex-col items-center w-20">
             <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 border-2 border-primary/30 flex items-center justify-center text-2xl group-hover:scale-105 transition">{c.emoji}</div>
@@ -111,8 +201,8 @@ export default function MarketplaceHome() {
           {filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No products match your search.</p>
           ) : (
-            <div className="flex gap-4 overflow-x-auto pb-3">
-              {filtered.map((p, index) => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} priority={index < 4} />)}
+            <div ref={searchRowRef} className="flex gap-4 overflow-x-auto pb-3">
+              {filtered.map((p, index) => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} onOpen={saveMarketplacePosition} priority={index < 4} />)}
             </div>
           )}
         </section>
@@ -125,8 +215,8 @@ export default function MarketplaceHome() {
             <h2 className="text-lg font-bold">🔥 Extreme Profitable Products</h2>
             <span className="text-xs text-primary font-medium">View all : {products.length}</span>
           </div>
-          <div className="flex gap-4 overflow-x-auto pb-3 scrollbar-thin">
-            {products.slice(0, 10).map((p, index) => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} priority={index < 4} />)}
+          <div ref={featuredRowRef} className="flex gap-4 overflow-x-auto pb-3 scrollbar-thin">
+            {products.slice(0, 10).map((p, index) => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} onOpen={saveMarketplacePosition} priority={index < 4} />)}
           </div>
         </section>
       )}
@@ -146,7 +236,7 @@ export default function MarketplaceHome() {
               </div>
             </div>
             <div ref={el => (sectionRefs.current[cat] = el)} className="flex gap-4 overflow-x-auto pb-3 scrollbar-thin scroll-smooth">
-              {items.slice(0, PRODUCTS_PER_SECTION).map(p => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} />)}
+              {items.slice(0, PRODUCTS_PER_SECTION).map(p => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} onOpen={saveMarketplacePosition} />)}
             </div>
           </section>
         );

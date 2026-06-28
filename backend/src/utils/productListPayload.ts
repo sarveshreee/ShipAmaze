@@ -86,13 +86,21 @@ export function buildProductListPipeline(
   return pipeline;
 }
 
+export function pickPrimaryImageIndex(row: Record<string, unknown>): number {
+  const images = row.images;
+  if (!Array.isArray(images) || images.length === 0) return 0;
+  const idx = Number(row.primaryImageIndex ?? row.primary_image_index ?? 0);
+  return Number.isFinite(idx) ? Math.max(0, Math.min(idx, images.length - 1)) : 0;
+}
+
 export function pickPrimaryImageUrl(row: Record<string, unknown>): string | null {
   const images = row.images;
   if (!Array.isArray(images) || images.length === 0) return null;
-  const idx = Number(row.primaryImageIndex ?? row.primary_image_index ?? 0);
-  const primary = images[Number.isFinite(idx) ? Math.max(0, Math.min(idx, images.length - 1)) : 0];
+  const primary = images[pickPrimaryImageIndex(row)];
   const url = String(primary ?? "").trim();
+  if (!url) return null;
+  if (url.includes("/media/products/") && url.endsWith(".webp")) return url;
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith("data:") || url.length > 200) return url;
-  return url || null;
+  return url;
 }

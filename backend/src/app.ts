@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
+import { getUploadsRoot } from "./services/productImageService.js";
 import { errorMiddleware } from "./middleware/errorMiddleware.js";
 import { notFoundHandler } from "./middleware/notFound.js";
 import {
@@ -23,6 +24,7 @@ import * as orderController from "./controllers/orderController.js";
 import * as resourceController from "./controllers/resourceController.js";
 import * as accountController from "./controllers/accountController.js";
 import * as productDetailController from "./controllers/productDetailController.js";
+import * as productImageController from "./controllers/productImageController.js";
 import * as shopifyController from "./controllers/shopifyController.js";
 import velocityRouter from "./modules/velocity/velocity.routes.js";
 import * as debugController from "./controllers/debugController.js";
@@ -149,6 +151,23 @@ export function createApp() {
   const jsonLimit = process.env.JSON_BODY_LIMIT?.trim() || (isProd ? "10mb" : "10mb");
   app.use(express.json({ limit: jsonLimit }));
 
+  /** Optimized product WebP assets — long-lived browser cache. */
+  app.use(
+    "/api/media/products",
+    express.static(getUploadsRoot(), {
+      maxAge: "365d",
+      immutable: true,
+      fallthrough: true,
+      setHeaders(res, filePath) {
+        if (filePath.endsWith(".webp")) {
+          res.setHeader("Content-Type", "image/webp");
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        }
+      },
+    })
+  );
+
   const api = express.Router();
 
   api.post("/auth/register", authRouteLimiter, authController.register);
@@ -221,6 +240,9 @@ export function createApp() {
   api.put("/products/:id", authMiddleware, resourceController.updateProduct);
   api.delete("/products/:id", authMiddleware, resourceController.deleteProduct);
   api.get("/products/:id/thumbnail", authMiddleware, productDetailController.getProductThumbnail);
+  api.get("/products/image/:productId/:index/:size", (req, res, next) => {
+    productImageController.serveProductImageAsset(req, res).catch(next);
+  });
   api.get("/products/:id/variants", authMiddleware, productDetailController.getProductVariants);
   api.get("/products/detail/:id", authMiddleware, productDetailController.getProductById);
 

@@ -896,6 +896,17 @@ export async function serveProductImage(req: Request, res: Response): Promise<vo
     res.status(404).send("Image not found");
     return;
   }
+  if (src.includes("/media/products/")) {
+    const { readOptimizedImageFile } = await import("../services/productImageService.js");
+    const buffer = await readOptimizedImageFile(productId, idx, 800);
+    if (buffer) {
+      res.setHeader("Content-Type", "image/webp");
+      res.setHeader("Content-Length", buffer.length);
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.send(buffer);
+      return;
+    }
+  }
   if (src.startsWith("data:")) {
     const match = src.match(/^data:([^;]+);base64,(.+)$/);
     if (!match) {

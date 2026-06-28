@@ -22,6 +22,11 @@ export interface IProduct extends Document {
   uploadedByRole?: string;
   variants?: unknown[];
   images?: string[];
+  imageMeta?: Array<{
+    width: number;
+    height: number;
+    blurPlaceholder?: string;
+  }>;
 }
 
 const productSchema = new Schema<IProduct>(
@@ -46,6 +51,13 @@ const productSchema = new Schema<IProduct>(
     uploadedByRole: String,
     variants: [Schema.Types.Mixed],
     images: [String],
+    imageMeta: [
+      {
+        width: Number,
+        height: Number,
+        blurPlaceholder: String,
+      },
+    ],
   },
   { strict: false, timestamps: true }
 );

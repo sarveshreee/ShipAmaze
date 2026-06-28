@@ -3,18 +3,22 @@ import * as productService from "@/services/productService";
 import { useCategories } from "@/hooks/useCategories";
 import { mapApiToSupplierProduct, type SupplierProduct } from "@/hooks/useSupplierProducts";
 
+let cachedMarketplaceProducts: SupplierProduct[] | null = null;
+
 export function useMarketplaceProducts() {
-  const [live, setLive] = useState<SupplierProduct[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [live, setLive] = useState<SupplierProduct[]>(() => cachedMarketplaceProducts ?? []);
+  const [isLoading, setIsLoading] = useState(() => !cachedMarketplaceProducts);
   const { categories: apiCategories, loading: categoriesLoading } = useCategories();
 
   const load = useCallback(async () => {
-    setIsLoading(true);
+    setIsLoading(!cachedMarketplaceProducts);
     try {
       const rows = (await productService.listMarketplaceProducts()) as unknown as Record<string, unknown>[];
-      setLive(rows.map(mapApiToSupplierProduct));
+      const mapped = rows.map(mapApiToSupplierProduct);
+      cachedMarketplaceProducts = mapped;
+      setLive(mapped);
     } catch {
-      setLive([]);
+      if (!cachedMarketplaceProducts) setLive([]);
     } finally {
       setIsLoading(false);
     }

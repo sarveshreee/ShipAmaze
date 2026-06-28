@@ -56,6 +56,7 @@ import {
   syncPickupToVelocity,
   syncVendorWarehouseToVelocity,
 } from "../modules/velocity/velocity.warehouseSync.js";
+import { deleteProductImageFiles, processProductImages } from "../services/productImageService.js";
 
 /**
  * Returns the _id of the first active admin user.
@@ -1656,6 +1657,12 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
   }
   await assertUniqueProductSku(String(body.sku ?? ""));
   const p = await Product.create(body);
+  if (Array.isArray(body.images) && body.images.length > 0) {
+    const processed = await processProductImages(String(p._id), body.images as string[]);
+    p.images = processed.images;
+    p.set("imageMeta", processed.imageMeta);
+    await p.save();
+  }
   res.status(201).json(p);
 });
 
@@ -1666,6 +1673,12 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   const body = { ...req.body } as Record<string, unknown>;
   normalizeProductCommission(body);
   normalizeProductVendorSku(body);
+  if (Object.prototype.hasOwnProperty.call(body, "images") && Array.isArray(body.images)) {
+    const existingMeta = Array.isArray(p.get("imageMeta")) ? (p.get("imageMeta") as import("../services/productImageService.js").ProductImageMeta[]) : undefined;
+    const processed = await processProductImages(req.params.id, body.images as string[], existingMeta);
+    body.images = processed.images;
+    body.imageMeta = processed.imageMeta;
+  }
   if (Object.prototype.hasOwnProperty.call(body, "sku")) {
     const sku = String(body.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");
@@ -1723,8 +1736,10 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (!req.user) throw new AppError(401, "Unauthorized");
   const p = await Product.findById(req.params.id);
   if (!p) throw new AppError(404, "Product not found");
+  const productId = String(p._id);
   if (req.user.role === "admin") {
     assertProductPermission(req.user, PRODUCT_PERMISSIONS.DELETE);
+    await deleteProductImageFiles(productId);
     await p.deleteOne();
     res.json({ ok: true });
     return;
@@ -1732,12 +1747,14 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (req.user.role === "vendor") {
     const v = await Vendor.findOne({ userId: req.user._id });
     if (!v || String(p.vendorId) !== String(v._id)) throw new AppError(403, "Forbidden");
+    await deleteProductImageFiles(productId);
     await p.deleteOne();
     res.json({ ok: true });
     return;
   }
   if (req.user.role === "dropshipper") {
     if (String(p.uploadedBy) !== String(req.user._id)) throw new AppError(403, "Forbidden");
+    await deleteProductImageFiles(productId);
     await p.deleteOne();
     res.json({ ok: true });
     return;
