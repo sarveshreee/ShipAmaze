@@ -1,10 +1,18 @@
 import fs from "fs/promises";
 import path from "path";
-import sharp from "sharp";
+import { AppError } from "../middleware/errorMiddleware.js";
+import {
+  deleteCloudinaryImages,
+  normalizeCloudinaryImage,
+  productImagePublicId,
+  productImageUrl,
+  uploadDataUrlImage,
+  uploadRemoteImage,
+  type CloudinaryProductImage,
+  type ProductImageValue,
+} from "./cloudinary.service.js";
 
 export const IMAGE_WIDTHS = [300, 600, 800] as const;
-export const WEBP_QUALITY = 78;
-export const THUMB_SIZE = 300;
 export const MAX_DIMENSION = 800;
 
 export type ImageWidth = (typeof IMAGE_WIDTHS)[number];
@@ -16,7 +24,7 @@ export interface ProductImageMeta {
 }
 
 export interface ProcessedProductImage {
-  url: string;
+  image: CloudinaryProductImage;
   meta: ProductImageMeta;
 }
 
@@ -60,124 +68,92 @@ export function buildSrcSet(productId: string, index: number): string {
 
 export const RESPONSIVE_SIZES = "(max-width: 480px) 300px, (max-width: 960px) 600px, 800px";
 
-function diskDir(productId: string, index: number): string {
-  return path.join(getUploadsRoot(), productId, String(index));
-}
-
-async function readInputBuffer(input: string): Promise<Buffer> {
-  const trimmed = input.trim();
-  if (trimmed.startsWith("data:")) {
-    const match = trimmed.match(/^data:[^;]+;base64,(.+)$/);
-    if (!match) throw new Error("Invalid data URL");
-    return Buffer.from(match[1], "base64");
-  }
-  if (/^https?:\/\//i.test(trimmed)) {
-    const res = await fetch(trimmed, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) throw new Error(`Failed to fetch remote image (${res.status})`);
-    return Buffer.from(await res.arrayBuffer());
-  }
-  if (isOptimizedMediaPath(trimmed)) {
-    const relative = trimmed.replace(MEDIA_PREFIX, "");
-    const filePath = path.join(getUploadsRoot(), relative);
-    return fs.readFile(filePath);
-  }
-  throw new Error("Unsupported image input");
-}
-
-export async function optimizeAndStore(
-  productId: string,
-  index: number,
-  input: string
-): Promise<ProcessedProductImage> {
-  const buffer = await readInputBuffer(input);
-  const dir = diskDir(productId, index);
-  await fs.mkdir(dir, { recursive: true });
-
-  const base = sharp(buffer, { failOn: "none" }).rotate();
-  const metadata = await base.metadata();
-  const origWidth = metadata.width ?? MAX_DIMENSION;
-  const origHeight = metadata.height ?? MAX_DIMENSION;
-  const { width, height } = displayDimensions(origWidth, origHeight);
-
-  const blurBuffer = await sharp(buffer, { failOn: "none" })
-    .rotate()
-    .resize(20, null, { withoutEnlargement: true, fit: "inside" })
-    .webp({ quality: 20, effort: 2 })
-    .toBuffer();
-  const blurPlaceholder = `data:image/webp;base64,${blurBuffer.toString("base64")}`;
-
-  await Promise.all([
-    ...IMAGE_WIDTHS.map((size) =>
-      sharp(buffer, { failOn: "none" })
-        .rotate()
-        .resize(size, size, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality: WEBP_QUALITY, effort: 4 })
-        .toFile(path.join(dir, `${size}.webp`))
-    ),
-    sharp(buffer, { failOn: "none" })
-      .rotate()
-      .resize(THUMB_SIZE, THUMB_SIZE, { fit: "cover", position: "centre" })
-      .webp({ quality: WEBP_QUALITY, effort: 4 })
-      .toFile(path.join(dir, "thumb.webp")),
-  ]);
-
-  return {
-    url: mediaPath(productId, index, 800),
-    meta: { width, height, blurPlaceholder },
-  };
-}
-
 export async function processProductImages(
-  productId: string,
-  images: string[] | undefined,
+  images: ProductImageValue[] | undefined,
+  existingImages: ProductImageValue[] = [],
   existingMeta?: ProductImageMeta[]
-): Promise<{ images: string[]; imageMeta: ProductImageMeta[] }> {
+): Promise<{ images: ProductImageValue[]; imageMeta: ProductImageMeta[]; uploaded: CloudinaryProductImage[] }> {
   if (!Array.isArray(images) || images.length === 0) {
-    return { images: [], imageMeta: [] };
+    return { images: [], imageMeta: [], uploaded: [] };
   }
 
-  const nextImages: string[] = [];
+  const existingUrls = new Set(
+    existingImages.map((image) => productImageUrl(image)).filter((value): value is string => Boolean(value))
+  );
+  const nextImages: ProductImageValue[] = [];
   const nextMeta: ProductImageMeta[] = [];
+  const uploaded: CloudinaryProductImage[] = [];
 
-  for (let i = 0; i < images.length; i += 1) {
-    const raw = String(images[i] ?? "").trim();
-    if (!raw) continue;
+  try {
+    for (let i = 0; i < images.length; i += 1) {
+      const input = images[i];
+      const existingCloudinary = normalizeCloudinaryImage(input);
+      if (existingCloudinary) {
+        nextImages.push(existingCloudinary);
+        nextMeta.push(existingMeta?.[i] ?? { width: MAX_DIMENSION, height: MAX_DIMENSION, blurPlaceholder: "" });
+        continue;
+      }
 
-    if (isOptimizedMediaPath(raw)) {
-      nextImages.push(raw);
-      nextMeta.push(existingMeta?.[i] ?? { width: MAX_DIMENSION, height: MAX_DIMENSION, blurPlaceholder: "" });
-      continue;
+      const raw = productImageUrl(input);
+      if (!raw) continue;
+
+      if (existingUrls.has(raw)) {
+        nextImages.push(raw);
+        nextMeta.push(existingMeta?.[i] ?? { width: MAX_DIMENSION, height: MAX_DIMENSION, blurPlaceholder: "" });
+        continue;
+      }
+
+      if (raw.startsWith("data:")) {
+        const image = await uploadDataUrlImage(raw);
+        uploaded.push(image);
+        nextImages.push(image);
+        nextMeta.push({ width: MAX_DIMENSION, height: MAX_DIMENSION, blurPlaceholder: "" });
+      } else if (/^https?:\/\//i.test(raw)) {
+        const image = await uploadRemoteImage(raw);
+        uploaded.push(image);
+        nextImages.push(image);
+        nextMeta.push({ width: MAX_DIMENSION, height: MAX_DIMENSION, blurPlaceholder: "" });
+      } else {
+        throw new AppError(400, "Unsupported image input");
+      }
     }
-
-    if (!isLegacyImageInput(raw)) {
-      nextImages.push(raw);
-      nextMeta.push(existingMeta?.[i] ?? { width: MAX_DIMENSION, height: MAX_DIMENSION, blurPlaceholder: "" });
-      continue;
-    }
-
-    try {
-      const processed = await optimizeAndStore(productId, i, raw);
-      nextImages.push(processed.url);
-      nextMeta.push(processed.meta);
-    } catch (error) {
-      console.warn(
-        `[productImage] optimize failed product=${productId} index=${i}:`,
-        error instanceof Error ? error.message : String(error)
-      );
-      nextImages.push(raw);
-      nextMeta.push(existingMeta?.[i] ?? { width: 1, height: 1, blurPlaceholder: "" });
-    }
+  } catch (error) {
+    await deleteCloudinaryImages(uploaded);
+    throw error;
   }
 
-  return { images: nextImages, imageMeta: nextMeta };
+  return { images: nextImages, imageMeta: nextMeta, uploaded };
+}
+
+export async function deleteRemovedProductImages(
+  previousImages: ProductImageValue[] | undefined,
+  nextImages: ProductImageValue[] | undefined
+): Promise<void> {
+  const keep = new Set(
+    (nextImages ?? [])
+      .map((image) => productImagePublicId(image))
+      .filter((publicId): publicId is string => Boolean(publicId))
+  );
+  const removed = (previousImages ?? []).filter((image) => {
+    const publicId = productImagePublicId(image);
+    return publicId && !keep.has(publicId);
+  });
+  await deleteCloudinaryImages(removed);
+}
+
+export async function deleteProductImages(productId: string, images?: ProductImageValue[]): Promise<void> {
+  await Promise.all([
+    deleteCloudinaryImages(images ?? []),
+    fs.rm(path.join(getUploadsRoot(), productId), { recursive: true, force: true }).catch(() => undefined),
+  ]);
 }
 
 export async function ensureProductImagesOptimized(
-  productId: string,
-  images: string[] | undefined,
+  _productId: string,
+  images: ProductImageValue[] | undefined,
   imageMeta: ProductImageMeta[] | undefined
-): Promise<{ images: string[]; imageMeta: ProductImageMeta[]; changed: boolean }> {
-  const legacy = Array.isArray(images) && images.some((img) => isLegacyImageInput(String(img ?? "")));
+): Promise<{ images: ProductImageValue[]; imageMeta: ProductImageMeta[]; changed: boolean }> {
+  const legacy = Array.isArray(images) && images.some((img) => isLegacyImageInput(productImageUrl(img) ?? ""));
   if (!legacy) {
     return {
       images: images ?? [],
@@ -185,13 +161,12 @@ export async function ensureProductImagesOptimized(
       changed: false,
     };
   }
-  const processed = await processProductImages(productId, images, imageMeta);
-  return { ...processed, changed: true };
+  const processed = await processProductImages(images, images, imageMeta);
+  return { images: processed.images, imageMeta: processed.imageMeta, changed: true };
 }
 
 export async function deleteProductImageFiles(productId: string): Promise<void> {
-  const dir = path.join(getUploadsRoot(), productId);
-  await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  await fs.rm(path.join(getUploadsRoot(), productId), { recursive: true, force: true }).catch(() => undefined);
 }
 
 export async function readOptimizedImageFile(

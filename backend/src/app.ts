@@ -44,6 +44,7 @@ import {
 } from "./middleware/dropshipperAccessMiddleware.js";
 import * as kycController from "./controllers/kycController.js";
 import * as categoryController from "./controllers/categoryController.js";
+import * as cloudinaryMigrationController from "./controllers/cloudinaryMigrationController.js";
 import { devLog } from "./utils/devLog.js";
 
 function normalizeCorsOrigin(value: string): string | null {
@@ -95,6 +96,22 @@ function apiTimingLogger(req: express.Request, res: express.Response, next: expr
   next();
 }
 
+function migrationRequestLogger(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const start = process.hrtime.bigint();
+  const origin = req.get("origin") ?? "none";
+  const enabled = process.env.CLOUDINARY_MIGRATION_ENABLED?.trim().toLowerCase() === "true";
+  devLog.info(
+    `[cloudinary-migration:req] start ${req.method} ${req.originalUrl} origin=${origin} enabled=${enabled}`
+  );
+  res.on("finish", () => {
+    const elapsedMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+    devLog.info(
+      `[cloudinary-migration:req] finish ${req.method} ${req.originalUrl} status=${res.statusCode} ${elapsedMs.toFixed(0)}ms`
+    );
+  });
+  next();
+}
+
 export function createApp() {
   const app = express();
   const isProd = process.env.NODE_ENV === "production";
@@ -123,6 +140,7 @@ export function createApp() {
           if (corsAllowed.includes(origin)) {
             return callback(null, true);
           }
+          console.warn(`[cors] blocked origin=${origin} allowed=${corsAllowed.join(",") || "none"}`);
           return callback(null, false);
         }
         if (!origin) {
@@ -290,6 +308,32 @@ export function createApp() {
     authMiddleware,
     requireRoles("admin"),
     adminWorkflowController.adminBulkCatalogueProducts
+  );
+  api.use("/admin/cloudinary-migration", migrationRequestLogger);
+  api.get(
+    "/admin/cloudinary-migration/test",
+    cloudinaryMigrationController.test
+  );
+  api.get(
+    "/admin/cloudinary-migration/status",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    cloudinaryMigrationController.status
+  );
+  api.post(
+    "/admin/cloudinary-migration/batch",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    cloudinaryMigrationController.runBatch
+  );
+  api.get(
+    "/admin/cloudinary-migration/verify",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    cloudinaryMigrationController.verify
   );
 
   api.get("/shipping-rate-card", authMiddleware, approvalController.getShippingRateCard);

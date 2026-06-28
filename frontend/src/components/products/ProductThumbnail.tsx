@@ -7,6 +7,11 @@ import {
   resolveMediaUrl,
   resolveSrcSet,
   buildInlineSrcSet,
+  buildCloudinarySrcSet,
+  productImageDisplayUrl,
+  productImageUrl,
+  transformCloudinaryUrl,
+  type ProductImageValue,
 } from "@/lib/mediaUrl";
 import { useInViewport } from "@/hooks/useInViewport";
 import * as productService from "@/services/productService";
@@ -14,7 +19,7 @@ import type { ProductImageMeta } from "@/services/productService";
 
 type Props = {
   productId: string;
-  images?: string[];
+  images?: ProductImageValue[];
   hasImage?: boolean;
   alt: string;
   className?: string;
@@ -23,12 +28,18 @@ type Props = {
   fallbackClassName?: string;
   imageIndex?: number;
   sizes?: string;
+  variant?: "card" | "detail" | "thumbnail";
 };
 
-function directImageUrl(images?: string[]): string | null {
+function imageTransformForVariant(variant: Props["variant"]) {
+  if (variant === "detail") return { width: 900 };
+  if (variant === "thumbnail") return { width: 250 };
+  return { width: 500, crop: "fill" as const };
+}
+
+function directImageUrl(images?: ProductImageValue[], variant: Props["variant"] = "card"): string | null {
   const raw = images?.[0];
-  if (!raw || typeof raw !== "string") return null;
-  const url = raw.trim();
+  const url = productImageDisplayUrl(raw, imageTransformForVariant(variant));
   if (!url) return null;
   // Stored optimized paths (/media/products/...) must go through the public
   // image route so Helmet/CORP does not block them cross-origin in dev.
@@ -38,20 +49,20 @@ function directImageUrl(images?: string[]): string | null {
   return url.length <= 512 ? url : null;
 }
 
-function inlineMetaFromUrl(url: string): ProductImageMeta {
-  const srcset = buildInlineSrcSet(url);
+function inlineMetaFromUrl(url: string, variant: Props["variant"] = "card"): ProductImageMeta {
+  const srcset = buildInlineSrcSet(url) ?? buildCloudinarySrcSet(url);
   const thumb = url.includes("/products/image/")
     ? url.replace(/800\.webp(\?.*)?$/, "thumb.webp?v=2")
     : url.includes("/media/products/")
       ? url.replace(/800\.webp(\?.*)?$/, "thumb.webp?v=2")
-      : url;
+      : transformCloudinaryUrl(productImageUrl(url), { width: 250 }) ?? url;
   return {
     url,
     thumb,
     srcset,
     sizes: RESPONSIVE_IMAGE_SIZES,
-    width: 800,
-    height: 800,
+    width: variant === "thumbnail" ? 250 : variant === "detail" ? 900 : 500,
+    height: variant === "card" || variant === "thumbnail" ? (variant === "thumbnail" ? 250 : 500) : 900,
     blurPlaceholder: null,
   };
 }
@@ -71,14 +82,15 @@ export function ProductThumbnail({
   fallbackClassName,
   imageIndex = 0,
   sizes = RESPONSIVE_IMAGE_SIZES,
+  variant = "card",
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const observeViewport = loading === "lazy" && fetchPriority !== "high";
   const inView = useInViewport(containerRef, { enabled: observeViewport });
   const shouldLoad = !observeViewport || inView;
 
-  const inline = directImageUrl(images);
-  const initialMeta = inline ? inlineMetaFromUrl(inline) : hasImage ? publicImageMeta(productId, imageIndex) : null;
+  const inline = directImageUrl(images, variant);
+  const initialMeta = inline ? inlineMetaFromUrl(inline, variant) : hasImage ? publicImageMeta(productId, imageIndex) : null;
   const [meta, setMeta] = useState<ProductImageMeta | null>(initialMeta);
   const [loaded, setLoaded] = useState(Boolean(initialMeta));
   const [failed, setFailed] = useState(false);
@@ -88,7 +100,7 @@ export function ProductThumbnail({
     setLoaded(Boolean(inline || hasImage));
     setFailed(false);
     if (inline) {
-      setMeta(inlineMetaFromUrl(inline));
+      setMeta(inlineMetaFromUrl(inline, variant));
       setFetchingMeta(false);
       return;
     }
@@ -116,10 +128,12 @@ export function ProductThumbnail({
     return () => {
       cancelled = true;
     };
-  }, [productId, inline, hasImage, images, shouldLoad, imageIndex]);
+  }, [productId, inline, hasImage, images, shouldLoad, imageIndex, variant]);
 
   const resolvedSrc = resolveMediaUrl(meta?.url);
-  const resolvedSrcSet = resolveSrcSet(meta?.srcset ?? undefined);
+  const resolvedSrcSet =
+    resolveSrcSet(meta?.srcset ?? undefined) ??
+    buildCloudinarySrcSet(resolvedSrc ?? meta?.url ?? undefined);
   const width = meta?.width && meta.width > 0 ? meta.width : 800;
   const height = meta?.height && meta.height > 0 ? meta.height : 800;
   const noImage = !hasImage && (!images || images.length === 0) && !inline;
@@ -203,7 +217,7 @@ export function ProductImageGallery({
   onSelect,
 }: {
   productId: string;
-  images: string[];
+  images: ProductImageValue[];
   alt: string;
   activeIndex: number;
   onSelect: (index: number) => void;
@@ -237,6 +251,7 @@ export function ProductImageGallery({
               fallbackClassName="h-full w-full"
               loading="lazy"
               imageIndex={i}
+              variant="thumbnail"
             />
           </button>
         ))}
@@ -253,6 +268,7 @@ export function ProductImageGallery({
           loading={activeIndex === 0 ? "eager" : "lazy"}
           fetchPriority={activeIndex === 0 ? "high" : "auto"}
           imageIndex={activeIndex}
+          variant="detail"
         />
       </div>
     </>

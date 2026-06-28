@@ -12,12 +12,14 @@
     "seed:admin-vendor": "tsx src/scripts/seedAdminVendor.ts",
     "clear:test-orders": "tsx src/scripts/clearTestOrders.ts",
     "migrate:product-images": "tsx src/scripts/migrateProductImages.ts",
+    "migrate:cloudinary": "tsx scripts/migrateExistingImagesToCloudinary.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.10.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -26,8 +28,9 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.8.0",
+    "multer": "^2.2.0",
     "nodemailer": "^6.9.16",
-    "sharp": "^0.35.2",
+    "streamifier": "^0.1.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -36,8 +39,10 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.7",
+    "@types/multer": "^2.1.0",
     "@types/node": "^22.9.0",
     "@types/nodemailer": "^6.4.17",
+    "@types/streamifier": "^0.1.2",
     "@types/supertest": "^6.0.2",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",

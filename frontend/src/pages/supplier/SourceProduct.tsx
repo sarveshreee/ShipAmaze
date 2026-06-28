@@ -18,6 +18,7 @@ import * as vendorService from "@/services/vendorService";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProductPermissions } from "@/hooks/useProductPermissions";
 import { useCategories, hsnForCategoryName } from "@/hooks/useCategories";
+import { productImageDisplayUrl, type ProductImageValue } from "@/lib/mediaUrl";
 
 type StepKey = "details" | "variants" | "shipping" | "other";
 const STEPS: { key: StepKey; label: string }[] = [
@@ -38,7 +39,7 @@ const emptyForm = {
   short_description: "", long_description: "",
   status: "draft", tags: "", unit: "pcs", min_order_qty: 1,
   price: 0, selling_price: 0, our_commission: 40, stock: 0, hsn: "",
-  images: [] as string[], primary_image_index: 0,
+  images: [] as ProductImageValue[], primary_image_index: 0,
   weight: "", length_cm: "", width_cm: "", height_cm: "",
   shipping_class: "standard", shipping_charge: 0, pickup_location_id: "",
   cod_available: true, returnable: true, fragile: false,
@@ -161,7 +162,7 @@ export default function SourceProduct() {
       vendor_sku: p.vendor_sku ?? p.vendorSku ?? "",
       selling_price: typeof sp === "number" ? sp : Number(sp) || 0,
       tags: Array.isArray(p.tags) ? p.tags.join(", ") : p.tags || "",
-      images: Array.isArray(p.images) ? p.images : [],
+      images: Array.isArray(p.images) ? (p.images as ProductImageValue[]) : [],
       length_cm: p.length_cm ?? p.lengthCm ?? "",
       width_cm: p.width_cm ?? p.widthCm ?? "",
       height_cm: p.height_cm ?? p.heightCm ?? "",
@@ -533,7 +534,7 @@ export default function SourceProduct() {
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
                 {form.images.map((img, i) => (
                   <div key={i} className={cn("group relative rounded-lg overflow-hidden border-2", form.primary_image_index === i ? "border-warning" : "border-border")}>
-                    <img src={img} alt="" className="aspect-square w-full object-cover" />
+                    <img src={productImageDisplayUrl(img, { width: 250 }) ?? ""} alt="" className="aspect-square w-full object-cover" />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
                       <button onClick={() => setPrimary(i)} title="Set primary" className="p-1.5 rounded bg-white/90 hover:bg-white"><Star className={cn("h-3 w-3", form.primary_image_index === i ? "fill-warning text-warning" : "text-text-secondary")} /></button>
                       <button onClick={() => moveImage(i, -1)} title="Move left" className="p-1.5 rounded bg-white/90 hover:bg-white"><ChevronLeft className="h-3 w-3" /></button>

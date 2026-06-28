@@ -20,6 +20,7 @@ import * as productService from "@/services/productService";
 import { ProductThumbnail } from "@/components/products/ProductThumbnail";
 import { downloadCSV } from "@/lib/exportUtils";
 import { getFinalVariantPrice, formatProductPriceInr } from "@/lib/pricing";
+import { productImageDisplayUrl, productImageUrl, type ProductImageValue } from "@/lib/mediaUrl";
 
 const fmtDate = (s?: string | null) => {
   if (!s) return "—";
@@ -191,7 +192,7 @@ export default function VendorProducts() {
     }
     try {
       const full = (await productService.getProductById(p.id)) as Record<string, unknown>;
-      const images = Array.isArray(full.images) ? (full.images as string[]) : [];
+      const images = Array.isArray(full.images) ? (full.images as ProductImageValue[]) : [];
       if (!images.length) {
         toast.error("No images for this product");
         return;
@@ -548,7 +549,7 @@ export default function VendorProducts() {
             <div className="relative">
               <div className="bg-surface-2 rounded-lg flex items-center justify-center aspect-video overflow-hidden">
                 <img
-                  src={imageModal.product.images[imageModal.index]}
+                  src={productImageDisplayUrl(imageModal.product.images[imageModal.index], { width: 900 }) ?? ""}
                   alt={imageModal.product.name}
                   className="max-h-full max-w-full object-contain"
                 />
@@ -675,7 +676,7 @@ function ImageSequenceModal({
   product: SupplierProduct | null;
   onClose: () => void;
 }) {
-  const [order, setOrder] = useState<string[]>([]);
+  const [order, setOrder] = useState<ProductImageValue[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -716,10 +717,10 @@ function ImageSequenceModal({
         ) : (
           <div className="space-y-2 max-h-[400px] overflow-auto">
             {order.map((url, i) => (
-              <div key={url + i} className="flex items-center gap-3 rounded-md border border-border p-2 bg-surface-1">
+              <div key={`${productImageUrl(url) ?? "image"}-${i}`} className="flex items-center gap-3 rounded-md border border-border p-2 bg-surface-1">
                 <span className="text-xs font-mono w-6 text-text-muted">#{i + 1}</span>
-                <img src={url} alt="" className="h-12 w-12 rounded object-cover bg-surface-2" />
-                <span className="text-xs text-text-secondary truncate flex-1">{url.split("/").pop()}</span>
+                <img src={productImageDisplayUrl(url, { width: 250 }) ?? ""} alt="" className="h-12 w-12 rounded object-cover bg-surface-2" />
+                <span className="text-xs text-text-secondary truncate flex-1">{productImageUrl(url)?.split("/").pop()}</span>
                 <Button size="sm" variant="outline" onClick={() => move(i, -1)} disabled={i === 0}>↑</Button>
                 <Button size="sm" variant="outline" onClick={() => move(i, 1)} disabled={i === order.length - 1}>↓</Button>
               </div>

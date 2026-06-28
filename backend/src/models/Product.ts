@@ -21,7 +21,7 @@ export interface IProduct extends Document {
   uploadedBy?: Types.ObjectId;
   uploadedByRole?: string;
   variants?: unknown[];
-  images?: string[];
+  images?: Array<string | { publicId: string; secureUrl: string }>;
   imageMeta?: Array<{
     width: number;
     height: number;
@@ -50,7 +50,7 @@ const productSchema = new Schema<IProduct>(
     uploadedBy: { type: Schema.Types.ObjectId, ref: "User" },
     uploadedByRole: String,
     variants: [Schema.Types.Mixed],
-    images: [String],
+    images: [Schema.Types.Mixed],
     imageMeta: [
       {
         width: Number,

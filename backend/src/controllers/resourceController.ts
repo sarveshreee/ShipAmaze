@@ -56,7 +56,12 @@ import {
   syncPickupToVelocity,
   syncVendorWarehouseToVelocity,
 } from "../modules/velocity/velocity.warehouseSync.js";
-import { deleteProductImageFiles, processProductImages } from "../services/productImageService.js";
+import {
+  deleteProductImages,
+  deleteRemovedProductImages,
+  processProductImages,
+} from "../services/productImageService.js";
+import { deleteCloudinaryImages, type ProductImageValue } from "../services/cloudinary.service.js";
 
 /**
  * Returns the _id of the first active admin user.
@@ -1656,14 +1661,21 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
     body.sku = nextProductSkuFromRows(rows);
   }
   await assertUniqueProductSku(String(body.sku ?? ""));
-  const p = await Product.create(body);
-  if (Array.isArray(body.images) && body.images.length > 0) {
-    const processed = await processProductImages(String(p._id), body.images as string[]);
-    p.images = processed.images;
-    p.set("imageMeta", processed.imageMeta);
-    await p.save();
+  const rawImages = Array.isArray(body.images) ? (body.images as ProductImageValue[]) : undefined;
+  delete body.images;
+  delete body.imageMeta;
+  const processed = await processProductImages(rawImages);
+  if (processed.images.length > 0) {
+    body.images = processed.images;
+    body.imageMeta = processed.imageMeta;
   }
-  res.status(201).json(p);
+  try {
+    const p = await Product.create(body);
+    res.status(201).json(p);
+  } catch (error) {
+    await deleteCloudinaryImages(processed.uploaded);
+    throw error;
+  }
 });
 
 export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -1673,12 +1685,6 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   const body = { ...req.body } as Record<string, unknown>;
   normalizeProductCommission(body);
   normalizeProductVendorSku(body);
-  if (Object.prototype.hasOwnProperty.call(body, "images") && Array.isArray(body.images)) {
-    const existingMeta = Array.isArray(p.get("imageMeta")) ? (p.get("imageMeta") as import("../services/productImageService.js").ProductImageMeta[]) : undefined;
-    const processed = await processProductImages(req.params.id, body.images as string[], existingMeta);
-    body.images = processed.images;
-    body.imageMeta = processed.imageMeta;
-  }
   if (Object.prototype.hasOwnProperty.call(body, "sku")) {
     const sku = String(body.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");
@@ -1687,8 +1693,28 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   }
   if (req.user.role === "admin") {
     assertProductPermission(req.user, PRODUCT_PERMISSIONS.EDIT);
-    Object.assign(p, body);
-    await p.save();
+    const previousImages = Array.isArray(p.images) ? [...(p.images as ProductImageValue[])] : [];
+    const processed = Object.prototype.hasOwnProperty.call(body, "images") && Array.isArray(body.images)
+      ? await processProductImages(
+          body.images as ProductImageValue[],
+          previousImages,
+          Array.isArray(p.get("imageMeta"))
+            ? (p.get("imageMeta") as import("../services/productImageService.js").ProductImageMeta[])
+            : undefined
+        )
+      : null;
+    if (processed) {
+      body.images = processed.images;
+      body.imageMeta = processed.imageMeta;
+    }
+    try {
+      Object.assign(p, body);
+      await p.save();
+    } catch (error) {
+      if (processed) await deleteCloudinaryImages(processed.uploaded);
+      throw error;
+    }
+    if (processed) await deleteRemovedProductImages(previousImages, processed.images);
     res.json(p);
     return;
   }
@@ -1708,15 +1734,42 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     stripPriceFieldsFromBody,
   } = await import("../controllers/approvalController.js");
 
+  const previousImages = Array.isArray(p.images) ? [...(p.images as ProductImageValue[])] : [];
+  const processed = Object.prototype.hasOwnProperty.call(body, "images") && Array.isArray(body.images)
+    ? await processProductImages(
+        body.images as ProductImageValue[],
+        previousImages,
+        Array.isArray(p.get("imageMeta"))
+          ? (p.get("imageMeta") as import("../services/productImageService.js").ProductImageMeta[])
+          : undefined
+      )
+    : null;
+  if (processed) {
+    body.images = processed.images;
+    body.imageMeta = processed.imageMeta;
+  }
+
   const { pending, hasChange } = extractPendingPriceFields(body, p);
   if (hasChange) {
     const reason = typeof body.priceChangeReason === "string" ? body.priceChangeReason : undefined;
     stripPriceFieldsFromBody(body);
     delete body.priceChangeReason;
-    const approval = await createProductPriceChangeRequest(req, p, pending, reason);
+    let approval: Awaited<ReturnType<typeof createProductPriceChangeRequest>>;
+    try {
+      approval = await createProductPriceChangeRequest(req, p, pending, reason);
+    } catch (error) {
+      if (processed) await deleteCloudinaryImages(processed.uploaded);
+      throw error;
+    }
     if (Object.keys(body).length > 0) {
-      Object.assign(p, body);
-      await p.save();
+      try {
+        Object.assign(p, body);
+        await p.save();
+      } catch (error) {
+        if (processed) await deleteCloudinaryImages(processed.uploaded);
+        throw error;
+      }
+      if (processed) await deleteRemovedProductImages(previousImages, processed.images);
     }
     res.json({
       ...p.toObject(),
@@ -1727,8 +1780,14 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
     return;
   }
 
-  Object.assign(p, body);
-  await p.save();
+  try {
+    Object.assign(p, body);
+    await p.save();
+  } catch (error) {
+    if (processed) await deleteCloudinaryImages(processed.uploaded);
+    throw error;
+  }
+  if (processed) await deleteRemovedProductImages(previousImages, processed.images);
   res.json(p);
 });
 
@@ -1739,7 +1798,7 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
   const productId = String(p._id);
   if (req.user.role === "admin") {
     assertProductPermission(req.user, PRODUCT_PERMISSIONS.DELETE);
-    await deleteProductImageFiles(productId);
+    await deleteProductImages(productId, Array.isArray(p.images) ? (p.images as ProductImageValue[]) : []);
     await p.deleteOne();
     res.json({ ok: true });
     return;
@@ -1747,14 +1806,14 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (req.user.role === "vendor") {
     const v = await Vendor.findOne({ userId: req.user._id });
     if (!v || String(p.vendorId) !== String(v._id)) throw new AppError(403, "Forbidden");
-    await deleteProductImageFiles(productId);
+    await deleteProductImages(productId, Array.isArray(p.images) ? (p.images as ProductImageValue[]) : []);
     await p.deleteOne();
     res.json({ ok: true });
     return;
   }
   if (req.user.role === "dropshipper") {
     if (String(p.uploadedBy) !== String(req.user._id)) throw new AppError(403, "Forbidden");
-    await deleteProductImageFiles(productId);
+    await deleteProductImages(productId, Array.isArray(p.images) ? (p.images as ProductImageValue[]) : []);
     await p.deleteOne();
     res.json({ ok: true });
     return;

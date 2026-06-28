@@ -26,6 +26,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Layers, Loader2, Plus, RefreshCw, Star } from "lucide-react";
 import { ApiError } from "@/lib/apiClient";
 import { getFinalProductPrice, resolveOurCommission } from "@/lib/pricing";
+import { productImageDisplayUrl } from "@/lib/mediaUrl";
 
 export default function AdminCatalogue() {
   const { can } = useProductPermissions();
@@ -541,7 +542,7 @@ export default function AdminCatalogue() {
                   <span className="text-text-muted">Status:</span> {detail.status}
                 </p>
                 {detail.images?.[0] && (
-                  <img src={detail.images[0]} alt="" className="rounded-md max-h-40 object-contain border border-border" />
+                  <img src={productImageDisplayUrl(detail.images[0], { width: 500, crop: "fill" }) ?? ""} alt="" className="rounded-md max-h-40 object-contain border border-border" />
                 )}
                 <div className="flex flex-wrap gap-2 pt-4 border-t border-border">
                   <Button

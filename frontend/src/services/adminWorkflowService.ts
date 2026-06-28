@@ -1,4 +1,5 @@
 import { apiClient } from "@/lib/apiClient";
+import type { ProductImageValue } from "@/lib/mediaUrl";
 
 export type CatalogueProductRow = {
   _id: string;
@@ -18,7 +19,7 @@ export type CatalogueProductRow = {
   vendorName?: string;
   uploadedBy?: string | null;
   uploadedByRole?: string;
-  images?: string[];
+  images?: ProductImageValue[];
   isFeatured?: boolean;
   createdAt?: string;
   updatedAt?: string;

@@ -53,8 +53,57 @@ export const PRODUCT_LIST_PROJECT: Record<string, 1 | unknown> = {
   hasImage: {
     $gt: [{ $size: { $ifNull: ["$images", []] } }, 0],
   },
-  // Image bytes (often base64) are loaded only via GET /products/:id/thumbnail or detail.
-  images: { $literal: [] },
+  // Omit heavy base64 blobs; include short Cloudinary HTTPS URLs for fast grid thumbnails.
+  images: {
+    $let: {
+      vars: {
+        allImages: { $ifNull: ["$images", []] },
+        rawIndex: { $ifNull: ["$primaryImageIndex", 0] },
+      },
+      in: {
+        $let: {
+          vars: {
+            safeIndex: {
+              $cond: [
+                { $gte: [{ $size: "$$allImages" }, 1] },
+                {
+                  $max: [
+                    0,
+                    {
+                      $min: [
+                        "$$rawIndex",
+                        { $subtract: [{ $size: "$$allImages" }, 1] },
+                      ],
+                    },
+                  ],
+                },
+                0,
+              ],
+            },
+          },
+          in: {
+            $let: {
+              vars: {
+                primary: { $arrayElemAt: ["$$allImages", "$$safeIndex"] },
+              },
+              in: {
+                $cond: [
+                  {
+                    $regexMatch: {
+                      input: { $toString: "$$primary" },
+                      regex: "^https://res\\.cloudinary\\.com/",
+                    },
+                  },
+                  ["$$primary"],
+                  { $literal: [] },
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+  },
 };
 
 export function buildProductListPipeline(
@@ -97,7 +146,13 @@ export function pickPrimaryImageUrl(row: Record<string, unknown>): string | null
   const images = row.images;
   if (!Array.isArray(images) || images.length === 0) return null;
   const primary = images[pickPrimaryImageIndex(row)];
-  const url = String(primary ?? "").trim();
+  const url = typeof primary === "object" && primary !== null
+    ? String((primary as { secureUrl?: unknown; secure_url?: unknown; url?: unknown; path?: unknown }).secureUrl
+        ?? (primary as { secure_url?: unknown }).secure_url
+        ?? (primary as { url?: unknown }).url
+        ?? (primary as { path?: unknown }).path
+        ?? "").trim()
+    : String(primary ?? "").trim();
   if (!url) return null;
   if (url.includes("/media/products/") && url.endsWith(".webp")) return url;
   if (/^https?:\/\//i.test(url)) return url;

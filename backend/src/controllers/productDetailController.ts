@@ -7,6 +7,7 @@ import { AppError } from "../middleware/errorMiddleware.js";
 import { pickPrimaryImageUrl, pickPrimaryImageIndex } from "../utils/productListPayload.js";
 import type { ProductImageMeta } from "../services/productImageService.js";
 import { resolveProductImageResponse } from "../utils/productImageResponse.js";
+import { productImageUrl, type ProductImageValue } from "../services/cloudinary.service.js";
 
 function stripVendorProductFields<T extends Record<string, unknown>>(row: T): T {
   const safe = { ...row };
@@ -61,17 +62,17 @@ export const getProductThumbnail = asyncHandler(async (req: AuthRequest, res: Re
   await assertProductImageAccess(req, p as Record<string, unknown>);
 
   const row = p as Record<string, unknown>;
-  const images = Array.isArray(row.images) ? (row.images as string[]) : [];
+  const images = Array.isArray(row.images) ? (row.images as ProductImageValue[]) : [];
   const requestedIndex = Number(req.query.index ?? pickPrimaryImageIndex(row));
   const imageIndex = Number.isFinite(requestedIndex)
     ? Math.max(0, Math.min(requestedIndex, Math.max(0, images.length - 1)))
     : pickPrimaryImageIndex(row);
   const imageMeta = Array.isArray(row.imageMeta) ? (row.imageMeta as ProductImageMeta[]) : undefined;
-  const primaryUrl = images[imageIndex] ? String(images[imageIndex]).trim() : pickPrimaryImageUrl(row);
+  const primaryImage = images[imageIndex] ?? pickPrimaryImageUrl(row);
   const meta = imageMeta?.[imageIndex];
 
   res.setHeader("Cache-Control", "private, max-age=300");
   res.json(
-    await resolveProductImageResponse(String(row._id ?? req.params.id), imageIndex, primaryUrl, meta)
+    await resolveProductImageResponse(String(row._id ?? req.params.id), imageIndex, productImageUrl(primaryImage) ? primaryImage : null, meta)
   );
 });

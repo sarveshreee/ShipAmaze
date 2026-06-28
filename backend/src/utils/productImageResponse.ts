@@ -7,6 +7,7 @@ import {
   buildPublicSrcSet,
   type ProductImageMeta,
 } from "../services/productImageService.js";
+import { buildCloudinaryImageUrl, normalizeCloudinaryImage, type ProductImageValue } from "../services/cloudinary.service.js";
 
 export interface ProductImageResponse {
   url: string | null;
@@ -31,9 +32,30 @@ async function hasOptimizedFiles(productId: string, imageIndex: number): Promise
 export async function resolveProductImageResponse(
   productId: string,
   imageIndex: number,
-  primaryUrl: string | null,
+  primaryImage: ProductImageValue | null,
   meta?: ProductImageMeta
 ): Promise<ProductImageResponse> {
+  const primaryUrl = typeof primaryImage === "string" ? primaryImage.trim() : null;
+  const cloudinaryImage = primaryImage ? normalizeCloudinaryImage(primaryImage) : null;
+  if (primaryImage && cloudinaryImage) {
+    const url = buildCloudinaryImageUrl(primaryImage, { width: 500, crop: "fill" });
+    const thumb = buildCloudinaryImageUrl(primaryImage, { width: 250 });
+    const detail = buildCloudinaryImageUrl(primaryImage, { width: 900 });
+    return {
+      url,
+      thumb,
+      srcset: [
+        `${thumb} 250w`,
+        `${url} 500w`,
+        `${detail} 900w`,
+      ].join(", "),
+      sizes: RESPONSIVE_SIZES,
+      width: 500,
+      height: 500,
+      blurPlaceholder: meta?.blurPlaceholder ?? null,
+    };
+  }
+
   if (!primaryUrl) {
     return {
       url: null,

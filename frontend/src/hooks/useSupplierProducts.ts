@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import * as productService from "@/services/productService";
+import type { ProductImageValue } from "@/lib/mediaUrl";
 
 export type SupplierProduct = {
   id: string;
@@ -23,7 +24,7 @@ export type SupplierProduct = {
   tags: string[];
   unit: string;
   min_order_qty: number;
-  images: string[];
+  images: ProductImageValue[];
   has_image: boolean;
   primary_image_index: number;
   length_cm: number | null;
@@ -73,7 +74,7 @@ export function mapApiToSupplierProduct(r: Record<string, unknown>): SupplierPro
     tags: (r.tags as string[]) || [],
     unit: String(r.unit ?? "pcs"),
     min_order_qty: Number(r.min_order_qty ?? r.minOrderQty ?? 1),
-    images: Array.isArray(r.images) ? (r.images as string[]) : [],
+    images: Array.isArray(r.images) ? (r.images as ProductImageValue[]) : [],
     has_image: Boolean(r.hasImage ?? r.has_image),
     primary_image_index: Number(r.primary_image_index ?? r.primaryImageIndex ?? 0),
     length_cm: (r.length_cm as number | null) ?? (r.lengthCm as number | null) ?? null,

@@ -15,4 +15,5 @@ services:
       - key: NODE_ENV
         value: production
       # Add in the dashboard (secrets): MONGODB_URI, JWT_SECRET, CORS_ORIGIN, ENCRYPTION_SECRET,
+      # CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET,
       # SHOPIFY_*, and optionally VELOCITY_* when VELOCITY_ENABLED=true.

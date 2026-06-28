@@ -5,6 +5,7 @@ import {
   readOptimizedImageFile,
   type ImageWidth,
 } from "../services/productImageService.js";
+import { buildCloudinaryImageUrl, productImageUrl, type ProductImageValue } from "../services/cloudinary.service.js";
 
 function parseSizeParam(sizeParam: string): ImageWidth | "thumb" {
   if (sizeParam === "thumb.webp" || sizeParam === "thumb") return "thumb";
@@ -45,8 +46,22 @@ export async function serveProductImageAsset(req: Request, res: Response): Promi
     return;
   }
 
-  const images = Array.isArray(product.images) ? product.images : [];
-  const src = String(images[idx] ?? "").trim();
+  const images = Array.isArray(product.images) ? (product.images as ProductImageValue[]) : [];
+  const image = images[idx];
+  if (image) {
+    const width = sizeKey === "thumb" ? 250 : sizeKey;
+    const transformed = buildCloudinaryImageUrl(image, {
+      width,
+      crop: sizeKey === "thumb" ? "fill" : undefined,
+    });
+    const original = productImageUrl(image);
+    if (transformed && transformed !== original) {
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      res.redirect(302, transformed);
+      return;
+    }
+  }
+  const src = productImageUrl(image);
   if (!src) {
     res.status(404).send("Image not found");
     return;
@@ -63,6 +78,7 @@ export async function serveProductImageAsset(req: Request, res: Response): Promi
   }
 
   if (/^https?:\/\//i.test(src)) {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     res.redirect(302, src);
     return;
   }

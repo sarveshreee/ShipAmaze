@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, ShieldCheck, Truck, RefreshCw, Star, Minus, Plus, ShoppingCart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getFinalProductPrice, formatProductPriceInr } from "@/lib/pricing";
+import { productImageDisplayUrl, type ProductImageValue } from "@/lib/mediaUrl";
 
 interface PreviewVariant {
   option1_name?: string; option1_value?: string;
@@ -26,7 +27,7 @@ interface PreviewProduct extends Record<string, unknown> {
   our_commission?: number;
   stock?: number;
   tags?: string[];
-  images: string[];
+  images: ProductImageValue[];
   primary_image_index?: number;
   weight?: string;
   hsn?: string;
@@ -73,7 +74,7 @@ export default function ProductPreview() {
               our_commission: Number(p.ourCommission ?? p.our_commission ?? p.commission ?? 40),
               stock: Number(p.stock ?? 0),
               tags: (Array.isArray(p.tags) ? p.tags : []) as string[],
-              images: Array.isArray(p.images) ? (p.images as string[]) : [],
+              images: Array.isArray(p.images) ? (p.images as ProductImageValue[]) : [],
               primary_image_index: Number(p.primaryImageIndex ?? p.primary_image_index ?? 0),
               weight: p.weight as string | undefined,
               hsn: p.hsn as string | undefined,
@@ -145,7 +146,7 @@ export default function ProductPreview() {
           <section>
             <div className="aspect-square rounded-2xl bg-card shadow-card overflow-hidden border border-border flex items-center justify-center">
               {product.images?.[activeImage] ? (
-                <img src={product.images[activeImage]} alt={product.name} className="w-full h-full object-cover" />
+                <img src={productImageDisplayUrl(product.images[activeImage], { width: 900 }) ?? ""} alt={product.name} className="w-full h-full object-cover" />
               ) : (
                 <div className="text-text-muted text-sm">No image</div>
               )}
@@ -161,7 +162,7 @@ export default function ProductPreview() {
                       activeImage === i ? "border-primary" : "border-border hover:border-primary/50"
                     )}
                   >
-                    <img src={src} alt="" className="w-full h-full object-cover" />
+                    <img src={productImageDisplayUrl(src, { width: 250 }) ?? ""} alt="" className="w-full h-full object-cover" />
                   </button>
                 ))}
               </div>

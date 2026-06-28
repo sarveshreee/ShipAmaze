@@ -891,7 +891,12 @@ export async function serveProductImage(req: Request, res: Response): Promise<vo
   const images: unknown[] = Array.isArray((product as Record<string, unknown>).images)
     ? (product as Record<string, unknown>).images as unknown[]
     : [];
-  const src = String(images[idx] ?? "").trim();
+  const { buildCloudinaryImageUrl, productImageUrl } = await import("../services/cloudinary.service.js");
+  const image = images[idx] as import("../services/cloudinary.service.js").ProductImageValue | undefined;
+  const cloudinaryUrl = image && typeof image === "object"
+    ? buildCloudinaryImageUrl(image, { width: 900 })
+    : null;
+  const src = cloudinaryUrl ?? productImageUrl(image);
   if (!src) {
     res.status(404).send("Image not found");
     return;
