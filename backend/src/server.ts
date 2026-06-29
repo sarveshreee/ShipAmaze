@@ -10,6 +10,7 @@ import { ShopifyStoreConnection } from "./models/ShopifyStoreConnection.js";
 import { performShopifyOrderSyncForUser } from "./services/shopifySyncRunner.js";
 import { Courier } from "./models/Courier.js";
 import { syncActiveShipmentStatuses } from "./modules/velocity/velocity.statusSync.js";
+import { syncNdrFromVelocity } from "./modules/velocity/velocity.ndrSync.js";
 
 validateEnv();
 
@@ -128,8 +129,30 @@ async function main() {
       } catch (e: unknown) {
         devLog.warn("[velocity:startup-sync] error", e instanceof Error ? e.message : e);
       }
+      try {
+        const ndr = await syncNdrFromVelocity({ daysBack: 120 });
+        devLog.info(
+          `[velocity:ndr-startup-sync] fetched=${ndr.fetched} upserted=${ndr.upserted} closed=${ndr.closed} errors=${ndr.errors}`
+        );
+      } catch (e: unknown) {
+        devLog.warn("[velocity:ndr-startup-sync] error", e instanceof Error ? e.message : e);
+      }
     }, 30_000).unref();
   }
+
+  // Background NDR sync — runs every 10 minutes alongside status sync.
+  const velocityNdrSync = setInterval(async () => {
+    try {
+      if (!isVelocityConfigured()) return;
+      const ndr = await syncNdrFromVelocity({ daysBack: 120 });
+      devLog.info(
+        `[velocity:ndr-bg-sync] fetched=${ndr.fetched} upserted=${ndr.upserted} closed=${ndr.closed} errors=${ndr.errors}`
+      );
+    } catch (e: unknown) {
+      devLog.warn("[velocity:ndr-bg-sync] error", e instanceof Error ? e.message : e);
+    }
+  }, 10 * 60 * 1000);
+  velocityNdrSync.unref();
 
   // Background Shopify order sync — runs every 5 minutes as a fallback for any webhook misses
   const shopifyBgSync = setInterval(async () => {

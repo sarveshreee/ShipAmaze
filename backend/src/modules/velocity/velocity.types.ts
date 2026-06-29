@@ -235,6 +235,12 @@ export interface VelocityShipmentsRequest {
   search?: string;
   page?: number;
   per_page?: number;
+  /** Unix timestamp range filters (Velocity shipments API). */
+  start_time?: number;
+  end_time?: number;
+  date_field?: string;
+  sort_order?: "asc" | "desc";
+  needs_attention_issue?: string[];
 }
 
 // Returns List
@@ -260,6 +266,11 @@ export interface VelocityListResponse<T> {
   page?: number;
   per_page?: number;
   message?: string;
+  meta?: {
+    current_page?: number;
+    per_page?: number;
+    total?: number;
+  };
 }
 
 // Internal error shape returned to our clients

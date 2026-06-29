@@ -57,6 +57,10 @@ import {
   syncVendorWarehouseToVelocity,
 } from "../modules/velocity/velocity.warehouseSync.js";
 import {
+  submitNdrActionToVelocity,
+  type VelocityNdrAction,
+} from "../modules/velocity/velocity.service.js";
+import {
   deleteProductImages,
   deleteRemovedProductImages,
   processProductImages,
@@ -997,6 +1001,13 @@ export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
       status: n.status,
       phone: n.phone,
       nextAction: n.nextAction,
+      orderId: n.orderId ?? "",
+      carrier: n.carrier ?? "",
+      velocityStatus: n.velocityStatus ?? "",
+      amount: n.amount,
+      actionStatus: n.actionStatus ?? "",
+      actionMessage: n.actionMessage ?? "",
+      lastActionAt: n.lastActionAt,
     }))
   );
 });
@@ -1017,6 +1028,90 @@ export const updateNdr = asyncHandler(async (req: AuthRequest, res: Response) =>
   const n = await NDR.findOneAndUpdate({ awb }, { $set: req.body }, { new: true });
   if (!n) throw new AppError(404, "NDR not found");
   res.json(n);
+});
+
+function formatNdrActionDate(value = new Date()): string {
+  return value.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
+}
+
+function normalizeNdrAction(input: unknown): VelocityNdrAction {
+  const action = String(input ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  if (["reattempt", "re_attempt", "reattempt_delivery", "re_attempt_delivery"].includes(action)) {
+    return "reattempt";
+  }
+  if (["rto", "force_rto", "return_to_origin"].includes(action)) return "rto";
+  throw new AppError(400, "action must be reattempt or rto");
+}
+
+async function findOrderForNdrAction(req: AuthRequest, awb: string) {
+  const baseLookup = { $or: [{ awb }, { trackingId: awb }] };
+  if (req.user?.role === "admin") {
+    return Order.findOne(baseLookup);
+  }
+
+  const visibility = await buildOrderVisibilityQuery(req.user!);
+  return Order.findOne({ $and: [visibility, baseLookup] });
+}
+
+export const submitNdrAction = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const awb = String(req.params.awb ?? "").trim();
+  if (!awb) throw new AppError(400, "AWB is required");
+
+  const action = normalizeNdrAction((req.body as Record<string, unknown>).action);
+  const remarks = String((req.body as Record<string, unknown>).remarks ?? "").trim();
+
+  const ndr = await NDR.findOne({ awb });
+  if (!ndr) throw new AppError(404, "NDR not found");
+
+  const order = await findOrderForNdrAction(req, awb);
+  if (req.user.role !== "admin" && !order) throw new AppError(403, "Forbidden");
+
+  const provider = await submitNdrActionToVelocity({
+    awb,
+    action,
+    phone: ndr.phone || order?.phone,
+    remarks,
+  });
+
+  const now = new Date();
+  const providerMessage =
+    typeof provider.message === "string" && provider.message.trim()
+      ? provider.message.trim()
+      : action === "reattempt"
+        ? "Re-attempt request submitted to Velocity"
+        : "RTO request submitted to Velocity";
+
+  const nextAction = action === "reattempt" ? "Re-attempt" : "Force RTO";
+  const nextStatus = "Initiated";
+  const velocityStatus = action === "reattempt" ? "reattempt_delivery" : "rto_initiated";
+
+  ndr.status = nextStatus;
+  ndr.nextAction = nextAction;
+  ndr.velocityStatus = velocityStatus;
+  ndr.actionStatus = "provider_synced";
+  ndr.actionMessage = providerMessage;
+  ndr.lastActionAt = now;
+  ndr.lastUpdate = formatNdrActionDate(now);
+  if (action === "reattempt") ndr.attempts = Math.max(1, Number(ndr.attempts ?? 1) + 1);
+  ndr.actionHistory = [
+    ...((ndr.actionHistory as Array<{ action: string; status: string; message?: string; at: Date }> | undefined) ?? []),
+    { action: nextAction, status: "provider_synced", message: providerMessage, at: now },
+  ].slice(-20);
+  await ndr.save();
+
+  if (order) {
+    const prev = order.statusHistory ?? [];
+    order.statusHistory = [
+      ...prev,
+      { status: action === "reattempt" ? "ndr" : "rto", at: now, updatedBy: req.user._id, note: `velocity_ndr_${action}` },
+    ].slice(-50);
+    order.status = action === "reattempt" ? "ndr" : "rto";
+    order.shipmentStatus = velocityStatus;
+    await order.save();
+  }
+
+  res.json({ success: true, data: ndr, provider });
 });
 
 export const listReturns = asyncHandler(async (_req: AuthRequest, res: Response) => {

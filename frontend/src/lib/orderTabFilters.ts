@@ -31,7 +31,15 @@ const FULFILLMENT_PIPELINE = new Set([
 const READY_TO_SHIP_STATUSES = new Set(["ready_to_ship"]);
 const PENDING_PICKUP_STATUSES = new Set(["pending_pickup", "pickup_scheduled"]);
 const IN_TRANSIT_STATUSES = new Set(["in_transit", "shipped", "picked_up"]);
-const FAILED_STATUSES = new Set(["failed", "ndr", "not_picked"]);
+const FAILED_STATUSES = new Set([
+  "failed",
+  "ndr",
+  "ndr_raised",
+  "need_attention",
+  "needs_attention",
+  "reattempt_delivery",
+  "not_picked",
+]);
 const OUT_FOR_DELIVERY_STATUSES = new Set(["out_for_delivery"]);
 
 const STATUS_RANK: Record<string, number> = {

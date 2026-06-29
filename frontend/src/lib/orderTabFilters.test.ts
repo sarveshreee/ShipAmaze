@@ -55,7 +55,7 @@ describe("order tab filters", () => {
 
   it("normalizes ready-to-ship status aliases", () => {
     expect(isOrderReadyToShip(orderWith({ status: "ready-to-ship", awb: "" }))).toBe(true);
-    expect(isOrderReadyToShip(orderWith({ status: "Ready to Ship", awb: "" }))).toBe(true);
+    expect(isOrderReadyToShip(orderWith({ status: "Ready to Ship" as Order["status"], awb: "" }))).toBe(true);
   });
 
   it("keeps channel and manual tabs limited to pre-fulfillment orders", () => {

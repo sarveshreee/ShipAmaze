@@ -27,6 +27,7 @@ import {
   syncVendorWarehouseToVelocity,
 } from "./velocity.warehouseSync.js";
 import { syncActiveShipmentStatuses } from "./velocity.statusSync.js";
+import { syncNdrFromVelocity } from "./velocity.ndrSync.js";
 import { devLog } from "../../utils/devLog.js";
 import type {
   VelocityCustomer,
@@ -1271,6 +1272,14 @@ export const syncShipmentStatuses = asyncHandler(async (req: AuthRequest, res: R
 
   const batchSize = Math.min(200, Math.max(1, Number((req.body as Record<string, unknown>).batchSize ?? 100)));
   const syncResult = await syncActiveShipmentStatuses(batchSize);
+  res.json({ success: true, ...syncResult });
+});
+
+export const syncNdrOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+
+  const daysBack = Math.min(365, Math.max(7, Number((req.body as Record<string, unknown>).daysBack ?? 120)));
+  const syncResult = await syncNdrFromVelocity({ daysBack });
   res.json({ success: true, ...syncResult });
 });
 

@@ -505,6 +505,13 @@ export type NdrRow = {
   status: string;
   phone: string;
   nextAction: string;
+  orderId?: string;
+  carrier?: string;
+  velocityStatus?: string;
+  amount?: number;
+  actionStatus?: string;
+  actionMessage?: string;
+  lastActionAt?: string;
 };
 
 export function useNdrOrders() {
@@ -520,6 +527,13 @@ export function useNdrOrders() {
       status: String(n.status ?? "Active"),
       phone: String(n.phone ?? ""),
       nextAction: String(n.nextAction ?? ""),
+      orderId: String(n.orderId ?? ""),
+      carrier: String(n.carrier ?? ""),
+      velocityStatus: String(n.velocityStatus ?? ""),
+      amount: n.amount != null ? Number(n.amount) : undefined,
+      actionStatus: String(n.actionStatus ?? ""),
+      actionMessage: String(n.actionMessage ?? ""),
+      lastActionAt: String(n.lastActionAt ?? ""),
     }));
   }, []);
   return useApiQuery<NdrRow>("ndr_orders", queryFn);

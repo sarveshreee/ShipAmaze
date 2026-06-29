@@ -10,6 +10,23 @@ export interface INDR extends Document {
   status: string;
   phone: string;
   nextAction: string;
+  /** Linked ShipAmaze order id */
+  orderId?: string;
+  /** Courier name from Velocity */
+  carrier?: string;
+  /** Raw Velocity shipment status (e.g. ndr_raised) */
+  velocityStatus?: string;
+  /** Order value / COD amount */
+  amount?: number;
+  actionStatus?: string;
+  actionMessage?: string;
+  lastActionAt?: Date;
+  actionHistory?: Array<{
+    action: string;
+    status: string;
+    message?: string;
+    at: Date;
+  }>;
 }
 
 const ndrSchema = new Schema<INDR>(
@@ -23,6 +40,24 @@ const ndrSchema = new Schema<INDR>(
     status: { type: String, default: "Active" },
     phone: { type: String, default: "" },
     nextAction: { type: String, default: "Re-attempt" },
+    orderId: { type: String, default: "" },
+    carrier: { type: String, default: "" },
+    velocityStatus: { type: String, default: "" },
+    amount: { type: Number },
+    actionStatus: { type: String, default: "" },
+    actionMessage: { type: String, default: "" },
+    lastActionAt: { type: Date },
+    actionHistory: {
+      type: [
+        {
+          action: { type: String, required: true },
+          status: { type: String, required: true },
+          message: { type: String, default: "" },
+          at: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );

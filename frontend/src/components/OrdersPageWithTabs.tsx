@@ -963,7 +963,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onBulkMoveToReady={handleBulkMoveToReady}
           onMoveToReady={activeTab === "ready-to-ship" ? undefined : handleMoveToReady}
           onExport={handleExport}
-          loading={loading}
           activeTab={activeTab}
           onToggleSidebar={() => window.dispatchEvent(new Event('toggle-sidebar'))}
           showProcessSelected={showProcessSelected}

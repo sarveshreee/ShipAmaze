@@ -91,7 +91,20 @@ const IN_TRANSIT_STATUSES = [
   "picked-up",
   "Picked Up",
 ];
-const FAILED_STATUSES = ["failed", "Failed", "ndr", "NDR", "not_picked", "not-picked", "Not Picked"];
+const FAILED_STATUSES = [
+  "failed",
+  "Failed",
+  "ndr",
+  "NDR",
+  "ndr_raised",
+  "NDR raised",
+  "need_attention",
+  "needs_attention",
+  "reattempt_delivery",
+  "not_picked",
+  "not-picked",
+  "Not Picked",
+];
 const OUT_FOR_DELIVERY_STATUSES = [
   "out-for-delivery",
   "out_for_delivery",

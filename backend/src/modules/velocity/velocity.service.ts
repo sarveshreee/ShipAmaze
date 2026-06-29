@@ -6,6 +6,7 @@
 
 import { velocityPost } from "./velocity.client.js";
 import { velocityConfig } from "./velocity.config.js";
+import { AppError } from "../../middleware/errorMiddleware.js";
 import {
   buildVelocityRatesProviderPayload,
   normalizeRatesResponse,
@@ -194,6 +195,60 @@ export async function createReverseShipmentLater(payload: VelocityCreateShipment
 
 export async function cancelShipment(payload: VelocityCancelRequest) {
   return velocityPost<VelocityCancelResponse>("/custom/api/v1/cancel-order", payload);
+}
+
+// ─── NDR Actions ────────────────────────────────────────
+
+export type VelocityNdrAction = "reattempt" | "rto";
+
+export interface VelocityNdrActionRequest {
+  awb: string;
+  action: VelocityNdrAction;
+  phone?: string;
+  remarks?: string;
+}
+
+export interface VelocityNdrActionResponse {
+  success?: boolean;
+  status?: string | number;
+  message?: string;
+  payload?: unknown;
+  result?: unknown;
+}
+
+function buildVelocityNdrActionPayload(payload: VelocityNdrActionRequest) {
+  const action = payload.action === "rto" ? "rto" : "reattempt_delivery";
+  return {
+    awb: payload.awb,
+    awbs: [payload.awb],
+    action,
+    ndr_action: action,
+    remarks: payload.remarks ?? "",
+    phone: payload.phone,
+  };
+}
+
+/**
+ * Submit an NDR action to Velocity.
+ *
+ * Velocity's shared API docs provided to this project do not include an NDR action
+ * endpoint. Keep the endpoint configurable so we never pretend local-only updates
+ * are provider-synced.
+ */
+export async function submitNdrActionToVelocity(payload: VelocityNdrActionRequest) {
+  const endpoint = velocityConfig.ndrActionEndpoint;
+  if (!endpoint) {
+    throw new AppError(
+      501,
+      "Velocity NDR action endpoint is not configured. Ask Velocity for the NDR re-attempt/RTO API path and set VELOCITY_NDR_ACTION_ENDPOINT."
+    );
+  }
+
+  const safeEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  return velocityPost<VelocityNdrActionResponse>(
+    safeEndpoint,
+    buildVelocityNdrActionPayload(payload)
+  );
 }
 
 // ─── Tracking ────────────────────────────────────────────

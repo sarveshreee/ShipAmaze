@@ -75,6 +75,9 @@ router.post("/reports", requireRoles("admin"), vc.getVelocityReports);
 // Admin-only: bulk status refresh from Velocity
 router.post("/sync-statuses", requireRoles("admin"), vc.syncShipmentStatuses);
 
+// NDR sync from Velocity — admin and dropshipper/vendor (their NDR list is scoped by AWB visibility)
+router.post("/sync-ndr", requireRoles("admin", "vendor", "dropshipper"), vc.syncNdrOrders);
+
 // Label PDF proxy – admin, vendor, dropshipper (authenticated)
 // Fetches the Velocity-provided label PDF via backend, handles expired presigned URLs
 router.get("/label-pdf/:orderId", vc.getLabelPdf);

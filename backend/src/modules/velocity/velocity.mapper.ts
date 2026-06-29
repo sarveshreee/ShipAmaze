@@ -15,6 +15,7 @@ const velocityToInternalStatus: Record<string, string> = {
   delivered: "delivered",
   ndr_raised: "ndr",
   need_attention: "ndr",
+  needs_attention: "ndr",
   reattempt_delivery: "ndr",
   cancelled: "cancelled",
   rejected: "cancelled",

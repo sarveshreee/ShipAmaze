@@ -7,6 +7,8 @@ export const velocityConfig = {
   baseUrl: (process.env.VELOCITY_BASE_URL || "https://shazam.velocity.in").replace(/\/$/, ""),
   username: process.env.VELOCITY_USERNAME || "",
   password: process.env.VELOCITY_PASSWORD || "",
+  /** Optional provider endpoint for NDR actions, e.g. /custom/api/v1/ndr/action. */
+  ndrActionEndpoint: (process.env.VELOCITY_NDR_ACTION_ENDPOINT || "").trim(),
   tokenCacheTtlMinutes: intEnv("VELOCITY_TOKEN_CACHE_TTL_MINUTES", 1320),
   /** HTTP timeout for each Velocity API call (ms). */
   requestTimeoutMs: intEnv("VELOCITY_REQUEST_TIMEOUT_MS", 45_000),

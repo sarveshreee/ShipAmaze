@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { useNdrOrders } from "@/hooks/useApiData";
-import { AlertTriangle, Phone, RotateCcw, ArrowRight, Download, Search } from "lucide-react";
+import { AlertTriangle, Phone, RotateCcw, ArrowRight, Download, Search, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/EmptyState";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { downloadCSV } from "@/lib/exportUtils";
 import * as ndrService from "@/services/ndrService";
+import { syncNdrFromVelocity } from "@/services/velocityService";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +35,9 @@ const reasonColors: Record<string, string> = {
 export default function DropshipperNDR() {
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [autoSynced, setAutoSynced] = useState(false);
+  const [actionAwb, setActionAwb] = useState<string | null>(null);
   const tabs = ['all', 'Active', 'Initiated', 'Closed'];
   const { data: ndrOrders = [], isLoading, refetch } = useNdrOrders();
   // Modal states
@@ -41,6 +45,27 @@ export default function DropshipperNDR() {
   const [callOpen, setCallOpen] = useState(false);
   const [forceRtoOpen, setForceRtoOpen] = useState(false);
   const [selectedNdr, setSelectedNdr] = useState<any>(null);
+
+  const runSync = useCallback(async (silent = false) => {
+    setSyncing(true);
+    try {
+      const result = await syncNdrFromVelocity(120);
+      if (!silent) {
+        toast.success(`Synced ${result.upserted} NDR order(s) from Velocity`);
+      }
+      await refetch();
+    } catch (err: unknown) {
+      if (!silent) toast.error(`Sync failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setSyncing(false);
+    }
+  }, [refetch]);
+
+  useEffect(() => {
+    if (autoSynced || isLoading) return;
+    setAutoSynced(true);
+    void runSync(true);
+  }, [autoSynced, isLoading, runSync]);
 
   const filtered = ndrOrders.filter(n => {
     if (tab !== 'all' && n.status !== tab) return false;
@@ -55,32 +80,38 @@ export default function DropshipperNDR() {
   const handleReAttempt = async () => {
     if (!selectedNdr) return;
     const { awb } = selectedNdr;
-    const today = new Date().toISOString().split("T")[0];
+    setActionAwb(awb);
     try {
-      await ndrService.updateNdr(awb, {
-        status: "Initiated",
-        nextAction: "Re-attempt",
-        attempts: (selectedNdr.attempts || 1) + 1,
-        lastUpdate: today,
+      await ndrService.submitNdrAction(awb, {
+        action: "reattempt",
+        remarks: "Re-attempt requested from ShipAmaze NDR Management",
       });
-      toast.success("Re-attempt scheduled.");
+      toast.success("Re-attempt submitted to Velocity.");
       setReAttemptOpen(false);
-      refetch();
+      await refetch();
     } catch (err: unknown) {
-      toast.error(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(`Velocity action failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setActionAwb(null);
     }
   };
 
   const handleForceRTO = async () => {
     if (!selectedNdr) return;
     const { awb } = selectedNdr;
+    setActionAwb(awb);
     try {
-      await ndrService.updateNdr(awb, { status: "Closed", nextAction: "Force RTO" });
-      toast.success("Order marked as RTO.");
+      await ndrService.submitNdrAction(awb, {
+        action: "rto",
+        remarks: "RTO requested from ShipAmaze NDR Management",
+      });
+      toast.success("RTO request submitted to Velocity.");
       setForceRtoOpen(false);
-      refetch();
+      await refetch();
     } catch (err: unknown) {
-      toast.error(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(`Velocity action failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setActionAwb(null);
     }
   };
 
@@ -97,7 +128,15 @@ export default function DropshipperNDR() {
   return (
     <div className="animate-fade-in-up">
       <PageHeader title="NDR Management" breadcrumb={["Dropshipper", "NDR"]}
-        actions={<Button onClick={handleExport} variant="outline" className="gap-2"><Download className="h-4 w-4" />Export CSV</Button>}
+        actions={
+          <div className="flex gap-2">
+            <Button variant="outline" className="gap-2" disabled={syncing} onClick={() => void runSync(false)}>
+              <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+              {syncing ? "Syncing…" : "Sync"}
+            </Button>
+            <Button onClick={handleExport} variant="outline" className="gap-2"><Download className="h-4 w-4" />Export CSV</Button>
+          </div>
+        }
       />
       <div className="rounded-lg bg-warning-light border border-warning/30 p-4 mb-6 flex items-center gap-3">
         <AlertTriangle className="h-5 w-5 text-warning-dark shrink-0" />
@@ -142,6 +181,7 @@ export default function DropshipperNDR() {
                 <div className="flex-1 min-w-[200px]">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-mono text-xs text-primary">{n.awb}</span>
+                    {n.carrier ? <span className="text-[10px] text-text-muted">{n.carrier}</span> : null}
                     <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", reasonColors[n.reason] || "bg-surface-2 text-text-secondary")}>{n.reason}</span>
                   </div>
                   <p className="font-medium text-text-primary">{n.customer}</p>
@@ -151,6 +191,7 @@ export default function DropshipperNDR() {
                   <p className="text-text-muted">Seller: <span className="text-text-secondary">{n.seller}</span></p>
                   <p className="text-text-muted">Attempts: <span className="font-medium text-text-primary">{n.attempts}/3</span></p>
                   <p className="text-text-muted">Last update: {n.lastUpdate}</p>
+                  {n.actionMessage ? <p className="mt-1 max-w-[260px] text-xs text-text-secondary">{n.actionMessage}</p> : null}
                 </div>
                 <div className="flex items-center gap-2">
                   {n.status === 'Active' && (
@@ -189,7 +230,9 @@ export default function DropshipperNDR() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReAttemptOpen(false)}>Cancel</Button>
-            <Button onClick={handleReAttempt}>Confirm Re-attempt</Button>
+            <Button disabled={actionAwb === selectedNdr?.awb} onClick={handleReAttempt}>
+              {actionAwb === selectedNdr?.awb ? "Submitting..." : "Confirm Re-attempt"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -221,7 +264,9 @@ export default function DropshipperNDR() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setForceRtoOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleForceRTO}>Force RTO</Button>
+            <Button disabled={actionAwb === selectedNdr?.awb} variant="destructive" onClick={handleForceRTO}>
+              {actionAwb === selectedNdr?.awb ? "Submitting..." : "Force RTO"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

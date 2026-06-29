@@ -15,6 +15,7 @@ import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.m
 import { normalizeOrderStatus } from "../../utils/orderStatus.js";
 import { devLog } from "../../utils/devLog.js";
 import { mirrorShopifyFulfillmentStatus, pushShopifyFulfillmentUpdate } from "../../services/shopifyFulfillmentMirror.js";
+import { upsertNdrFromVelocityShipment } from "./velocity.ndrSync.js";
 
 /** Shipment statuses that need live tracking refreshed from Velocity. */
 const STALE_STATUSES = [
@@ -255,6 +256,28 @@ export async function syncActiveShipmentStatuses(
         );
       } else {
         result.skipped++;
+      }
+
+      // When Velocity reports NDR, upsert into NDR Management collection
+      if (internalCanonical === "ndr" && trackResult.status) {
+        try {
+          await upsertNdrFromVelocityShipment(
+            {
+              attributes: {
+                tracking_number: awb,
+                status: trackResult.status,
+                shipping_address: { name: doc.customer, phone: doc.phone },
+                attempt_count: 1,
+              },
+            },
+            doc
+          );
+        } catch (ndrErr: unknown) {
+          devLog.warn(
+            `[velocity:status-sync] NDR upsert failed awb=${awb}:`,
+            ndrErr instanceof Error ? ndrErr.message : ndrErr
+          );
+        }
       }
     } catch (err: unknown) {
       result.errors++;

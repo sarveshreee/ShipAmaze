@@ -306,3 +306,17 @@ export interface StatusSyncResult {
 export async function syncShipmentStatuses(batchSize = 100) {
   return apiClient.post<StatusSyncResult>("/velocity/sync-statuses", { batchSize });
 }
+
+export interface NdrSyncResult {
+  success: boolean;
+  fetched: number;
+  upserted: number;
+  ordersUpdated: number;
+  closed: number;
+  errors: number;
+  errorDetails?: string[];
+}
+
+export async function syncNdrFromVelocity(daysBack = 120) {
+  return apiClient.post<NdrSyncResult>("/velocity/sync-ndr", { daysBack });
+}

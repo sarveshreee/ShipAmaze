@@ -598,6 +598,7 @@ export function createApp() {
   api.get("/exports/csv", authMiddleware, requireOwnerAdmin, reportsController.exportCsv);
 
   api.get("/ndr", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.NDR_VIEW), resourceController.listNdr);
+  api.post("/ndr/:awb/action", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.NDR_MANAGE), resourceController.submitNdrAction);
   api.patch("/ndr/:awb", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.NDR_MANAGE), resourceController.updateNdr);
 
   api.get("/returns", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.RETURNS_VIEW), resourceController.listReturns);

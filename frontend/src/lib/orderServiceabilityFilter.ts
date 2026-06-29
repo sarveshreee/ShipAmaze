@@ -88,9 +88,9 @@ export function useServiceableOrdersFilter(orders: Order[], filter: Serviceabili
             payment_mode: lane.payment,
             shipment_type: "forward",
           });
-          return [lane.key, res.data ?? []] as const;
+          return [lane.key, res.data ?? []] as readonly [string, VelocityCarrier[]];
         } catch {
-          return [lane.key, []] as const;
+          return [lane.key, [] as VelocityCarrier[]] as readonly [string, VelocityCarrier[]];
         }
       })
     ).then((results) => {
