@@ -197,6 +197,19 @@ export function hasLocalShipment(existing: {
   );
 }
 
+function normalizeLocalStatusKey(raw: unknown): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+}
+
+/** Local workflow states that must not be overwritten by Shopify import/sync. */
+function isShopifyProtectedLocalStatus(status: unknown): boolean {
+  const st = normalizeLocalStatusKey(status);
+  return st === "junk" || st === "reship" || st === "cancelled";
+}
+
 /** Apply Shopify fields onto an existing Order document without clobbering shipment state. */
 export function mergeShopifyPayloadIntoOrder(existing: IOrder, mapped: Record<string, unknown>, forceCancelled?: boolean) {
   existing.customer = String(mapped.customer ?? existing.customer);
@@ -211,7 +224,6 @@ export function mergeShopifyPayloadIntoOrder(existing: IOrder, mapped: Record<st
   existing.set("orderItems", mapped.orderItems ?? existing.get("orderItems"));
   existing.set("shopifyLineItems", mapped.shopifyLineItems ?? existing.get("shopifyLineItems"));
   existing.payment = String(mapped.payment ?? existing.payment);
-  existing.isJunk = false;
   existing.channel = "Shopify";
   existing.externalSource = "shopify";
   existing.set("sourceType", "shopify");
@@ -231,6 +243,11 @@ export function mergeShopifyPayloadIntoOrder(existing: IOrder, mapped: Record<st
   existing.shopifyTags = String(mapped.shopifyTags ?? existing.shopifyTags ?? "");
   existing.lastShopifySyncAt = new Date();
 
+  // Manual junk / reship / cancel must survive Shopify background sync and page reloads.
+  if (existing.isJunk || isShopifyProtectedLocalStatus(existing.status)) {
+    return;
+  }
+
   if (forceCancelled) {
     if (!hasLocalShipment(existing)) {
       existing.status = "cancelled";
@@ -241,7 +258,12 @@ export function mergeShopifyPayloadIntoOrder(existing: IOrder, mapped: Record<st
 
   const hasShip = hasLocalShipment(existing);
   if (!hasShip) {
-    existing.status = String(mapped.status ?? existing.status);
-    if (!existing.shipmentStatus) existing.shipmentStatus = "pending";
+    if (!isShopifyProtectedLocalStatus(existing.status)) {
+      existing.status = String(mapped.status ?? existing.status);
+    }
+    const shipmentSt = normalizeLocalStatusKey(existing.shipmentStatus);
+    if (!existing.shipmentStatus || shipmentSt === "pending") {
+      existing.shipmentStatus = "pending";
+    }
   }
 }

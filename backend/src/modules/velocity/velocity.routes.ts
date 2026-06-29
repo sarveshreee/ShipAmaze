@@ -78,5 +78,6 @@ router.post("/sync-statuses", requireRoles("admin"), vc.syncShipmentStatuses);
 // Label PDF proxy – admin, vendor, dropshipper (authenticated)
 // Fetches the Velocity-provided label PDF via backend, handles expired presigned URLs
 router.get("/label-pdf/:orderId", vc.getLabelPdf);
+router.post("/label-pdf/bulk", vc.getBulkLabelPdf);
 
 export default router;

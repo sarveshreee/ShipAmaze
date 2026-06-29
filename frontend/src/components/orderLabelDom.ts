@@ -655,8 +655,75 @@ function escapeHtml(s: string): string {
 }
 
 /**
+ * Renders label nodes to a multi-page PDF blob (optimized for bulk — parallel canvas capture).
+ */
+export async function renderLabelNodesToPdfBlob(
+  nodes: HTMLElement[],
+  settings: LabelInvoiceSettings
+): Promise<Blob> {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
+  const mm = labelPdfDimensionsMm(settings.labelSize);
+  const px = labelPixelBox(settings.labelSize);
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: [mm.w, mm.h] });
+  const scale = 1.25;
+  const captureLimit = 4;
+
+  async function captureNode(node: HTMLElement, index: number): Promise<string> {
+    node.style.position = "fixed";
+    node.style.left = "-99999px";
+    node.style.top = "0";
+    node.style.zIndex = String(-1000 - index);
+    node.style.pointerEvents = "none";
+    node.style.width = `${px.w}px`;
+    node.style.minHeight = `${px.h}px`;
+    document.body.appendChild(node);
+    try {
+      const canvas = await html2canvas(node, {
+        scale,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        width: px.w,
+        height: px.h,
+      });
+      return canvas.toDataURL("image/jpeg", 0.88);
+    } finally {
+      document.body.removeChild(node);
+    }
+  }
+
+  const images: string[] = new Array(nodes.length);
+  let next = 0;
+  async function captureWorker() {
+    for (;;) {
+      const idx = next;
+      next += 1;
+      if (idx >= nodes.length) return;
+      images[idx] = await captureNode(nodes[idx]!, idx);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(captureLimit, nodes.length) }, () => captureWorker()));
+
+  for (let i = 0; i < images.length; i++) {
+    if (i > 0) pdf.addPage([mm.w, mm.h]);
+    pdf.addImage(images[i]!, "JPEG", 0, 0, mm.w, mm.h, undefined, "FAST");
+  }
+
+  return pdf.output("blob");
+}
+
+function openPdfBlob(blob: Blob): void {
+  const blobUrl = URL.createObjectURL(blob);
+  const tab = window.open(blobUrl, "_blank");
+  if (!tab) {
+    URL.revokeObjectURL(blobUrl);
+    throw new Error("Popup blocked — please allow popups for this site");
+  }
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
+}
+
+/**
  * Renders label nodes to a multi-page PDF and opens it in a new browser tab.
- * The user can save/share/print the PDF from the browser's native PDF viewer.
  */
 export async function openLabelNodesAsPdf(
   nodes: HTMLElement[],
@@ -667,43 +734,11 @@ export async function openLabelNodesAsPdf(
   if (!tab) throw new Error("Popup blocked — please allow popups for this site");
   tab.document.open();
   tab.document.write(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body style="font-family:system-ui,Segoe UI,Arial,sans-serif;padding:24px;">Preparing PDF...</body></html>`
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body style="font-family:system-ui,Segoe UI,Arial,sans-serif;padding:24px;">Preparing ${nodes.length} label(s)…</body></html>`
   );
   tab.document.close();
 
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
-  const mm = labelPdfDimensionsMm(settings.labelSize);
-  const px = labelPixelBox(settings.labelSize);
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: [mm.w, mm.h] });
-
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    node.style.position = "fixed";
-    node.style.left = "-99999px";
-    node.style.top = "0";
-    node.style.zIndex = "-1";
-    node.style.pointerEvents = "none";
-    node.style.width = `${px.w}px`;
-    node.style.minHeight = `${px.h}px`;
-    document.body.appendChild(node);
-    try {
-      const canvas = await html2canvas(node, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-        width: px.w,
-        height: px.h,
-      });
-      const imgData = canvas.toDataURL("image/png");
-      if (i > 0) pdf.addPage([mm.w, mm.h]);
-      pdf.addImage(imgData, "PNG", 0, 0, mm.w, mm.h, undefined, "FAST");
-    } finally {
-      document.body.removeChild(node);
-    }
-  }
-
-  const blob = pdf.output("blob");
+  const blob = await renderLabelNodesToPdfBlob(nodes, settings);
   const blobUrl = URL.createObjectURL(blob);
   tab.location.href = blobUrl;
   setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);

@@ -130,6 +130,8 @@ export async function syncActiveShipmentStatuses(
     // Velocity will return 400 "Shipment not found" for them.
     velocityShipmentId: { $exists: true, $nin: ["", null] },
     isJunk: { $ne: true },
+    status: { $nin: ["reship", "junk", "cancelled"] },
+    shipmentStatus: { $nin: ["reship", "cancelled"] },
     $or: [
       { shipmentStatus: { $in: STALE_STATUSES } },
       { status: { $in: STALE_STATUSES } },
@@ -160,6 +162,11 @@ export async function syncActiveShipmentStatuses(
 
       const doc = await Order.findById(lean._id);
       if (!doc) {
+        result.skipped++;
+        continue;
+      }
+
+      if (doc.isJunk || doc.status === "reship" || doc.shipmentStatus === "reship") {
         result.skipped++;
         continue;
       }

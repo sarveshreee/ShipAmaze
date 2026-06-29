@@ -53,6 +53,7 @@ import {
   type MergedForwardContext,
 } from "./velocity.warehouseMerge.js";
 import { resolveVelocityCarrierId, assertServiceableCarrierForOrder } from "./velocity.resolveCarrier.js";
+import { resolveOrderLabelPdf, mapWithConcurrency, createVelocityRefreshCache, scheduleLabelPdfCache } from "./velocity.labelPdf.js";
 import { mirrorShopifyFulfillmentStatus, pushShopifyFulfillmentUpdate } from "../../services/shopifyFulfillmentMirror.js";
 
 async function applyCourierPriorityRules(
@@ -594,6 +595,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       localOrder.courierCompanyId = later.carrier_id;
       localOrder.courierName = later.carrier_name;
       localOrder.labelUrl = later.label_url;
+      scheduleLabelPdfCache(localOrder);
       await applyBillableShippingToOrder(localOrder, {
         courierName: String(later.carrier_name ?? localOrder.courierName ?? localOrder.courier ?? ""),
         velocityFreightCost: later.shipping_charges,
@@ -722,6 +724,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           localOrder.courierCompanyId = later.carrier_id;
           localOrder.courierName = later.carrier_name;
           localOrder.labelUrl = later.label_url;
+          scheduleLabelPdfCache(localOrder);
           await applyBillableShippingToOrder(localOrder, {
             courierName: String(later.carrier_name ?? localOrder.courierName ?? localOrder.courier ?? ""),
             velocityFreightCost: later.shipping_charges,
@@ -804,6 +807,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     localOrder.courierCompanyId = result.carrier_id;
     localOrder.courierName = result.carrier_name;
     localOrder.labelUrl = result.label_url;
+    scheduleLabelPdfCache(localOrder);
     localOrder.manifestUrl = result.manifest_url;
     localOrder.rtoCharges = result.rto_charges;
     await applyBillableShippingToOrder(localOrder, {
@@ -926,6 +930,7 @@ export const createForwardShipmentLater = asyncHandler(async (req: AuthRequest, 
     localOrder.courierName = result.carrier_name;
     localOrder.courierCompanyId = result.carrier_id;
     localOrder.labelUrl = result.label_url;
+    scheduleLabelPdfCache(localOrder);
     await applyBillableShippingToOrder(localOrder, {
       courierName: String(result.carrier_name ?? localOrder.courierName ?? localOrder.courier ?? ""),
       velocityFreightCost: result.shipping_charges,
@@ -976,6 +981,7 @@ export const createReverseShipment = asyncHandler(async (req: AuthRequest, res: 
     localOrder.courierName = result.carrier_name;
     localOrder.courierCompanyId = result.carrier_id;
     localOrder.labelUrl = result.label_url;
+    scheduleLabelPdfCache(localOrder);
     localOrder.shipmentStatus = result.status;
     applyVelocityMappedOrderStatus(localOrder, result.status, "rto", "velocity_reverse_create");
     if (partial.warehouse_id) localOrder.velocityWarehouseId = String(partial.warehouse_id);
@@ -1038,6 +1044,7 @@ export const createReverseShipmentLater = asyncHandler(async (req: AuthRequest, 
     localOrder.courierName = result.carrier_name;
     localOrder.courierCompanyId = result.carrier_id;
     localOrder.labelUrl = result.label_url;
+    scheduleLabelPdfCache(localOrder);
     localOrder.shipmentStatus = result.status;
     const mapped = mapVelocityStatus(result.status);
     if (mapped && shouldApplyInternalStatusUpdate(localOrder.status, mapped)) {
@@ -1842,83 +1849,121 @@ export const getLabelPdf = asyncHandler(async (req: AuthRequest, res: Response) 
   const order = await Order.findOne(orderQuery);
   if (!order) throw new AppError(404, "Order not found");
 
-  const cachedPdf = String(order.labelPdfBase64 ?? "").trim();
-  if (cachedPdf) {
-    const contentType = String(order.labelPdfContentType || "application/pdf");
-    res.set("Content-Type", contentType);
-    res.set("Content-Disposition", `inline; filename="label-${order.orderId ?? order._id}.pdf"`);
-    res.set("Cache-Control", "no-store");
-    res.send(Buffer.from(cachedPdf, "base64"));
-    return;
+  const { buffer, contentType } = await resolveOrderLabelPdf(order);
+
+  res.set("Content-Type", contentType);
+  res.set("Content-Disposition", `inline; filename="label-${order.orderId ?? order._id}.pdf"`);
+  res.set("Cache-Control", "no-store");
+  res.send(buffer);
+});
+
+/** POST /velocity/label-pdf/bulk — fetch courier PDFs in parallel and return one merged file. */
+export const getBulkLabelPdf = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const body = req.body as { orderIds?: unknown };
+  const raw = body.orderIds;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new AppError(400, "orderIds must be a non-empty array");
+  }
+  const ids = [...new Set(raw.map((x) => String(x).trim()).filter(Boolean))];
+  if (ids.length === 0) throw new AppError(400, "orderIds must not be empty");
+  if (ids.length > 100) throw new AppError(400, "Maximum 100 labels per bulk request");
+
+  const orderQuery =
+    req.user.role === "admin"
+      ? { orderId: { $in: ids } }
+      : { orderId: { $in: ids }, $or: [{ createdBy: req.user._id }, { ownerUserId: req.user._id }] };
+
+  const orders = await Order.find(orderQuery).exec();
+  if (orders.length !== ids.length) {
+    throw new AppError(404, "One or more orders were not found");
   }
 
-  const labelUrl = String(order.labelUrl || order.manifestUrl || "").trim();
-  if (!labelUrl) {
-    throw new AppError(404, "No label URL found for this order. Re-create the shipment in Velocity to generate a new label.");
-  }
+  const byOrderId = new Map(orders.map((o) => [o.orderId, o]));
+  const ordered = ids.map((id) => byOrderId.get(id)!);
+  const refreshCache = createVelocityRefreshCache();
 
-  // Try the stored URL first
-  let pdfBuffer: Buffer | null = null;
-  let finalContentType = "application/pdf";
+  type LabelRowResult =
+    | {
+        ok: true;
+        orderId: string;
+        orderRef: (typeof ordered)[number];
+        buffer: Buffer;
+        contentType: string;
+        source?: "cache" | "courier";
+      }
+    | { ok: false; orderId: string; message: string };
 
-  const tryFetch = async (url: string) => {
-    const r = await fetch(url);
-    if (!r.ok) return false;
-    const ct = r.headers.get("content-type") || "application/pdf";
-    if (!ct.includes("pdf") && !ct.includes("octet-stream")) return false;
-    finalContentType = ct;
-    pdfBuffer = Buffer.from(await r.arrayBuffer());
-    return true;
+  const resolveOne = async (
+    order: (typeof ordered)[number],
+    allowVelocityRefresh: boolean
+  ): Promise<LabelRowResult> => {
+    try {
+      const resolved = await resolveOrderLabelPdf(order, {
+        allowVelocityRefresh,
+        fetchTimeoutMs: allowVelocityRefresh ? 15_000 : 10_000,
+        velocityRefreshCache: refreshCache,
+      });
+      return { ok: true as const, orderId: order.orderId, orderRef: order, ...resolved };
+    } catch (err: unknown) {
+      const msg = err instanceof AppError ? err.message : err instanceof Error ? err.message : "Label fetch failed";
+      return { ok: false as const, orderId: order.orderId, message: msg };
+    }
   };
 
-  const storedOk = await tryFetch(labelUrl).catch(() => false);
+  // Fast path: cached PDFs / live URLs without Velocity API refresh.
+  let results = await mapWithConcurrency(ordered, 8, (order) => resolveOne(order, false));
 
-  if (!storedOk) {
-    // URL may be expired — try Velocity listShipments to get a fresh label_url
-    const awb = String(order.awb || order.trackingId || "").trim();
-    if (awb) {
-      try {
-        const result = await velocityService.listShipments({ search: awb });
-        const rows = Array.isArray(result.data) ? (result.data as Record<string, unknown>[]) : [];
-        const row = rows.find((r) => {
-          const attrs = (r.attributes != null && typeof r.attributes === "object" ? r.attributes : r) as Record<string, unknown>;
-          return (
-            String(attrs.tracking_number ?? attrs.awb ?? attrs.awb_code ?? "") === awb ||
-            String(attrs.awb_code ?? "") === awb
-          );
-        });
-        if (row) {
-          const attrs = (row.attributes != null && typeof row.attributes === "object" ? row.attributes : row) as Record<string, unknown>;
-          // Look for any URL field that could be the label
-          const freshUrl = String(
-            attrs.label_url ?? attrs.amazon_label_url ?? attrs.labelUrl ??
-            attrs.shipping_label_url ?? attrs.pdf_url ?? attrs.label ?? ""
-          ).trim();
-          if (freshUrl) {
-            await tryFetch(freshUrl).catch(() => false);
-          }
-        }
-      } catch {
-        // fall through
-      }
-    }
+  const retryIndices = results
+    .map((r, idx) => (!r.ok ? idx : -1))
+    .filter((idx): idx is number => idx >= 0);
+  if (retryIndices.length > 0) {
+    const retried = await mapWithConcurrency(retryIndices, 3, (idx) => resolveOne(ordered[idx], true));
+    results = results.map((row, idx) => {
+      const pos = retryIndices.indexOf(idx);
+      return pos >= 0 ? retried[pos] : row;
+    });
   }
 
-  if (!pdfBuffer) {
+  const okRows = results.filter((r): r is Extract<typeof r, { ok: true }> => r.ok);
+  const failed = results.filter((r): r is Extract<typeof r, { ok: false }> => !r.ok);
+
+  if (okRows.length === 0) {
     throw new AppError(
-      502,
-      "Amazon label URL has expired and Velocity's shipment details API does not return a fresh label PDF URL. Ask Velocity for a download/regenerate-label API by AWB/shipment_id, or recreate the shipment to generate a new label."
+      422,
+      failed.map((f) => `${f.orderId}: ${f.message}`).join("; ") || "No label PDFs could be fetched"
     );
   }
 
-  const finalPdfBuffer = pdfBuffer as Buffer;
-  order.labelPdfBase64 = finalPdfBuffer.toString("base64");
-  order.labelPdfContentType = finalContentType;
-  order.labelPdfCachedAt = new Date();
-  await order.save().catch(() => undefined);
+  const { PDFDocument } = await import("pdf-lib");
+  const merged = await PDFDocument.create();
+  for (const row of okRows) {
+    const src = await PDFDocument.load(row.buffer);
+    const pages = await merged.copyPages(src, src.getPageIndices());
+    for (const page of pages) merged.addPage(page);
+  }
+  const bytes = await merged.save();
 
-  res.set("Content-Type", finalContentType);
-  res.set("Content-Disposition", `inline; filename="label-${order.orderId ?? order._id}.pdf"`);
+  if (failed.length > 0) {
+    res.set(
+      "X-Label-Warnings",
+      failed.map((f) => `${f.orderId}: ${f.message}`).join(" | ").slice(0, 2000)
+    );
+  }
+
+  res.set("Content-Type", "application/pdf");
+  res.set("Content-Disposition", `inline; filename="bulk-labels-${okRows.length}.pdf"`);
   res.set("Cache-Control", "no-store");
-  res.send(finalPdfBuffer);
+  res.send(Buffer.from(bytes));
+
+  // Cache PDFs in background so the response is not blocked on 22 Mongo writes.
+  void Promise.all(
+    okRows.map(async (row) => {
+      if (String(row.orderRef.labelPdfBase64 ?? "").trim()) return;
+      row.orderRef.labelPdfBase64 = row.buffer.toString("base64");
+      row.orderRef.labelPdfContentType = row.contentType;
+      row.orderRef.labelPdfCachedAt = new Date();
+      await row.orderRef.save().catch(() => undefined);
+    })
+  ).catch(() => undefined);
 });

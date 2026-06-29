@@ -263,7 +263,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     return pickupAddresses.filter((p) => p.isActive !== false);
   }, [role, platformPickups, pickupAddresses]);
 
-  const showServiceabilityFilter = SERVICEABILITY_FILTER_TABS.has(activeTab) && (isAdmin || canProcessOrders);
+  const showServiceabilityFilter = SERVICEABILITY_FILTER_TABS.has(activeTab) && isAdmin;
 
   useEffect(() => {
     if (!showServiceabilityFilter) {
@@ -526,8 +526,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       await orderService.moveOrderToReship(id);
       toast.success(
         order?.awb
-          ? "Courier notified and order moved to reship"
-          : "Order moved to reship"
+          ? "Order cancelled and moved to Reship"
+          : "Order moved to Reship"
       );
       await refetch();
     } catch (err: unknown) {

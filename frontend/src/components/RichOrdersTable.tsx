@@ -894,8 +894,14 @@ export function RichOrdersTable({
                   onClick={() => {
                     const picked = orders.filter((o) => selected.has(o.id));
                     if (!picked.length) return;
-                    printBulkLabels(picked);
-                    toast.success(`Printing ${picked.length} label(s)…`);
+                    const toastId = toast.loading(`Preparing ${picked.length} label(s)…`);
+                    void printBulkLabels(picked)
+                      .then(() => {
+                        toast.success(`Opened ${picked.length} label(s)`, { id: toastId });
+                      })
+                      .catch((err: unknown) => {
+                        toast.error(err instanceof Error ? err.message : "Bulk label print failed", { id: toastId });
+                      });
                   }}
                 >
                   <Printer className="h-3.5 w-3.5" /> Bulk Label Print
@@ -907,8 +913,14 @@ export function RichOrdersTable({
                   onClick={() => {
                     const picked = orders.filter((o) => selected.has(o.id));
                     if (!picked.length) return;
-                    printBulkInvoices(picked);
-                    toast.success(`Printing ${picked.length} invoice(s)…`);
+                    const toastId = toast.loading(`Preparing ${picked.length} invoice(s)…`);
+                    void printBulkInvoices(picked)
+                      .then(() => {
+                        toast.success(`Opened ${picked.length} invoice(s)`, { id: toastId });
+                      })
+                      .catch((err: unknown) => {
+                        toast.error(err instanceof Error ? err.message : "Bulk invoice print failed", { id: toastId });
+                      });
                   }}
                 >
                   <Printer className="h-3.5 w-3.5" /> Bulk Invoice Print

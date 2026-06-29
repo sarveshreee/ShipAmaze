@@ -25,6 +25,7 @@ import { orderWalletUserId } from "../services/walletLedger.js";
 import { buildPickupSnapshotFromLean } from "../utils/pickupSnapshot.js";
 import { resolveVendorIdFromPickup } from "../utils/pickupVendor.js";
 import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
+import { devLog } from "../utils/devLog.js";
 import * as velocityService from "../modules/velocity/velocity.service.js";
 import {
   firstItemArrayFromOrderDoc,
@@ -1146,7 +1147,12 @@ export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Respon
 
   const awb = String(order.awb ?? "").trim();
   if (awb) {
-    await velocityService.cancelShipment({ awbs: [awb] });
+    try {
+      await velocityService.cancelShipment({ awbs: [awb] });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      devLog.warn(`[orders:reship] Velocity cancel failed for ${order.orderId} awb=${awb}: ${msg}`);
+    }
   }
 
   order.isJunk = false;
