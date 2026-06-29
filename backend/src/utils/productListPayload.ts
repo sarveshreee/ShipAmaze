@@ -1,5 +1,98 @@
 import type { PipelineStage } from "mongoose";
 
+const CLOUDINARY_PRODUCT_IMAGE_REGEX = "^https://res\\.cloudinary\\.com/";
+
+const productListImagesProjection = {
+  $let: {
+    vars: {
+      allImages: {
+        $cond: [{ $isArray: "$images" }, "$images", []],
+      },
+      rawIndex: { $ifNull: ["$primaryImageIndex", 0] },
+    },
+    in: {
+      $let: {
+        vars: {
+          safeIndex: {
+            $cond: [
+              { $gte: [{ $size: "$$allImages" }, 1] },
+              {
+                $max: [
+                  0,
+                  {
+                    $min: [
+                      "$$rawIndex",
+                      { $subtract: [{ $size: "$$allImages" }, 1] },
+                    ],
+                  },
+                ],
+              },
+              0,
+            ],
+          },
+        },
+        in: {
+          $let: {
+            vars: {
+              primary: { $arrayElemAt: ["$$allImages", "$$safeIndex"] },
+            },
+            in: {
+              $let: {
+                vars: {
+                  primaryUrl: {
+                    $convert: {
+                      input: {
+                        $switch: {
+                          branches: [
+                            {
+                              case: { $eq: [{ $type: "$$primary" }, "string"] },
+                              then: "$$primary",
+                            },
+                            {
+                              case: { $eq: [{ $type: "$$primary" }, "object"] },
+                              then: {
+                                $ifNull: [
+                                  "$$primary.secureUrl",
+                                  {
+                                    $ifNull: [
+                                      "$$primary.secure_url",
+                                      { $ifNull: ["$$primary.url", "$$primary.path"] },
+                                    ],
+                                  },
+                                ],
+                              },
+                            },
+                          ],
+                          default: "",
+                        },
+                      },
+                      to: "string",
+                      onError: "",
+                      onNull: "",
+                    },
+                  },
+                },
+                in: {
+                  $cond: [
+                    {
+                      $regexMatch: {
+                        input: "$$primaryUrl",
+                        regex: CLOUDINARY_PRODUCT_IMAGE_REGEX,
+                      },
+                    },
+                    ["$$primaryUrl"],
+                    { $literal: [] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
 /** Fields needed for product grids/tables — never load image bytes on list endpoints. */
 export const PRODUCT_LIST_PROJECT: Record<string, 1 | unknown> = {
   name: 1,
@@ -51,59 +144,10 @@ export const PRODUCT_LIST_PROJECT: Record<string, 1 | unknown> = {
   createdAt: 1,
   updatedAt: 1,
   hasImage: {
-    $gt: [{ $size: { $ifNull: ["$images", []] } }, 0],
+    $gt: [{ $size: { $cond: [{ $isArray: "$images" }, "$images", []] } }, 0],
   },
   // Omit heavy base64 blobs; include short Cloudinary HTTPS URLs for fast grid thumbnails.
-  images: {
-    $let: {
-      vars: {
-        allImages: { $ifNull: ["$images", []] },
-        rawIndex: { $ifNull: ["$primaryImageIndex", 0] },
-      },
-      in: {
-        $let: {
-          vars: {
-            safeIndex: {
-              $cond: [
-                { $gte: [{ $size: "$$allImages" }, 1] },
-                {
-                  $max: [
-                    0,
-                    {
-                      $min: [
-                        "$$rawIndex",
-                        { $subtract: [{ $size: "$$allImages" }, 1] },
-                      ],
-                    },
-                  ],
-                },
-                0,
-              ],
-            },
-          },
-          in: {
-            $let: {
-              vars: {
-                primary: { $arrayElemAt: ["$$allImages", "$$safeIndex"] },
-              },
-              in: {
-                $cond: [
-                  {
-                    $regexMatch: {
-                      input: { $toString: "$$primary" },
-                      regex: "^https://res\\.cloudinary\\.com/",
-                    },
-                  },
-                  ["$$primary"],
-                  { $literal: [] },
-                ],
-              },
-            },
-          },
-        },
-      },
-    },
-  },
+  images: productListImagesProjection,
 };
 
 export function buildProductListPipeline(
