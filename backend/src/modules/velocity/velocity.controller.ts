@@ -52,7 +52,7 @@ import {
   resolvePayloadWarehouseId,
   type MergedForwardContext,
 } from "./velocity.warehouseMerge.js";
-import { resolveVelocityCarrierId } from "./velocity.resolveCarrier.js";
+import { resolveVelocityCarrierId, assertServiceableCarrierForOrder } from "./velocity.resolveCarrier.js";
 import { mirrorShopifyFulfillmentStatus, pushShopifyFulfillmentUpdate } from "../../services/shopifyFulfillmentMirror.js";
 
 async function applyCourierPriorityRules(
@@ -1727,6 +1727,17 @@ export async function bookForwardShipmentForOrder(
   const manualCourierName = String(body.courier_name ?? "").trim();
   const explicitCourier = Boolean(manualCourierName && manualCourierName.toLowerCase() !== "auto");
 
+  const carrierResolveOpts = {
+    pickupPincode:
+      merged.pickupAddress && typeof merged.pickupAddress === "object"
+        ? String((merged.pickupAddress as { pincode?: string }).pincode ?? "")
+        : undefined,
+    weight: body.weight != null ? Number(body.weight) : undefined,
+    length: body.length != null ? Number(body.length) : undefined,
+    width: body.width != null ? Number(body.width) : undefined,
+    height: body.height != null ? Number(body.height) : undefined,
+  };
+
   if (manualCourierName) {
     localOrder.courierName = manualCourierName;
     localOrder.courier = manualCourierName;
@@ -1734,29 +1745,20 @@ export async function bookForwardShipmentForOrder(
   if (body.carrier_id != null && String(body.carrier_id).trim() !== "") {
     merged.carrier_id = body.carrier_id;
   } else if (explicitCourier) {
-    const resolvedId = await resolveVelocityCarrierId(manualCourierName, localOrder, {
-      weight: body.weight != null ? Number(body.weight) : undefined,
-      length: body.length != null ? Number(body.length) : undefined,
-      width: body.width != null ? Number(body.width) : undefined,
-      height: body.height != null ? Number(body.height) : undefined,
-    });
+    const resolvedId = await resolveVelocityCarrierId(manualCourierName, localOrder, carrierResolveOpts);
     if (resolvedId != null && String(resolvedId).trim() !== "") {
       merged.carrier_id = resolvedId;
     }
   }
 
-  if (!explicitCourier) {
-    await applyCourierPriorityRules(merged as Record<string, unknown>, localOrder);
-  } else {
-    localOrder.courierName = manualCourierName;
-    localOrder.courier = manualCourierName;
-    if (merged.carrier_id == null || String(merged.carrier_id).trim() === "") {
-      throw new AppError(
-        422,
-        `Could not resolve Velocity carrier ID for "${manualCourierName}". Ensure the lane is serviceable or set carrier ID in Admin → Courier Rates.`
-      );
-    }
-  }
+  const serviceable = await assertServiceableCarrierForOrder(localOrder, {
+    ...carrierResolveOpts,
+    preferredCourierName: explicitCourier ? manualCourierName : undefined,
+  });
+  merged.carrier_id = serviceable.carrier_id;
+  localOrder.courierName = serviceable.carrier_name;
+  localOrder.courier = serviceable.carrier_name;
+  localOrder.courierCompanyId = serviceable.carrier_id;
 
   if (!merged.order_id) {
     merged.order_id = buildVelocityProviderOrderId(localOrder.orderId);

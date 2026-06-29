@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Save, Loader2 } from "lucide-react";
 import { usePickupAddresses } from "@/hooks/useApiData";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { ProcessSelectedPayload } from "@/services/orderService";
 import { checkServiceability, type VelocityCarrier } from "@/services/velocityService";
@@ -22,6 +23,14 @@ interface Props {
   couriers: Array<{ id: string; name: string; carrierId?: string }>;
   referenceOrders?: ProcessSelectedOrderRef[];
   submitting?: boolean;
+  initialPickupId?: string;
+  initialCourierCarrierId?: string;
+  /** When set, courier + pickup come from the serviceability filter (fixed bulk booking). */
+  fixedCourierFromFilter?: {
+    courierName: string;
+    carrierId?: string;
+    pickupId: string;
+  };
   onProcess: (payload: ProcessSelectedPayload) => Promise<void>;
 }
 
@@ -29,11 +38,18 @@ export function ProcessSelectedModal({
   open,
   onClose,
   orderIds,
+  couriers,
   referenceOrders = [],
   submitting = false,
+  initialPickupId,
+  initialCourierCarrierId,
+  fixedCourierFromFilter,
   onProcess,
 }: Props) {
-  const { data: userPickups = [] } = usePickupAddresses();
+  const { role } = useAuth();
+  const { data: userPickups = [] } = usePickupAddresses(
+    role === "admin" ? { scope: "platform" } : undefined
+  );
   const activePickups = useMemo(() => userPickups.filter((a) => a.isActive !== false), [userPickups]);
 
   const [shipmentMode, setShipmentMode] = useState<"" | "forward" | "reverse">("");
@@ -65,15 +81,30 @@ export function ProcessSelectedModal({
 
   useEffect(() => {
     if (!open) return;
-    const defaultPickup =
-      activePickups.find((a) => a.isDefault && a.velocityWarehouseId?.trim()) ??
-      activePickups.find((a) => a.velocityWarehouseId?.trim()) ??
-      activePickups.find((a) => a.isDefault) ??
-      activePickups[0];
-    if (defaultPickup && !pickupAddr) {
-      setPickupAddr(defaultPickup.id);
+    if (fixedCourierFromFilter) {
+      setPickupAddr(fixedCourierFromFilter.pickupId);
+      setCourierSelect(
+        fixedCourierFromFilter.carrierId?.trim()
+          ? `svc:${fixedCourierFromFilter.carrierId.trim()}`
+          : `name:${fixedCourierFromFilter.courierName}`
+      );
+      setShipmentMode("forward");
+      return;
     }
-  }, [open, activePickups, pickupAddr]);
+    const defaultPickup =
+      (initialPickupId &&
+        activePickups.find((a) => a.id === initialPickupId)?.id) ||
+      activePickups.find((a) => a.isDefault && a.velocityWarehouseId?.trim())?.id ||
+      activePickups.find((a) => a.velocityWarehouseId?.trim())?.id ||
+      activePickups.find((a) => a.isDefault)?.id ||
+      activePickups[0]?.id ||
+      "";
+    if (defaultPickup) setPickupAddr(defaultPickup);
+    if (initialCourierCarrierId?.trim()) {
+      setCourierSelect(`svc:${initialCourierCarrierId.trim()}`);
+    }
+    setShipmentMode("forward");
+  }, [open, activePickups, initialPickupId, initialCourierCarrierId, fixedCourierFromFilter]);
 
   const pickupPincode = useMemo(() => {
     const p = activePickups.find((a) => a.id === pickupAddr);
@@ -88,6 +119,15 @@ export function ProcessSelectedModal({
     return "";
   }, [referenceOrders]);
 
+  const uniqueDestPincodes = useMemo(() => {
+    const pins = new Set<string>();
+    for (const o of referenceOrders) {
+      const pin = String(o.pincode ?? "").replace(/\D/g, "").slice(0, 6);
+      if (pin.length === 6) pins.add(pin);
+    }
+    return [...pins];
+  }, [referenceOrders]);
+
   const referencePayment = useMemo(() => {
     const o = referenceOrders[0];
     if (!o?.payment) return "prepaid" as const;
@@ -98,8 +138,8 @@ export function ProcessSelectedModal({
   const hasDestPin = destPincode.length === 6;
 
   useEffect(() => {
-    if (!open || shipmentMode !== "forward" || !hasPickupPin || !hasDestPin) {
-      setServiceableCouriers([]);
+    if (!open || fixedCourierFromFilter || shipmentMode !== "forward" || !hasPickupPin || !hasDestPin) {
+      if (!fixedCourierFromFilter) setServiceableCouriers([]);
       return;
     }
     let cancelled = false;
@@ -123,7 +163,38 @@ export function ProcessSelectedModal({
     return () => {
       cancelled = true;
     };
-  }, [open, shipmentMode, pickupPincode, destPincode, referencePayment, hasPickupPin, hasDestPin]);
+  }, [open, shipmentMode, pickupPincode, destPincode, referencePayment, hasPickupPin, hasDestPin, fixedCourierFromFilter]);
+
+  const courierOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: Array<{ value: string; label: string }> = [];
+    const add = (value: string, label: string) => {
+      if (seen.has(value)) return;
+      seen.add(value);
+      rows.push({ value, label });
+    };
+
+    if (fixedCourierFromFilter) {
+      add(
+        fixedCourierFromFilter.carrierId?.trim()
+          ? `svc:${fixedCourierFromFilter.carrierId.trim()}`
+          : `name:${fixedCourierFromFilter.courierName}`,
+        fixedCourierFromFilter.courierName
+      );
+      return rows;
+    }
+
+    for (const c of couriers) {
+      if (c.carrierId?.trim()) add(`svc:${c.carrierId.trim()}`, c.name);
+      else add(`name:${c.name}`, c.name);
+    }
+    for (const c of serviceableCouriers) {
+      if (c.carrier_id != null && String(c.carrier_id).trim()) {
+        add(`svc:${String(c.carrier_id).trim()}`, String(c.carrier_name ?? c.carrier_id));
+      }
+    }
+    return rows;
+  }, [couriers, serviceableCouriers, fixedCourierFromFilter]);
 
   const validationMessages = useMemo(() => {
     if (!open) return [] as string[];
@@ -143,13 +214,23 @@ export function ProcessSelectedModal({
   };
 
   const resolveCourierPayload = (): { courierName: string; carrierId?: string } => {
+    if (fixedCourierFromFilter) {
+      return {
+        courierName: fixedCourierFromFilter.courierName,
+        carrierId: fixedCourierFromFilter.carrierId,
+      };
+    }
     const sel = courierSelect.trim();
     if (!sel || sel.toLowerCase() === "auto") return { courierName: "Auto" };
+    if (sel.startsWith("name:")) {
+      return { courierName: sel.slice(5).trim() };
+    }
     if (sel.startsWith("svc:")) {
       const id = sel.slice(4).trim();
-      const svc = serviceableCouriers.find((c) => String(c.carrier_id) === id);
+      const fromAdmin = couriers.find((c) => String(c.carrierId ?? "") === id);
+      const fromLane = serviceableCouriers.find((c) => String(c.carrier_id) === id);
       return {
-        courierName: svc?.carrier_name ?? id,
+        courierName: fromAdmin?.name ?? fromLane?.carrier_name ?? id,
         carrierId: id,
       };
     }
@@ -188,8 +269,8 @@ export function ProcessSelectedModal({
 
     const { courierName, carrierId } = resolveCourierPayload();
 
-    if (courierName !== "Auto" && !carrierId?.trim()) {
-      toast.error("Select a courier from the Velocity serviceable list (e.g. Ekart Standard)");
+    if (courierName !== "Auto" && !carrierId?.trim() && !fixedCourierFromFilter) {
+      toast.error("Select a courier with a Velocity carrier ID, or use the serviceability filter first.");
       return;
     }
 
@@ -224,6 +305,13 @@ export function ProcessSelectedModal({
         <p className="text-sm text-text-muted">
           Orders are booked via Velocity with a real AWB. Dropshippers are charged your admin Rate
           Card price (Rates &amp; Shipping), not Velocity&apos;s actual freight.
+          {fixedCourierFromFilter && (
+            <>
+              {" "}
+              Each selected order was already verified serviceable for{" "}
+              <strong>{fixedCourierFromFilter.courierName}</strong> from your pickup filter.
+            </>
+          )}
         </p>
 
         <div className="space-y-5 py-2">
@@ -249,7 +337,8 @@ export function ProcessSelectedModal({
               <select
                 value={pickupAddr}
                 onChange={(e) => setPickupAddr(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                disabled={Boolean(fixedCourierFromFilter)}
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
               >
                 <option value="">Select pickup…</option>
                 {activePickups.map((a) => (
@@ -287,26 +376,48 @@ export function ProcessSelectedModal({
               <select
                 value={courierSelect}
                 onChange={(e) => setCourierSelect(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                disabled={Boolean(fixedCourierFromFilter)}
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm disabled:opacity-60"
               >
-                <option value="">Auto — system assigns courier</option>
-                {serviceableCouriers.map((c) => (
-                  <option key={`svc-${c.carrier_id}`} value={`svc:${c.carrier_id}`}>
-                    {c.carrier_name}
+                {!fixedCourierFromFilter && (
+                  <option value="">Auto — system assigns courier</option>
+                )}
+                {courierOptions.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
                   </option>
                 ))}
               </select>
 
-              {serviceableLoading && (
+              {!fixedCourierFromFilter && serviceableLoading && (
                 <p className="text-[11px] text-text-muted mt-1 flex items-center gap-1">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   Loading serviceable couriers from Velocity…
                 </p>
               )}
 
-              {!serviceableLoading && serviceableCouriers.length === 0 && hasPickupPin && hasDestPin && shipmentMode === "forward" && (
+              {!fixedCourierFromFilter &&
+                !serviceableLoading &&
+                serviceableCouriers.length === 0 &&
+                hasPickupPin &&
+                hasDestPin &&
+                shipmentMode === "forward" && (
                 <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">
-                  No live couriers returned for this lane. Check pickup pincode and Velocity credentials.
+                  No live couriers returned for the first selected lane. You can still pick from your courier list above.
+                </p>
+              )}
+
+              {fixedCourierFromFilter && uniqueDestPincodes.length > 1 && (
+                <p className="text-[11px] text-text-muted mt-1">
+                  {orderIds.length} orders across {uniqueDestPincodes.length} pincodes — each is booked with{" "}
+                  {fixedCourierFromFilter.courierName} using per-order Velocity serviceability.
+                </p>
+              )}
+
+              {!fixedCourierFromFilter && uniqueDestPincodes.length > 1 && shipmentMode === "forward" && (
+                <p className="text-[11px] text-text-muted mt-1">
+                  {orderIds.length} orders across {uniqueDestPincodes.length} pincodes. Use the serviceability filter on
+                  the orders page to bulk-book one courier, or pick a courier and the backend will verify each lane.
                 </p>
               )}
 

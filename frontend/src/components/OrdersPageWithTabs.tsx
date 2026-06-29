@@ -11,7 +11,7 @@ import type { Order } from "@/types/logistics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Search, Download, Package, SlidersHorizontal, X, RefreshCw } from "lucide-react";
+import { Search, Download, Package, SlidersHorizontal, X, RefreshCw, Loader2, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
@@ -29,7 +29,12 @@ import * as orderService from "@/services/orderService";
 import { syncShipmentStatuses } from "@/services/velocityService";
 import type { OrderListFilterValues } from "@/services/orderService";
 import { errorMessageFromUnknown } from "@/lib/errorMessage";
-import { orderMatchesTab } from "@/lib/orderTabFilters";
+import { isOrderReadyToShip, orderMatchesTab } from "@/lib/orderTabFilters";
+import {
+  normalizePincode,
+  useServiceableOrdersFilter,
+  type ServiceabilityCourierFilter,
+} from "@/lib/orderServiceabilityFilter";
 import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
 import { OrderListAdvancedFilters } from "@/components/OrderListAdvancedFilters";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +55,9 @@ const tabs: { label: string; filter: string }[] = [
   { label: "Failed", filter: "failed" },
   { label: "Junk", filter: "junk" },
 ];
+
+/** Tabs where bulk process + courier serviceability filter apply. */
+const SERVICEABILITY_FILTER_TABS = new Set(["all", "channel", "manual", "ready-to-ship"]);
 
 const ORDER_EXPORT_HEADERS = [
   "Order Account",
@@ -157,6 +165,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const [channelFulfillment, setChannelFulfillment] = useState<string | undefined>(undefined);
   const [advancedFilters, setAdvancedFilters] = useState<OrderListFilterValues>({});
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [serviceabilityPickupId, setServiceabilityPickupId] = useState("");
+  const [serviceabilityCourierId, setServiceabilityCourierId] = useState("");
   const isMobile = useIsMobile();
   const listView = activeTab === "junk" ? "junk" : undefined;
 
@@ -174,7 +184,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   useEffect(() => {
     setPage(1);
-  }, [activeTab, debouncedSearch, channelPayment, channelFulfillment, advancedFiltersKey]);
+  }, [activeTab, debouncedSearch, channelPayment, channelFulfillment, advancedFiltersKey, serviceabilityPickupId, serviceabilityCourierId]);
 
   useEffect(() => {
     if (activeTab !== "channel") {
@@ -247,6 +257,57 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const isAdmin = role === "admin";
   const { canProcessOrders } = useDropshipperAccess();
 
+  const pickupFilterOptions = useMemo(() => {
+    if (role === "admin") return platformPickups.filter((p) => p.isActive !== false);
+    if (role === "dropshipper") return pickupAddresses.filter((p) => p.isActive !== false);
+    return pickupAddresses.filter((p) => p.isActive !== false);
+  }, [role, platformPickups, pickupAddresses]);
+
+  const showServiceabilityFilter = SERVICEABILITY_FILTER_TABS.has(activeTab) && (isAdmin || canProcessOrders);
+
+  useEffect(() => {
+    if (!showServiceabilityFilter) {
+      setServiceabilityPickupId("");
+      setServiceabilityCourierId("");
+      return;
+    }
+    if (serviceabilityPickupId) return;
+    const defaultPickup =
+      pickupFilterOptions.find((p) => p.isDefault && p.velocityWarehouseId?.trim()) ??
+      pickupFilterOptions.find((p) => p.velocityWarehouseId?.trim()) ??
+      pickupFilterOptions.find((p) => p.isDefault) ??
+      pickupFilterOptions[0];
+    if (defaultPickup) setServiceabilityPickupId(defaultPickup.id);
+  }, [showServiceabilityFilter, pickupFilterOptions, serviceabilityPickupId]);
+
+  const serviceabilityFilter = useMemo((): ServiceabilityCourierFilter | null => {
+    if (!showServiceabilityFilter || !serviceabilityCourierId || serviceabilityCourierId === "__any__") {
+      return null;
+    }
+    const pickup = pickupFilterOptions.find((p) => p.id === serviceabilityPickupId);
+    const pickupPin = normalizePincode(pickup?.pincode);
+    if (pickupPin.length !== 6) return null;
+    const courier = couriers.find((c) => c.id === serviceabilityCourierId);
+    if (!courier) return null;
+    return {
+      pickupPincode: pickupPin,
+      carrierId: courier.carrierId || undefined,
+      courierName: courier.name,
+    };
+  }, [
+    showServiceabilityFilter,
+    serviceabilityCourierId,
+    serviceabilityPickupId,
+    pickupFilterOptions,
+    couriers,
+  ]);
+
+  const {
+    filteredOrders: serviceabilityFilteredOrders,
+    loading: serviceabilityLoading,
+    active: serviceabilityFilterActive,
+  } = useServiceableOrdersFilter(orders, serviceabilityFilter);
+
   useEffect(() => {
     if (!isAdmin) return;
     let cancelled = false;
@@ -285,6 +346,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     setAdvancedFilters({});
     setChannelPayment(undefined);
     setChannelFulfillment(undefined);
+    setServiceabilityCourierId("");
     setPage(1);
   }, []);
 
@@ -364,18 +426,41 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         onRemove: () => setChannelFulfillment(undefined),
       });
     }
+    if (serviceabilityFilterActive) {
+      const pickupLabel =
+        pickupFilterOptions.find((p) => p.id === serviceabilityPickupId)?.label ?? "pickup";
+      const courierLabel = couriers.find((c) => c.id === serviceabilityCourierId)?.name ?? "courier";
+      tags.push({
+        id: "__svcCourier",
+        label: `Serviceable: ${courierLabel} · ${pickupLabel}`,
+        onRemove: () => setServiceabilityCourierId(""),
+      });
+    }
     return tags;
-  }, [advancedFilters, activeTab, channelPayment, channelFulfillment, dropshipperOptions, vendorOptions]);
+  }, [
+    advancedFilters,
+    activeTab,
+    channelPayment,
+    channelFulfillment,
+    dropshipperOptions,
+    vendorOptions,
+    serviceabilityFilterActive,
+    serviceabilityPickupId,
+    serviceabilityCourierId,
+    pickupFilterOptions,
+    couriers,
+  ]);
 
   const hasListFilters =
     Boolean(debouncedSearch) ||
     filterTags.length > 0 ||
     Boolean(advancedFilters.dateFrom) ||
-    Boolean(advancedFilters.dateTo);
+    Boolean(advancedFilters.dateTo) ||
+    serviceabilityFilterActive;
 
   const filterByTab = (o: Order, tab: string) => orderMatchesTab(o, tab);
 
-  const filtered = orders;
+  const filtered = serviceabilityFilterActive ? serviceabilityFilteredOrders : orders;
 
   const selectedOrders = useMemo(() => filtered.filter((o) => selected.has(o.id)), [filtered, selected]);
 
@@ -403,11 +488,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     if (RELAXED_PROCESS_TABS.has(activeTab)) {
       return selectedOrders.every(isEligible);
     }
-    return selectedOrders.every((o) => {
-      const st = String(o.status ?? "").toLowerCase().replace(/-/g, "_");
-      const ready = st === "ready_to_ship";
-      return isEligible(o) && ready;
-    });
+    return selectedOrders.every((o) => isEligible(o) && isOrderReadyToShip(o));
   }, [selectedOrders, activeTab, RELAXED_PROCESS_TABS]);
 
   const [processSubmitting, setProcessSubmitting] = useState(false);
@@ -667,6 +748,63 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         </div>
       )}
 
+      {showServiceabilityFilter && (
+        <div className="flex flex-wrap gap-2 mb-3 items-end">
+          <div>
+            <Label className="text-xs text-text-muted block mb-1">Pickup for serviceability</Label>
+            <Select
+              value={serviceabilityPickupId || "__none__"}
+              onValueChange={(v) => setServiceabilityPickupId(v === "__none__" ? "" : v)}
+            >
+              <SelectTrigger className="w-[220px] h-9 text-sm">
+                <SelectValue placeholder="Select pickup…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Select pickup…</SelectItem>
+                {pickupFilterOptions.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs text-text-muted block mb-1">Serviceable courier</Label>
+            <div className="flex items-center gap-2">
+              <Select
+                value={serviceabilityCourierId || "__any__"}
+                onValueChange={(v) => setServiceabilityCourierId(v === "__any__" ? "" : v)}
+                disabled={!serviceabilityPickupId}
+              >
+                <SelectTrigger className="w-[220px] h-9 text-sm">
+                  <SelectValue placeholder="All couriers" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__any__">All couriers</SelectItem>
+                  {couriers
+                    .filter((c) => c.active !== false)
+                    .map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {serviceabilityLoading && (
+                <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" aria-label="Checking serviceability" />
+              )}
+            </div>
+          </div>
+          {serviceabilityFilterActive && !serviceabilityLoading && (
+            <p className="text-xs text-text-muted flex items-center gap-1.5 pb-1">
+              <Truck className="h-3.5 w-3.5" />
+              Showing {filtered.length} order{filtered.length !== 1 ? "s" : ""} serviceable on this page
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 mb-2 items-center">
         <div className="relative flex-1 min-w-[160px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
@@ -720,7 +858,9 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           </Button>
         )}
         <span className="text-xs text-text-muted whitespace-nowrap hidden sm:inline sm:ml-auto">
-          {total} total
+          {serviceabilityFilterActive && !serviceabilityLoading
+            ? `${filtered.length} shown · ${total} total`
+            : `${total} total`}
         </span>
         <div className="flex items-center gap-1 shrink-0">
           <Button
@@ -778,12 +918,20 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       />
 
       {isMobile ? (
-        loading ? <OrderCardSkeleton /> : (
+        loading || serviceabilityLoading ? <OrderCardSkeleton /> : (
           filtered.length === 0 ? (
             <EmptyState
               icon={Package}
-              title="No orders found for these filters."
-              description="Try clearing filters or changing your search."
+              title={
+                serviceabilityFilterActive
+                  ? "No serviceable orders on this page for that courier."
+                  : "No orders found for these filters."
+              }
+              description={
+                serviceabilityFilterActive
+                  ? "Try another courier, change pickup, or clear the serviceability filter."
+                  : "Try clearing filters or changing your search."
+              }
               actionLabel="Clear filters"
               onAction={clearAllFilters}
             />
@@ -800,9 +948,20 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onMarkReship={handleMarkReship}
           onBulkJunk={role === "vendor" ? undefined : activeTab === "junk" ? handleBulkDeleteJunk : handleBulkJunk}
           bulkJunkLabel={activeTab === "junk" ? "Bulk Delete" : "Bulk Junk"}
-          onOpenProcessModal={() => setProcessModalOpen(true)}
+          onOpenProcessModal={() => {
+            if (serviceabilityFilterActive) {
+              const visibleIds = new Set(filtered.map((o) => o.id));
+              const outsideFilter = [...selected].filter((id) => !visibleIds.has(id));
+              if (outsideFilter.length > 0) {
+                toast.warning(
+                  `${outsideFilter.length} selected order(s) are not serviceable for the current courier filter and may fail at booking.`
+                );
+              }
+            }
+            setProcessModalOpen(true);
+          }}
           onBulkMoveToReady={handleBulkMoveToReady}
-          onMoveToReady={handleMoveToReady}
+          onMoveToReady={activeTab === "ready-to-ship" ? undefined : handleMoveToReady}
           onExport={handleExport}
           loading={loading}
           activeTab={activeTab}
@@ -822,6 +981,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                   await refetch();
                   return res;
                 }
+              : undefined
+          }
+          loading={loading || serviceabilityLoading}
+          emptyDescription={
+            serviceabilityFilterActive
+              ? "No orders on this page are serviceable for the selected courier from this pickup."
               : undefined
           }
         />
@@ -850,6 +1015,25 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         open={processModalOpen}
         onClose={() => !processSubmitting && setProcessModalOpen(false)}
         orderIds={Array.from(selected)}
+        initialPickupId={serviceabilityPickupId || undefined}
+        initialCourierCarrierId={
+          serviceabilityFilterActive
+            ? couriers.find((c) => c.id === serviceabilityCourierId)?.carrierId
+            : undefined
+        }
+        fixedCourierFromFilter={
+          serviceabilityFilterActive && serviceabilityPickupId && serviceabilityCourierId
+            ? (() => {
+                const c = couriers.find((x) => x.id === serviceabilityCourierId);
+                if (!c?.name) return undefined;
+                return {
+                  pickupId: serviceabilityPickupId,
+                  courierName: c.name,
+                  carrierId: c.carrierId || undefined,
+                };
+              })()
+            : undefined
+        }
         couriers={couriers
           .filter((c) => c.active !== false)
           .map((c) => ({ id: c.id, name: c.name, carrierId: c.carrierId || undefined }))}

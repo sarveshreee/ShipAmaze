@@ -2,6 +2,8 @@ import { Courier } from "../../models/Courier.js";
 import { CourierRateMaster } from "../../models/CourierRateMaster.js";
 import type { IOrder } from "../../models/Order.js";
 import { Pickup } from "../../models/Pickup.js";
+import { AppError } from "../../middleware/errorMiddleware.js";
+import { resolveCourierPriorityForOrder } from "../../services/courierPriorityService.js";
 import * as velocityService from "./velocity.service.js";
 import { normalizePincode } from "./velocity.payload.js";
 import type { VelocityCarrier } from "./velocity.types.js";
@@ -159,4 +161,101 @@ export async function listServiceableCarriersForOrder(
   } catch {
     return [];
   }
+}
+
+export type ResolvedServiceableCarrier = {
+  carrier_id: string;
+  carrier_name: string;
+};
+
+function carrierRowToResolved(row: VelocityCarrier, fallbackName: string): ResolvedServiceableCarrier | undefined {
+  if (row.carrier_id == null || !String(row.carrier_id).trim()) return undefined;
+  return {
+    carrier_id: String(row.carrier_id).trim(),
+    carrier_name: String(row.carrier_name ?? fallbackName).trim() || fallbackName,
+  };
+}
+
+/**
+ * Resolve a Velocity carrier that is serviceable for this order's lane.
+ * When preferredCourierName is set, only that courier (or alias) is considered.
+ * When omitted / Auto, uses priority rules then live rates/serviceability.
+ */
+export async function resolveServiceableCarrierForOrder(
+  order: IOrder,
+  opts: ResolveCarrierOpts & { preferredCourierName?: string } = {}
+): Promise<ResolvedServiceableCarrier | undefined> {
+  const preferred = String(opts.preferredCourierName ?? "").trim();
+  const lane = await resolveLanePincodes(order, opts);
+  if (!lane) return undefined;
+
+  if (preferred && preferred.toLowerCase() !== "auto") {
+    const fromMaster = await resolveVelocityCarrierId(preferred, order, opts);
+    if (fromMaster) {
+      const serviceable = await listServiceableCarriersForOrder(order, opts);
+      const verified =
+        serviceable.find((c) => String(c.carrier_id) === fromMaster) ??
+        pickCarrierFromList(serviceable, preferred);
+      if (verified) return carrierRowToResolved(verified, preferred);
+      if (serviceable.length === 0) {
+        return { carrier_id: fromMaster, carrier_name: preferred };
+      }
+    }
+    const serviceable = await listServiceableCarriersForOrder(order, opts);
+    const match = pickCarrierFromList(serviceable, preferred);
+    if (match) return carrierRowToResolved(match, preferred);
+    return undefined;
+  }
+
+  const serviceable = await listServiceableCarriersForOrder(order, opts);
+  const { candidates } = await resolveCourierPriorityForOrder(order);
+  for (const candidate of candidates) {
+    const match =
+      pickCarrierFromList(serviceable, candidate.courierName) ??
+      (candidate.courierId?.trim()
+        ? serviceable.find((c) => String(c.carrier_id) === candidate.courierId!.trim())
+        : undefined);
+    if (match) return carrierRowToResolved(match, candidate.courierName);
+  }
+
+  const weightKg = opts.weight ?? (parseFloat(String(order.weight ?? "")) || 0.5);
+  const length = opts.length ?? order.length ?? 10;
+  const width = opts.width ?? order.width ?? order.breadth ?? 10;
+  const height = opts.height ?? order.height ?? 10;
+  try {
+    const rates = await velocityService.getRates({
+      from: lane.fromPin,
+      to: lane.toPin,
+      weight: toDeadWeightGrams(weightKg),
+      length,
+      width,
+      height,
+      payment_mode: lane.payment,
+      shipment_type: "forward",
+      cod_value: lane.payment === "cod" ? Number(order.amount ?? 0) : undefined,
+    });
+    const first = rates.data?.[0];
+    if (first) return carrierRowToResolved(first, String(first.carrier_name ?? "Auto"));
+  } catch {
+    /* fall through */
+  }
+
+  const firstServiceable = serviceable[0];
+  if (firstServiceable) return carrierRowToResolved(firstServiceable, String(firstServiceable.carrier_name ?? "Auto"));
+  return undefined;
+}
+
+export async function assertServiceableCarrierForOrder(
+  order: IOrder,
+  opts: ResolveCarrierOpts & { preferredCourierName?: string } = {}
+): Promise<ResolvedServiceableCarrier> {
+  const resolved = await resolveServiceableCarrierForOrder(order, opts);
+  if (resolved) return resolved;
+  const pin = normalizePincode(String(order.shippingPincode ?? order.pincode ?? ""));
+  const preferred = String(opts.preferredCourierName ?? "").trim();
+  const label = preferred && preferred.toLowerCase() !== "auto" ? `"${preferred}"` : "a serviceable courier";
+  throw new AppError(
+    422,
+    `Order ${order.orderId}: ${label} cannot deliver to pincode ${pin || "unknown"}. Use Auto courier or process orders with the same serviceable lane separately.`
+  );
 }

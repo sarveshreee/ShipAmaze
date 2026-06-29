@@ -56,6 +56,22 @@ function laterStatus(a: string, b: string): string {
   return (STATUS_RANK[b] ?? 0) > (STATUS_RANK[a] ?? 0) ? b : a;
 }
 
+/** Highest pipeline status from order.status vs order.shipmentStatus (mirrors tab matching). */
+export function orderEffectiveStatus(o: Order): string {
+  const st = normalizeTabStatus(o.status);
+  const shipmentSt = normalizeTabStatus(o.shipmentStatus);
+  return laterStatus(st, shipmentSt);
+}
+
+/** True when the order belongs in Ready to Ship (no AWB yet). */
+export function isOrderReadyToShip(o: Order): boolean {
+  if (Boolean(o.isJunk)) return false;
+  if (normalizeTabStatus(o.status) === "reship") return false;
+  const hasAwb = Boolean(String(o.awb ?? "").trim());
+  if (hasAwb) return false;
+  return READY_TO_SHIP_STATUSES.has(orderEffectiveStatus(o));
+}
+
 export function isChannelOrder(o: Order): boolean {
   const channel = String(o.channel ?? "");
   const externalSource = String(o.externalSource ?? "").toLowerCase();
@@ -67,7 +83,7 @@ export function isChannelOrder(o: Order): boolean {
 export function orderMatchesTab(o: Order, tab: string): boolean {
   const st = normalizeTabStatus(o.status);
   const shipmentSt = normalizeTabStatus(o.shipmentStatus);
-  const effectiveSt = laterStatus(st, shipmentSt);
+  const effectiveSt = orderEffectiveStatus(o);
   const isReship = st === "reship";
   const isJunk = Boolean(o.isJunk);
   const hasAwb = Boolean(String(o.awb ?? "").trim());

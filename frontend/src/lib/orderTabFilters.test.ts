@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeTabStatus, orderMatchesTab } from "./orderTabFilters";
+import { isOrderReadyToShip, normalizeTabStatus, orderMatchesTab } from "./orderTabFilters";
 import type { Order } from "@/types/logistics";
 
 function orderWith(overrides: Partial<Order>): Order {
@@ -40,6 +40,22 @@ describe("order tab filters", () => {
 
     expect(orderMatchesTab(order, "delivered")).toBe(true);
     expect(orderMatchesTab(order, "in-transit")).toBe(false);
+  });
+
+  it("treats orders as ready to ship when only shipmentStatus was updated", () => {
+    const order = orderWith({
+      status: "pending",
+      shipmentStatus: "ready_to_ship",
+      awb: "",
+    });
+
+    expect(isOrderReadyToShip(order)).toBe(true);
+    expect(orderMatchesTab(order, "ready-to-ship")).toBe(true);
+  });
+
+  it("normalizes ready-to-ship status aliases", () => {
+    expect(isOrderReadyToShip(orderWith({ status: "ready-to-ship", awb: "" }))).toBe(true);
+    expect(isOrderReadyToShip(orderWith({ status: "Ready to Ship", awb: "" }))).toBe(true);
   });
 
   it("keeps channel and manual tabs limited to pre-fulfillment orders", () => {

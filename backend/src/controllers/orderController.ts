@@ -39,8 +39,6 @@ import { bookForwardShipmentForOrder } from "../modules/velocity/velocity.contro
 import { formatErrorMessage } from "../utils/errorMessage.js";
 import { syncPickupToVelocity } from "../modules/velocity/velocity.warehouseSync.js";
 import { velocityConfig } from "../modules/velocity/velocity.config.js";
-import { resolveVelocityCarrierId } from "../modules/velocity/velocity.resolveCarrier.js";
-import { CourierRateMaster } from "../models/CourierRateMaster.js";
 
 function normalizePickupAddressForClient(pickup: unknown): unknown {
   if (pickup == null) return pickup;
@@ -1362,24 +1360,6 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     new mongoose.Types.ObjectId(pickupAddressId)
   ).snapshot;
 
-  let resolvedCarrierId =
-    body.carrierId != null && String(body.carrierId).trim() ? String(body.carrierId).trim() : undefined;
-  if (!autoCourier && !resolvedCarrierId && courierName) {
-    const rateMaster = await CourierRateMaster.findOne({
-      courierName: { $regex: new RegExp(`^${courierName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
-    })
-      .select("carrierId")
-      .lean();
-    if (rateMaster?.carrierId?.trim()) {
-      resolvedCarrierId = rateMaster.carrierId.trim();
-    } else {
-      const courierDoc = await Courier.findOne({ name: courierName }).select("carrierId").lean();
-      if (courierDoc?.carrierId?.trim()) {
-        resolvedCarrierId = courierDoc.carrierId.trim();
-      }
-    }
-  }
-
   const orders = await Order.find({ orderId: { $in: ids } }).exec();
   if (orders.length !== ids.length) throw new AppError(404, "One or more orders were not found");
 
@@ -1417,8 +1397,6 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     o.courier = autoCourier ? "Auto" : courierName;
     if (autoCourier) {
       o.courierCompanyId = undefined;
-    } else if (resolvedCarrierId) {
-      o.courierCompanyId = resolvedCarrierId;
     }
     o.pickupAddressId = new mongoose.Types.ObjectId(pickupAddressId);
     o.pickupWarehouseId = pickupAddressId;
@@ -1451,23 +1429,6 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     };
     if (!autoCourier) {
       bookingBody.courier_name = courierName;
-      let orderCarrierId = resolvedCarrierId;
-      if (!orderCarrierId) {
-        const fromRates = await resolveVelocityCarrierId(courierName, o, {
-          pickupPincode: pickupSnapshot.pincode,
-          weight,
-          length,
-          width,
-          height,
-        });
-        if (fromRates != null && String(fromRates).trim() !== "") {
-          orderCarrierId = String(fromRates).trim();
-        }
-      }
-      if (orderCarrierId) {
-        bookingBody.carrier_id = orderCarrierId;
-        o.courierCompanyId = orderCarrierId;
-      }
     }
 
     let booking;

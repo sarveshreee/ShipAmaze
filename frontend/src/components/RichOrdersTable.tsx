@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 import { getRates, type VelocityRate } from "@/services/velocityService";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
+import { isOrderReadyToShip } from "@/lib/orderTabFilters";
 import { toast } from "sonner";
 import { printBulkInvoices, printBulkLabels, printShippingLabel } from "@/components/ShippingLabel";
 import * as orderService from "@/services/orderService";
@@ -1486,7 +1487,7 @@ export function RichOrdersTable({
                         </Button>
                       ) : (
                         <div className="flex flex-col gap-1.5">
-                          {!o.isJunk && String(o.status) !== "ready_to_ship" && !o.awb && onMoveToReady && (
+                          {!o.isJunk && !isOrderReadyToShip(o) && onMoveToReady && activeTab !== "ready-to-ship" && (
                             <Button
                               variant="outline"
                               size="sm"
