@@ -37,6 +37,11 @@ export type ShopifyOrderSyncResult = {
   skipReasons: ShopifySkipReason[];
 };
 
+export type ShopifyOrderSyncTarget = {
+  shopDomain?: string;
+  connectionId?: string;
+};
+
 function orderOwnedByUser(
   existing: {
     ownerUserId?: Types.ObjectId | null;
@@ -77,14 +82,23 @@ function summarizeSkipReasons(skipReasons: ShopifySkipReason[]): string {
 
 export async function performShopifyOrderSyncForUser(
   ownerUserId: Types.ObjectId,
-  role: "admin" | "vendor" | "dropshipper"
+  role: "admin" | "vendor" | "dropshipper",
+  target: ShopifyOrderSyncTarget = {}
 ): Promise<ShopifyOrderSyncResult> {
-  const conn = await ShopifyStoreConnection.findOne({
+  const query: Record<string, unknown> = {
     ownerUserId,
     isActive: true,
-  });
+  };
+  const shopDomain = target.shopDomain?.trim().toLowerCase();
+  if (shopDomain) query.shopDomain = shopDomain;
+  if (target.connectionId) {
+    if (!Types.ObjectId.isValid(target.connectionId)) throw new AppError(400, "Invalid Shopify connection id.");
+    query._id = new Types.ObjectId(target.connectionId);
+  }
+
+  const conn = await ShopifyStoreConnection.findOne(query);
   if (!conn) {
-    throw new AppError(400, "No active Shopify store connected. Please connect first.");
+    throw new AppError(400, "No active Shopify store connected for this account.");
   }
 
   let accessToken: string;

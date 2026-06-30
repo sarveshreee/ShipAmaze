@@ -1204,6 +1204,12 @@ function assertPickupApiRole(role: UserRole) {
   }
 }
 
+async function platformPickupListQuery(): Promise<Record<string, unknown>> {
+  const adminUsers = await User.find({ role: "admin" }).select("_id").lean();
+  const adminUserIds = adminUsers.map((u) => u._id);
+  return { $and: [{ userId: { $in: adminUserIds } }, { ...PICKUP_NOT_DELETED }] };
+}
+
 function pickupLabelFromBody(b: Record<string, unknown>): string {
   return trimStr(b.label) || trimStr(b.pickupName) || trimStr(b.warehouseName);
 }
@@ -1272,7 +1278,7 @@ export const listPickupAddresses = asyncHandler(async (req: AuthRequest, res: Re
   const scope = String(req.query.scope ?? "").trim().toLowerCase();
   let findQuery: Record<string, unknown>;
   if (req.user.role === "admin" && scope === "platform") {
-    findQuery = { $and: [{ userId: req.user._id }, { ...PICKUP_NOT_DELETED }] };
+    findQuery = await platformPickupListQuery();
   } else {
     findQuery = pickupListQuery(req.user, { includeInactive: true });
   }
@@ -1394,6 +1400,7 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     addressFingerprint: fp,
     isDefault: makeDefault,
     isActive,
+    createdByRole: ownerRole,
   });
 
   // Auto-sync to Velocity (non-fatal — do not roll back pickup save on failure)

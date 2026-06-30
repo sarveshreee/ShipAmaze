@@ -18,13 +18,14 @@ import {
   Copy,
   Link2,
   Link2Off,
+  PlusCircle,
   RefreshCw,
   ShoppingBag,
   AlertCircle,
   Clock,
 } from "lucide-react";
 import * as shopifyService from "@/services/shopifyService";
-import type { ShopifyStatus } from "@/services/shopifyService";
+import type { ShopifyConnectionStatus, ShopifyStatus } from "@/services/shopifyService";
 import { ApiError } from "@/lib/apiClient";
 
 function formatDate(iso: string | null | undefined): string {
@@ -53,6 +54,12 @@ const DEFAULT_SHOPIFY_REDIRECT_URI = "https://api.shipamaze.com/api/shopify/call
 const DEFAULT_SHOPIFY_APP_URL = "https://shipamaze.com";
 const SHOPIFY_ADMIN_API_SCOPES =
   "read_customers,write_customers,read_fulfillments,write_fulfillments,write_locations,read_locations,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_orders,write_orders,read_products,write_products";
+
+function normaliseShopDomain(raw: string): string {
+  let normalised = raw.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\/$/, "").toLowerCase();
+  if (normalised && !normalised.includes(".")) normalised = `${normalised}.myshopify.com`;
+  return normalised;
+}
 
 function SetupUrlCopyRow({ label, url }: { label: string; url: string }) {
   const [copied, setCopied] = useState(false);
@@ -107,17 +114,16 @@ export default function ShopifyConnect() {
   const [shopifyApiKey, setShopifyApiKey] = useState("");
   const [shopifyApiSecret, setShopifyApiSecret] = useState("");
   const [connecting, setConnecting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
+  const [syncingShopDomain, setSyncingShopDomain] = useState<string | null>(null);
+  const [disconnectingShopDomain, setDisconnectingShopDomain] = useState<string | null>(null);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const [disconnectShopDomain, setDisconnectShopDomain] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
       const s = await shopifyService.getShopifyStatus();
       setStatus(s);
-      if (s.connected && s.shopDomain) {
-        setShop(s.shopDomain);
-      }
     } catch {
       setStatus({ connected: false });
     } finally {
@@ -132,6 +138,7 @@ export default function ShopifyConnect() {
     const installShop = params.get("shop")?.trim();
     if (params.get("shopify_install") === "1" && installShop) {
       setShop(installShop);
+      setShowAddForm(true);
       toast.message("Enter your custom app API Key and Secret, then click Connect Shopify.");
       const next = new URLSearchParams(params);
       next.delete("shopify_install");
@@ -142,6 +149,10 @@ export default function ShopifyConnect() {
     const shopifyParam = params.get("shopify");
     if (shopifyParam === "connected") {
       toast.success("Shopify store connected successfully.");
+      setShowAddForm(false);
+      setShop("");
+      setShopifyApiKey("");
+      setShopifyApiSecret("");
       window.history.replaceState({}, document.title, window.location.pathname);
       void loadStatus();
     } else if (shopifyParam === "error") {
@@ -155,9 +166,30 @@ export default function ShopifyConnect() {
     }
   }, [loadStatus]);
 
+  const connections: ShopifyConnectionStatus[] =
+    status?.connections ??
+    (status?.connected && status.shopDomain
+      ? [
+          {
+            id: status.shopDomain,
+            connected: true,
+            shopDomain: status.shopDomain,
+            scope: status.scope ?? "",
+            installedAt: status.installedAt ?? "",
+            lastSyncedAt: status.lastSyncedAt ?? null,
+            syncCount: status.syncCount,
+            lastSyncError: status.lastSyncError,
+            syncedOrdersCount: status.syncedOrdersCount,
+            tokenHealth: status.tokenHealth,
+            needsReconnect: status.needsReconnect,
+            connectionMessage: status.connectionMessage,
+          },
+        ]
+      : []);
+
   const handleConnect = async () => {
-    const raw = shop.trim();
-    if (!raw) {
+    const normalised = normaliseShopDomain(shop);
+    if (!normalised) {
       toast.error("Shop domain is required");
       return;
     }
@@ -170,11 +202,16 @@ export default function ShopifyConnect() {
       return;
     }
 
-    let normalised = raw.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\/$/, "").toLowerCase();
-    if (!normalised.includes(".")) normalised = `${normalised}.myshopify.com`;
-
     if (!normalised.endsWith(".myshopify.com")) {
       toast.error("Invalid shop domain. It must end with .myshopify.com");
+      return;
+    }
+
+    const existing = connections.find((c) => c.shopDomain.toLowerCase() === normalised);
+    const existingNeedsReconnect =
+      existing && (existing.needsReconnect || (existing.tokenHealth && existing.tokenHealth !== "ok"));
+    if (existing && !existingNeedsReconnect) {
+      toast.error("This Shopify store is already connected to your ShipAmaze account.");
       return;
     }
 
@@ -192,10 +229,10 @@ export default function ShopifyConnect() {
     }
   };
 
-  const handleSync = async () => {
-    setSyncing(true);
+  const handleSync = async (shopDomain: string) => {
+    setSyncingShopDomain(shopDomain);
     try {
-      const r = await shopifyService.syncOrders();
+      const r = await shopifyService.syncOrders(shopDomain);
       const parts = [
         `${r.synced} fetched`,
         `${r.inserted} saved`,
@@ -210,7 +247,9 @@ export default function ShopifyConnect() {
               .join("; ")
           : undefined;
       toast.success("Orders synced", {
-        description: skipDetail ? `${parts.join(" · ")} — ${skipDetail}` : parts.join(" · "),
+        description: skipDetail
+          ? `${shopDomain}: ${parts.join(" · ")} — ${skipDetail}`
+          : `${shopDomain}: ${parts.join(" · ")}`,
       });
       void loadStatus();
       window.dispatchEvent(new Event("shipamaze:refetch:orders"));
@@ -224,32 +263,35 @@ export default function ShopifyConnect() {
       });
       void loadStatus();
     } finally {
-      setSyncing(false);
+      setSyncingShopDomain(null);
     }
   };
 
   const handleDisconnect = async () => {
-    setDisconnecting(true);
+    if (!disconnectShopDomain) return;
+    setDisconnectingShopDomain(disconnectShopDomain);
     try {
-      await shopifyService.disconnectShopify();
+      await shopifyService.disconnectShopify(disconnectShopDomain);
       toast.success("Shopify disconnected. Historical orders are unchanged.");
       setDisconnectOpen(false);
-      setStatus({ connected: false });
+      setDisconnectShopDomain(null);
+      await loadStatus();
       setShopifyApiKey("");
       setShopifyApiSecret("");
     } catch (e: unknown) {
       toast.error(errMsg(e));
     } finally {
-      setDisconnecting(false);
+      setDisconnectingShopDomain(null);
     }
   };
 
-  const showReconnect =
-    Boolean(status?.connected && (status.needsReconnect || status.tokenHealth !== "ok"));
   const setupRedirectUri = status?.redirectUri?.trim() || DEFAULT_SHOPIFY_REDIRECT_URI;
   const setupAppUrl = status?.appUrl?.trim() || DEFAULT_SHOPIFY_APP_URL;
-  const connectionWarning =
-    status?.connectionMessage?.trim() || status?.lastSyncError?.trim() || null;
+  const formShopDomain = normaliseShopDomain(shop);
+  const reconnectTarget = connections.find((c) => c.shopDomain.toLowerCase() === formShopDomain);
+  const isReconnect =
+    Boolean(reconnectTarget && (reconnectTarget.needsReconnect || reconnectTarget.tokenHealth !== "ok"));
+  const formVisible = connections.length === 0 || showAddForm || isReconnect;
 
   if (loading) {
     return (
@@ -267,20 +309,25 @@ export default function ShopifyConnect() {
           <DialogHeader>
             <DialogTitle>Disconnect Shopify?</DialogTitle>
             <DialogDescription>
-              Future imports and webhooks will stop for this store. Orders already synced stay in ShipAmaze.
+              Future imports and webhooks will stop for {disconnectShopDomain ?? "this store"}. Orders already synced stay in ShipAmaze.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => setDisconnectOpen(false)} disabled={disconnecting}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDisconnectOpen(false)}
+              disabled={Boolean(disconnectingShopDomain)}
+            >
               Cancel
             </Button>
             <Button
               type="button"
               variant="destructive"
               onClick={() => void handleDisconnect()}
-              disabled={disconnecting}
+              disabled={Boolean(disconnectingShopDomain)}
             >
-              {disconnecting ? "Disconnecting…" : "Disconnect"}
+              {disconnectingShopDomain ? "Disconnecting..." : "Disconnect"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -297,121 +344,146 @@ export default function ShopifyConnect() {
               Connect with your store&apos;s custom app credentials (same flow as Importerr).
             </p>
           </div>
-          {status?.connected && !showReconnect && (
+          {connections.length > 0 && connections.every((c) => !c.needsReconnect && c.tokenHealth === "ok") && (
             <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium bg-success-light text-success-dark border border-success/30 shrink-0">
-              <CheckCircle2 className="h-3.5 w-3.5" /> Connected
+              <CheckCircle2 className="h-3.5 w-3.5" /> {connections.length} Connected
             </span>
           )}
-          {showReconnect && (
+          {connections.some((c) => c.needsReconnect || c.tokenHealth !== "ok") && (
             <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium bg-warning-light text-warning-dark border border-warning/30 shrink-0">
               <AlertCircle className="h-3.5 w-3.5" /> Reconnect required
             </span>
           )}
         </div>
 
-        {status?.connected ? (
+        {connections.length > 0 ? (
           <div className="space-y-4">
-            <div className="rounded-lg border border-border bg-surface-2/50 p-4 space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <Link2 className="h-4 w-4 text-text-muted shrink-0" />
-                <span className="font-mono text-text-primary break-all">{status.shopDomain}</span>
-              </div>
-              <div className="flex items-center gap-2 text-text-muted">
-                <Clock className="h-4 w-4 shrink-0" />
-                <span>Connected {formatDate(status.installedAt)}</span>
-              </div>
-              {status.lastSyncedAt && (
-                <div className="flex items-center gap-2 text-text-muted">
-                  <RefreshCw className="h-4 w-4 shrink-0" />
-                  <span>Last synced {formatDate(status.lastSyncedAt)}</span>
-                </div>
-              )}
-              {typeof status.syncedOrdersCount === "number" && (
-                <p className="text-xs text-text-muted pt-1">
-                  Synced orders in your account: <span className="font-medium text-text-primary">{status.syncedOrdersCount}</span>
-                  {typeof status.syncCount === "number" && status.syncCount > 0 ? (
-                    <span className="text-text-muted"> · Manual sync runs: {status.syncCount}</span>
+            {connections.map((conn) => {
+              const showReconnect =
+                Boolean(conn.needsReconnect || (conn.tokenHealth && conn.tokenHealth !== "ok"));
+              const connectionWarning = conn.connectionMessage?.trim() || conn.lastSyncError?.trim() || null;
+              const syncing = syncingShopDomain === conn.shopDomain;
+              const disconnecting = disconnectingShopDomain === conn.shopDomain;
+
+              return (
+                <div key={conn.id || conn.shopDomain} className="rounded-lg border border-border bg-surface-2/50 p-4 space-y-3 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-2 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Link2 className="h-4 w-4 text-text-muted shrink-0" />
+                        <span className="font-mono text-text-primary break-all">{conn.shopDomain}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-text-muted">
+                        <Clock className="h-4 w-4 shrink-0" />
+                        <span>Connected {formatDate(conn.installedAt)}</span>
+                      </div>
+                      {conn.lastSyncedAt && (
+                        <div className="flex items-center gap-2 text-text-muted">
+                          <RefreshCw className="h-4 w-4 shrink-0" />
+                          <span>Last synced {formatDate(conn.lastSyncedAt)}</span>
+                        </div>
+                      )}
+                    </div>
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border shrink-0",
+                        showReconnect
+                          ? "bg-warning-light text-warning-dark border-warning/30"
+                          : "bg-success-light text-success-dark border-success/30"
+                      )}
+                    >
+                      {showReconnect ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                      {showReconnect ? "Reconnect required" : "Connected"}
+                    </span>
+                  </div>
+
+                  {typeof conn.syncedOrdersCount === "number" && (
+                    <p className="text-xs text-text-muted">
+                      Synced orders from this store: <span className="font-medium text-text-primary">{conn.syncedOrdersCount}</span>
+                      {typeof conn.syncCount === "number" && conn.syncCount > 0 ? (
+                        <span className="text-text-muted"> · Sync runs: {conn.syncCount}</span>
+                      ) : null}
+                    </p>
+                  )}
+
+                  {connectionWarning ? (
+                    <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-light/30 p-2 text-xs text-warning-dark">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>{connectionWarning}</span>
+                    </div>
                   ) : null}
-                </p>
-              )}
-              {connectionWarning ? (
-                <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-light/30 p-2 text-xs text-warning-dark mt-2">
-                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>{connectionWarning}</span>
-                </div>
-              ) : null}
-            </div>
 
-            {showReconnect ? (
-              <div className="rounded-lg border border-warning/40 bg-warning-light/20 p-4 space-y-3">
-                <p className="text-sm font-medium text-warning-dark">
-                  Reconnect your Shopify store to refresh the access token and order permissions.
-                </p>
-                <div className="space-y-2">
-                  <Label htmlFor="shopify-reconnect-key">API Key (Client ID)</Label>
-                  <Input
-                    id="shopify-reconnect-key"
-                    placeholder="From Shopify Admin → Develop apps"
-                    value={shopifyApiKey}
-                    onChange={(e) => setShopifyApiKey(e.target.value)}
-                    disabled={connecting}
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="shopify-reconnect-secret">API Secret (Client secret)</Label>
-                  <Input
-                    id="shopify-reconnect-secret"
-                    type="password"
-                    placeholder="From your custom app credentials"
-                    value={shopifyApiSecret}
-                    onChange={(e) => setShopifyApiSecret(e.target.value)}
-                    disabled={connecting}
-                    autoComplete="off"
-                  />
-                </div>
-                <Button
-                  onClick={() => void handleConnect()}
-                  disabled={connecting || syncing}
-                  className="w-full bg-primary text-primary-foreground hover:bg-primary-dark gap-2"
-                >
-                  <Link2 className="h-4 w-4" />
-                  {connecting ? "Redirecting to Shopify…" : "Reconnect Shopify"}
-                </Button>
-              </div>
-            ) : null}
+                  {!conn.lastSyncedAt && !showReconnect && (
+                    <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning-light/40 p-3">
+                      <AlertCircle className="h-4 w-4 text-warning-dark mt-0.5 shrink-0" />
+                      <p className="text-sm text-warning-dark">
+                        No orders synced yet. Use &quot;Sync orders&quot; to import Shopify orders.
+                      </p>
+                    </div>
+                  )}
 
-            {!status.lastSyncedAt && !showReconnect && (
-              <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning-light/40 p-3">
-                <AlertCircle className="h-4 w-4 text-warning-dark mt-0.5 shrink-0" />
-                <p className="text-sm text-warning-dark">
-                  No orders synced yet. Use &quot;Sync orders&quot; to import Shopify orders.
-                </p>
-              </div>
-            )}
+                  <div className="flex flex-wrap gap-2">
+                    {showReconnect ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setShop(conn.shopDomain);
+                          setShowAddForm(true);
+                        }}
+                        disabled={connecting || syncing}
+                        className="gap-2"
+                      >
+                        <Link2 className="h-4 w-4" />
+                        Reconnect
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={() => void handleSync(conn.shopDomain)}
+                        disabled={Boolean(syncingShopDomain)}
+                        className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2"
+                      >
+                        <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+                        {syncing ? "Syncing..." : "Sync orders"}
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      type="button"
+                      onClick={() => {
+                        setDisconnectShopDomain(conn.shopDomain);
+                        setDisconnectOpen(true);
+                      }}
+                      disabled={disconnecting || Boolean(syncingShopDomain)}
+                      className="gap-2 text-danger border-danger/30 hover:bg-danger-light"
+                    >
+                      <Link2Off className="h-4 w-4" />
+                      {disconnecting ? "Disconnecting..." : "Disconnect"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
 
-            <div className="flex flex-wrap gap-2">
               <Button
-                onClick={() => void handleSync()}
-                disabled={syncing || showReconnect}
-                className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2"
-              >
-                <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-                {syncing ? "Syncing…" : "Sync orders"}
-              </Button>
-              <Button
-                variant="outline"
                 type="button"
-                onClick={() => setDisconnectOpen(true)}
-                disabled={disconnecting || syncing}
-                className="gap-2 text-danger border-danger/30 hover:bg-danger-light"
+                variant="outline"
+                onClick={() => {
+                  setShop("");
+                  setShopifyApiKey("");
+                  setShopifyApiSecret("");
+                  setShowAddForm((v) => !v);
+                }}
+                disabled={connecting}
+                className="w-full border-dashed gap-2"
               >
-                <Link2Off className="h-4 w-4" />
-                Disconnect
+                <PlusCircle className="h-4 w-4" />
+                {showAddForm ? "Hide Shopify account form" : "ADD Another Shopify Account"}
               </Button>
-            </div>
           </div>
-        ) : (
+        ) : null}
+
+        {formVisible ? (
           <div className="space-y-4">
             <div className="space-y-3">
               <div className="space-y-2">
@@ -453,7 +525,7 @@ export default function ShopifyConnect() {
                 className="w-full bg-primary text-primary-foreground hover:bg-primary-dark gap-2"
               >
                 <Link2 className="h-4 w-4" />
-                {connecting ? "Redirecting to Shopify…" : "Connect Shopify"}
+                {connecting ? "Redirecting to Shopify..." : isReconnect ? "Reconnect Shopify" : "Connect Shopify"}
               </Button>
             </div>
 
@@ -489,7 +561,7 @@ export default function ShopifyConnect() {
               </ol>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </>
   );

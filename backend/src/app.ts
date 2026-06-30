@@ -236,7 +236,7 @@ export function createApp() {
     orderController.patchOrderLineItemSku
   );
   api.get("/orders/:orderId/sku-audit", authMiddleware, orderController.listOrderSkuAudit);
-  api.post("/orders/:id/junk", authMiddleware, orderController.markOrderJunk);
+  api.post("/orders/:id/junk", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.markOrderJunk);
   api.delete("/orders/:id", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.deleteJunkOrder);
   api.post("/orders/bulk-delete-junk", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.bulkDeleteJunkOrders);
   api.post("/orders/:id/reship", authMiddleware, orderController.markOrderReship);
@@ -611,16 +611,16 @@ export function createApp() {
     api.get("/debug/my-pickups", authMiddleware, debugController.debugMyPickups);
   }
 
-  api.get("/pickups", authMiddleware, resourceController.listPickups);
-  api.post("/pickups", authMiddleware, resourceController.createPickup);
+  api.get("/pickups", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.PICKUPS_VIEW, STAFF_PERMISSIONS.PICKUPS_MANAGE), resourceController.listPickups);
+  api.post("/pickups", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.PICKUPS_MANAGE), resourceController.createPickup);
 
   api.post("/pickup-addresses/repair-dropshipper-ownership", authMiddleware, resourceController.repairDropshipperPickupOwnership);
-  api.get("/pickup-addresses", authMiddleware, resourceController.listPickupAddresses);
-  api.post("/pickup-addresses", authMiddleware, resourceController.createPickupAddress);
-  api.put("/pickup-addresses/:id", authMiddleware, resourceController.updatePickupAddress);
-  api.patch("/pickup-addresses/:id", authMiddleware, resourceController.updatePickupAddress);
-  api.delete("/pickup-addresses/:id", authMiddleware, resourceController.deletePickupAddress);
-  api.patch("/pickup-addresses/:id/default", authMiddleware, resourceController.setDefaultPickupAddress);
+  api.get("/pickup-addresses", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.PICKUPS_VIEW, STAFF_PERMISSIONS.PICKUPS_MANAGE), resourceController.listPickupAddresses);
+  api.post("/pickup-addresses", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.PICKUPS_MANAGE), resourceController.createPickupAddress);
+  api.put("/pickup-addresses/:id", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.PICKUPS_MANAGE), resourceController.updatePickupAddress);
+  api.patch("/pickup-addresses/:id", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.PICKUPS_MANAGE), resourceController.updatePickupAddress);
+  api.delete("/pickup-addresses/:id", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.PICKUPS_MANAGE), resourceController.deletePickupAddress);
+  api.patch("/pickup-addresses/:id/default", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.PICKUPS_MANAGE), resourceController.setDefaultPickupAddress);
 
   api.get("/weight-disputes", authMiddleware, requireOwnerAdmin, resourceController.listWeightDisputes);
 

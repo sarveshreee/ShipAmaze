@@ -1045,33 +1045,12 @@ export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Respons
   });
 });
 
-function assertOrderEligibleForJunk(order: IOrder): void {
+export function assertOrderEligibleForJunk(order: Pick<IOrder, "isJunk" | "status" | "awb">): void {
   if (order.isJunk) throw new AppError(400, "Order is already in Junk");
-  const st = normalizeOrderStatusKey(order.status);
-  if (st === "reship") return;
-  if (String(order.awb ?? "").trim() || order.shipmentCreated) {
+  if (String(order.awb ?? "").trim()) {
     throw new AppError(
       400,
       "Orders with an AWB cannot be moved to Junk. Use Cancel to move to Reship instead."
-    );
-  }
-  const blocked = new Set([
-    "pending_pickup",
-    "pickup_scheduled",
-    "picked_up",
-    "in_transit",
-    "shipped",
-    "out_for_delivery",
-    "delivered",
-    "failed",
-    "ndr",
-    "rto",
-    "cancelled",
-  ]);
-  if (blocked.has(st)) {
-    throw new AppError(
-      400,
-      "Only orders from All, Channel, Manual, or Ready to Ship can be moved to Junk."
     );
   }
 }

@@ -1,7 +1,23 @@
 import { apiClient } from "@/lib/apiClient";
 
+export interface ShopifyConnectionStatus {
+  id: string;
+  connected: boolean;
+  shopDomain: string;
+  scope: string;
+  installedAt: string;
+  lastSyncedAt?: string | null;
+  syncCount?: number;
+  lastSyncError?: string | null;
+  syncedOrdersCount?: number;
+  tokenHealth?: "ok" | "invalid_token" | "missing_scope" | "decrypt_failed" | "api_error";
+  needsReconnect?: boolean;
+  connectionMessage?: string | null;
+}
+
 export interface ShopifyStatus {
   connected: boolean;
+  connections?: ShopifyConnectionStatus[];
   shopDomain?: string;
   scope?: string;
   installedAt?: string;
@@ -31,6 +47,14 @@ export interface ShopifySyncResult {
   skipReasons?: ShopifySkipReason[];
   lastSyncedAt: string;
   lastSyncError?: string | null;
+  shopDomain?: string;
+  stores?: Array<{
+    shopDomain: string;
+    synced: number;
+    inserted: number;
+    updated: number;
+    skipped: number;
+  }>;
 }
 
 export type ShopifyAdminConnection = {
@@ -63,12 +87,12 @@ export async function initiateShopifyConnect(
   );
 }
 
-export async function syncOrders(): Promise<ShopifySyncResult> {
-  return apiClient.post<ShopifySyncResult>("/shopify/sync-orders");
+export async function syncOrders(shopDomain?: string): Promise<ShopifySyncResult> {
+  return apiClient.post<ShopifySyncResult>("/shopify/sync-orders", shopDomain ? { shopDomain } : {});
 }
 
-export async function disconnectShopify(): Promise<{ ok: boolean }> {
-  return apiClient.post<{ ok: boolean }>("/shopify/disconnect");
+export async function disconnectShopify(shopDomain?: string): Promise<{ ok: boolean }> {
+  return apiClient.post<{ ok: boolean }>("/shopify/disconnect", shopDomain ? { shopDomain } : {});
 }
 
 export async function listShopifyConnectionsAdmin(): Promise<{ connections: ShopifyAdminConnection[] }> {

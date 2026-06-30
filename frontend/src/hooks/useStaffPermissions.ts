@@ -5,6 +5,8 @@ export const STAFF_PERMISSIONS = {
   ORDERS_VIEW: "orders.view",
   ORDERS_CREATE: "orders.create",
   ORDERS_EDIT: "orders.edit",
+  PICKUPS_VIEW: "pickup-addresses.view",
+  PICKUPS_MANAGE: "pickup-addresses.manage",
   PRODUCTS_VIEW: "products.view",
   PRODUCTS_CREATE: "products.create",
   PRODUCTS_EDIT: "products.edit",
@@ -33,6 +35,13 @@ export const STAFF_PERMISSION_GROUPS: { title: string; items: { key: StaffPermis
       { key: STAFF_PERMISSIONS.ORDERS_VIEW, label: "View orders" },
       { key: STAFF_PERMISSIONS.ORDERS_CREATE, label: "Create orders" },
       { key: STAFF_PERMISSIONS.ORDERS_EDIT, label: "Edit orders" },
+    ],
+  },
+  {
+    title: "Pickup addresses",
+    items: [
+      { key: STAFF_PERMISSIONS.PICKUPS_VIEW, label: "View pickup addresses" },
+      { key: STAFF_PERMISSIONS.PICKUPS_MANAGE, label: "Manage pickup addresses" },
     ],
   },
   {
@@ -104,6 +113,8 @@ export function useStaffPermissions() {
       ordersView: has(STAFF_PERMISSIONS.ORDERS_VIEW),
       ordersCreate: has(STAFF_PERMISSIONS.ORDERS_CREATE),
       ordersEdit: has(STAFF_PERMISSIONS.ORDERS_EDIT),
+      pickupsView: has(STAFF_PERMISSIONS.PICKUPS_VIEW),
+      pickupsManage: has(STAFF_PERMISSIONS.PICKUPS_MANAGE),
       productsView: has(STAFF_PERMISSIONS.PRODUCTS_VIEW),
       productsCreate: has(STAFF_PERMISSIONS.PRODUCTS_CREATE),
       productsEdit: has(STAFF_PERMISSIONS.PRODUCTS_EDIT),

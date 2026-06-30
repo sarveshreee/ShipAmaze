@@ -6,6 +6,8 @@ export const STAFF_PERMISSIONS = {
   ORDERS_VIEW: "orders.view",
   ORDERS_CREATE: "orders.create",
   ORDERS_EDIT: "orders.edit",
+  PICKUPS_VIEW: "pickup-addresses.view",
+  PICKUPS_MANAGE: "pickup-addresses.manage",
   PRODUCTS_VIEW: "products.view",
   PRODUCTS_CREATE: "products.create",
   PRODUCTS_EDIT: "products.edit",

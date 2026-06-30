@@ -38,6 +38,13 @@ const shopifyStoreSchema = new Schema<IShopifyStoreConnection>(
 );
 
 shopifyStoreSchema.index({ ownerUserId: 1, shopDomain: 1 }, { unique: true });
+shopifyStoreSchema.index(
+  { shopDomain: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { isActive: true },
+  }
+);
 
 export const ShopifyStoreConnection: Model<IShopifyStoreConnection> =
   mongoose.models.ShopifyStoreConnection ||

@@ -189,6 +189,16 @@ function normalizeShopInput(shop: string): string {
   return s;
 }
 
+function readShopDomainFromRequest(req: Request): string | undefined {
+  const body = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
+  const raw =
+    firstQueryValue((req.query as Record<string, unknown>).shop)?.trim() ||
+    firstQueryValue((req.query as Record<string, unknown>).shopDomain)?.trim() ||
+    String(body.shop ?? body.shopDomain ?? body.storeDomain ?? "").trim();
+  if (!raw) return undefined;
+  return normalizeShopInput(raw);
+}
+
 function buildOAuthAuthorizeUrl(shopDomain: string, state: string, shopifyApiKey: string): string {
   const redirectUri = oauthRedirectUri();
   const scopes = oauthScopes();
@@ -296,17 +306,22 @@ export const initiateConnect = asyncHandler(async (req: AuthRequest, res: Respon
 
   const { shopifyApiKey, shopifyApiSecret } = readConnectCredentials(req.body);
 
-  const existing = await ShopifyStoreConnection.findOne({
-    ownerUserId: req.user._id,
+  const existingActive = await ShopifyStoreConnection.findOne({
     shopDomain,
     isActive: true,
   }).lean();
-  if (existing?.accessTokenEncrypted) {
-    const health = await isShopifyConnectionHealthy(existing.accessTokenEncrypted, shopDomain);
+  if (existingActive && String(existingActive.ownerUserId) !== String(req.user._id)) {
+    throw new AppError(
+      409,
+      "This Shopify store is already connected to another ShipAmaze account. Disconnect it there before connecting it here."
+    );
+  }
+  if (existingActive?.accessTokenEncrypted) {
+    const health = await isShopifyConnectionHealthy(existingActive.accessTokenEncrypted, shopDomain);
     if (health.ok) {
       throw new AppError(
-        400,
-        "This Shopify store is already connected. Disconnect first to reconnect with new credentials."
+        409,
+        "This Shopify store is already connected to your ShipAmaze account. Use the existing connection or disconnect it first."
       );
     }
     /* Invalid token / scope — allow OAuth reconnect (callback upserts the connection). */
@@ -370,6 +385,11 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
     res.redirect(buildFrontendRedirect("error", "Invalid shop domain in callback."));
     return;
   }
+  if (normalizeShopInput(shop) !== oauthCtx.shopDomain) {
+    devLog.warn("[shopify:oauth] callback shop/state mismatch", { shop, expected: oauthCtx.shopDomain });
+    res.redirect(buildFrontendRedirect("error", "Shopify callback did not match the requested store."));
+    return;
+  }
 
   const redirectUri = oauthRedirectUri();
 
@@ -419,6 +439,21 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
 
   // Get shop details to verify
   const shopDetails = await shopifyService.getShopDetails(access_token, shop);
+  const activeStoreOwner = await ShopifyStoreConnection.findOne({
+    shopDomain: shopDetails.myshopify_domain,
+    isActive: true,
+  })
+    .select("ownerUserId")
+    .lean();
+  if (activeStoreOwner && String(activeStoreOwner.ownerUserId) !== String(ownerUserId)) {
+    res.redirect(
+      buildFrontendRedirect(
+        "error",
+        "This Shopify store is already connected to another ShipAmaze account. Disconnect it there before connecting it here."
+      )
+    );
+    return;
+  }
 
   // Fetch the user's role
   const { User } = await import("../models/User.js");
@@ -432,24 +467,37 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   const accessTokenEncrypted = encrypt(access_token);
   const apiSecretEncrypted = encrypt(shopifyApiSecret);
 
-  // Upsert — one record per user+shop
-  await ShopifyStoreConnection.findOneAndUpdate(
-    { ownerUserId, shopDomain: shopDetails.myshopify_domain },
-    {
-      ownerUserId,
-      shopDomain: shopDetails.myshopify_domain,
-      shopifyApiKey,
-      shopifyApiSecretEncrypted: apiSecretEncrypted,
-      accessTokenEncrypted,
-      scope,
-      installedAt: new Date(),
-      role: user.role as "admin" | "vendor" | "dropshipper",
-      isActive: true,
-      disconnectedAt: null,
-      lastSyncError: null,
-    },
-    { upsert: true, new: true }
-  );
+  // Upsert — one record per user+shop, with a global active-shop uniqueness guard.
+  try {
+    await ShopifyStoreConnection.findOneAndUpdate(
+      { ownerUserId, shopDomain: shopDetails.myshopify_domain },
+      {
+        ownerUserId,
+        shopDomain: shopDetails.myshopify_domain,
+        shopifyApiKey,
+        shopifyApiSecretEncrypted: apiSecretEncrypted,
+        accessTokenEncrypted,
+        scope,
+        installedAt: new Date(),
+        role: user.role as "admin" | "vendor" | "dropshipper",
+        isActive: true,
+        disconnectedAt: null,
+        lastSyncError: null,
+      },
+      { upsert: true, new: true }
+    );
+  } catch (err: unknown) {
+    if (isMongoDuplicateKey(err)) {
+      res.redirect(
+        buildFrontendRedirect(
+          "error",
+          "This Shopify store is already connected to another ShipAmaze account. Disconnect it there before connecting it here."
+        )
+      );
+      return;
+    }
+    throw err;
+  }
 
   try {
     const wh = await ensureShopifyWebhooksRegistered(access_token, shopDetails.myshopify_domain);
@@ -479,7 +527,9 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
   }
 
   const userRole = user.role as "admin" | "vendor" | "dropshipper";
-  void performShopifyOrderSyncForUser(new Types.ObjectId(ownerUserId), userRole)
+  void performShopifyOrderSyncForUser(new Types.ObjectId(ownerUserId), userRole, {
+    shopDomain: shopDetails.myshopify_domain,
+  })
     .then((r) => {
       devLog.info("[shopify] initial order sync after connect", r);
     })
@@ -501,61 +551,90 @@ export const handleCallback = asyncHandler(async (req: Request, res: Response) =
 export const getStatus = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
-  const conn = await ShopifyStoreConnection.findOne({
+  const conns = await ShopifyStoreConnection.find({
     ownerUserId: req.user._id,
     isActive: true,
   })
-    .select("shopDomain scope installedAt lastSyncedAt syncCount lastSyncError accessTokenEncrypted")
+    .select("_id shopDomain scope installedAt lastSyncedAt syncCount lastSyncError accessTokenEncrypted")
+    .sort({ installedAt: -1, updatedAt: -1 })
     .lean();
 
-  if (!conn) {
-    res.json({ connected: false });
+  if (conns.length === 0) {
+    res.json({
+      connected: false,
+      connections: [],
+      redirectUri: oauthRedirectUri(),
+      appUrl: resolveFrontendBaseUrl(),
+    });
     return;
   }
 
-  let tokenHealth: "ok" | "invalid_token" | "missing_scope" | "decrypt_failed" | "api_error" = "ok";
-  let needsReconnect = false;
-  let connectionMessage: string | null = null;
-
-  if (conn.accessTokenEncrypted) {
-    const health = await isShopifyConnectionHealthy(conn.accessTokenEncrypted, conn.shopDomain);
-    if (!health.ok) {
-      tokenHealth = health.issue;
-      needsReconnect = true;
-      connectionMessage = health.message;
-    }
-  }
-
-  const ownerOr = {
-    $or: [{ ownerUserId: req.user._id }, { createdBy: req.user._id }, { dropshipperId: req.user._id }],
-  };
-  const shopifyOr = { $or: [{ externalSource: "shopify" }, { channel: "Shopify" }] };
-  let syncedOrdersCount = 0;
-  if (req.user.role === "vendor") {
-    const v = await Vendor.findOne({ userId: req.user._id }).select("_id").lean();
-    if (v) {
-      syncedOrdersCount = await Order.countDocuments({
-        $and: [{ vendorId: v._id }, shopifyOr],
+  const countSyncedOrders = async (shopDomain: string): Promise<number> => {
+    const shopifyForShop = {
+      $and: [
+        { $or: [{ externalSource: "shopify" }, { channel: "Shopify" }] },
+        { shopifyShopDomain: shopDomain },
+      ],
+    };
+    if (req.user?.role !== "vendor") {
+      return Order.countDocuments({
+        $and: [
+          { $or: [{ ownerUserId: req.user?._id }, { createdBy: req.user?._id }, { dropshipperId: req.user?._id }] },
+          shopifyForShop,
+        ],
       });
     }
-  } else {
-    syncedOrdersCount = await Order.countDocuments({
-      $and: [ownerOr, shopifyOr],
+    const v = await Vendor.findOne({ userId: req.user._id }).select("_id").lean();
+    if (!v) return 0;
+    return Order.countDocuments({ $and: [{ vendorId: v._id }, shopifyForShop] });
+  };
+
+  const connections = [];
+  for (const conn of conns) {
+    let tokenHealth: "ok" | "invalid_token" | "missing_scope" | "decrypt_failed" | "api_error" = "ok";
+    let needsReconnect = false;
+    let connectionMessage: string | null = null;
+
+    if (conn.accessTokenEncrypted) {
+      const health = await isShopifyConnectionHealthy(conn.accessTokenEncrypted, conn.shopDomain);
+      if (!health.ok) {
+        tokenHealth = health.issue;
+        needsReconnect = true;
+        connectionMessage = health.message;
+      }
+    }
+
+    connections.push({
+      id: String(conn._id),
+      connected: true,
+      shopDomain: conn.shopDomain,
+      scope: conn.scope,
+      installedAt: conn.installedAt,
+      lastSyncedAt: conn.lastSyncedAt ?? null,
+      syncCount: conn.syncCount ?? 0,
+      lastSyncError: conn.lastSyncError ?? connectionMessage ?? null,
+      syncedOrdersCount: await countSyncedOrders(conn.shopDomain),
+      tokenHealth,
+      needsReconnect,
+      connectionMessage,
     });
   }
 
+  const primary = connections[0];
+
   res.json({
     connected: true,
-    shopDomain: conn.shopDomain,
-    scope: conn.scope,
-    installedAt: conn.installedAt,
-    lastSyncedAt: conn.lastSyncedAt ?? null,
-    syncCount: conn.syncCount ?? 0,
-    lastSyncError: conn.lastSyncError ?? connectionMessage ?? null,
-    syncedOrdersCount,
-    tokenHealth,
-    needsReconnect,
-    connectionMessage,
+    connections,
+    shopDomain: primary.shopDomain,
+    scope: primary.scope,
+    installedAt: primary.installedAt,
+    lastSyncedAt: primary.lastSyncedAt,
+    syncCount: primary.syncCount,
+    lastSyncError: primary.lastSyncError,
+    syncedOrdersCount: connections.reduce((sum, c) => sum + (c.syncedOrdersCount ?? 0), 0),
+    tokenHealth: primary.tokenHealth,
+    needsReconnect: primary.needsReconnect,
+    connectionMessage: primary.connectionMessage,
     redirectUri: oauthRedirectUri(),
     appUrl: resolveFrontendBaseUrl(),
   });
@@ -567,10 +646,24 @@ export const getStatus = asyncHandler(async (req: AuthRequest, res: Response) =>
 /* ------------------------------------------------------------------ */
 export const disconnect = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  await ShopifyStoreConnection.findOneAndUpdate(
-    { ownerUserId: req.user._id, isActive: true },
-    { isActive: false, disconnectedAt: new Date() }
+  const shopDomain = readShopDomainFromRequest(req);
+  const query: Record<string, unknown> = { ownerUserId: req.user._id, isActive: true };
+  if (shopDomain) {
+    if (!isValidShopDomain(shopDomain)) throw new AppError(400, "Invalid shop domain.");
+    query.shopDomain = shopDomain;
+  } else {
+    const activeCount = await ShopifyStoreConnection.countDocuments(query);
+    if (activeCount > 1) {
+      throw new AppError(400, "shopDomain is required when multiple Shopify stores are connected.");
+    }
+  }
+
+  const conn = await ShopifyStoreConnection.findOneAndUpdate(
+    query,
+    { isActive: false, disconnectedAt: new Date() },
+    { new: true }
   );
+  if (!conn) throw new AppError(404, "Shopify connection not found.");
   res.json({ ok: true });
 });
 
@@ -580,23 +673,60 @@ export const disconnect = asyncHandler(async (req: AuthRequest, res: Response) =
 export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
-  const lockKey = String(req.user._id);
+  const requestedShopDomain = readShopDomainFromRequest(req);
+  if (requestedShopDomain && !isValidShopDomain(requestedShopDomain)) {
+    throw new AppError(400, "Invalid shop domain.");
+  }
+
+  const lockKey = `${String(req.user._id)}:${requestedShopDomain ?? "all"}`;
   if (syncInFlight.has(lockKey)) {
     throw new AppError(429, "Order sync is already running. Please wait for it to finish.");
   }
   syncInFlight.add(lockKey);
 
   try {
-    const { inserted, updated, skipped, synced, shopDomain, skipReasons } =
-      await performShopifyOrderSyncForUser(
-        req.user._id,
-        req.user.role as "admin" | "vendor" | "dropshipper"
-      );
+    const activeConnections = requestedShopDomain
+      ? await ShopifyStoreConnection.find({
+          ownerUserId: req.user._id,
+          shopDomain: requestedShopDomain,
+          isActive: true,
+        })
+          .select("shopDomain")
+          .lean()
+      : await ShopifyStoreConnection.find({ ownerUserId: req.user._id, isActive: true })
+          .select("shopDomain")
+          .lean();
 
-    const conn = await ShopifyStoreConnection.findOne({
-      ownerUserId: req.user._id,
-      isActive: true,
-    });
+    if (activeConnections.length === 0) {
+      throw new AppError(400, "No active Shopify store connected for this account.");
+    }
+
+    const results: Awaited<ReturnType<typeof performShopifyOrderSyncForUser>>[] = [];
+    for (const conn of activeConnections) {
+      results.push(
+        await performShopifyOrderSyncForUser(
+          req.user._id,
+          req.user.role as "admin" | "vendor" | "dropshipper",
+          { shopDomain: conn.shopDomain }
+        )
+      );
+    }
+
+    const inserted = results.reduce((sum, r) => sum + r.inserted, 0);
+    const updated = results.reduce((sum, r) => sum + r.updated, 0);
+    const skipped = results.reduce((sum, r) => sum + r.skipped, 0);
+    const synced = results.reduce((sum, r) => sum + r.synced, 0);
+    const skipReasons = results.flatMap((r) => r.skipReasons);
+    const shopDomain =
+      results.length === 1 ? results[0].shopDomain : `${results.length} Shopify stores`;
+
+    const conn = requestedShopDomain
+      ? await ShopifyStoreConnection.findOne({
+          ownerUserId: req.user._id,
+          shopDomain: requestedShopDomain,
+          isActive: true,
+        })
+      : null;
 
     const { createInAppNotification } = await import("../services/inAppNotifications.js");
     await createInAppNotification(
@@ -632,6 +762,14 @@ export const syncOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       skipReasons,
       lastSyncedAt: conn?.lastSyncedAt ?? null,
       lastSyncError: conn?.lastSyncError ?? null,
+      shopDomain: results.length === 1 ? results[0].shopDomain : undefined,
+      stores: results.map((r) => ({
+        shopDomain: r.shopDomain,
+        synced: r.synced,
+        inserted: r.inserted,
+        updated: r.updated,
+        skipped: r.skipped,
+      })),
     });
   } finally {
     syncInFlight.delete(lockKey);
@@ -859,7 +997,10 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
 /* ------------------------------------------------------------------ */
 export const syncWebhooks = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user || req.user.role !== "admin") throw new AppError(403, "Admin only");
-  const conn = await ShopifyStoreConnection.findOne({ ownerUserId: req.user._id, isActive: true });
+  const shopDomain = readShopDomainFromRequest(req);
+  const query: Record<string, unknown> = { ownerUserId: req.user._id, isActive: true };
+  if (shopDomain) query.shopDomain = shopDomain;
+  const conn = await ShopifyStoreConnection.findOne(query);
   if (!conn) throw new AppError(404, "No active Shopify connection found");
   const rawToken = conn.accessTokenEncrypted ? decrypt(conn.accessTokenEncrypted) : "";
   if (!rawToken) throw new AppError(400, "Could not decrypt access token — reconnect Shopify");

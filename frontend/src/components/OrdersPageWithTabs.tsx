@@ -187,6 +187,10 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   }, [activeTab, debouncedSearch, channelPayment, channelFulfillment, advancedFiltersKey, serviceabilityPickupId, serviceabilityCourierId]);
 
   useEffect(() => {
+    setSelected(new Set());
+  }, [activeTab, debouncedSearch, channelPayment, channelFulfillment, advancedFiltersKey, serviceabilityPickupId, serviceabilityCourierId]);
+
+  useEffect(() => {
     if (activeTab !== "channel") {
       setChannelPayment(undefined);
       setChannelFulfillment(undefined);
@@ -536,11 +540,17 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   };
 
   const handleBulkJunk = async () => {
-    const ids = Array.from(selected);
+    const ids = selectedOrders.map((order) => order.id);
     if (!ids.length) return;
     try {
-      await Promise.all(ids.map((id) => orderService.moveOrderToJunk(id)));
-      toast.success(`${ids.length} order(s) moved to junk`);
+      const results = await Promise.allSettled(ids.map((id) => orderService.moveOrderToJunk(id)));
+      const failed = results.filter((result) => result.status === "rejected");
+      const moved = ids.length - failed.length;
+      if (moved > 0) toast.success(`${moved} order(s) moved to junk`);
+      if (failed.length > 0) {
+        const first = failed[0] as PromiseRejectedResult;
+        toast.error(first.reason instanceof Error ? first.reason.message : `${failed.length} order(s) could not be moved to junk`);
+      }
       setSelected(new Set());
       await refetch();
     } catch (err: unknown) {
@@ -549,7 +559,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   };
 
   const handleBulkDeleteJunk = async () => {
-    const ids = Array.from(selected);
+    const ids = selectedOrders.map((order) => order.id);
     if (!ids.length) return;
     try {
       const res = await orderService.bulkDeleteJunkOrders(ids);
@@ -562,7 +572,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   };
 
   const handleBulkMoveToReady = async () => {
-    const orderIds = Array.from(selected);
+    const orderIds = selectedOrders.map((order) => order.id);
     if (!orderIds.length) return;
     try {
       await orderService.bulkMoveOrders(orderIds, "ready_to_ship");

@@ -160,7 +160,9 @@ async function main() {
       const connections = await ShopifyStoreConnection.find({ isActive: true }).lean();
       devLog.info(`[shopify:bg-sync] running for ${connections.length} active connection(s)`);
       for (const conn of connections) {
-        await performShopifyOrderSyncForUser(conn.ownerUserId, conn.role as "vendor" | "dropshipper" | "admin").catch((e: unknown) => {
+        await performShopifyOrderSyncForUser(conn.ownerUserId, conn.role as "vendor" | "dropshipper" | "admin", {
+          shopDomain: conn.shopDomain,
+        }).catch((e: unknown) => {
           devLog.warn("[shopify:bg-sync] sync failed for", String(conn.ownerUserId), e instanceof Error ? e.message : e);
         });
       }
