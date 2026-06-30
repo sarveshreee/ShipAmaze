@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -9,9 +9,11 @@ import { Truck, Zap, MapPin, Package, Plus, Trash2, CheckCircle2, XCircle, Clock
 import { indianStates } from "@/constants/indianStates";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import * as orderService from "@/services/orderService";
+import * as productService from "@/services/productService";
 import type { PickupAddress } from "@/types/logistics";
 import { toast } from "sonner";
 import { PhoneInput, normalizePhone, validatePhoneLength, getDigitRule } from "@/components/PhoneInput";
+import { getFinalProductPrice } from "@/lib/pricing";
 
 const couriersResult = [
   { name: "Delhivery", price: 45, days: "2-3 days", badges: ["Cheapest"], mode: "Surface", rating: 4.2 },
@@ -32,6 +34,9 @@ interface ProductLine {
 
 export default function CreateOrder() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const productQuery = searchParams.get("product");
+  const qtyQuery = searchParams.get("qty");
   const { data: pickupAddresses = [], isLoading: pickupsLoading, refetch: refetchPickups } = usePickupAddresses();
   const selectablePickups = useMemo(
     () => pickupAddresses.filter((a) => a.isActive !== false),
@@ -84,6 +89,58 @@ export default function CreateOrder() {
   const [dimLength, setDimLength] = useState("");
   const [dimWidth, setDimWidth] = useState("");
   const [dimHeight, setDimHeight] = useState("");
+
+  useEffect(() => {
+    const draftRaw = localStorage.getItem("shipamaze_order_draft_items");
+    const draftItems = draftRaw ? JSON.parse(draftRaw) : [];
+    const draftItem = Array.isArray(draftItems)
+      ? draftItems.find((item: { id?: string }) => !productQuery || item.id === productQuery)
+      : null;
+
+    if (!productQuery && draftItem) {
+      const qty = Math.max(1, Number(draftItem.qty ?? 1) || 1);
+      const price = Number(draftItem.price ?? 0);
+      setProducts([{
+        name: String(draftItem.options ? `${draftItem.name} (${draftItem.options})` : draftItem.name ?? ""),
+        qty: String(qty),
+        weight: String(draftItem.weight ?? "0.5"),
+        price: String(price),
+        sku: String(draftItem.sku ?? ""),
+        productCode: String(draftItem.id ?? ""),
+      }]);
+      if (price > 0) setInvoiceValue(String(price * qty));
+      return;
+    }
+
+    if (!productQuery) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const p = (await productService.getProductById(productQuery)) as Record<string, unknown>;
+        if (cancelled || !p) return;
+        const qty = Math.max(1, Number(draftItem?.qty ?? qtyQuery ?? 1) || 1);
+        const price = Number(draftItem?.price ?? getFinalProductPrice(p));
+        const line = {
+          name: String(draftItem?.options ? `${p.name ?? ""} (${draftItem.options})` : p.name ?? ""),
+          qty: String(qty),
+          weight: String(p.weight ?? "0.5"),
+          price: String(price),
+          sku: String(draftItem?.sku ?? p.sku ?? ""),
+          productCode: String(p._id ?? p.id ?? productQuery),
+        };
+        setProducts([line]);
+        setInvoiceValue(String(price * qty));
+        if (p.length_cm || p.lengthCm) setDimLength(String(p.length_cm ?? p.lengthCm));
+        if (p.width_cm || p.widthCm) setDimWidth(String(p.width_cm ?? p.widthCm));
+        if (p.height_cm || p.heightCm) setDimHeight(String(p.height_cm ?? p.heightCm));
+      } catch {
+        toast.error("Could not load selected product");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [productQuery, qtyQuery]);
 
   const normalizedPhone = normalizePhone(countryCode, phone);
   const normalizedAlt = normalizePhone(countryCode, altPhone);

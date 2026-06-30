@@ -942,6 +942,9 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
 
     const existing = await Order.findOne({ orderId: externalId });
     if (existing) {
+      const sameShopifyStore =
+        String(existing.shopifyShopDomain ?? "").trim().toLowerCase() ===
+        String(shopDomain || conn.shopDomain).trim().toLowerCase();
       const owned =
         String(existing.ownerUserId ?? "") === String(conn.ownerUserId) ||
         String(existing.createdBy ?? "") === String(conn.ownerUserId) ||
@@ -949,7 +952,7 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
         (conn.role === "vendor" &&
           existing.vendorId &&
           String(existing.vendorId) === String(ctx.vendorId ?? ""));
-      if (!owned) {
+      if (!owned && !sameShopifyStore) {
         res.status(200).send("OK");
         return;
       }
@@ -968,6 +971,10 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
     try {
       if (existing) {
         mergeShopifyPayloadIntoOrder(existing, mapped, cancelled);
+        existing.createdBy = conn.ownerUserId;
+        existing.ownerUserId = conn.ownerUserId;
+        if (ctx.dropshipperId) existing.dropshipperId = ctx.dropshipperId;
+        if (ctx.vendorId) existing.vendorId = ctx.vendorId;
         if (await applyDefaultPickupIfMissingForShopify(existing, conn.ownerUserId, conn.role)) {
           existing.markModified("pickupAddress");
         }

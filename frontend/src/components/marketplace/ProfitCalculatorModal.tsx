@@ -137,7 +137,7 @@ export function ProfitCalculatorModal({ open, onOpenChange, product, onPushToSho
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-primary" /> Profit Calculator
@@ -148,36 +148,42 @@ export function ProfitCalculatorModal({ open, onOpenChange, product, onPushToSho
           Estimate margin using confirmation rate, delivery success, sourcing cost, forward shipping, RTO fees, and ad spend.
         </p>
 
-        <div className="rounded-xl bg-muted/40 p-4 flex flex-wrap items-center gap-4">
-          <ProductThumbnail
-            productId={product.id}
-            images={product.images}
-            hasImage={product.has_image}
-            alt={product.name}
-            className="h-16 w-16 rounded-lg object-cover"
-            fallbackClassName="h-16 w-16 rounded-lg"
-          />
-          <div className="text-sm">
-            <p className="text-muted-foreground text-xs">Sourcing cost (App price)</p>
-            <p className="font-bold">{formatProductPriceInr(getFinalProductPrice(product))}</p>
+        <div className="rounded-xl bg-muted/40 p-4 grid grid-cols-1 gap-4 sm:grid-cols-[auto_1fr] lg:grid-cols-[auto_1fr_auto] lg:items-center">
+          <div className="h-16 w-16 overflow-hidden rounded-lg bg-surface-2">
+            <ProductThumbnail
+              productId={product.id}
+              images={product.images}
+              hasImage={product.has_image}
+              alt={product.name}
+              className="h-full w-full rounded-lg object-cover"
+              fallbackClassName="h-full w-full rounded-lg"
+            />
           </div>
-          <div className="text-sm">
-            <p className="text-muted-foreground text-xs">Shipping / confirmed order</p>
-            <p className="font-bold">₹{chargeSettings.shippingChargePerOrder}</p>
-          </div>
-          {chargeSettings.rtoChargePerOrder > 0 && (
-            <div className="text-sm">
-              <p className="text-muted-foreground text-xs">RTO / returned order</p>
-              <p className="font-bold">₹{chargeSettings.rtoChargePerOrder}</p>
+
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            <div className="min-w-0">
+              <p className="text-muted-foreground text-xs leading-snug">Sourcing cost (App price)</p>
+              <p className="font-bold">{formatProductPriceInr(getFinalProductPrice(product))}</p>
             </div>
-          )}
-          <div className="text-sm">
-            <p className="text-muted-foreground text-xs">Weight</p>
-            <p className="font-bold">{product.weight || "500 g"}</p>
+            <div className="min-w-0">
+              <p className="text-muted-foreground text-xs leading-snug">Shipping / confirmed order</p>
+              <p className="font-bold">₹{chargeSettings.shippingChargePerOrder}</p>
+            </div>
+            {chargeSettings.rtoChargePerOrder > 0 && (
+              <div className="min-w-0">
+                <p className="text-muted-foreground text-xs leading-snug">RTO / returned order</p>
+                <p className="font-bold">₹{chargeSettings.rtoChargePerOrder}</p>
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-muted-foreground text-xs leading-snug">Weight</p>
+              <p className="font-bold">{product.weight || "500 g"}</p>
+            </div>
           </div>
-          <div className="ml-auto flex flex-col gap-2">
+
+          <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-1 lg:items-end">
             {onPushToShopify && (
-              <Button onClick={onPushToShopify} className="bg-primary hover:bg-primary/90">
+              <Button onClick={onPushToShopify} className="w-full bg-primary hover:bg-primary/90 lg:w-auto">
                 Push to Shopify ↗
               </Button>
             )}

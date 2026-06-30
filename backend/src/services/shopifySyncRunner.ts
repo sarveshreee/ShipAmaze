@@ -67,6 +67,13 @@ function orderOwnedByUser(
   return false;
 }
 
+function orderBelongsToShopifyStore(
+  existing: { shopifyShopDomain?: string | null },
+  shopDomain: string
+): boolean {
+  return String(existing.shopifyShopDomain ?? "").trim().toLowerCase() === shopDomain.trim().toLowerCase();
+}
+
 function summarizeSkipReasons(skipReasons: ShopifySkipReason[]): string {
   const counts = new Map<string, number>();
   for (const s of skipReasons) {
@@ -165,7 +172,9 @@ export async function performShopifyOrderSyncForUser(
       const existing = await Order.findOne({ orderId: externalId });
 
       if (existing) {
-        if (!orderOwnedByUser(existing, ownerUserId, role, ctx.vendorId)) {
+        const owned = orderOwnedByUser(existing, ownerUserId, role, ctx.vendorId);
+        const sameShopifyStore = orderBelongsToShopifyStore(existing, conn.shopDomain);
+        if (!owned && !sameShopifyStore) {
           skipped++;
           skipReasons.push({
             shopifyId: String(numericId),

@@ -442,7 +442,7 @@ export default function ProductsPage() {
                       <ProductStatusBadge status={p.status} />
                     </div>
                     <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => { sessionStorage.setItem("product_preview", JSON.stringify({ ...p, tags: p.tags || [], variants: [] })); window.open("/product-preview", "_blank", "noopener"); }} title="Preview" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Eye className="h-3 w-3" /></button>
+                      <button onClick={() => window.open(`/product-preview?id=${encodeURIComponent(p.id)}`, "_blank", "noopener")} title="Preview" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Eye className="h-3 w-3" /></button>
                       {canEdit && (
                         <button onClick={() => navigate(`/${role}/source-product?id=${p.id}`)} title="Edit" className="h-7 w-7 rounded-full bg-card border border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground"><Pencil className="h-3 w-3" /></button>
                       )}
