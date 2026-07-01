@@ -26,6 +26,7 @@ const FULFILLMENT_PIPELINE = new Set([
   "ndr",
   "rto",
   "reship",
+  "cancelled",
 ]);
 
 const READY_TO_SHIP_STATUSES = new Set(["ready_to_ship"]);

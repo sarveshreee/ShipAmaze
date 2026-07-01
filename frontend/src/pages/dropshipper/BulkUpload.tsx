@@ -192,7 +192,7 @@ export default function BulkUpload() {
         weight: `${r.weight} kg`,
         courier: "Delhivery",
         payment: (r.payment === "COD" ? "COD" : "Prepaid") as "COD" | "Prepaid",
-        status: "ready-to-ship",
+        status: "pending",
         date: today,
         awb: `AWB${Date.now().toString().slice(-7)}${i}`,
         amount: parseFloat(r.amount) || 0,

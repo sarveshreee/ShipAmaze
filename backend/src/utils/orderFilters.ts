@@ -35,7 +35,7 @@ const READY_OR_PENDING_PICKUP = [
   "Pickup Scheduled",
 ];
 
-/** Orders that have entered the fulfillment pipeline — hidden from Channel / Manual tabs. */
+/** Orders past Manual / Channel staging — hidden until moved to Ready to Ship. */
 const FULFILLMENT_PIPELINE_STATUSES = [
   ...READY_OR_PENDING_PICKUP,
   "picked_up",
@@ -67,6 +67,10 @@ const FULFILLMENT_PIPELINE_STATUSES = [
   "rto",
   "RTO",
   "reship",
+  "cancelled",
+  "canceled",
+  "Cancelled",
+  "Canceled",
 ];
 
 const READY_TO_SHIP_STATUSES = ["ready-to-ship", "ready_to_ship", "Ready to Ship"];
@@ -170,6 +174,7 @@ function manualSourceFilter(): Record<string, unknown> {
   };
 }
 
+/** Channel / Manual tabs: unprocessed orders only (not yet moved to Ready to Ship). */
 function channelManualBaseQuery(channelOrManual: "channel" | "manual"): Record<string, unknown> {
   const sourceFilter = channelOrManual === "channel" ? channelSourceFilter() : manualSourceFilter();
   return {
@@ -205,7 +210,7 @@ function neitherStatusNorShipmentStatusIn(statuses: string[]): Record<string, un
 /**
  * Tab filters aligned with Orders dashboard business rules:
  * - ALL: every order including Junk and Reship (master list)
- * - CHANNEL / MANUAL: pre–Ready to Ship only (not yet pushed to fulfillment)
+ * - CHANNEL / MANUAL: unprocessed orders only (pending/draft — not yet moved to Ready to Ship)
  * - READY TO SHIP → PENDING PICKUP → IN TRANSIT → OUT FOR DELIVERY → DELIVERED
  * - RESHIP: cancelled from Pending Pickup+ (AWB cleared); re-book from here
  * - FAILED: serviceability, address, pincode, NDR, etc.

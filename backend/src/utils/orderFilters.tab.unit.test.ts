@@ -6,11 +6,19 @@ describe("buildTabQuery", () => {
     expect(buildTabQuery("all")).toBeUndefined();
   });
 
-  it("channel excludes fulfillment pipeline orders", () => {
+  it("channel filters by shopify source and excludes fulfillment pipeline orders", () => {
     const q = buildTabQuery("channel");
     expect(q).toBeDefined();
     expect(JSON.stringify(q)).toContain("shopify");
     expect(JSON.stringify(q)).toContain("shipmentCreated");
+  });
+
+  it("manual tab excludes ready_to_ship and processed orders", () => {
+    const q = buildTabQuery("manual");
+    expect(q).toBeDefined();
+    expect(JSON.stringify(q)).toContain("ready_to_ship");
+    expect(JSON.stringify(q)).toContain("shipmentCreated");
+    expect(JSON.stringify(q)).toContain("cancelled");
   });
 
   it("ready-to-ship requires no awb", () => {

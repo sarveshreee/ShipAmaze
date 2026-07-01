@@ -58,11 +58,35 @@ describe("order tab filters", () => {
     expect(isOrderReadyToShip(orderWith({ status: "Ready to Ship" as Order["status"], awb: "" }))).toBe(true);
   });
 
+  it("includes pending manual orders in manual tab", () => {
+    const order = orderWith({
+      status: "pending",
+      channel: "Manual",
+      awb: "",
+      shipmentCreated: false,
+    });
+
+    expect(orderMatchesTab(order, "manual")).toBe(true);
+    expect(orderMatchesTab(order, "ready-to-ship")).toBe(false);
+  });
+
+  it("excludes processed manual orders from manual tab", () => {
+    const order = orderWith({
+      status: "ready-to-ship",
+      channel: "Manual",
+      awb: "",
+      shipmentCreated: false,
+    });
+
+    expect(orderMatchesTab(order, "manual")).toBe(false);
+    expect(orderMatchesTab(order, "ready-to-ship")).toBe(true);
+  });
+
   it("keeps channel and manual tabs limited to pre-fulfillment orders", () => {
     const order = orderWith({
       status: "pending",
       shipmentStatus: "In-Transit",
-      awb: "",
+      awb: "AWB123",
       shipmentCreated: false,
     });
 

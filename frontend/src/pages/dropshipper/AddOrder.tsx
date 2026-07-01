@@ -488,7 +488,7 @@ export default function AddOrder() {
         height,
         courier: courierName,
         payment: shipment.paymentType,
-        status: "ready-to-ship",
+        status: "pending",
         date: new Date().toISOString().split("T")[0],
         awb: "",
         amount: totalAmount,

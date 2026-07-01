@@ -547,8 +547,15 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   if (payment === "COD" && amount === 0 && computed > 0) amount = computed;
   if (amount < 0) throw new AppError(400, "Order amount cannot be negative");
 
-  let statusStored = normalizeOrderStatus(String(body.status ?? "ready_to_ship"));
-  if (statusStored === "draft") statusStored = "ready_to_ship";
+  const isManualOrder =
+    String(body.channel ?? "Manual").toLowerCase() !== "shopify" &&
+    String(body.externalSource ?? "").toLowerCase() !== "shopify" &&
+    !(String(body.externalSource ?? "").trim() && String(body.externalSource ?? "").toLowerCase() !== "manual");
+
+  const defaultStatus = isManualOrder ? "pending" : "ready_to_ship";
+  let statusStored = normalizeOrderStatus(String(body.status ?? defaultStatus));
+  if (!isManualOrder && statusStored === "draft") statusStored = "ready_to_ship";
+  if (isManualOrder && statusStored === "ready_to_ship") statusStored = "pending";
 
   const doc = await Order.create({
     orderId,

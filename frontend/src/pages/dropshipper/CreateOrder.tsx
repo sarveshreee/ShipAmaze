@@ -239,7 +239,7 @@ export default function CreateOrder() {
         height: H,
         courier: selectedCourier,
         payment: paymentType,
-        status: "ready_to_ship",
+        status: "pending",
         date: new Date().toISOString().split("T")[0],
         awb: "",
         amount: amountFinal,
@@ -268,7 +268,7 @@ export default function CreateOrder() {
 
       const created = await orderService.createOrder(orderData);
       const oid = String(created.id ?? orderRef ?? "—");
-      toast.success(`Order ${oid} created`, { description: "Ready to ship — complete processing from Orders." });
+      toast.success(`Order ${oid} created`, { description: "Find it in Manual — move to Ready to Ship when you want to process." });
       navigate("/dropshipper/orders");
     } catch (err: unknown) {
       toast.error("Failed to create order", { description: err instanceof Error ? err.message : "Unknown error" });
