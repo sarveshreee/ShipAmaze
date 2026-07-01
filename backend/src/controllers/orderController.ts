@@ -40,6 +40,10 @@ import { bookForwardShipmentForOrder } from "../modules/velocity/velocity.contro
 import { formatErrorMessage } from "../utils/errorMessage.js";
 import { syncPickupToVelocity } from "../modules/velocity/velocity.warehouseSync.js";
 import { velocityConfig } from "../modules/velocity/velocity.config.js";
+import { mapWithConcurrency } from "../modules/velocity/velocity.labelPdf.js";
+
+const PROCESS_SELECTED_MAX_ORDERS = 100;
+const PROCESS_SELECTED_CONCURRENCY = 5;
 
 function normalizePickupAddressForClient(pickup: unknown): unknown {
   if (pickup == null) return pickup;
@@ -1265,6 +1269,142 @@ function assertOrderEligibleForProcessSelected(o: IOrder): void {
   }
 }
 
+type ProcessSelectedPrep = {
+  pickupAddressId: string;
+  autoCourier: boolean;
+  courierName: string;
+  carrierId: string | undefined;
+  shipmentMode: string;
+  weight: number | undefined;
+  length: number | undefined;
+  width: number | undefined;
+  height: number | undefined;
+  pickupSnapshot: ReturnType<typeof buildPickupSnapshotFromLean>["snapshot"];
+  velocityWarehouseId: string;
+  vendorIdFromPickup: Types.ObjectId | undefined;
+  now: Date;
+};
+
+type OrderDoc = InstanceType<typeof Order>;
+
+function applyProcessSelectedPrep(o: OrderDoc, prep: ProcessSelectedPrep, userId: Types.ObjectId): void {
+  const st = normalizeOrderStatusKey(o.status);
+  const isReship = st === "reship";
+  if (isReship) {
+    o.status = "ready_to_ship";
+    o.shipmentStatus = "ready_to_ship";
+    clearOrderShipmentForRebook(o);
+  } else if (st !== "ready_to_ship") {
+    o.status = "ready_to_ship";
+    o.shipmentStatus = "ready_to_ship";
+  }
+  if (st !== "ready_to_ship") {
+    o.movedToReadyAt = prep.now;
+    appendStatusHistory(
+      o,
+      "ready_to_ship",
+      userId,
+      isReship ? "Reship — moved via Process Selected" : "Auto-moved via Process Selected"
+    );
+  }
+
+  o.courierName = prep.autoCourier ? "Auto" : prep.courierName;
+  o.courier = prep.autoCourier ? "Auto" : prep.courierName;
+  if (prep.autoCourier) {
+    o.courierCompanyId = undefined;
+  }
+  o.pickupAddressId = new mongoose.Types.ObjectId(prep.pickupAddressId);
+  o.pickupWarehouseId = prep.pickupAddressId;
+  o.pickupAddress = prep.pickupSnapshot;
+  o.velocityWarehouseId = prep.velocityWarehouseId;
+  if (prep.vendorIdFromPickup) {
+    o.vendorId = prep.vendorIdFromPickup;
+  }
+  if (prep.weight !== undefined) o.weight = String(prep.weight);
+  if (prep.length !== undefined) o.length = prep.length;
+  if (prep.width !== undefined) {
+    o.width = prep.width;
+    o.breadth = prep.width;
+  }
+  if (prep.height !== undefined) o.height = prep.height;
+  if (o.length && (o.width ?? o.breadth) && o.height) {
+    const w = o.width ?? o.breadth;
+    o.dimensions = `${o.length}x${w}x${o.height} cm`;
+  }
+  (o as unknown as { shipmentMode?: string }).shipmentMode = prep.shipmentMode;
+}
+
+type ProcessSelectedOrderResult =
+  | { outcome: "updated"; orderId: string; awb: string; carrier: string }
+  | { outcome: "skipped"; orderId: string; reason: string }
+  | { outcome: "failed"; orderId: string; error: string };
+
+async function processOneSelectedOrder(
+  req: AuthRequest,
+  o: OrderDoc,
+  prep: ProcessSelectedPrep
+): Promise<ProcessSelectedOrderResult> {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+
+  if (o.shipmentCreated || String(o.awb || "").trim()) {
+    return {
+      outcome: "skipped",
+      orderId: o.orderId,
+      reason: "Order already has a shipment",
+    };
+  }
+
+  if (o.isJunk) {
+    restoreOrderFromJunkForProcess(o);
+    appendStatusHistory(o, "ready_to_ship", req.user._id, "Restored from junk via Process Selected");
+  }
+
+  try {
+    assertOrderEligibleForProcessSelected(o);
+  } catch (err: unknown) {
+    return {
+      outcome: "skipped",
+      orderId: o.orderId,
+      reason: err instanceof AppError ? err.message : "Order is not eligible",
+    };
+  }
+
+  applyProcessSelectedPrep(o, prep, req.user._id);
+
+  const bookingBody: Record<string, unknown> = {
+    orderId: o.orderId,
+    warehouseId: prep.pickupAddressId,
+    weight: prep.weight,
+    length: prep.length,
+    width: prep.width,
+    height: prep.height,
+  };
+  if (!prep.autoCourier) {
+    bookingBody.courier_name = prep.courierName;
+    if (prep.carrierId?.trim()) {
+      bookingBody.carrier_id = prep.carrierId.trim();
+    }
+  }
+
+  try {
+    const booking = await bookForwardShipmentForOrder(req, o, bookingBody);
+    appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity)");
+    await o.save();
+    return {
+      outcome: "updated",
+      orderId: o.orderId,
+      awb: booking.awb_code,
+      carrier: booking.carrier_name,
+    };
+  } catch (err: unknown) {
+    return {
+      outcome: "failed",
+      orderId: o.orderId,
+      error: formatErrorMessage(err, "Velocity booking failed"),
+    };
+  }
+}
+
 /**
  * Admin-only: Assign shipment processing details and move orders directly to Pending Pickup.
  * Orders do not need to be in Ready to Ship first — early statuses (e.g. pending/draft) are accepted.
@@ -1289,6 +1429,9 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   if (!Array.isArray(orderIds) || orderIds.length === 0) throw new AppError(400, "orderIds must be a non-empty array");
   const ids = [...new Set(orderIds.map((x) => String(x).trim()).filter(Boolean))];
   if (ids.length === 0) throw new AppError(400, "orderIds must not be empty");
+  if (ids.length > PROCESS_SELECTED_MAX_ORDERS) {
+    throw new AppError(400, `Maximum ${PROCESS_SELECTED_MAX_ORDERS} orders per bulk process request`);
+  }
 
   const pickupAddressId = String(body.pickupAddressId ?? "").trim();
   if (!pickupAddressId) throw new AppError(400, "pickupAddressId is required");
@@ -1297,6 +1440,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   const courierName = String(body.courierName ?? "").trim();
   const autoCourier = !courierName || courierName.toLowerCase() === "auto";
   if (!autoCourier && !courierName) throw new AppError(400, "courierName is required");
+  const carrierId = body.carrierId != null ? String(body.carrierId).trim() : undefined;
 
   const shipmentMode = String(body.shipmentMode ?? "forward").toLowerCase();
   if (!["forward", "reverse"].includes(shipmentMode)) throw new AppError(400, "shipmentMode must be forward or reverse");
@@ -1355,92 +1499,53 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   const orders = await Order.find({ orderId: { $in: ids } }).exec();
   if (orders.length !== ids.length) throw new AppError(404, "One or more orders were not found");
 
-  const now = new Date();
-  const updated = [];
-  for (const o of orders) {
-    if (o.isJunk) {
-      restoreOrderFromJunkForProcess(o);
-      appendStatusHistory(o, "ready_to_ship", req.user._id, "Restored from junk via Process Selected");
-    }
+  const orderById = new Map(orders.map((o) => [o.orderId, o]));
+  const ordered = ids
+    .map((id) => orderById.get(id))
+    .filter((o): o is OrderDoc => o != null);
 
-    assertOrderEligibleForProcessSelected(o);
+  const prep: ProcessSelectedPrep = {
+    pickupAddressId,
+    autoCourier,
+    courierName,
+    carrierId,
+    shipmentMode,
+    weight,
+    length,
+    width,
+    height,
+    pickupSnapshot,
+    velocityWarehouseId,
+    vendorIdFromPickup: vendorIdFromPickup ?? undefined,
+    now: new Date(),
+  };
 
-    const st = normalizeOrderStatusKey(o.status);
-    const isReship = st === "reship";
-    if (isReship) {
-      o.status = "ready_to_ship";
-      o.shipmentStatus = "ready_to_ship";
-      clearOrderShipmentForRebook(o);
-    } else if (st !== "ready_to_ship") {
-      o.status = "ready_to_ship";
-      o.shipmentStatus = "ready_to_ship";
-    }
-    if (st !== "ready_to_ship") {
-      o.movedToReadyAt = now;
-      appendStatusHistory(
-        o,
-        "ready_to_ship",
-        req.user._id,
-        isReship ? "Reship — moved via Process Selected" : "Auto-moved via Process Selected"
-      );
-    }
+  const results = await mapWithConcurrency(ordered, PROCESS_SELECTED_CONCURRENCY, (o) =>
+    processOneSelectedOrder(req, o, prep)
+  );
 
-    o.courierName = autoCourier ? "Auto" : courierName;
-    o.courier = autoCourier ? "Auto" : courierName;
-    if (autoCourier) {
-      o.courierCompanyId = undefined;
-    }
-    o.pickupAddressId = new mongoose.Types.ObjectId(pickupAddressId);
-    o.pickupWarehouseId = pickupAddressId;
-    o.pickupAddress = pickupSnapshot;
-    o.velocityWarehouseId = velocityWarehouseId;
-    if (vendorIdFromPickup) {
-      o.vendorId = vendorIdFromPickup;
-    }
-    if (weight !== undefined) o.weight = String(weight);
-    if (length !== undefined) o.length = length;
-    if (width !== undefined) {
-      o.width = width;
-      o.breadth = width;
-    }
-    if (height !== undefined) o.height = height;
-    if (o.length && (o.width ?? o.breadth) && o.height) {
-      const w = o.width ?? o.breadth;
-      o.dimensions = `${o.length}x${w}x${o.height} cm`;
-    }
-    (o as unknown as { shipmentMode?: string }).shipmentMode = shipmentMode;
-    await o.save();
+  const updated: { orderId: string; awb: string; carrier: string }[] = [];
+  const failed: { orderId: string; error: string }[] = [];
+  const skipped: { orderId: string; reason: string }[] = [];
 
-    const bookingBody: Record<string, unknown> = {
-      orderId: o.orderId,
-      warehouseId: pickupAddressId,
-      weight,
-      length,
-      width,
-      height,
-    };
-    if (!autoCourier) {
-      bookingBody.courier_name = courierName;
+  for (const r of results) {
+    if (r.outcome === "updated") {
+      updated.push({ orderId: r.orderId, awb: r.awb, carrier: r.carrier });
+    } else if (r.outcome === "failed") {
+      failed.push({ orderId: r.orderId, error: r.error });
+    } else {
+      skipped.push({ orderId: r.orderId, reason: r.reason });
     }
-
-    let booking;
-    try {
-      booking = await bookForwardShipmentForOrder(req, o, bookingBody);
-    } catch (err: unknown) {
-      const msg = formatErrorMessage(err, "Velocity booking failed");
-      throw new AppError(err instanceof AppError ? err.statusCode : 502, `Order ${o.orderId}: ${msg}`);
-    }
-
-    appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity)");
-    await o.save();
-    updated.push({
-      orderId: o.orderId,
-      awb: booking.awb_code,
-      carrier: booking.carrier_name,
-    });
   }
 
-  res.json({ success: true, updatedCount: updated.length, updated });
+  res.json({
+    success: failed.length === 0,
+    updatedCount: updated.length,
+    updated,
+    failed,
+    skipped,
+    total: ids.length,
+  });
 });
 
 export const trackOrderByAwb = asyncHandler(async (req: Request, res: Response) => {

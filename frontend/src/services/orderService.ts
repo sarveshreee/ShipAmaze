@@ -220,9 +220,52 @@ export type ProcessSelectedPayload = {
   height?: number;
 };
 
+export type ProcessSelectedResult = {
+  success: boolean;
+  updatedCount: number;
+  updated: { orderId: string; awb: string; carrier?: string }[];
+  failed: { orderId: string; error: string }[];
+  skipped: { orderId: string; reason: string }[];
+  total: number;
+};
+
 export async function processSelectedOrders(payload: ProcessSelectedPayload) {
-  return apiClient.post<{ success: boolean; updatedCount: number; updated: { orderId: string; awb: string }[] }>(
-    "/orders/process-selected",
-    payload
-  );
+  return apiClient.post<ProcessSelectedResult>("/orders/process-selected", payload);
+}
+
+const PROCESS_SELECTED_BATCH_SIZE = 10;
+
+/** Process large selections in batches to avoid gateway timeouts and show progress. */
+export async function processSelectedOrdersBatched(
+  payload: ProcessSelectedPayload,
+  onProgress?: (done: number, total: number) => void
+): Promise<ProcessSelectedResult> {
+  const allIds = [...new Set(payload.orderIds.map((id) => String(id).trim()).filter(Boolean))];
+  if (allIds.length === 0) {
+    return { success: true, updatedCount: 0, updated: [], failed: [], skipped: [], total: 0 };
+  }
+
+  const aggregated: ProcessSelectedResult = {
+    success: true,
+    updatedCount: 0,
+    updated: [],
+    failed: [],
+    skipped: [],
+    total: allIds.length,
+  };
+
+  let processed = 0;
+  for (let i = 0; i < allIds.length; i += PROCESS_SELECTED_BATCH_SIZE) {
+    const batchIds = allIds.slice(i, i + PROCESS_SELECTED_BATCH_SIZE);
+    const res = await processSelectedOrders({ ...payload, orderIds: batchIds });
+    aggregated.updated.push(...res.updated);
+    aggregated.failed.push(...res.failed);
+    aggregated.skipped.push(...res.skipped);
+    aggregated.updatedCount += res.updatedCount;
+    if (res.failed.length > 0) aggregated.success = false;
+    processed += batchIds.length;
+    onProgress?.(processed, allIds.length);
+  }
+
+  return aggregated;
 }

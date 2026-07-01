@@ -31,6 +31,7 @@ import { syncNdrFromVelocity } from "./velocity.ndrSync.js";
 import { devLog } from "../../utils/devLog.js";
 import type {
   VelocityCustomer,
+  VelocityCreateShipmentResponse,
   VelocityForwardOrderRequest,
   VelocityReverseOrderRequest,
 } from "./velocity.types.js";
@@ -1786,17 +1787,40 @@ export async function bookForwardShipmentForOrder(
   validateForwardPayload(payload, localOrder);
   await precheckForwardShipmentWallet(localOrder);
 
-  let result;
+  let result: VelocityCreateShipmentResponse & { manifest_url?: string; rto_charges?: number };
   let usedPayloadOrderId = payload.order_id;
   try {
     result = await velocityService.createForwardShipment(payload);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.toLowerCase().includes("order already exists")) {
-      const retryOrderId = buildVelocityProviderOrderId(localOrder.orderId);
-      const retryPayload: VelocityForwardOrderRequest = { ...payload, order_id: retryOrderId };
-      result = await velocityService.createForwardShipment(retryPayload);
-      usedPayloadOrderId = retryOrderId;
+      if (localOrder.awb?.trim()) {
+        result = {
+          order_id: localOrder.velocityOrderId || payload.order_id,
+          shipment_id: localOrder.velocityShipmentId || localOrder.shipmentId || "",
+          awb_code: localOrder.awb,
+          carrier_name: localOrder.courierName || localOrder.courier || "",
+          carrier_id: localOrder.courierCompanyId || "",
+          label_url: localOrder.labelUrl,
+          manifest_url: localOrder.manifestUrl,
+          shipping_charges: localOrder.shippingCharges,
+          cod_charges: localOrder.codCharges,
+          rto_charges: localOrder.rtoCharges,
+          status: localOrder.shipmentStatus || localOrder.status,
+        };
+      } else {
+        try {
+          result = await velocityService.createForwardShipmentLater({
+            order_id: localOrder.velocityOrderId || payload.order_id,
+            carrier_id: payload.carrier_id,
+          });
+        } catch {
+          const retryOrderId = buildVelocityProviderOrderId(localOrder.orderId);
+          const retryPayload: VelocityForwardOrderRequest = { ...payload, order_id: retryOrderId };
+          result = await velocityService.createForwardShipment(retryPayload);
+          usedPayloadOrderId = retryOrderId;
+        }
+      }
     } else {
       throw err;
     }

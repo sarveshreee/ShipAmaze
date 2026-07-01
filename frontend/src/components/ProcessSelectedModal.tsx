@@ -23,6 +23,7 @@ interface Props {
   couriers: Array<{ id: string; name: string; carrierId?: string }>;
   referenceOrders?: ProcessSelectedOrderRef[];
   submitting?: boolean;
+  processProgress?: { done: number; total: number } | null;
   initialPickupId?: string;
   initialCourierCarrierId?: string;
   /** When set, courier + pickup come from the serviceability filter (fixed bulk booking). */
@@ -41,6 +42,7 @@ export function ProcessSelectedModal({
   couriers,
   referenceOrders = [],
   submitting = false,
+  processProgress = null,
   initialPickupId,
   initialCourierCarrierId,
   fixedCourierFromFilter,
@@ -488,6 +490,12 @@ export function ProcessSelectedModal({
           </div>
         </div>
 
+        {submitting && processProgress && processProgress.total > 0 && (
+          <p className="text-sm text-text-muted">
+            Booking shipments… {processProgress.done} / {processProgress.total} orders
+          </p>
+        )}
+
         <DialogFooter className="gap-2 sm:gap-2">
           <Button
             onClick={() => void handleSubmit()}
@@ -495,7 +503,9 @@ export function ProcessSelectedModal({
             className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Submit
+            {submitting && processProgress
+              ? `Processing (${processProgress.done}/${processProgress.total})`
+              : "Submit"}
           </Button>
           <Button variant="secondary" onClick={onClose} disabled={submitting}>
             Close

@@ -496,6 +496,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   }, [selectedOrders, activeTab, RELAXED_PROCESS_TABS]);
 
   const [processSubmitting, setProcessSubmitting] = useState(false);
+  const [processProgress, setProcessProgress] = useState<{ done: number; total: number } | null>(null);
   const [refreshingStatuses, setRefreshingStatuses] = useState(false);
 
   const getCount = useCallback(
@@ -1054,18 +1055,48 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
             amount: o.amount,
           }))}
         submitting={processSubmitting}
+        processProgress={processProgress}
         onProcess={async (payload) => {
           setProcessSubmitting(true);
+          setProcessProgress({ done: 0, total: payload.orderIds.length });
           try {
-            const res = await orderService.processSelectedOrders(payload);
-            toast.success(`Processed ${res.updatedCount} order(s)`);
-            setProcessModalOpen(false);
-            setSelected(new Set());
+            const res = await orderService.processSelectedOrdersBatched(payload, (done, total) => {
+              setProcessProgress({ done, total });
+            });
+
+            if (res.updatedCount > 0) {
+              const parts = [`Processed ${res.updatedCount} of ${res.total} order(s)`];
+              if (res.skipped.length > 0) parts.push(`${res.skipped.length} skipped`);
+              if (res.failed.length > 0) parts.push(`${res.failed.length} failed`);
+              if (res.failed.length > 0) {
+                toast.warning(parts.join(" · "));
+                const firstFail = res.failed[0];
+                if (firstFail) {
+                  toast.error(`${firstFail.orderId}: ${firstFail.error}`, { duration: 8000 });
+                }
+              } else {
+                toast.success(parts.join(" · "));
+              }
+            } else if (res.failed.length > 0) {
+              toast.error(`All ${res.failed.length} order(s) failed to process`);
+              const firstFail = res.failed[0];
+              if (firstFail) {
+                toast.error(`${firstFail.orderId}: ${firstFail.error}`, { duration: 8000 });
+              }
+            } else if (res.skipped.length > 0) {
+              toast.info(`All ${res.skipped.length} order(s) were already processed or not eligible`);
+            }
+
+            if (res.updatedCount > 0) {
+              setProcessModalOpen(false);
+              setSelected(new Set());
+            }
             await refetch();
           } catch (err: unknown) {
             toast.error(errorMessageFromUnknown(err, "Process selected failed"));
           } finally {
             setProcessSubmitting(false);
+            setProcessProgress(null);
           }
         }}
       />
