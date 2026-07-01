@@ -559,7 +559,7 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   const defaultStatus = isManualOrder ? "pending" : "ready_to_ship";
   let statusStored = normalizeOrderStatus(String(body.status ?? defaultStatus));
   if (!isManualOrder && statusStored === "draft") statusStored = "ready_to_ship";
-  if (isManualOrder && statusStored === "ready_to_ship") statusStored = "pending";
+  if (isManualOrder && statusStored === "ready_to_ship") statusStored = "draft";
 
   const doc = await Order.create({
     orderId,
