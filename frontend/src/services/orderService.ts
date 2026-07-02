@@ -211,6 +211,7 @@ export async function bulkMoveOrders(orderIds: string[], targetStatus: "ready_to
 export type ProcessSelectedPayload = {
   orderIds: string[];
   pickupAddressId: string;
+  courierSelectionMode: "priority" | "courier";
   courierName: string;
   carrierId?: string;
   shipmentMode: "forward" | "reverse";

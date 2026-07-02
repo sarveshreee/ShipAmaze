@@ -29,7 +29,12 @@ const FULFILLMENT_PIPELINE = new Set([
   "cancelled",
 ]);
 
-const READY_TO_SHIP_STATUSES = new Set(["ready_to_ship"]);
+const READY_TO_SHIP_STATUSES = new Set([
+  "ready_to_ship",
+  "ready-to-ship",
+  "ready to ship",
+  "awaiting_shipment",
+]);
 const PENDING_PICKUP_STATUSES = new Set(["pending_pickup", "pickup_scheduled"]);
 const IN_TRANSIT_STATUSES = new Set(["in_transit", "shipped", "picked_up"]);
 const FAILED_STATUSES = new Set([

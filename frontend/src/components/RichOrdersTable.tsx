@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import type { Order } from "@/types/logistics";
 import { useAuth } from "@/contexts/AuthContext";
@@ -36,15 +37,6 @@ const BULK_LABEL_PRINT_TABS = new Set([
   "failed",
 ]);
 
-const INDIAN_STATES = [
-  "Andaman and Nicobar Islands","Andhra Pradesh","Arunachal Pradesh","Assam","Bihar",
-  "Chandigarh","Chhattisgarh","Dadra and Nagar Haveli","Daman and Diu","Delhi","Goa",
-  "Gujarat","Haryana","Himachal Pradesh","Jammu and Kashmir","Jharkhand","Karnataka",
-  "Kerala","Ladakh","Lakshadweep","Madhya Pradesh","Maharashtra","Manipur","Meghalaya",
-  "Mizoram","Nagaland","Odisha","Puducherry","Punjab","Rajasthan","Sikkim","Tamil Nadu",
-  "Telangana","Tripura","Uttar Pradesh","Uttarakhand","West Bengal"
-];
-
 const IVR_OPTIONS = [
   "Except IVR", "Call Picked (No Response)", "Order Confirmed", "Order Cancelled",
   "Call not picked", "Call initiated", "Call Failed", "Response Awaited"
@@ -54,6 +46,70 @@ const WHATSAPP_OPTIONS = [
   "Order Confirmed", "Order Cancelled", "Response Awaited", "Msg Failed",
   "Address Update Request"
 ];
+
+function extractPickupMeta(o: Order) {
+  const pickup = o.pickupAddress;
+  const pickupObj = typeof pickup === "object" && pickup ? pickup : null;
+  const label =
+    pickupObj?.label?.trim() ||
+    pickupObj?.warehouseName?.trim() ||
+    (pickupObj as { name?: string } | null)?.name?.trim() ||
+    (typeof pickup === "string" ? pickup.trim() : "");
+  const id = String(o.pickupAddressId ?? pickupObj?.id ?? "").trim();
+  const key = id || label || "__unassigned__";
+  const pincode = String(pickupObj?.pincode ?? "").replace(/\D/g, "");
+  const velocityId = String(pickupObj?.velocityWarehouseId ?? o.velocityWarehouseId ?? "").trim();
+  const hasPickup = Boolean(label || id || pickupObj);
+  return {
+    key,
+    label: label || "No pickup assigned",
+    city: String(pickupObj?.city ?? "").trim(),
+    state: String(pickupObj?.state ?? "").trim(),
+    pincode,
+    velocityLinked: Boolean(velocityId),
+    hasPickup,
+    validPincode: pincode.length === 6,
+  };
+}
+
+type AddressFilterState = {
+  open: boolean;
+  search: string;
+  selectedPickupKeys: Set<string>;
+  selectedStates: Set<string>;
+  selectedCities: Set<string>;
+  missingPickup: boolean;
+  velocityLinked: boolean;
+  velocityUnlinked: boolean;
+  validPickupPincode: boolean;
+  invalidPickupPincode: boolean;
+};
+
+const EMPTY_ADDRESS_FILTER: AddressFilterState = {
+  open: false,
+  search: "",
+  selectedPickupKeys: new Set(),
+  selectedStates: new Set(),
+  selectedCities: new Set(),
+  missingPickup: false,
+  velocityLinked: false,
+  velocityUnlinked: false,
+  validPickupPincode: false,
+  invalidPickupPincode: false,
+};
+
+function isAddressFilterActive(f: AddressFilterState): boolean {
+  return (
+    f.selectedPickupKeys.size > 0 ||
+    f.selectedStates.size > 0 ||
+    f.selectedCities.size > 0 ||
+    f.missingPickup ||
+    f.velocityLinked ||
+    f.velocityUnlinked ||
+    f.validPickupPincode ||
+    f.invalidPickupPincode
+  );
+}
 
 /** Tabs after Ready to Ship — show Cancel (→ Reship) instead of Junk. */
 const POST_READY_TABS = new Set([
@@ -169,6 +225,43 @@ interface FilterPopoverProps {
 
 function FilterPopover({ open, onClose, children, anchorRef }: FilterPopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ top: number; left: number; placement: "below" | "above" } | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const gap = 6;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openAbove = spaceBelow < 220 && rect.top > spaceBelow;
+
+    let left = rect.left;
+    const popoverWidth = 300;
+    if (left + popoverWidth > window.innerWidth - 12) {
+      left = Math.max(12, window.innerWidth - popoverWidth - 12);
+    }
+
+    setPosition({
+      top: openAbove ? rect.top - gap : rect.bottom + gap,
+      left,
+      placement: openAbove ? "above" : "below",
+    });
+  }, [anchorRef]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPosition(null);
+      return;
+    }
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open, updatePosition]);
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -177,11 +270,22 @@ function FilterPopover({ open, onClose, children, anchorRef }: FilterPopoverProp
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open, onClose, anchorRef]);
-  if (!open) return null;
-  return (
-    <div ref={ref} className="absolute z-50 top-full left-0 mt-1 bg-card border border-border rounded-xl shadow-xl p-4 min-w-[280px] max-w-[340px] max-h-[400px] overflow-auto">
+
+  if (!open || !position) return null;
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[100] bg-card border border-border rounded-xl shadow-xl p-4 min-w-[280px] max-w-[340px] max-h-[400px] overflow-auto"
+      style={{
+        top: position.top,
+        left: position.left,
+        transform: position.placement === "above" ? "translateY(-100%)" : undefined,
+      }}
+    >
       {children}
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -464,6 +568,8 @@ interface Props {
   onOpenProcessModal?: () => void;
   onExport?: () => void;
   loading: boolean;
+  /** Background refresh — keeps rows visible while new tab data loads. */
+  isRefreshing?: boolean;
   activeTab?: string;
   onToggleSidebar?: () => void;
   showProcessSelected?: boolean;
@@ -515,6 +621,7 @@ export function RichOrdersTable({
   onOpenProcessModal,
   onExport,
   loading,
+  isRefreshing = false,
   activeTab,
   onToggleSidebar,
   showProcessSelected = true,
@@ -537,7 +644,7 @@ export function RichOrdersTable({
   const showBulkPrintActions = BULK_LABEL_PRINT_TABS.has(activeTab ?? "") && selected.size > 0;
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
-  const [addressFilter, setAddressFilter] = useState({ open: false, search: "", selectedStates: new Set<string>(), validPincodes: false, invalidPincodes: false, invalidContact: false });
+  const [addressFilter, setAddressFilter] = useState<AddressFilterState>(EMPTY_ADDRESS_FILTER);
   const [commFilter, setCommFilter] = useState({ open: false, ivrSelected: new Set<string>(), whatsappSelected: new Set<string>() });
 
   // New filters for Order Details and Customer Details
@@ -635,6 +742,52 @@ export function RichOrdersTable({
   const allProductNames = Array.from(new Set(orders.flatMap(o => (o.products || []).map(p => p.name))));
   const allCities = Array.from(new Set(orders.map(o => o.city).filter(Boolean)));
 
+  const pickupFilterOptions = useMemo(() => {
+    const locationMap = new Map<string, { key: string; label: string; count: number }>();
+    const stateMap = new Map<string, number>();
+    const cityMap = new Map<string, number>();
+    let missingPickupCount = 0;
+    let velocityLinkedCount = 0;
+    let velocityUnlinkedCount = 0;
+    let validPincodeCount = 0;
+    let invalidPincodeCount = 0;
+
+    for (const o of orders) {
+      const meta = extractPickupMeta(o);
+      if (!meta.hasPickup) missingPickupCount += 1;
+      if (meta.velocityLinked) velocityLinkedCount += 1;
+      else if (meta.hasPickup) velocityUnlinkedCount += 1;
+      if (meta.hasPickup) {
+        if (meta.validPincode) validPincodeCount += 1;
+        else invalidPincodeCount += 1;
+      }
+      const loc = locationMap.get(meta.key);
+      if (loc) loc.count += 1;
+      else locationMap.set(meta.key, { key: meta.key, label: meta.label, count: 1 });
+      if (meta.state) stateMap.set(meta.state, (stateMap.get(meta.state) ?? 0) + 1);
+      if (meta.city) cityMap.set(meta.city, (cityMap.get(meta.city) ?? 0) + 1);
+    }
+
+    const locations = [...locationMap.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    const states = [...stateMap.entries()]
+      .map(([state, count]) => ({ state, count }))
+      .sort((a, b) => b.count - a.count || a.state.localeCompare(b.state));
+    const cities = [...cityMap.entries()]
+      .map(([city, count]) => ({ city, count }))
+      .sort((a, b) => b.count - a.count || a.city.localeCompare(b.city));
+
+    return {
+      locations,
+      states,
+      cities,
+      missingPickupCount,
+      velocityLinkedCount,
+      velocityUnlinkedCount,
+      validPincodeCount,
+      invalidPincodeCount,
+    };
+  }, [orders]);
+
   const filteredOrders = orders.filter(o => {
     // Product filter
     if (productFilter.selectedNames.size > 0) {
@@ -650,17 +803,16 @@ export function RichOrdersTable({
     // Amount filter
     if (amountFilter.from && o.amount < Number(amountFilter.from)) return false;
     if (amountFilter.to && o.amount > Number(amountFilter.to)) return false;
-    // Address filter
-    if (addressFilter.invalidPincodes) {
-      if (o.pincode && /^\d{6}$/.test(o.pincode)) return false;
-    }
-    if (addressFilter.validPincodes) {
-      if (!o.pincode || !/^\d{6}$/.test(o.pincode)) return false;
-    }
-    if (addressFilter.selectedStates.size > 0) {
-      const cityLower = (o.city || "").toLowerCase();
-      if (!Array.from(addressFilter.selectedStates).some(s => cityLower.includes(s.toLowerCase()))) return false;
-    }
+    // Pickup address filter
+    const pickupMeta = extractPickupMeta(o);
+    if (addressFilter.missingPickup && pickupMeta.hasPickup) return false;
+    if (addressFilter.validPickupPincode && (!pickupMeta.hasPickup || !pickupMeta.validPincode)) return false;
+    if (addressFilter.invalidPickupPincode && (!pickupMeta.hasPickup || pickupMeta.validPincode)) return false;
+    if (addressFilter.velocityLinked && !pickupMeta.velocityLinked) return false;
+    if (addressFilter.velocityUnlinked && pickupMeta.velocityLinked) return false;
+    if (addressFilter.selectedPickupKeys.size > 0 && !addressFilter.selectedPickupKeys.has(pickupMeta.key)) return false;
+    if (addressFilter.selectedStates.size > 0 && !addressFilter.selectedStates.has(pickupMeta.state)) return false;
+    if (addressFilter.selectedCities.size > 0 && !addressFilter.selectedCities.has(pickupMeta.city)) return false;
     // Order Details filter
     if (orderDetailsFilter.dateFrom) {
       const orderDate = orderTimestampForTab(o, activeTab).date;
@@ -805,22 +957,24 @@ export function RichOrdersTable({
   );
 
   return (
-    <div className="rounded-lg bg-card border border-border overflow-hidden">
-      {/* Action bar when orders are selected */}
+    <div className="rounded-lg bg-card border border-border">
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-surface-2/80 border-b border-border flex-wrap">
-          <button onClick={onToggleSidebar} className="p-1.5 rounded-md hover:bg-surface-2 transition-colors" title="Enlarge to full screen">
-            <Monitor className="h-4 w-4 text-primary" />
-          </button>
-          <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
-            <span>Count Order: <strong>{selected.size}</strong></span>
+        <div className="flex flex-wrap items-center gap-3 border-b border-primary/20 bg-gradient-to-r from-primary/[0.08] via-card to-secondary/[0.06] px-4 py-2.5">
+          <div className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+            <span className="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-primary px-2 text-xs font-bold text-white shadow-sm">
+              {selected.size}
+            </span>
+            order{selected.size === 1 ? "" : "s"} selected
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             {showBulkMoveToReady && onBulkMoveToReady && (
               <>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary-light">
+                    <Button
+                      size="sm"
+                      className="h-9 gap-1.5 border-2 border-secondary/30 bg-secondary/10 text-secondary-dark hover:bg-secondary hover:text-white shadow-sm font-semibold"
+                    >
                       <Truck className="h-3.5 w-3.5" /> Move To
                     </Button>
                   </DropdownMenuTrigger>
@@ -864,10 +1018,10 @@ export function RichOrdersTable({
             )}
             {showProcessSelected && (
               <Button
-                variant="outline"
+                type="button"
                 size="sm"
-                className="h-8 text-xs gap-1.5"
                 disabled={processSelectedDisabled}
+                className="h-9 gap-2 px-4 text-xs font-bold bg-gradient-to-r from-primary to-primary-dark text-white shadow-md shadow-primary/30 hover:shadow-lg hover:brightness-105 border-0 disabled:opacity-50 disabled:shadow-none"
                 title={
                   processSelectedDisabled
                     ? selected.size === 0
@@ -882,15 +1036,15 @@ export function RichOrdersTable({
                   onOpenProcessModal?.();
                 }}
               >
-                <CheckSquare className="h-3.5 w-3.5" /> Process Selected
+                <CheckSquare className="h-4 w-4" /> Process Selected
               </Button>
             )}
             {showBulkPrintActions && (
               <>
                 <Button
-                  variant="outline"
                   size="sm"
-                  className="h-8 text-xs gap-1.5"
+                  variant="outline"
+                  className="h-9 gap-1.5 text-xs font-semibold border-primary/30 hover:bg-primary/10 hover:border-primary/50"
                   onClick={() => {
                     const picked = orders.filter((o) => selected.has(o.id));
                     if (!picked.length) return;
@@ -904,12 +1058,12 @@ export function RichOrdersTable({
                       });
                   }}
                 >
-                  <Printer className="h-3.5 w-3.5" /> Bulk Label Print
+                  <Printer className="h-3.5 w-3.5" /> Labels
                 </Button>
                 <Button
-                  variant="outline"
                   size="sm"
-                  className="h-8 text-xs gap-1.5"
+                  variant="outline"
+                  className="h-9 gap-1.5 text-xs font-semibold border-primary/30 hover:bg-primary/10 hover:border-primary/50"
                   onClick={() => {
                     const picked = orders.filter((o) => selected.has(o.id));
                     if (!picked.length) return;
@@ -923,7 +1077,7 @@ export function RichOrdersTable({
                       });
                   }}
                 >
-                  <Printer className="h-3.5 w-3.5" /> Bulk Invoice Print
+                  <Printer className="h-3.5 w-3.5" /> Invoices
                 </Button>
               </>
             )}
@@ -931,12 +1085,11 @@ export function RichOrdersTable({
               activeTab === "junk" ? (
                 <AlertDialog open={bulkDeleteJunkConfirmOpen} onOpenChange={setBulkDeleteJunkConfirmOpen}>
                   <Button
-                    variant="outline"
                     size="sm"
-                    className="h-8 text-xs gap-1.5 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                    className="h-9 gap-2 px-4 text-xs font-bold border-2 border-danger/50 text-danger bg-danger/5 hover:bg-danger hover:text-white shadow-sm transition-colors"
                     onClick={() => setBulkDeleteJunkConfirmOpen(true)}
                   >
-                    <Trash2 className="h-3.5 w-3.5" /> {bulkJunkLabel}
+                    <Trash2 className="h-4 w-4" /> {bulkJunkLabel}
                   </Button>
                   <AlertDialogContent>
                     <AlertDialogHeader>
@@ -961,12 +1114,11 @@ export function RichOrdersTable({
                 </AlertDialog>
               ) : (
                 <Button
-                  variant="outline"
                   size="sm"
-                  className="h-8 text-xs gap-1.5 border-danger/40 text-danger hover:bg-danger-light hover:text-danger-dark"
+                  className="h-9 gap-2 px-4 text-xs font-bold border-2 border-danger/50 text-danger bg-danger/5 hover:bg-danger hover:text-white shadow-sm transition-colors"
                   onClick={onBulkJunk}
                 >
-                  <Trash2 className="h-3.5 w-3.5" /> {bulkJunkLabel}
+                  <Trash2 className="h-4 w-4" /> {bulkJunkLabel}
                 </Button>
               )
             )}
@@ -974,10 +1126,16 @@ export function RichOrdersTable({
         </div>
       )}
 
+      <div className="relative">
+        {isRefreshing && (
+          <div className="absolute inset-x-0 top-0 z-20 h-1 overflow-hidden bg-primary/10">
+            <div className="h-full w-1/3 bg-primary animate-pulse rounded-full" />
+          </div>
+        )}
       <div className="overflow-x-auto overscroll-x-contain -mx-4 px-4 sm:mx-0 sm:px-0">
         <table className="w-full min-w-[640px] text-sm border-collapse">
           <thead>
-            <tr className="border-b border-border bg-transparent">
+            <tr className="border-b border-border bg-gradient-to-r from-primary/10 via-card to-secondary/10">
               <th className="p-3 text-left w-10">
                 <input type="checkbox" className="rounded border-border accent-primary"
                   checked={selected.size === filteredOrders.length && filteredOrders.length > 0}
@@ -1122,49 +1280,232 @@ export function RichOrdersTable({
                   <span>Pickup Address</span>
                   <button onClick={() => setAddressFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={addressFilter.selectedStates.size > 0 || addressFilter.validPincodes || addressFilter.invalidPincodes || addressFilter.invalidContact} />
+                    <FilterIcon active={isAddressFilterActive(addressFilter)} />
                   </button>
                 </div>
                 <FilterPopover open={addressFilter.open} onClose={() => setAddressFilter(f => ({ ...f, open: false }))} anchorRef={addressRef}>
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-text-primary text-sm">States</p>
-                      <button className="text-xs text-primary font-semibold hover:underline" onClick={() => setAddressFilter(f => ({ ...f, selectedStates: new Set(INDIAN_STATES) }))}>Select All</button>
-                    </div>
-                    <Input placeholder="Search State" value={addressFilter.search} onChange={e => setAddressFilter(f => ({ ...f, search: e.target.value }))} className="h-9 text-xs" />
-                    <div className="space-y-1">
-                      {[
-                        { label: "Valid Pincodes", key: "validPincodes" },
-                        { label: "Invalid Pincodes", key: "invalidPincodes" },
-                        { label: "Invalid Contact No.", key: "invalidContact" },
-                      ].map(item => (
-                        <label key={item.key} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
-                          <input type="checkbox" className="rounded accent-primary" checked={(addressFilter as any)[item.key]}
-                            onChange={() => setAddressFilter(f => {
-                              if (item.key === "validPincodes") return { ...f, validPincodes: !f.validPincodes, invalidPincodes: false };
-                              if (item.key === "invalidPincodes") return { ...f, invalidPincodes: !f.invalidPincodes, validPincodes: false };
-                              return { ...f, invalidContact: !f.invalidContact };
-                            })} />
-                          {item.label}
-                        </label>
-                      ))}
-                    </div>
-                    <div className="max-h-[150px] overflow-auto space-y-1 border-t border-border pt-2">
-                      {INDIAN_STATES.filter(s => s.toLowerCase().includes(addressFilter.search.toLowerCase())).map(state => (
-                        <label key={state} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
-                          <input type="checkbox" className="rounded accent-primary" checked={addressFilter.selectedStates.has(state)}
-                            onChange={() => setAddressFilter(f => {
-                              const n = new Set(f.selectedStates);
-                              if (n.has(state)) n.delete(state);
-                              else n.add(state);
-                              return { ...f, selectedStates: n };
-                            })} />
-                          {state}
-                        </label>
-                      ))}
-                    </div>
+                    <p className="font-semibold text-text-primary text-sm">Filter Pickup Address</p>
+                    <Input
+                      placeholder="Search pickup, city, or state…"
+                      value={addressFilter.search}
+                      onChange={(e) => setAddressFilter((f) => ({ ...f, search: e.target.value }))}
+                      className="h-9 text-xs"
+                    />
+
+                    {(() => {
+                      const q = addressFilter.search.trim().toLowerCase();
+                      const quickFilters = [
+                        pickupFilterOptions.missingPickupCount > 0 && {
+                          key: "missingPickup" as const,
+                          label: "No pickup assigned",
+                          count: pickupFilterOptions.missingPickupCount,
+                        },
+                        pickupFilterOptions.velocityLinkedCount > 0 && {
+                          key: "velocityLinked" as const,
+                          label: "Velocity linked",
+                          count: pickupFilterOptions.velocityLinkedCount,
+                        },
+                        pickupFilterOptions.velocityUnlinkedCount > 0 && {
+                          key: "velocityUnlinked" as const,
+                          label: "Not linked to Velocity",
+                          count: pickupFilterOptions.velocityUnlinkedCount,
+                        },
+                        pickupFilterOptions.validPincodeCount > 0 && {
+                          key: "validPickupPincode" as const,
+                          label: "Valid pickup pincode",
+                          count: pickupFilterOptions.validPincodeCount,
+                        },
+                        pickupFilterOptions.invalidPincodeCount > 0 && {
+                          key: "invalidPickupPincode" as const,
+                          label: "Invalid pickup pincode",
+                          count: pickupFilterOptions.invalidPincodeCount,
+                        },
+                      ].filter(Boolean) as Array<{
+                        key: "missingPickup" | "velocityLinked" | "velocityUnlinked" | "validPickupPincode" | "invalidPickupPincode";
+                        label: string;
+                        count: number;
+                      }>;
+
+                      const locations = pickupFilterOptions.locations.filter(
+                        (loc) => !q || loc.label.toLowerCase().includes(q)
+                      );
+                      const cities = pickupFilterOptions.cities.filter(
+                        (row) => !q || row.city.toLowerCase().includes(q)
+                      );
+                      const states = pickupFilterOptions.states.filter(
+                        (row) => !q || row.state.toLowerCase().includes(q)
+                      );
+
+                      const togglePickupKey = (key: string) =>
+                        setAddressFilter((f) => {
+                          const n = new Set(f.selectedPickupKeys);
+                          if (n.has(key)) n.delete(key);
+                          else n.add(key);
+                          return { ...f, selectedPickupKeys: n };
+                        });
+
+                      const toggleState = (state: string) =>
+                        setAddressFilter((f) => {
+                          const n = new Set(f.selectedStates);
+                          if (n.has(state)) n.delete(state);
+                          else n.add(state);
+                          return { ...f, selectedStates: n };
+                        });
+
+                      const toggleCity = (city: string) =>
+                        setAddressFilter((f) => {
+                          const n = new Set(f.selectedCities);
+                          if (n.has(city)) n.delete(city);
+                          else n.add(city);
+                          return { ...f, selectedCities: n };
+                        });
+
+                      if (quickFilters.length === 0 && locations.length === 0 && cities.length === 0 && states.length === 0) {
+                        return (
+                          <p className="text-xs text-text-muted py-2">
+                            No pickup filter options in the current order list.
+                          </p>
+                        );
+                      }
+
+                      return (
+                        <>
+                          {quickFilters.length > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Quick filters</p>
+                              {quickFilters.map((item) => (
+                                <label
+                                  key={item.key}
+                                  className="flex items-center justify-between gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1"
+                                >
+                                  <span className="flex items-center gap-2 min-w-0">
+                                    <input
+                                      type="checkbox"
+                                      className="rounded accent-primary shrink-0"
+                                      checked={addressFilter[item.key]}
+                                      onChange={() =>
+                                        setAddressFilter((f) => {
+                                          if (item.key === "validPickupPincode") {
+                                            return {
+                                              ...f,
+                                              validPickupPincode: !f.validPickupPincode,
+                                              invalidPickupPincode: false,
+                                            };
+                                          }
+                                          if (item.key === "invalidPickupPincode") {
+                                            return {
+                                              ...f,
+                                              invalidPickupPincode: !f.invalidPickupPincode,
+                                              validPickupPincode: false,
+                                            };
+                                          }
+                                          return { ...f, [item.key]: !f[item.key] };
+                                        })
+                                      }
+                                    />
+                                    <span className="truncate">{item.label}</span>
+                                  </span>
+                                  <span className="text-[10px] text-text-muted shrink-0">{item.count}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+
+                          {locations.length > 0 && (
+                            <div className="space-y-1 border-t border-border pt-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Pickup locations</p>
+                                <button
+                                  type="button"
+                                  className="text-[10px] text-primary font-semibold hover:underline"
+                                  onClick={() =>
+                                    setAddressFilter((f) => ({
+                                      ...f,
+                                      selectedPickupKeys: new Set(locations.map((loc) => loc.key)),
+                                    }))
+                                  }
+                                >
+                                  Select all
+                                </button>
+                              </div>
+                              <div className="max-h-[140px] overflow-auto space-y-1">
+                                {locations.map((loc) => (
+                                  <label
+                                    key={loc.key}
+                                    className="flex items-center justify-between gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1"
+                                  >
+                                    <span className="flex items-center gap-2 min-w-0">
+                                      <input
+                                        type="checkbox"
+                                        className="rounded accent-primary shrink-0"
+                                        checked={addressFilter.selectedPickupKeys.has(loc.key)}
+                                        onChange={() => togglePickupKey(loc.key)}
+                                      />
+                                      <span className="truncate">{loc.label}</span>
+                                    </span>
+                                    <span className="text-[10px] text-text-muted shrink-0">{loc.count}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {cities.length > 0 && (
+                            <div className="space-y-1 border-t border-border pt-2">
+                              <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Pickup city</p>
+                              <div className="max-h-[120px] overflow-auto space-y-1">
+                                {cities.map((row) => (
+                                  <label
+                                    key={row.city}
+                                    className="flex items-center justify-between gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1"
+                                  >
+                                    <span className="flex items-center gap-2 min-w-0">
+                                      <input
+                                        type="checkbox"
+                                        className="rounded accent-primary shrink-0"
+                                        checked={addressFilter.selectedCities.has(row.city)}
+                                        onChange={() => toggleCity(row.city)}
+                                      />
+                                      <span className="truncate">{row.city}</span>
+                                    </span>
+                                    <span className="text-[10px] text-text-muted shrink-0">{row.count}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {states.length > 0 && (
+                            <div className="space-y-1 border-t border-border pt-2">
+                              <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">Pickup state</p>
+                              <div className="max-h-[120px] overflow-auto space-y-1">
+                                {states.map((row) => (
+                                  <label
+                                    key={row.state}
+                                    className="flex items-center justify-between gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1"
+                                  >
+                                    <span className="flex items-center gap-2 min-w-0">
+                                      <input
+                                        type="checkbox"
+                                        className="rounded accent-primary shrink-0"
+                                        checked={addressFilter.selectedStates.has(row.state)}
+                                        onChange={() => toggleState(row.state)}
+                                      />
+                                      <span className="truncate">{row.state}</span>
+                                    </span>
+                                    <span className="text-[10px] text-text-muted shrink-0">{row.count}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+
                     <div className="flex justify-between pt-3 border-t border-border">
-                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setAddressFilter({ open: false, search: "", selectedStates: new Set(), validPincodes: false, invalidPincodes: false, invalidContact: false })}>Clear</Button>
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setAddressFilter(EMPTY_ADDRESS_FILTER)}>Clear</Button>
                       <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setAddressFilter(f => ({ ...f, open: false }))}>Apply</Button>
                     </div>
                   </div>
@@ -1530,8 +1871,16 @@ export function RichOrdersTable({
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-between border-t border-border p-3 text-sm text-text-secondary">
-        <span>Showing 1–{filteredOrders.length} of {filteredOrders.length} orders</span>
+      </div>
+
+      <div className="h-14 shrink-0" aria-hidden />
+
+      <div
+        className="fixed bottom-0 z-30 border-t border-border/60 bg-card/90 backdrop-blur-sm left-0 right-0 pb-[env(safe-area-inset-bottom,0px)] max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:left-[var(--sidebar-width,4.5rem)] transition-[left] duration-300"
+      >
+        <div className="px-4 py-2.5 text-sm text-text-secondary">
+          Showing 1–{filteredOrders.length} of {filteredOrders.length} orders
+        </div>
       </div>
 
       {/* Edit Product Modal */}

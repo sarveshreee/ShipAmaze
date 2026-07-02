@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as orderService from "@/services/orderService";
 import type { OrdersListMeta, OrderListFilterValues } from "@/services/orderService";
 import * as manifestService from "@/services/manifestService";
@@ -255,7 +255,8 @@ export interface OrdersQueryState {
   tabCounts?: Record<string, number>;
   error: Error | null;
   isLoading: boolean;
-  refetch: () => Promise<Order[]>;
+  isFetching: boolean;
+  refetch: (opts?: { includeCounts?: boolean }) => Promise<Order[]>;
 }
 
 /** Paginated orders + server filters (preferred for order list pages). */
@@ -313,12 +314,22 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
   const [tabCounts, setTabCounts] = useState<Record<string, number> | undefined>();
   const [error, setError] = useState<Error | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const dataRef = useRef<Order[]>([]);
+  const includeCountsRef = useRef(counts);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   const advKey = stableAdvKey(adv);
   const key = `orders:v2:${view ?? "default"}:${page}:${pageSize}:${q ?? ""}:${tab ?? ""}:${payment ?? ""}:${fulfillment ?? ""}:${counts ? 1 : 0}:${advKey}`;
 
-  const load = useCallback(async (): Promise<Order[]> => {
-    setIsLoading(true);
+  const load = useCallback(async (override?: { includeCounts?: boolean }): Promise<Order[]> => {
+    const wantCounts = override?.includeCounts ?? includeCountsRef.current;
+    const hasData = dataRef.current.length > 0;
+    if (!hasData) setIsLoading(true);
+    setIsFetching(true);
     try {
       const res = await orderService.listOrders({
         view,
@@ -328,14 +339,14 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
         tab: view === "junk" ? undefined : tab,
         payment,
         fulfillment,
-        counts,
+        counts: wantCounts,
         ...adv,
       });
       if (Array.isArray(res)) {
         const mapped = (res as unknown as Record<string, unknown>[]).map(mapOrderRow);
         setData(mapped);
         setTotal(mapped.length);
-        setTabCounts(undefined);
+        if (wantCounts) setTabCounts(undefined);
         setError(null);
         return mapped;
       }
@@ -343,18 +354,23 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
       const mapped = (meta.orders as unknown as Record<string, unknown>[]).map(mapOrderRow);
       setData(mapped);
       setTotal(meta.total);
-      setTabCounts(meta.tabCounts);
+      if (wantCounts && meta.tabCounts) {
+        setTabCounts(meta.tabCounts);
+      }
       setError(null);
       return mapped;
     } catch (err) {
       const e = toError(err);
       setError(e);
-      setData([]);
-      setTotal(0);
-      setTabCounts(undefined);
+      if (!hasData) {
+        setData([]);
+        setTotal(0);
+        if (wantCounts) setTabCounts(undefined);
+      }
       return [];
     } finally {
       setIsLoading(false);
+      setIsFetching(false);
     }
   }, [
     view,
@@ -383,6 +399,10 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
     dropshipperId,
     vendorId,
   ]);
+
+  useEffect(() => {
+    includeCountsRef.current = counts;
+  }, [counts]);
 
   useEffect(() => {
     const eventName = `shipamaze:refetch:${key}`;
@@ -418,9 +438,10 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
       tabCounts,
       error,
       isLoading,
-      refetch: load,
+      isFetching,
+      refetch: (opts?: { includeCounts?: boolean }) => load(opts),
     }),
-    [data, total, page, pageSize, tabCounts, error, isLoading, load]
+    [data, total, page, pageSize, tabCounts, error, isLoading, isFetching, load]
   );
 }
 

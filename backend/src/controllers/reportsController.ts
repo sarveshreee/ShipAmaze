@@ -378,16 +378,39 @@ export const getReportsOrders = asyncHandler(async (req: AuthRequest, res: Respo
 export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user || req.user.role !== "admin") throw new AppError(403, "Admin only");
 
-  const [activeVendors, activeDropshippers, topProducts, topVendors, topDropshippers] = await Promise.all([
+  const [activeVendors, activeDropshippers, topProducts, topVendors, topDropshippers, statsAgg, byStatusAgg, byCourierAgg, recentOrders] = await Promise.all([
     User.countDocuments({ role: "vendor", status: "active" }),
     User.countDocuments({ role: "dropshipper", status: "active" }),
     Order.aggregate([
       { $match: { status: { $nin: ["cancelled", "junk"] } } },
+      { $unwind: { path: "$products", preserveNullAndEmptyArrays: false } },
+      {
+        $addFields: {
+          productLabel: {
+            $trim: {
+              input: {
+                $ifNull: [
+                  "$products.name",
+                  { $ifNull: ["$products.productName", "$products.title"] },
+                ],
+              },
+            },
+          },
+        },
+      },
+      { $match: { productLabel: { $nin: [null, ""] } } },
       {
         $group: {
-          _id: "$productName",
+          _id: "$productLabel",
           orderCount: { $sum: 1 },
-          revenue: { $sum: { $ifNull: ["$amount", 0] } },
+          revenue: {
+            $sum: {
+              $multiply: [
+                { $ifNull: ["$products.price", 0] },
+                { $max: [{ $ifNull: ["$products.qty", 1] }, 1] },
+              ],
+            },
+          },
         },
       },
       { $sort: { orderCount: -1 } },
@@ -407,8 +430,21 @@ export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Re
       { $limit: 5 },
       {
         $lookup: {
-          from: "users",
+          from: "vendors",
           localField: "_id",
+          foreignField: "_id",
+          as: "vendor",
+        },
+      },
+      {
+        $addFields: {
+          vendorDoc: { $arrayElemAt: ["$vendor", 0] },
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "vendorDoc.userId",
           foreignField: "_id",
           as: "user",
         },
@@ -416,8 +452,20 @@ export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Re
       {
         $project: {
           _id: 0,
-          name: { $ifNull: [{ $arrayElemAt: ["$user.name", 0] }, "Unknown"] },
-          email: { $ifNull: [{ $arrayElemAt: ["$user.email", 0] }, ""] },
+          name: {
+            $ifNull: [
+              "$vendorDoc.name",
+              { $arrayElemAt: ["$user.name", 0] },
+              "Unknown",
+            ],
+          },
+          email: {
+            $ifNull: [
+              "$vendorDoc.email",
+              { $arrayElemAt: ["$user.email", 0] },
+              "",
+            ],
+          },
           orderCount: 1,
           revenue: 1,
         },
@@ -452,9 +500,132 @@ export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Re
         },
       },
     ]),
+    Order.aggregate([
+      { $match: { isJunk: { $ne: true } } },
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          deliveredCount: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["delivered", "Delivered"]] }, 1, 0],
+            },
+          },
+          rtoCount: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["rto", "RTO"]] }, 1, 0],
+            },
+          },
+          ndrCount: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["ndr", "NDR", "ndr_raised", "NDR raised"]] }, 1, 0],
+            },
+          },
+          totalOrderValue: { $sum: { $ifNull: ["$amount", 0] } },
+        },
+      },
+    ]),
+    Order.aggregate([
+      { $match: { isJunk: { $ne: true } } },
+      { $group: { _id: { $ifNull: ["$status", "other"] }, value: { $sum: 1 } } },
+      { $sort: { value: -1 } },
+      { $project: { _id: 0, name: "$_id", value: 1 } },
+    ]),
+    Order.aggregate([
+      { $match: { isJunk: { $ne: true } } },
+      {
+        $group: {
+          _id: { $ifNull: ["$courier", "Unknown"] },
+          delivered: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["delivered", "Delivered"]] }, 1, 0],
+            },
+          },
+          ndr: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["ndr", "NDR", "ndr_raised", "NDR raised"]] }, 1, 0],
+            },
+          },
+          rto: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["rto", "RTO"]] }, 1, 0],
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          total: { $add: ["$delivered", "$ndr", "$rto"] },
+        },
+      },
+      { $sort: { total: -1 } },
+      { $limit: 12 },
+      { $project: { _id: 0, name: "$_id", delivered: 1, ndr: 1, rto: 1 } },
+    ]),
+    Order.find({ isJunk: { $ne: true } })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .select("orderId customer status courier courierName payment date")
+      .lean(),
+  ]);
+
+  const totals = statsAgg[0] ?? {
+    totalOrders: 0,
+    deliveredCount: 0,
+    rtoCount: 0,
+    ndrCount: 0,
+    totalOrderValue: 0,
+  };
+
+  const ordersOverTime = await Order.aggregate([
+    { $match: { isJunk: { $ne: true } } },
+    {
+      $group: {
+        _id: {
+          $dateToString: { format: "%Y-%m-%d", date: { $ifNull: ["$createdAt", "$updatedAt"] } },
+        },
+        total: { $sum: 1 },
+        delivered: {
+          $sum: {
+            $cond: [{ $in: ["$status", ["delivered", "Delivered"]] }, 1, 0],
+          },
+        },
+        rto: {
+          $sum: {
+            $cond: [{ $in: ["$status", ["rto", "RTO"]] }, 1, 0],
+          },
+        },
+      },
+    },
+    { $sort: { _id: -1 } },
+    { $limit: 30 },
+    { $sort: { _id: 1 } },
+    { $project: { _id: 0, date: "$_id", total: 1, delivered: 1, rto: 1 } },
   ]);
 
   res.json({
+    totalOrders: totals.totalOrders ?? 0,
+    deliveredCount: totals.deliveredCount ?? 0,
+    rtoPct:
+      (totals.totalOrders ?? 0) > 0
+        ? Math.round((((totals.rtoCount ?? 0) / (totals.totalOrders ?? 1)) * 100) * 10) / 10
+        : 0,
+    ndrPct:
+      (totals.totalOrders ?? 0) > 0
+        ? Math.round((((totals.ndrCount ?? 0) / (totals.totalOrders ?? 1)) * 100) * 10) / 10
+        : 0,
+    totalOrderValue: totals.totalOrderValue ?? 0,
+    ordersOverTime,
+    courierPerformance: byCourierAgg,
+    ordersByStatus: byStatusAgg,
+    recentOrders: recentOrders.map((o) => ({
+      id: String(o.orderId ?? ""),
+      customer: String(o.customer ?? ""),
+      status: String(o.status ?? ""),
+      courier: String(o.courierName ?? o.courier ?? ""),
+      payment: String(o.payment ?? ""),
+      date: String(o.date ?? ""),
+    })),
     activeVendors,
     activeDropshippers,
     topProducts,

@@ -94,9 +94,22 @@ import { AccessDenied } from "@/components/AccessDenied";
 
 function AuthLoadingScreen() {
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-6 bg-background">
-      <ShipAmazeLogo placement="loading" />
-      <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+    <div className="relative flex h-screen flex-col items-center justify-center gap-10 overflow-hidden bg-gradient-to-b from-background via-background to-primary/[0.06]">
+      <div
+        className="pointer-events-none absolute inset-0 opacity-40"
+        aria-hidden
+        style={{
+          background:
+            "radial-gradient(ellipse 60% 50% at 50% 40%, hsl(24 95% 53% / 0.12), transparent 70%)",
+        }}
+      />
+      <div className="relative animate-fade-in-up">
+        <ShipAmazeLogo placement="loading" />
+      </div>
+      <div className="relative flex flex-col items-center gap-4">
+        <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-primary/15 border-t-primary shadow-[0_0_20px_hsl(24_95%_53%/0.25)]" />
+        <p className="text-sm font-medium tracking-wide text-muted-foreground">Loading your workspace…</p>
+      </div>
     </div>
   );
 }

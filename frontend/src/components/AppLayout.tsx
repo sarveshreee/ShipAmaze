@@ -10,7 +10,6 @@ import { useState } from "react";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X,
   Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, UserCog, ChevronRight,
-  PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from "lucide-react";
 import { ShipAmazeLogo, SidebarBrand } from "@/components/brand/ShipAmazeLogo";
@@ -91,11 +90,6 @@ const adminNav: NavGroup[] = [
     { label: "Reports", icon: FileText, path: "/admin/reports", ownerOnly: true },
     { label: "Support", icon: Headphones, path: "/admin/support", ownerOnly: true },
   ]},
-  { title: "", items: [
-    { label: "Profile", icon: User, path: "/admin/profile" },
-    { label: "Change Password", icon: Shield, path: "/admin/change-password" },
-    { label: "Settings", icon: Settings, path: "/admin/settings", ownerOnly: true },
-  ]},
 ];
 
 const vendorNav: NavGroup[] = [
@@ -111,11 +105,6 @@ const vendorNav: NavGroup[] = [
   { title: "FINANCE", items: [
     { label: "Wallet", icon: Wallet, path: "/vendor/wallet", tabKey: "wallet" },
     { label: "Payouts", icon: IndianRupee, path: "/vendor/payouts", tabKey: "payouts" },
-  ]},
-  
-  { title: "", items: [
-    { label: "Profile", icon: User, path: "/vendor/profile" },
-    { label: "Change Password", icon: Shield, path: "/vendor/change-password", tabKey: "change-password" },
   ]},
 ];
 
@@ -157,23 +146,30 @@ const dropshipperNav: NavGroup[] = [
 
 const roleNavMap = { admin: adminNav, vendor: vendorNav, dropshipper: dropshipperNav };
 
-const SIDEBAR_COLLAPSED_KEY = "shipamaze_sidebar_collapsed";
-
-function readSidebarCollapsed(): boolean {
-  try {
-    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
+const SIDEBAR_RAIL_WIDTH = "4.5rem";
 
 function navItemClasses(active: boolean, collapsed: boolean) {
   return cn(
-    "flex w-full items-center rounded-lg text-sm transition-all duration-200 outline-none",
+    "group flex w-full items-center rounded-xl text-sm transition-all duration-200 outline-none",
     collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5 max-lg:min-h-[44px] max-lg:py-3",
     active
-      ? "bg-indigo-600 font-medium text-white shadow-sm ring-1 ring-indigo-400/30 dark:bg-indigo-600 dark:ring-indigo-500/40"
+      ? "bg-primary font-medium text-white shadow-md shadow-primary/25 ring-1 ring-primary/30"
       : "text-slate-200 hover:bg-white/10 dark:text-slate-100 dark:hover:bg-white/[0.08]",
+  );
+}
+
+function SidebarNavIcon({ icon: Icon, active }: { icon: LucideIcon; active?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all duration-200",
+        active
+          ? "bg-white/20 text-white"
+          : "bg-white/[0.07] text-primary group-hover:bg-white/12 group-hover:text-primary",
+      )}
+    >
+      <Icon className="h-[17px] w-[17px]" strokeWidth={2.25} />
+    </span>
   );
 }
 
@@ -201,6 +197,71 @@ function formatInrTop(n: number) {
   }).format(n);
 }
 
+function changePasswordPathForRole(role: UserRole) {
+  return `/${role}/change-password`;
+}
+
+function AccountMenuPanel({
+  role,
+  userName,
+  email,
+  isOwnerAdmin,
+  onNavigate,
+  onLogout,
+}: {
+  role: UserRole;
+  userName: string;
+  email: string;
+  isOwnerAdmin: boolean;
+  onNavigate: (path: string) => void;
+  onLogout: () => void;
+}) {
+  return (
+    <div className="w-56 py-1">
+      <div className="px-2 py-1.5">
+        <p className="truncate text-sm font-medium">{userName || "User"}</p>
+        <p className="truncate text-xs text-muted-foreground">{email}</p>
+      </div>
+      <div className="my-1 h-px bg-border" />
+      <button
+        type="button"
+        className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+        onClick={() => onNavigate(profilePathForRole(role))}
+      >
+        <User className="mr-2 h-4 w-4" />
+        Profile
+      </button>
+      <button
+        type="button"
+        className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+        onClick={() => onNavigate(changePasswordPathForRole(role))}
+      >
+        <Shield className="mr-2 h-4 w-4" />
+        Change Password
+      </button>
+      {(role !== "admin" || isOwnerAdmin) && (
+        <button
+          type="button"
+          className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+          onClick={() => onNavigate(settingsPathForRole(role))}
+        >
+          <Settings className="mr-2 h-4 w-4" />
+          Settings
+        </button>
+      )}
+      <div className="my-1 h-px bg-border" />
+      <button
+        type="button"
+        className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm text-danger outline-none transition-colors hover:bg-accent focus:text-danger"
+        onClick={onLogout}
+      >
+        <LogOut className="mr-2 h-4 w-4" />
+        Logout
+      </button>
+    </div>
+  );
+}
+
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { role, userName, logout, user } = useAuth();
   const { data: walletSummary, isLoading: walletLoading } = useWalletSummary();
@@ -213,27 +274,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [sidebarHovered, setSidebarHovered] = useState(false);
   const [collapsedFlyout, setCollapsedFlyout] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
-
-  const toggleSidebarCollapse = useCallback(() => {
-    setSidebarCollapsed((prev) => !prev);
-    setCollapsedFlyout(null);
-  }, []);
-
-  const expandSidebar = useCallback(() => {
-    setSidebarCollapsed(false);
-    setCollapsedFlyout(null);
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed));
-    } catch {
-      /* ignore */
-    }
-  }, [sidebarCollapsed]);
+  const [sidebarAccountOpen, setSidebarAccountOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<notificationService.NotificationItem[]>([]);
   const [notifUnread, setNotifUnread] = useState(0);
@@ -355,15 +399,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const avatarSrc = user?.avatarUrl?.trim() ? user.avatarUrl.trim() : null;
 
   const onLogoutClick = () => {
+    setSidebarAccountOpen(false);
     logout();
   };
 
-  // Listen for sidebar toggle events from child components
-  useEffect(() => {
-    const handler = () => toggleSidebarCollapse();
-    window.addEventListener("toggle-sidebar", handler);
-    return () => window.removeEventListener("toggle-sidebar", handler);
-  }, [toggleSidebarCollapse]);
+  const navigateFromAccountMenu = (path: string) => {
+    setSidebarAccountOpen(false);
+    navigate(path);
+  };
 
   const homePath = roleHomePath(role);
 
@@ -382,6 +425,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     setSidebarOpen(false);
     setCollapsedFlyout(null);
+    setSidebarAccountOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -393,14 +437,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     };
   }, [sidebarOpen, isLgScreen]);
 
-  const isDesktopCollapsed = sidebarCollapsed && isLgScreen;
+  const isDesktopCollapsed = isLgScreen && !sidebarHovered;
 
-  const handleSidebarPaddingClick = (e: React.MouseEvent<HTMLElement>) => {
-    if (!isDesktopCollapsed) return;
-    const target = e.target as HTMLElement;
-    if (target.closest("[data-sidebar-nav-item]") || target.closest("[data-sidebar-toggle]")) return;
-    expandSidebar();
-  };
+  useEffect(() => {
+    const width = !isLgScreen ? "0px" : SIDEBAR_RAIL_WIDTH;
+    document.documentElement.style.setProperty("--sidebar-width", width);
+  }, [isLgScreen]);
 
   const wrapNavTooltip = (label: string, node: ReactNode) => {
     if (!isDesktopCollapsed) return node;
@@ -427,19 +469,23 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <TooltipProvider delayDuration={0} skipDelayDuration={0}>
         <aside
           ref={sidebarRef}
-          onClick={handleSidebarPaddingClick}
+          onMouseEnter={() => isLgScreen && setSidebarHovered(true)}
+          onMouseLeave={() => {
+            if (!isLgScreen) return;
+            setSidebarHovered(false);
+            setCollapsedFlyout(null);
+            setSidebarAccountOpen(false);
+          }}
           className={cn(
-            "fixed inset-y-0 left-0 z-50 flex w-[min(280px,88vw)] flex-col border-r border-sidebar-border bg-sidebar shadow-xl transition-[width,transform] duration-300 ease-in-out lg:static lg:w-60 lg:shadow-none",
+            "fixed inset-y-0 left-0 z-50 flex w-[min(280px,88vw)] flex-col border-r border-sidebar-border bg-gradient-to-b from-sidebar via-sidebar to-sidebar/95 shadow-xl transition-[width,transform] duration-200 ease-out",
             sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
-            isDesktopCollapsed
-              ? "lg:w-0 lg:min-w-0 lg:overflow-hidden lg:border-r-0 lg:opacity-0 lg:pointer-events-none"
-              : "",
+            isLgScreen && (sidebarHovered ? "lg:w-60" : "lg:w-[4.5rem]"),
           )}
         >
           <div
             className={cn(
               "relative flex shrink-0 items-center gap-2 border-b border-sidebar-border/80 bg-sidebar",
-              isDesktopCollapsed ? "min-h-[4rem] justify-center px-2 py-3" : "min-h-[4rem] px-4 py-3",
+              isDesktopCollapsed ? "min-h-[3.25rem] justify-center px-1 py-2" : "min-h-[4.5rem] px-4 py-3",
             )}
           >
             <Link
@@ -451,30 +497,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               )}
               title="ShipAmaze"
             >
-              <SidebarBrand showText={!isDesktopCollapsed} />
+              <SidebarBrand showText={!isDesktopCollapsed} compact={isDesktopCollapsed} />
             </Link>
-
-            <button
-              type="button"
-              data-sidebar-toggle
-              className={cn(
-                "hidden rounded-lg p-1.5 text-slate-300 transition-colors hover:bg-white/10 hover:text-white lg:flex",
-                isDesktopCollapsed
-                  ? "absolute -right-3 top-1/2 z-10 h-6 w-6 -translate-y-1/2 items-center justify-center border border-sidebar-border bg-sidebar shadow-md"
-                  : "shrink-0",
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleSidebarCollapse();
-              }}
-              aria-label={isDesktopCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {isDesktopCollapsed ? (
-                <PanelLeftOpen className="h-3.5 w-3.5" />
-              ) : (
-                <PanelLeftClose className="h-4 w-4" />
-              )}
-            </button>
 
             <button
               type="button"
@@ -488,7 +512,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <nav
             className={cn(
-              "flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide py-3",
+              "flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin py-3",
               isDesktopCollapsed ? "px-2 space-y-1" : "px-2.5 space-y-0.5",
             )}
           >
@@ -500,7 +524,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 )}
               >
                 {group.title && !isDesktopCollapsed ? (
-                  <p className="mb-1 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400/90 dark:text-slate-500">
+                  <p className="mb-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-primary/70">
                     {group.title}
                   </p>
                 ) : group.title && isDesktopCollapsed ? (
@@ -532,7 +556,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                                   className={navItemClasses(!!childActive, true)}
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  <item.icon className="h-[18px] w-[18px] shrink-0" />
+                                  <SidebarNavIcon icon={item.icon} active={!!childActive} />
                                 </button>
                               </PopoverTrigger>,
                             )}
@@ -560,7 +584,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                                     className={cn(
                                       "flex items-center justify-between rounded-md px-2.5 py-2 text-sm transition-colors",
                                       cActive
-                                        ? "bg-indigo-600 font-medium text-white"
+                                        ? "bg-primary font-medium text-white"
                                         : "text-foreground hover:bg-muted",
                                     )}
                                   >
@@ -586,7 +610,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                             onClick={() => toggleMenu(item.label)}
                             className={navItemClasses(!!childActive, false)}
                           >
-                            <item.icon className="h-[18px] w-[18px] shrink-0" />
+                            <SidebarNavIcon icon={item.icon} active={!!childActive} />
                             <span className="flex-1 text-left">{item.label}</span>
                             {isExpanded ? (
                               <ChevronUp className="h-4 w-4 shrink-0 opacity-60" />
@@ -612,7 +636,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                                       className={cn(
                                         "flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors max-lg:min-h-[44px]",
                                         cActive
-                                          ? "bg-indigo-600 font-medium text-white shadow-sm dark:bg-indigo-600"
+                                          ? "bg-primary font-medium text-white shadow-sm"
                                           : "text-slate-200 hover:bg-white/10 dark:text-slate-100",
                                       )}
                                     >
@@ -640,7 +664,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                         onClick={() => setSidebarOpen(false)}
                         className={navItemClasses(active, isDesktopCollapsed)}
                       >
-                        <item.icon className="h-[18px] w-[18px] shrink-0" />
+                        <SidebarNavIcon icon={item.icon} active={active} />
                         {!isDesktopCollapsed && <span className="truncate">{item.label}</span>}
                       </Link>
                     );
@@ -652,71 +676,68 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             ))}
           </nav>
 
-          <div className={cn("shrink-0 border-t border-sidebar-border/80 p-2", isDesktopCollapsed && "flex justify-center")}>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                {wrapNavTooltip(
-                  userName || "Account",
-                  <button
-                    type="button"
-                    data-sidebar-nav-item
-                    className={cn(
-                      "flex items-center rounded-lg text-left outline-none ring-indigo-400 transition-colors hover:bg-white/10 focus-visible:ring-2",
-                      isDesktopCollapsed ? "justify-center p-2" : "w-full gap-3 px-3 py-2",
-                    )}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {avatarSrc ? (
-                      <img
-                        src={avatarSrc}
-                        alt=""
-                        className="h-9 w-9 shrink-0 rounded-full border-2 border-sidebar-border/80 object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600/80 text-sm font-semibold text-white">
-                        {avatarLetter}
-                      </div>
-                    )}
-                    {!isDesktopCollapsed && (
-                      <>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-slate-50 dark:text-white">{userName || "User"}</p>
-                          <p className="truncate text-xs capitalize text-slate-400 dark:text-slate-400">{role}</p>
-                        </div>
-                        <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-slate-400" />
-                      </>
-                    )}
-                  </button>,
-                )}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side={isDesktopCollapsed ? "right" : "top"} align="start" className="w-56">
-                <DropdownMenuLabel className="font-normal">
-                  <p className="truncate text-sm font-medium">{userName || "User"}</p>
-                  <p className="truncate text-xs text-muted-foreground">{user?.email ?? ""}</p>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => navigate(profilePathForRole(role))}>
-                  <User className="mr-2 h-4 w-4" />
-                  Profile
-                </DropdownMenuItem>
-                {(role !== "admin" || isOwnerAdmin) && (
-                  <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={onLogoutClick} className="text-danger focus:text-danger">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <div className={cn("relative shrink-0 border-t border-sidebar-border/80 p-2", isDesktopCollapsed && "flex justify-center")}>
+            <Popover open={sidebarAccountOpen} onOpenChange={setSidebarAccountOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  data-sidebar-nav-item
+                  className={cn(
+                    "flex items-center rounded-lg text-left outline-none ring-primary/40 transition-colors hover:bg-white/10 focus-visible:ring-2",
+                    isDesktopCollapsed ? "justify-center p-2" : "w-full gap-3 px-3 py-2",
+                  )}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {avatarSrc ? (
+                    <img
+                      src={avatarSrc}
+                      alt=""
+                      className={cn(
+                        "shrink-0 rounded-full border-2 border-sidebar-border/80 object-cover",
+                        isDesktopCollapsed ? "h-8 w-8" : "h-9 w-9",
+                      )}
+                    />
+                  ) : (
+                    <div
+                      className={cn(
+                        "flex shrink-0 items-center justify-center rounded-full bg-primary/90 font-semibold text-white shadow-sm",
+                        isDesktopCollapsed ? "h-8 w-8 text-xs" : "h-9 w-9 text-sm",
+                      )}
+                    >
+                      {avatarLetter}
+                    </div>
+                  )}
+                  {!isDesktopCollapsed && (
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-50 dark:text-white">{userName || "User"}</p>
+                      <p className="truncate text-xs capitalize text-slate-400 dark:text-slate-400">{role}</p>
+                    </div>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="right"
+                align="end"
+                sideOffset={12}
+                collisionPadding={16}
+                className="w-56 border border-border/80 bg-popover p-0 shadow-xl"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
+                <AccountMenuPanel
+                  role={role}
+                  userName={userName || "User"}
+                  email={user?.email ?? ""}
+                  isOwnerAdmin={isOwnerAdmin}
+                  onNavigate={navigateFromAccountMenu}
+                  onLogout={onLogoutClick}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
       </aside>
       </TooltipProvider>
 
-      <div className="flex min-w-0 flex-1 flex-col transition-[margin] duration-300 ease-in-out">
+      <div className="flex min-w-0 flex-1 flex-col lg:pl-[4.5rem]">
         <header className="flex h-14 shrink-0 items-center gap-2 overflow-hidden border-b border-border bg-card px-4 sm:h-[60px] sm:gap-3 sm:px-5 lg:px-8">
           <div className="flex min-w-0 items-center gap-2 lg:hidden">
             <button
@@ -730,44 +751,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <Link
               to={homePath}
               onClick={() => setSidebarOpen(false)}
-              className="flex min-w-0 max-w-[min(100%,340px)] shrink items-center transition-opacity hover:opacity-90"
+              className="flex min-w-0 max-w-[min(100%,420px)] shrink items-center transition-opacity hover:opacity-90"
             >
               <ShipAmazeLogo placement="header" />
             </Link>
           </div>
 
-          {isDesktopCollapsed && (
-            <div className="hidden min-w-0 items-center gap-2 lg:flex">
-              <button
-                type="button"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
-                onClick={expandSidebar}
-                aria-label="Open sidebar menu"
-              >
-                <Menu className="h-5 w-5" />
-              </button>
-              <Link
-                to={homePath}
-                className="flex min-w-0 max-w-[min(100%,340px)] shrink items-center transition-opacity hover:opacity-90"
-              >
-                <ShipAmazeLogo placement="header" />
-              </Link>
-            </div>
-          )}
-
-          {!isDesktopCollapsed && (
-            <div className="hidden min-w-0 items-center gap-2 lg:flex">
-              <button
-                type="button"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
-                onClick={toggleSidebarCollapse}
-                aria-label="Collapse sidebar"
-              >
-                <PanelLeftClose className="h-5 w-5" />
-              </button>
-              <h2 className="min-w-0 truncate text-lg font-semibold text-text-primary">{pageTitle}</h2>
-            </div>
-          )}
+          <div className="hidden min-w-0 items-center gap-2 lg:flex">
+            <h2 className="min-w-0 truncate text-lg font-semibold text-text-primary">{pageTitle}</h2>
+          </div>
 
           <div className="min-w-0 flex-1" />
 
@@ -961,6 +953,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <User className="h-4 w-4 mr-2" />
                 Profile
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => navigate(changePasswordPathForRole(role))}>
+                <Shield className="h-4 w-4 mr-2" />
+                Change Password
+              </DropdownMenuItem>
               {(role !== "admin" || isOwnerAdmin) && (
                 <DropdownMenuItem onSelect={() => navigate(settingsPathForRole(role))}>
                   <Settings className="h-4 w-4 mr-2" />
@@ -977,7 +973,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-5 lg:px-8 lg:py-6 lg:pb-6">
+        <main className="scrollbar-thin flex-1 overflow-x-hidden overflow-y-auto p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] sm:px-5 lg:px-8 lg:py-6 lg:pb-24">
           {(role === "dropshipper" || role === "vendor") && isKycPending && (
             <div className="mb-4 rounded-lg border border-warning/40 bg-warning-light/50 px-4 py-3 text-sm text-warning-dark">
               <strong>

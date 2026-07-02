@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { OrderDetailDrawer } from "@/components/OrderDetailDrawer";
 import { OrderCardList } from "@/components/OrderCardList";
@@ -168,9 +168,33 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const [serviceabilityPickupId, setServiceabilityPickupId] = useState("");
   const [serviceabilityCourierId, setServiceabilityCourierId] = useState("");
   const isMobile = useIsMobile();
+  const ordersTabsRef = useRef<HTMLDivElement>(null);
   const listView = activeTab === "junk" ? "junk" : undefined;
 
   const advancedFiltersKey = useMemo(() => JSON.stringify(advancedFilters), [advancedFilters]);
+
+  const listFilterKey = useMemo(
+    () =>
+      JSON.stringify({
+        debouncedSearch,
+        advancedFiltersKey,
+        channelPayment,
+        channelFulfillment,
+        serviceabilityPickupId,
+        serviceabilityCourierId,
+      }),
+    [
+      debouncedSearch,
+      advancedFiltersKey,
+      channelPayment,
+      channelFulfillment,
+      serviceabilityPickupId,
+      serviceabilityCourierId,
+    ]
+  );
+
+  const [countsFilterKey, setCountsFilterKey] = useState(listFilterKey);
+  const [cachedTabCounts, setCachedTabCounts] = useState<Record<string, number> | undefined>();
 
   const effectivePayment = useMemo(() => {
     if (activeTab === "channel") return channelPayment ?? advancedFilters.payment;
@@ -200,6 +224,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const {
     data: orders = [],
     isLoading: loading,
+    isFetching,
     refetch,
     total,
     pageSize,
@@ -214,8 +239,15 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     ...advancedFilters,
     payment: effectivePayment,
     fulfillment: activeTab === "channel" ? channelFulfillment : undefined,
-    counts: true,
+    counts: countsFilterKey !== listFilterKey || !cachedTabCounts,
   });
+
+  useEffect(() => {
+    if (tabCounts) {
+      setCachedTabCounts(tabCounts);
+      setCountsFilterKey(listFilterKey);
+    }
+  }, [tabCounts, listFilterKey]);
   const { data: couriers = [] } = useCouriers();
   const { data: pickupAddresses = [] } = usePickupAddresses();
   const { data: platformPickups = [] } = usePickupAddresses({ scope: "platform" });
@@ -470,7 +502,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   /** Tabs where Process Selected accepts orders without ready_to_ship (backend validates). */
   const RELAXED_PROCESS_TABS = useMemo(
-    () => new Set(["all", "channel", "manual", "reship", "junk"]),
+    () => new Set(["all", "channel", "manual", "reship", "junk", "ready-to-ship"]),
     []
   );
 
@@ -501,10 +533,11 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const getCount = useCallback(
     (filter: string) => {
-      if (tabCounts && tabCounts[filter] != null) return tabCounts[filter];
-      return orders.filter((o) => filterByTab(o, filter)).length;
+      const counts = tabCounts ?? cachedTabCounts;
+      if (counts && counts[filter] != null) return counts[filter];
+      return orders.filter((o) => orderMatchesTab(o, filter)).length;
     },
-    [tabCounts, orders]
+    [tabCounts, cachedTabCounts, orders]
   );
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => {
@@ -519,7 +552,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     try {
       await orderService.moveOrderToJunk(id);
       toast.success("Order moved to junk");
-      await refetch();
+      await refetch({ includeCounts: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to move order to junk");
     }
@@ -534,7 +567,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           ? "Order cancelled and moved to Reship"
           : "Order moved to Reship"
       );
-      await refetch();
+      await refetch({ includeCounts: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to move order to reship");
     }
@@ -553,7 +586,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         toast.error(first.reason instanceof Error ? first.reason.message : `${failed.length} order(s) could not be moved to junk`);
       }
       setSelected(new Set());
-      await refetch();
+      await refetch({ includeCounts: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to process selected orders");
     }
@@ -566,7 +599,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       const res = await orderService.bulkDeleteJunkOrders(ids);
       toast.success(`${res.deletedCount} order(s) permanently deleted`);
       setSelected(new Set());
-      await refetch();
+      await refetch({ includeCounts: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to delete selected orders");
     }
@@ -579,7 +612,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       await orderService.bulkMoveOrders(orderIds, "ready_to_ship");
       toast.success("Orders moved to Ready to Ship");
       setSelected(new Set());
-      await refetch();
+      await refetch({ includeCounts: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to move orders");
     }
@@ -589,7 +622,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     try {
       await orderService.updateOrderStatus(orderId, "ready_to_ship");
       toast.success("Order moved to Ready to Ship");
-      await refetch();
+      await refetch({ includeCounts: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to move order");
     }
@@ -608,10 +641,10 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         toast.warning(
           `Updated ${result.updated} status${result.updated !== 1 ? "es" : ""} · ${result.errors} failed (see server logs)`
         );
-        await refetch();
+        await refetch({ includeCounts: true });
       } else if (result.updated > 0) {
         toast.success(`Updated ${result.updated} shipment status${result.updated !== 1 ? "es" : ""} from Velocity`);
-        await refetch();
+        await refetch({ includeCounts: true });
       } else {
         toast.info(`All ${result.processed} shipment statuses are already up to date`);
       }
@@ -707,215 +740,352 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         }
       />
 
-      {/* Status tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-2 mb-4 border-b border-border -mx-4 px-4 lg:mx-0 lg:px-0">
-        {tabs.map(tab => (
-          <button key={tab.filter} onClick={() => { setActiveTab(tab.filter); }}
-            className={cn("flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-[2px]",
-              activeTab === tab.filter ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
-            )}>
-            {tab.label}
-            <span className={cn("rounded-full px-1.5 py-0.5 text-xs", activeTab === tab.filter ? "bg-primary-light text-primary-dark" : "bg-surface-2 text-text-muted")}>
-              {getCount(tab.filter)}
-            </span>
-          </button>
-        ))}
-      </div>
+      {/* Filters + tabs — unified card; tabs stick flush below header when scrolling */}
+      <div className="-mx-4 px-4 sm:-mx-5 sm:px-5 lg:-mx-8 lg:px-8 mb-3">
+        <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/[0.07] via-card to-secondary/[0.06] shadow-md">
+          <div className="p-3 sm:p-4 space-y-3">
+          <div className="flex flex-wrap gap-2 items-end">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/70" />
+              <Input
+                placeholder="Search tracking, order ID, customer, product, SKU…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 h-10 border-primary/20 bg-background/80 focus-visible:ring-primary/30"
+                aria-label="Search orders"
+              />
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-primary/80 block mb-1">From</Label>
+                <Input
+                  type="date"
+                  className="h-9 w-[140px] text-sm border-secondary/25 bg-background/80"
+                  value={advancedFilters.dateFrom ?? ""}
+                  onChange={(e) =>
+                    setAdvancedFilters((p) => ({ ...p, dateFrom: e.target.value ? e.target.value : undefined }))
+                  }
+                  aria-label="Filter from date"
+                />
+              </div>
+              <div>
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-primary/80 block mb-1">To</Label>
+                <Input
+                  type="date"
+                  className="h-9 w-[140px] text-sm border-secondary/25 bg-background/80"
+                  value={advancedFilters.dateTo ?? ""}
+                  onChange={(e) =>
+                    setAdvancedFilters((p) => ({ ...p, dateTo: e.target.value ? e.target.value : undefined }))
+                  }
+                  aria-label="Filter to date"
+                />
+              </div>
+            </div>
+          </div>
 
-      {/* Search */}
-      {activeTab === "channel" && (
-        <div className="flex flex-wrap gap-2 mb-3 items-center">
-          <Select
-            value={channelPayment ?? "__any__"}
-            onValueChange={(v) => setChannelPayment(v === "__any__" ? undefined : v)}
-          >
-            <SelectTrigger className="w-[160px] h-9 text-sm">
-              <SelectValue placeholder="Payment" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__any__">Any payment</SelectItem>
-              <SelectItem value="COD">COD</SelectItem>
-              <SelectItem value="Prepaid">Prepaid</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={channelFulfillment ?? "__any__"}
-            onValueChange={(v) => setChannelFulfillment(v === "__any__" ? undefined : v)}
-          >
-            <SelectTrigger className="w-[180px] h-9 text-sm">
-              <SelectValue placeholder="Shopify fulfillment" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__any__">Any fulfillment</SelectItem>
-              <SelectItem value="fulfilled">Fulfilled</SelectItem>
-              <SelectItem value="partial">Partial</SelectItem>
-              <SelectItem value="unfulfilled">Unfulfilled</SelectItem>
-              <SelectItem value="Pending Pickup">Pending Pickup</SelectItem>
-              <SelectItem value="In Transit">In Transit</SelectItem>
-              <SelectItem value="Out For Delivery">Out For Delivery</SelectItem>
-              <SelectItem value="Delivered">Delivered</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
-      {showServiceabilityFilter && (
-        <div className="flex flex-wrap gap-2 mb-3 items-end">
-          <div>
-            <Label className="text-xs text-text-muted block mb-1">Pickup for serviceability</Label>
+          <div className="flex flex-wrap gap-2 items-end pb-1">
+            {activeTab !== "channel" && (
+              <Select
+                value={advancedFilters.payment?.trim() ? advancedFilters.payment : "__any__"}
+                onValueChange={(v) =>
+                  setAdvancedFilters((p) => ({ ...p, payment: v === "__any__" ? undefined : v }))
+                }
+              >
+                <SelectTrigger className="h-10 w-[130px] text-xs bg-card text-text-primary border-border/60 shadow-sm">
+                  <SelectValue placeholder="Payment" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover text-popover-foreground">
+                  <SelectItem value="__any__">Any payment</SelectItem>
+                  <SelectItem value="COD">COD</SelectItem>
+                  <SelectItem value="Prepaid">Prepaid</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <Select
-              value={serviceabilityPickupId || "__none__"}
-              onValueChange={(v) => setServiceabilityPickupId(v === "__none__" ? "" : v)}
+              value={advancedFilters.status?.trim() ? advancedFilters.status : "__any__"}
+              onValueChange={(v) =>
+                setAdvancedFilters((p) => ({ ...p, status: v === "__any__" ? undefined : v }))
+              }
             >
-              <SelectTrigger className="w-[220px] h-9 text-sm">
-                <SelectValue placeholder="Select pickup…" />
+              <SelectTrigger className="h-10 w-[140px] text-xs bg-card text-text-primary border-border/60 shadow-sm">
+                <SelectValue placeholder="Status" />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Select pickup…</SelectItem>
-                {pickupFilterOptions.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.label}
+              <SelectContent className="bg-popover text-popover-foreground">
+                <SelectItem value="__any__">Any status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="ready-to-ship">Ready to ship</SelectItem>
+                <SelectItem value="pending-pickup">Pending pickup</SelectItem>
+                <SelectItem value="in-transit">In transit</SelectItem>
+                <SelectItem value="delivered">Delivered</SelectItem>
+                <SelectItem value="ndr">NDR</SelectItem>
+                <SelectItem value="rto">RTO</SelectItem>
+                <SelectItem value="reship">Reship</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={advancedFilters.courier?.trim() ? advancedFilters.courier : "__any__"}
+              onValueChange={(v) =>
+                setAdvancedFilters((p) => ({ ...p, courier: v === "__any__" ? undefined : v }))
+              }
+            >
+              <SelectTrigger className="h-10 w-[150px] text-xs bg-card text-text-primary border-border/60 shadow-sm">
+                <SelectValue placeholder="Courier" />
+              </SelectTrigger>
+              <SelectContent className="bg-popover text-popover-foreground">
+                <SelectItem value="__any__">Any courier</SelectItem>
+                {couriers.map((c) => (
+                  <SelectItem key={c.id} value={c.name}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div>
-            <Label className="text-xs text-text-muted block mb-1">Serviceable courier</Label>
-            <div className="flex items-center gap-2">
+            {isAdmin && vendorOptions.length > 0 && (
               <Select
-                value={serviceabilityCourierId || "__any__"}
-                onValueChange={(v) => setServiceabilityCourierId(v === "__any__" ? "" : v)}
-                disabled={!serviceabilityPickupId}
+                value={advancedFilters.vendorId?.trim() ? advancedFilters.vendorId : "__any__"}
+                onValueChange={(v) =>
+                  setAdvancedFilters((p) => ({ ...p, vendorId: v === "__any__" ? undefined : v }))
+                }
               >
-                <SelectTrigger className="w-[220px] h-9 text-sm">
-                  <SelectValue placeholder="All couriers" />
+                <SelectTrigger className="h-10 w-[160px] text-xs bg-card text-text-primary border-border/60 shadow-sm">
+                  <SelectValue placeholder="Vendor" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__any__">All couriers</SelectItem>
-                  {couriers
-                    .filter((c) => c.active !== false)
-                    .map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
+                <SelectContent className="bg-popover text-popover-foreground">
+                  <SelectItem value="__any__">Any vendor</SelectItem>
+                  {vendorOptions.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      {v.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {serviceabilityLoading && (
-                <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" aria-label="Checking serviceability" />
-              )}
+            )}
+            {isAdmin && dropshipperOptions.length > 0 && (
+              <Select
+                value={advancedFilters.dropshipperId?.trim() ? advancedFilters.dropshipperId : "__any__"}
+                onValueChange={(v) =>
+                  setAdvancedFilters((p) => ({ ...p, dropshipperId: v === "__any__" ? undefined : v }))
+                }
+              >
+                <SelectTrigger className="h-10 w-[170px] text-xs bg-card text-text-primary border-border/60 shadow-sm">
+                  <SelectValue placeholder="Dropshipper" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover text-popover-foreground">
+                  <SelectItem value="__any__">Any dropshipper</SelectItem>
+                  {dropshipperOptions.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2 h-10 border-primary/30 text-primary hover:bg-primary/10"
+              onClick={() => setFilterSheetOpen(true)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              More filters
+            </Button>
+            {hasListFilters && (
+              <Button type="button" variant="ghost" size="sm" className="text-text-secondary h-10" onClick={clearAllFilters}>
+                Clear all
+              </Button>
+            )}
+            {isFetching && !loading && (
+              <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" aria-label="Loading orders" />
+            )}
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:ml-auto pt-1 sm:pt-0">
+              <span className="text-xs font-semibold text-text-primary whitespace-nowrap">
+                {serviceabilityFilterActive && !serviceabilityLoading
+                  ? `${filtered.length} shown · ${total} total`
+                  : `${total} total`}
+              </span>
+              <div className="flex items-center gap-1.5 shrink-0 rounded-lg border border-border/60 bg-card/80 px-1.5 py-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2.5 text-xs"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Prev
+                </Button>
+                <span className="text-xs font-medium text-text-primary px-1 tabular-nums">
+                  {page} / {Math.max(1, Math.ceil(total / pageSize))}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2.5 text-xs"
+                  disabled={loading || page * pageSize >= total}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
             </div>
           </div>
-          {serviceabilityFilterActive && !serviceabilityLoading && (
-            <p className="text-xs text-text-muted flex items-center gap-1.5 pb-1">
-              <Truck className="h-3.5 w-3.5" />
-              Showing {filtered.length} order{filtered.length !== 1 ? "s" : ""} serviceable on this page
-            </p>
-          )}
-        </div>
-      )}
 
-      <div className="flex flex-wrap gap-2 mb-2 items-center">
-        <div className="relative flex-1 min-w-[160px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <Input
-            placeholder="Search by tracking ID, order ID, order number, mobile, customer, product, SKU"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-            aria-label="Search orders"
-          />
-        </div>
-        <div className="flex flex-wrap items-end gap-2 shrink-0">
-          <div>
-            <Label className="text-xs text-text-muted block mb-1">From date</Label>
-            <Input
-              type="date"
-              className="h-9 w-[150px] text-sm"
-              value={advancedFilters.dateFrom ?? ""}
-              onChange={(e) =>
-                setAdvancedFilters((p) => ({ ...p, dateFrom: e.target.value ? e.target.value : undefined }))
-              }
-              aria-label="Filter from date"
-            />
-          </div>
-          <div>
-            <Label className="text-xs text-text-muted block mb-1">To date</Label>
-            <Input
-              type="date"
-              className="h-9 w-[150px] text-sm"
-              value={advancedFilters.dateTo ?? ""}
-              onChange={(e) =>
-                setAdvancedFilters((p) => ({ ...p, dateTo: e.target.value ? e.target.value : undefined }))
-              }
-              aria-label="Filter to date"
-            />
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="gap-2 shrink-0"
-          onClick={() => setFilterSheetOpen(true)}
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          <span className="hidden sm:inline">Filters</span>
-        </Button>
-        {hasListFilters && (
-          <Button type="button" variant="ghost" size="sm" className="text-text-muted shrink-0" onClick={clearAllFilters}>
-            Clear all
-          </Button>
-        )}
-        <span className="text-xs text-text-muted whitespace-nowrap hidden sm:inline sm:ml-auto">
-          {serviceabilityFilterActive && !serviceabilityLoading
-            ? `${filtered.length} shown · ${total} total`
-            : `${total} total`}
-        </span>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={page <= 1 || loading}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            Prev
-          </Button>
-          <span className="text-xs text-text-muted px-1">
-            Page {page} / {Math.max(1, Math.ceil(total / pageSize))}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={loading || page * pageSize >= total}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
-        <Button variant="outline" size="icon" className="sm:hidden shrink-0" onClick={handleExport}><Download className="h-4 w-4" /></Button>
-      </div>
-
-      {filterTags.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-3 items-center">
-          {filterTags.map((t) => (
-            <Badge key={t.id} variant="secondary" className="pl-2 pr-1 py-1 gap-1 font-normal text-xs max-w-full">
-              <span className="truncate">{t.label}</span>
-              <button
-                type="button"
-                className="rounded p-0.5 hover:bg-surface-2 shrink-0"
-                aria-label={`Remove ${t.label}`}
-                onClick={t.onRemove}
+          {activeTab === "channel" && (
+            <div className="flex flex-wrap gap-2 items-center pt-1 border-t border-border/40">
+              <Select
+                value={channelPayment ?? "__any__"}
+                onValueChange={(v) => setChannelPayment(v === "__any__" ? undefined : v)}
               >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          ))}
+                <SelectTrigger className="w-[160px] h-9 text-sm bg-background/80">
+                  <SelectValue placeholder="Payment" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__any__">Any payment</SelectItem>
+                  <SelectItem value="COD">COD</SelectItem>
+                  <SelectItem value="Prepaid">Prepaid</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={channelFulfillment ?? "__any__"}
+                onValueChange={(v) => setChannelFulfillment(v === "__any__" ? undefined : v)}
+              >
+                <SelectTrigger className="w-[180px] h-9 text-sm bg-background/80">
+                  <SelectValue placeholder="Shopify fulfillment" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__any__">Any fulfillment</SelectItem>
+                  <SelectItem value="fulfilled">Fulfilled</SelectItem>
+                  <SelectItem value="partial">Partial</SelectItem>
+                  <SelectItem value="unfulfilled">Unfulfilled</SelectItem>
+                  <SelectItem value="Pending Pickup">Pending Pickup</SelectItem>
+                  <SelectItem value="In Transit">In Transit</SelectItem>
+                  <SelectItem value="Out For Delivery">Out For Delivery</SelectItem>
+                  <SelectItem value="Delivered">Delivered</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {showServiceabilityFilter && (
+            <div className="rounded-lg border border-secondary/25 bg-secondary/[0.08] p-2.5 sm:p-3 space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-secondary">
+                Courier serviceability
+              </p>
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="min-w-[200px] flex-1 sm:flex-none">
+                  <Label className="text-xs font-semibold text-text-primary block mb-1.5">
+                    Pickup for serviceability
+                  </Label>
+                  <Select
+                    value={serviceabilityPickupId || "__none__"}
+                    onValueChange={(v) => setServiceabilityPickupId(v === "__none__" ? "" : v)}
+                  >
+                    <SelectTrigger className="w-full sm:w-[240px] h-10 text-sm border-secondary/35 bg-card text-text-primary shadow-sm">
+                      <SelectValue placeholder="Select pickup…" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover text-popover-foreground">
+                      <SelectItem value="__none__">Select pickup…</SelectItem>
+                      {pickupFilterOptions.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-[200px] flex-1 sm:flex-none">
+                  <Label className="text-xs font-semibold text-text-primary block mb-1.5">
+                    Serviceable courier
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      value={serviceabilityCourierId || "__any__"}
+                      onValueChange={(v) => setServiceabilityCourierId(v === "__any__" ? "" : v)}
+                      disabled={!serviceabilityPickupId}
+                    >
+                      <SelectTrigger className="w-full sm:w-[240px] h-10 text-sm border-secondary/35 bg-card text-text-primary shadow-sm disabled:opacity-50">
+                        <SelectValue placeholder="All couriers" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-popover text-popover-foreground">
+                        <SelectItem value="__any__">All couriers</SelectItem>
+                        {couriers
+                          .filter((c) => c.active !== false)
+                          .map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    {serviceabilityLoading && (
+                      <Loader2 className="h-4 w-4 animate-spin text-secondary shrink-0" aria-label="Checking serviceability" />
+                    )}
+                  </div>
+                </div>
+                {serviceabilityFilterActive && !serviceabilityLoading && (
+                  <p className="text-xs font-medium text-text-primary flex items-center gap-1.5 pb-1 sm:ml-auto">
+                    <Truck className="h-3.5 w-3.5 text-secondary shrink-0" />
+                    {filtered.length} serviceable on this page
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {filterTags.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center pt-1 border-t border-border/40">
+              {filterTags.map((t) => (
+                <Badge key={t.id} variant="secondary" className="pl-2 pr-1 py-1 gap-1 font-normal text-xs max-w-full bg-primary/10 text-primary border-primary/20">
+                  <span className="truncate">{t.label}</span>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 hover:bg-primary/15 shrink-0"
+                    aria-label={`Remove ${t.label}`}
+                    onClick={t.onRemove}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
+          </div>
+
+          <div
+            ref={ordersTabsRef}
+            className="sticky top-0 z-30 border-t border-primary/15 bg-background/95 backdrop-blur-md shadow-sm rounded-b-xl"
+          >
+            <div className="flex gap-1 overflow-x-auto px-3 py-2 scrollbar-hide">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.filter}
+                  type="button"
+                  onClick={() => setActiveTab(tab.filter)}
+                  className={cn(
+                    "flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-semibold transition-all rounded-lg border-b-2",
+                    activeTab === tab.filter
+                      ? "border-primary text-primary bg-primary/10"
+                      : "border-transparent text-text-secondary hover:text-primary hover:bg-primary/5"
+                  )}
+                >
+                  {tab.label}
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 py-0.5 text-xs font-bold min-w-[1.25rem] text-center",
+                      activeTab === tab.filter ? "bg-primary text-white" : "bg-surface-2 text-text-muted"
+                    )}
+                  >
+                    {getCount(tab.filter)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-      )}
+      </div>
 
       <OrderListAdvancedFilters
         open={filterSheetOpen}
@@ -929,7 +1099,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       />
 
       {isMobile ? (
-        loading || serviceabilityLoading ? <OrderCardSkeleton /> : (
+        (loading && orders.length === 0) || serviceabilityLoading ? <OrderCardSkeleton /> : (
           filtered.length === 0 ? (
             <EmptyState
               icon={Package}
@@ -975,25 +1145,25 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onMoveToReady={activeTab === "ready-to-ship" ? undefined : handleMoveToReady}
           onExport={handleExport}
           activeTab={activeTab}
-          onToggleSidebar={() => window.dispatchEvent(new Event('toggle-sidebar'))}
           showProcessSelected={showProcessSelected}
           processSelectedDisabled={selected.size === 0 || !canProcessSelectedSelection}
           showBulkMoveToReady={showBulkMoveToReady}
           couriers={couriers}
           warehouses={linkedWarehouseOptions}
           onOrdersChanged={async () => {
-            await refetch();
+            await refetch({ includeCounts: true });
           }}
           onCreateShipment={
             canProcessOrders
               ? async (payload) => {
                   const res = await orderService.createShipment(payload);
-                  await refetch();
+                  await refetch({ includeCounts: true });
                   return res;
                 }
               : undefined
           }
-          loading={loading || serviceabilityLoading}
+          loading={(loading && orders.length === 0) || serviceabilityLoading}
+          isRefreshing={isFetching && orders.length > 0}
           emptyDescription={
             serviceabilityFilterActive
               ? "No orders on this page are serviceable for the selected courier from this pickup."
@@ -1014,7 +1184,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           isDefault: w.isDefault,
         }))}
         onOrderUpdated={async () => {
-          const nextOrders = await refetch();
+          const nextOrders = await refetch({ includeCounts: true });
           if (!selectedOrder) return;
           const updated = nextOrders.find((o) => o.id === selectedOrder.id) ?? null;
           setSelectedOrder(updated);
@@ -1091,7 +1261,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               setProcessModalOpen(false);
               setSelected(new Set());
             }
-            await refetch();
+            await refetch({ includeCounts: true });
           } catch (err: unknown) {
             toast.error(errorMessageFromUnknown(err, "Process selected failed"));
           } finally {

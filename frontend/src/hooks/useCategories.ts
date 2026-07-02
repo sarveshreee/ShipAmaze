@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 import * as categoryService from "@/services/categoryService";
 import type { CategoryRow } from "@/services/categoryService";
+import { findCategoryByNameOrSlug } from "@/lib/categoryMatch";
 
 let cached: CategoryRow[] | null = null;
 let cacheTs = 0;
 const pending = new Map<string, Promise<CategoryRow[]>>();
 const CACHE_MS = 60_000;
+const invalidationListeners = new Set<() => void>();
+
+export function invalidateCategoryCache() {
+  cached = null;
+  cacheTs = 0;
+  pending.clear();
+  invalidationListeners.forEach((fn) => fn());
+}
 
 export function useCategories(options?: { all?: boolean; enabledOnly?: boolean }) {
   const [categories, setCategories] = useState<CategoryRow[]>(cached ?? []);
@@ -52,17 +61,21 @@ export function useCategories(options?: { all?: boolean; enabledOnly?: boolean }
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const onInvalidate = () => {
+      void load();
+    };
+    invalidationListeners.add(onInvalidate);
+    return () => {
+      invalidationListeners.delete(onInvalidate);
+    };
+  }, [load]);
+
   return { categories, loading, error, refetch: load };
 }
 
 export function hsnForCategoryName(categories: CategoryRow[], categoryName?: string | null): string {
   if (!categoryName) return "";
-  const hit = categories.find((c) => c.name === categoryName || c.slug === categoryName);
+  const hit = findCategoryByNameOrSlug(categoryName, categories);
   return hit?.defaultHsn ?? "";
-}
-
-export function invalidateCategoryCache() {
-  cached = null;
-  cacheTs = 0;
-  pending.clear();
 }

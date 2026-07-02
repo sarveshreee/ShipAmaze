@@ -292,6 +292,54 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
   return undefined;
 }
 
+function normalizeStatusFilterKey(status: string): string {
+  return status.trim().toLowerCase().replace(/_/g, "-");
+}
+
+/**
+ * Status dropdown filter — mirrors tab matching (status OR shipmentStatus, aliases).
+ * Used on the All tab and combined with other list filters for tab badge counts.
+ */
+export function buildStatusFilterQuery(status: string): Record<string, unknown> | undefined {
+  const key = normalizeStatusFilterKey(status);
+  if (!key) return undefined;
+
+  if (key === "pending") {
+    return {
+      isJunk: { $ne: true },
+      status: { $ne: "reship" },
+      $and: [
+        { status: { $nin: FULFILLMENT_PIPELINE_STATUSES } },
+        { shipmentStatus: { $nin: FULFILLMENT_PIPELINE_STATUSES } },
+        { shipmentCreated: { $ne: true } },
+        { $or: [{ awb: { $exists: false } }, { awb: null }, { awb: "" }] },
+      ],
+    };
+  }
+
+  if (key === "ndr") {
+    return {
+      isJunk: { $ne: true },
+      ...statusOrShipmentStatusIn(["ndr", "NDR", "ndr_raised", "NDR raised", "need_attention", "needs_attention"]),
+    };
+  }
+
+  if (key === "rto") {
+    return {
+      isJunk: { $ne: true },
+      ...statusOrShipmentStatusIn(["rto", "RTO", "rto_in_transit", "RTO In Transit"]),
+    };
+  }
+
+  const tabQuery = buildTabQuery(key);
+  if (tabQuery) return tabQuery;
+
+  return {
+    isJunk: { $ne: true },
+    ...statusOrShipmentStatusIn([status.trim(), key, key.replace(/-/g, "_")]),
+  };
+}
+
 export function mergeQueries(a: Record<string, unknown>, b?: Record<string, unknown>): Record<string, unknown> {
   if (!b || Object.keys(b).length === 0) return { ...a };
   return { $and: [a, b] };
@@ -476,7 +524,10 @@ export function buildOrderListFiltersQuery(pq: ParsedOrderListQuery): Record<str
   const parts: Record<string, unknown>[] = [];
 
   if (pq.search) parts.push(buildSearchQuery(pq.search));
-  if (pq.status) parts.push({ status: pq.status });
+  if (pq.status) {
+    const statusQ = buildStatusFilterQuery(pq.status);
+    if (statusQ) parts.push(statusQ);
+  }
   if (pq.payment) parts.push({ payment: pq.payment });
   if (pq.courier) {
     const rx = new RegExp(escapeRegex(pq.courier), "i");

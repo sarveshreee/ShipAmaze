@@ -7,24 +7,34 @@ export type LogoPlacement = "sidebar" | "header" | "marketplace" | "auth-hero" |
 
 const placementClasses: Record<LogoPlacement, string> = {
   /** Location #2 — top navbar beside hamburger */
-  header: "h-8 w-auto max-w-[260px] sm:h-9 sm:max-w-[300px] md:max-w-[340px] object-contain object-left",
+  header: "h-11 w-auto max-w-[320px] sm:h-12 sm:max-w-[380px] md:h-14 md:max-w-[440px] object-contain object-left",
   /** Location #3 — marketplace sub-header */
-  marketplace: "h-7 w-auto max-w-[220px] sm:h-8 sm:max-w-[280px] md:max-w-[320px] object-contain object-left",
+  marketplace: "h-10 w-auto max-w-[300px] sm:h-12 sm:max-w-[360px] md:h-14 md:max-w-[420px] object-contain object-left",
   "auth-hero": "h-20 w-auto max-w-[360px] sm:h-24 sm:max-w-[420px] object-contain",
   "auth-form": "h-20 w-auto max-w-[min(100%,520px)] sm:h-24 md:h-28 lg:h-32 object-contain object-left",
-  loading: "h-14 w-auto max-w-[280px] object-contain",
-  sidebar: "h-full w-[160%] max-w-none object-cover object-left",
+  loading: "h-28 w-auto max-w-[min(92vw,520px)] sm:h-36 sm:max-w-[600px] md:h-40 object-contain drop-shadow-[0_4px_24px_hsl(24_95%_53%/0.15)]",
+  sidebar: "h-full w-full max-w-none object-contain object-center",
 };
 
-function SidebarBrandMark({ decorative }: { decorative?: boolean }) {
+function SidebarBrandMark({ decorative, compact }: { decorative?: boolean; compact?: boolean }) {
   return (
-    <div className="sidebar-brand__mark flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#faf8f5] p-1 shadow-md ring-1 ring-white/25">
+    <div
+      className={cn(
+        "sidebar-brand__mark flex shrink-0 items-center justify-center overflow-hidden bg-[#faf8f5] shadow-md ring-1 ring-white/25 transition-all duration-300",
+        compact
+          ? "h-8 w-8 rounded-lg px-0.5 py-0.5"
+          : "h-14 w-[5.25rem] rounded-xl px-1.5 py-1",
+      )}
+    >
       <img
         src={LOGO_CARD}
         alt={decorative ? "" : "ShipAmaze"}
         width={480}
         height={140}
-        className={placementClasses.sidebar}
+        className={cn(
+          "h-full w-full object-contain object-center transition-transform duration-300",
+          compact ? "scale-100" : "scale-[1.15]",
+        )}
         decoding="async"
         draggable={false}
       />
@@ -71,12 +81,20 @@ export function ShipAmazeLogo({
 }
 
 /** Sidebar header — app mark + ShipAmaze wordmark. */
-export function SidebarBrand({ showText = true, className }: { showText?: boolean; className?: string }) {
+export function SidebarBrand({
+  showText = true,
+  compact = false,
+  className,
+}: {
+  showText?: boolean;
+  compact?: boolean;
+  className?: string;
+}) {
   return (
     <div className={cn("sidebar-brand flex min-w-0 items-center gap-3", className)}>
-      <SidebarBrandMark decorative={showText} />
+      <SidebarBrandMark decorative={showText} compact={compact} />
       {showText ? (
-        <span className="sidebar-brand__name whitespace-nowrap text-[17px] font-bold leading-tight tracking-tight text-white">
+        <span className="sidebar-brand__name whitespace-nowrap text-[19px] font-bold leading-tight tracking-tight text-white">
           ShipAmaze
         </span>
       ) : null}

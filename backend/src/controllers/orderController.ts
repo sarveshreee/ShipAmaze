@@ -38,6 +38,7 @@ import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 import { mapToPublicTracking } from "../utils/publicTracking.js";
 import { bookForwardShipmentForOrder } from "../modules/velocity/velocity.controller.js";
 import { formatErrorMessage } from "../utils/errorMessage.js";
+import { getBulkCourierPriority } from "../services/bulkCourierPriorityService.js";
 import { syncPickupToVelocity } from "../modules/velocity/velocity.warehouseSync.js";
 import { velocityConfig } from "../modules/velocity/velocity.config.js";
 import { mapWithConcurrency } from "../modules/velocity/velocity.labelPdf.js";
@@ -378,15 +379,21 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       "failed",
     ];
     tabCounts = {};
-    for (const tab of tabList) {
-      let q2: Record<string, unknown> = { ...visibility };
-      if (tab !== "all") {
-        q2 = mergeQueries(q2, { isJunk: { $ne: true } });
-      }
-      const tq = buildTabQuery(tab);
-      if (tq) q2 = mergeQueries(q2, tq);
-      if (listFilters) q2 = mergeQueries(q2, listFilters);
-      tabCounts[tab] = await Order.countDocuments(q2);
+    const countEntries = await Promise.all(
+      tabList.map(async (tab) => {
+        let q2: Record<string, unknown> = { ...visibility };
+        if (tab !== "all") {
+          q2 = mergeQueries(q2, { isJunk: { $ne: true } });
+        }
+        const tq = buildTabQuery(tab);
+        if (tq) q2 = mergeQueries(q2, tq);
+        if (listFilters) q2 = mergeQueries(q2, listFilters);
+        const n = await Order.countDocuments(q2);
+        return [tab, n] as const;
+      })
+    );
+    for (const [tab, n] of countEntries) {
+      tabCounts[tab] = n;
     }
     tabCounts.junk = await Order.countDocuments(
       mergeQueries({ ...visibility, isJunk: true }, listFilters ?? {})
@@ -1269,9 +1276,11 @@ function assertOrderEligibleForProcessSelected(o: IOrder): void {
   }
 }
 
+type CourierSelectionMode = "priority" | "courier";
+
 type ProcessSelectedPrep = {
   pickupAddressId: string;
-  autoCourier: boolean;
+  courierSelectionMode: CourierSelectionMode;
   courierName: string;
   carrierId: string | undefined;
   shipmentMode: string;
@@ -1308,10 +1317,12 @@ function applyProcessSelectedPrep(o: OrderDoc, prep: ProcessSelectedPrep, userId
     );
   }
 
-  o.courierName = prep.autoCourier ? "Auto" : prep.courierName;
-  o.courier = prep.autoCourier ? "Auto" : prep.courierName;
-  if (prep.autoCourier) {
+  o.courierName = prep.courierSelectionMode === "priority" ? "Priority" : prep.courierName;
+  o.courier = prep.courierSelectionMode === "priority" ? "Priority" : prep.courierName;
+  if (prep.courierSelectionMode === "priority") {
     o.courierCompanyId = undefined;
+  } else if (prep.carrierId?.trim()) {
+    o.courierCompanyId = prep.carrierId.trim();
   }
   o.pickupAddressId = new mongoose.Types.ObjectId(prep.pickupAddressId);
   o.pickupWarehouseId = prep.pickupAddressId;
@@ -1371,7 +1382,7 @@ async function processOneSelectedOrder(
 
   applyProcessSelectedPrep(o, prep, req.user._id);
 
-  const bookingBody: Record<string, unknown> = {
+  const bookingBase: Record<string, unknown> = {
     orderId: o.orderId,
     warehouseId: prep.pickupAddressId,
     weight: prep.weight,
@@ -1379,11 +1390,54 @@ async function processOneSelectedOrder(
     width: prep.width,
     height: prep.height,
   };
-  if (!prep.autoCourier) {
-    bookingBody.courier_name = prep.courierName;
-    if (prep.carrierId?.trim()) {
-      bookingBody.carrier_id = prep.carrierId.trim();
+
+  if (prep.courierSelectionMode === "priority") {
+    const priorities = await getBulkCourierPriority();
+    if (priorities.length === 0) {
+      return {
+        outcome: "failed",
+        orderId: o.orderId,
+        error: "No courier priority list configured. Open Priority Selection to set one.",
+      };
     }
+
+    const attemptErrors: string[] = [];
+    for (const candidate of priorities) {
+      const bookingBody: Record<string, unknown> = {
+        ...bookingBase,
+        courier_name: candidate.courierName,
+      };
+      if (candidate.carrierId?.trim()) {
+        bookingBody.carrier_id = candidate.carrierId.trim();
+      }
+      try {
+        const booking = await bookForwardShipmentForOrder(req, o, bookingBody);
+        appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
+        await o.save();
+        return {
+          outcome: "updated",
+          orderId: o.orderId,
+          awb: booking.awb_code,
+          carrier: booking.carrier_name,
+        };
+      } catch (err: unknown) {
+        attemptErrors.push(
+          `${candidate.courierName}: ${formatErrorMessage(err, "not serviceable or booking failed")}`
+        );
+      }
+    }
+
+    return {
+      outcome: "failed",
+      orderId: o.orderId,
+      error: attemptErrors.join(" → "),
+    };
+  }
+
+  const bookingBody: Record<string, unknown> = { ...bookingBase };
+  bookingBody.courier_name = prep.courierName;
+  if (prep.carrierId?.trim()) {
+    bookingBody.carrier_id = prep.carrierId.trim();
   }
 
   try {
@@ -1418,6 +1472,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     pickupAddressId?: unknown;
     courierName?: unknown;
     carrierId?: unknown;
+    courierSelectionMode?: unknown;
     shipmentMode?: unknown;
     weight?: unknown;
     length?: unknown;
@@ -1438,9 +1493,23 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   if (!mongoose.isValidObjectId(pickupAddressId)) throw new AppError(400, "Invalid pickupAddressId");
 
   const courierName = String(body.courierName ?? "").trim();
-  const autoCourier = !courierName || courierName.toLowerCase() === "auto";
-  if (!autoCourier && !courierName) throw new AppError(400, "courierName is required");
   const carrierId = body.carrierId != null ? String(body.carrierId).trim() : undefined;
+  const modeRaw = String(body.courierSelectionMode ?? "").trim().toLowerCase();
+  let courierSelectionMode: CourierSelectionMode;
+  if (modeRaw === "courier" || modeRaw === "priority") {
+    courierSelectionMode = modeRaw;
+  } else if (!courierName || courierName.toLowerCase() === "auto") {
+    courierSelectionMode = "priority";
+  } else {
+    courierSelectionMode = "courier";
+  }
+
+  if (courierSelectionMode === "courier") {
+    if (!courierName) throw new AppError(400, "courierName is required for courier selection mode");
+    if (!carrierId?.trim()) {
+      throw new AppError(400, "carrierId is required when selecting a specific courier");
+    }
+  }
 
   const shipmentMode = String(body.shipmentMode ?? "forward").toLowerCase();
   if (!["forward", "reverse"].includes(shipmentMode)) throw new AppError(400, "shipmentMode must be forward or reverse");
@@ -1506,7 +1575,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
 
   const prep: ProcessSelectedPrep = {
     pickupAddressId,
-    autoCourier,
+    courierSelectionMode,
     courierName,
     carrierId,
     shipmentMode,

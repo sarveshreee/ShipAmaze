@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Search, ChevronLeft, ChevronRight, Truck, Wallet, Users } from "lucide-react";
 import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
@@ -11,6 +11,8 @@ import { ProfitCalculatorModal } from "@/components/marketplace/ProfitCalculator
 import { ShopifyPushDrawer } from "@/components/marketplace/ShopifyPushDrawer";
 import type { SupplierProduct } from "@/hooks/useSupplierProducts";
 import { preloadProductImages } from "@/services/productService";
+import { categoryHasProducts, findCategoryByNameOrSlug } from "@/lib/categoryMatch";
+import { toast } from "sonner";
 
 const INITIAL_SECTION_COUNT = 6;
 const PRODUCTS_PER_SECTION = 12;
@@ -25,7 +27,6 @@ type MarketplaceScrollState = {
   visibleSectionCount: number;
   mainScrollTop: number;
   categoryScrollLeft: number;
-  featuredScrollLeft: number;
   searchScrollLeft: number;
   sectionScrollLeft: Record<string, number>;
 };
@@ -43,10 +44,16 @@ function readMarketplaceScrollState(): MarketplaceScrollState | null {
   }
 }
 
+function sectionDomId(catName: string, slugByName: Map<string, string>): string {
+  const slug = slugByName.get(catName);
+  return slug ? `cat-${slug}` : `cat-${catName.replace(/\s+/g, "-").toLowerCase()}`;
+}
+
 export default function MarketplaceHome() {
   const { role } = useAuth();
   const { products, grouped, categories, categoryRows, isLoading, categoriesLoading } = useMarketplaceProducts();
   const savedScrollState = useRef<MarketplaceScrollState | null>(readMarketplaceScrollState());
+  const pendingScrollCategory = useRef<string | null>(null);
   const [search, setSearch] = useState(() => savedScrollState.current?.search ?? "");
   const [visibleSectionCount, setVisibleSectionCount] = useState(() =>
     Math.max(INITIAL_SECTION_COUNT, savedScrollState.current?.visibleSectionCount ?? INITIAL_SECTION_COUNT)
@@ -55,31 +62,98 @@ export default function MarketplaceHome() {
   const [push, setPush] = useState<SupplierProduct | null>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const categoryRowRef = useRef<HTMLDivElement | null>(null);
-  const featuredRowRef = useRef<HTMLDivElement | null>(null);
   const searchRowRef = useRef<HTMLDivElement | null>(null);
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
+  const slugByName = useMemo(() => {
+    const map = new Map<string, string>();
+    categoryRows.forEach((c) => map.set(c.name, c.slug));
+    return map;
+  }, [categoryRows]);
+
+  const enabledCategoryNames = useMemo(
+    () => new Set(categoryRows.filter((c) => c.enabled !== false).map((c) => c.name)),
+    [categoryRows]
+  );
+
+  /** Only enabled admin categories with products — no orphan/deleted category sections. */
   const sectionsOrder = useMemo(() => {
-    const live = Array.from(grouped.keys());
-    const liveSet = new Set(live);
-    // Use admin-configured displayOrder from the Categories API
-    const ordered = categoryRows
-      .filter(c => c.enabled !== false)
+    return categoryRows
+      .filter((c) => c.enabled !== false && categoryHasProducts(c.name, grouped, categoryRows))
       .sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999))
-      .map(c => c.name)
-      .filter(name => liveSet.has(name));
-    const orderedSet = new Set(ordered);
-    // Append any live categories not in admin list
-    return [...ordered, ...live.filter(c => !orderedSet.has(c))];
+      .map((c) => c.name);
   }, [grouped, categoryRows]);
+
   const visibleSections = sectionsOrder.slice(0, visibleSectionCount);
 
   const filtered = useMemo(() => {
     if (!deferredSearch) return null;
     return products
-      .filter(p => p.name.toLowerCase().includes(deferredSearch) || p.sku.toLowerCase().includes(deferredSearch) || p.category.toLowerCase().includes(deferredSearch))
+      .filter(
+        (p) =>
+          enabledCategoryNames.has(p.category) &&
+          (p.name.toLowerCase().includes(deferredSearch) ||
+            p.sku.toLowerCase().includes(deferredSearch) ||
+            p.category.toLowerCase().includes(deferredSearch))
+      )
       .slice(0, SEARCH_RESULT_LIMIT);
-  }, [deferredSearch, products]);
+  }, [deferredSearch, products, enabledCategoryNames]);
+
+  const scrollToCategorySection = useCallback(
+    (cat: string) => {
+      const domId = sectionDomId(cat, slugByName);
+      const el = document.getElementById(domId);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        return true;
+      }
+      return false;
+    },
+    [slugByName]
+  );
+
+  const jumpToCategory = useCallback(
+    (cat: string, slug?: string) => {
+      const resolved = findCategoryByNameOrSlug(cat, categoryRows);
+      const targetName = resolved?.name ?? cat;
+      const index = sectionsOrder.indexOf(targetName);
+      if (index < 0) {
+        toast.info("No products in this category yet.");
+        return;
+      }
+      if (index >= visibleSectionCount) {
+        pendingScrollCategory.current = targetName;
+        setVisibleSectionCount(index + 1);
+        return;
+      }
+      pendingScrollCategory.current = targetName;
+      requestAnimationFrame(() => {
+        if (!scrollToCategorySection(targetName)) {
+          pendingScrollCategory.current = targetName;
+        } else {
+          pendingScrollCategory.current = null;
+        }
+      });
+    },
+    [sectionsOrder, visibleSectionCount, scrollToCategorySection, categoryRows]
+  );
+
+  useLayoutEffect(() => {
+    const cat = pendingScrollCategory.current;
+    if (!cat || !sectionsOrder.includes(cat)) return;
+    const index = sectionsOrder.indexOf(cat);
+    if (index >= visibleSectionCount) return;
+
+    pendingScrollCategory.current = null;
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!scrollToCategorySection(cat)) {
+          pendingScrollCategory.current = cat;
+        }
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [visibleSectionCount, sectionsOrder, scrollToCategorySection]);
 
   useEffect(() => {
     if (isLoading || filtered) return;
@@ -97,7 +171,6 @@ export default function MarketplaceHome() {
       const main = document.querySelector("main");
       if (main) main.scrollTop = saved.mainScrollTop;
       categoryRowRef.current?.scrollTo({ left: saved.categoryScrollLeft });
-      featuredRowRef.current?.scrollTo({ left: saved.featuredScrollLeft });
       searchRowRef.current?.scrollTo({ left: saved.searchScrollLeft });
       for (const [cat, left] of Object.entries(saved.sectionScrollLeft ?? {})) {
         sectionRefs.current[cat]?.scrollTo({ left });
@@ -126,7 +199,6 @@ export default function MarketplaceHome() {
       visibleSectionCount,
       mainScrollTop: main?.scrollTop ?? 0,
       categoryScrollLeft: categoryRowRef.current?.scrollLeft ?? 0,
-      featuredScrollLeft: featuredRowRef.current?.scrollLeft ?? 0,
       searchScrollLeft: searchRowRef.current?.scrollLeft ?? 0,
       sectionScrollLeft,
     };
@@ -143,27 +215,46 @@ export default function MarketplaceHome() {
     if (el) el.scrollBy({ left: dir * 600, behavior: "smooth" });
   };
 
-  const jumpToCategory = (cat: string) => {
-    const el = document.getElementById(`cat-${cat}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
   return (
     <div className="space-y-6 -mt-4 lg:-mt-6 -mx-4 lg:-mx-6 p-4 lg:p-6 bg-gradient-to-b from-primary/5 to-background min-h-full">
       {/* Marketplace top bar */}
-      <div className="flex flex-wrap items-center gap-3 bg-card rounded-xl border p-3">
-        <Link to={`/${role}/home`} className="flex items-center gap-2 shrink-0">
+      <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-border/60 bg-card/90 p-4 shadow-card-md backdrop-blur-sm">
+        <Link to={`/${role}/home`} className="flex shrink-0 items-center gap-3 transition-opacity hover:opacity-90">
           <ShipAmazeLogo placement="marketplace" />
-          <span className="hidden sm:inline text-xs font-normal text-muted-foreground border-l pl-2 ml-1">B2B Marketplace</span>
+          <span className="hidden border-l border-border/70 pl-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:inline">
+            B2B Marketplace
+          </span>
         </Link>
-        <div className="flex-1 min-w-[200px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products, SKU, categories..." className="pl-9 bg-muted/40" />
+        <div className="group relative min-w-[220px] flex-1">
+          <div className="pointer-events-none absolute -inset-0.5 rounded-2xl bg-gradient-to-r from-primary/25 via-primary/10 to-transparent opacity-0 blur-sm transition-opacity duration-300 group-focus-within:opacity-100" />
+          <div className="relative flex items-center gap-1 rounded-xl border border-border/80 bg-background/90 shadow-inner transition-all duration-200 focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15">
+            <Search className="ml-3.5 h-5 w-5 shrink-0 text-primary" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search products, SKU, categories..."
+              className="h-11 flex-1 border-0 bg-transparent pl-2 shadow-none focus-visible:ring-0"
+            />
+            {search.trim() ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mr-1 h-8 shrink-0 rounded-lg px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setSearch("")}
+              >
+                Clear
+              </Button>
+            ) : null}
+            <Button type="button" size="sm" className="mr-1.5 h-9 shrink-0 rounded-lg px-4 shadow-sm">
+              Search
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Hero banner */}
-      <div className="rounded-2xl bg-gradient-to-r from-primary/15 via-primary/10 to-purple-200/30 p-6 md:p-8 border">
+      <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/20 via-primary/10 to-purple-300/20 p-6 shadow-card-md md:p-8 dark:to-purple-900/20">
         <div className="flex flex-wrap items-center justify-between gap-6">
           <div>
             <p className="text-xs uppercase tracking-wider text-primary font-semibold mb-1">Powered partners</p>
@@ -184,11 +275,18 @@ export default function MarketplaceHome() {
         </div>
       </div>
 
-      {/* Category circles */}
+      {/* Category circles — all enabled categories always visible */}
       <div ref={categoryRowRef} className="flex gap-4 overflow-x-auto scrollbar-thin pb-2">
-        {categories.map(c => (
-          <button key={c.slug} onClick={() => jumpToCategory(c.name)} className="group shrink-0 flex flex-col items-center w-20">
-            <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 border-2 border-primary/30 flex items-center justify-center text-2xl group-hover:scale-105 transition">{c.emoji}</div>
+        {categories.map((c) => (
+          <button
+            key={c.slug}
+            type="button"
+            onClick={() => jumpToCategory(c.name, c.slug)}
+            className="group shrink-0 flex flex-col items-center w-20"
+          >
+            <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 border-2 border-primary/30 flex items-center justify-center text-2xl group-hover:scale-105 transition">
+              {c.emoji}
+            </div>
             <span className="text-xs text-center mt-2 line-clamp-2">{c.name}</span>
           </button>
         ))}
@@ -197,50 +295,68 @@ export default function MarketplaceHome() {
       {/* Search results */}
       {filtered && (
         <section>
-          <h2 className="text-lg font-bold mb-3">Search results ({filtered.length})</h2>
+          <h2 className="text-lg font-bold mb-3">Search results</h2>
           {filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No products match your search.</p>
           ) : (
             <div ref={searchRowRef} className="flex gap-4 overflow-x-auto pb-3">
-              {filtered.map((p, index) => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} onOpen={saveMarketplacePosition} priority={index < 4} />)}
+              {filtered.map((p, index) => (
+                <MarketplaceProductCard
+                  key={p.id}
+                  product={p}
+                  onCalculator={setCalc}
+                  onPush={setPush}
+                  onOpen={saveMarketplacePosition}
+                  priority={index < 4}
+                />
+              ))}
             </div>
           )}
         </section>
       )}
 
-      {/* Featured */}
-      {!filtered && (
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold">🔥 Extreme Profitable Products</h2>
-            <span className="text-xs text-primary font-medium">View all : {products.length}</span>
-          </div>
-          <div ref={featuredRowRef} className="flex gap-4 overflow-x-auto pb-3 scrollbar-thin">
-            {products.slice(0, 10).map((p, index) => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} onOpen={saveMarketplacePosition} priority={index < 4} />)}
-          </div>
-        </section>
-      )}
-
-      {/* Category sections */}
-      {!filtered && visibleSections.map(cat => {
-        const items = grouped.get(cat) || [];
-        if (items.length === 0) return null;
-        return (
-          <section key={cat} id={`cat-${cat}`}>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-bold">{cat}</h2>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-primary font-medium">View all : {items.length}</span>
-                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => scrollSection(cat, -1)}><ChevronLeft className="h-3.5 w-3.5" /></Button>
-                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => scrollSection(cat, 1)}><ChevronRight className="h-3.5 w-3.5" /></Button>
+      {/* Category sections — only products in their assigned enabled category */}
+      {!filtered &&
+        visibleSections.map((cat) => {
+          const items = grouped.get(cat) ?? [];
+          if (items.length === 0) return null;
+          const domId = sectionDomId(cat, slugByName);
+          const rowEmoji = categoryRows.find((c) => c.name === cat)?.emoji;
+          return (
+            <section key={cat} id={domId} className="scroll-mt-24">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-bold">
+                  {rowEmoji ? `${rowEmoji} ` : ""}
+                  {cat}
+                </h2>
+                <div className="flex items-center gap-2">
+                  <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => scrollSection(cat, -1)}>
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => scrollSection(cat, 1)}>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div ref={el => (sectionRefs.current[cat] = el)} className="flex gap-4 overflow-x-auto pb-3 scrollbar-thin scroll-smooth">
-              {items.slice(0, PRODUCTS_PER_SECTION).map(p => <MarketplaceProductCard key={p.id} product={p} onCalculator={setCalc} onPush={setPush} onOpen={saveMarketplacePosition} />)}
-            </div>
-          </section>
-        );
-      })}
+              <div
+                ref={(el) => {
+                  sectionRefs.current[cat] = el;
+                }}
+                className="flex gap-4 overflow-x-auto pb-3 scrollbar-thin scroll-smooth"
+              >
+                {items.slice(0, PRODUCTS_PER_SECTION).map((p) => (
+                  <MarketplaceProductCard
+                    key={p.id}
+                    product={p}
+                    onCalculator={setCalc}
+                    onPush={setPush}
+                    onOpen={saveMarketplacePosition}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
       {!filtered && visibleSectionCount < sectionsOrder.length && (
         <div className="flex justify-center">
           <Button variant="outline" onClick={() => setVisibleSectionCount((count) => count + INITIAL_SECTION_COUNT)}>
@@ -252,7 +368,15 @@ export default function MarketplaceHome() {
       {isLoading && <p className="text-center py-12 text-muted-foreground text-sm">Loading marketplace...</p>}
       {!isLoading && categoriesLoading && <p className="text-center py-3 text-muted-foreground text-xs">Updating categories...</p>}
 
-      <ProfitCalculatorModal open={!!calc} onOpenChange={(v) => !v && setCalc(null)} product={calc} onPushToShopify={() => { setPush(calc); setCalc(null); }} />
+      <ProfitCalculatorModal
+        open={!!calc}
+        onOpenChange={(v) => !v && setCalc(null)}
+        product={calc}
+        onPushToShopify={() => {
+          setPush(calc);
+          setCalc(null);
+        }}
+      />
       <ShopifyPushDrawer open={!!push} onOpenChange={(v) => !v && setPush(null)} product={push} />
     </div>
   );

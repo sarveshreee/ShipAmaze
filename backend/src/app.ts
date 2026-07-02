@@ -37,6 +37,7 @@ import * as invoiceController from "./controllers/invoiceController.js";
 import * as labelInvoiceSettingsController from "./controllers/labelInvoiceSettingsController.js";
 import * as profitCalculatorSettingsController from "./controllers/profitCalculatorSettingsController.js";
 import * as courierPriorityController from "./controllers/courierPriorityController.js";
+import * as bulkCourierPriorityController from "./controllers/bulkCourierPriorityController.js";
 import * as courierRateController from "./controllers/courierRateController.js";
 import {
   requireDropshipperWarehouseAccess,
@@ -514,6 +515,28 @@ export function createApp() {
     requireRoles("admin"),
     requireOwnerAdmin,
     courierPriorityController.evaluateCourierPriority
+  );
+
+  api.get(
+    "/admin/bulk-courier-priority",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    bulkCourierPriorityController.getBulkCourierPrioritySettings
+  );
+  api.put(
+    "/admin/bulk-courier-priority",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    bulkCourierPriorityController.saveBulkCourierPrioritySettings
+  );
+  api.get(
+    "/admin/bulk-courier-priority/velocity-carriers",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    bulkCourierPriorityController.listVelocityCarriersForLane
   );
 
   api.get("/courier-rate-masters", authMiddleware, courierRateController.listPublicCourierRateMasters);

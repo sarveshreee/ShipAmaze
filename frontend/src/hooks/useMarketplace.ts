@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import * as productService from "@/services/productService";
 import { useCategories } from "@/hooks/useCategories";
+import { resolveCategoryName, categoryHasProducts } from "@/lib/categoryMatch";
 import { mapApiToSupplierProduct, type SupplierProduct } from "@/hooks/useSupplierProducts";
 
 let cachedMarketplaceProducts: SupplierProduct[] | null = null;
+
+export function invalidateMarketplaceProductsCache() {
+  cachedMarketplaceProducts = null;
+}
 
 export function useMarketplaceProducts() {
   const [live, setLive] = useState<SupplierProduct[]>(() => cachedMarketplaceProducts ?? []);
@@ -30,17 +35,26 @@ export function useMarketplaceProducts() {
 
   const products = useMemo(() => live, [live]);
 
+  const normalizedProducts = useMemo(
+    () =>
+      products.map((p) => ({
+        ...p,
+        category: resolveCategoryName(p.category, apiCategories),
+      })),
+    [products, apiCategories]
+  );
+
   const grouped = useMemo(() => {
     const map = new Map<string, SupplierProduct[]>();
-    products.forEach((p) => {
+    normalizedProducts.forEach((p) => {
       const k = p.category || "Other";
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(p);
     });
     return map;
-  }, [products]);
+  }, [normalizedProducts]);
 
-  const featured = useMemo(() => products.slice(0, 8), [products]);
+  const featured = useMemo(() => normalizedProducts.slice(0, 8), [normalizedProducts]);
 
   const categories = useMemo(
     () =>
@@ -53,7 +67,7 @@ export function useMarketplaceProducts() {
     [apiCategories]
   );
 
-  return { products, grouped, featured, isLoading, categoriesLoading, refetch: load, categories, categoryRows: apiCategories };
+  return { products: normalizedProducts, grouped, featured, isLoading, categoriesLoading, refetch: load, categories, categoryRows: apiCategories };
 }
 
 export function useMarketplaceProduct(id: string | undefined) {

@@ -3,6 +3,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import * as productService from "@/services/productService";
 import type { ProductImageValue } from "@/lib/mediaUrl";
 
+function readProductCategory(r: Record<string, unknown>): string {
+  const direct = String(r.category ?? "").trim();
+  if (direct) return direct;
+  const list = Array.isArray(r.categories) ? r.categories.map((c) => String(c).trim()).filter(Boolean) : [];
+  return list[0] ?? "";
+}
+
 export type SupplierProduct = {
   id: string;
   name: string;
@@ -58,7 +65,7 @@ export function mapApiToSupplierProduct(r: Record<string, unknown>): SupplierPro
     name: String(r.name ?? ""),
     sku: String(r.sku ?? ""),
     vendor_sku: String(r.vendor_sku ?? r.vendorSku ?? ""),
-    category: String(r.category ?? ""),
+    category: readProductCategory(r),
     brand: String(r.brand ?? ""),
     status: (r.status as SupplierProduct["status"]) || "draft",
     price: Number(r.price ?? 0),

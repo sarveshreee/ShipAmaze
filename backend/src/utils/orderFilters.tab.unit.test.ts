@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTabQuery } from "./orderFilters.js";
+import { buildTabQuery, buildStatusFilterQuery } from "./orderFilters.js";
 
 describe("buildTabQuery", () => {
   it("all includes every order (no junk/reship exclusion)", () => {
@@ -65,5 +65,28 @@ describe("buildTabQuery", () => {
 
   it("junk tab query is undefined (view handles junk)", () => {
     expect(buildTabQuery("junk")).toBeUndefined();
+  });
+});
+
+describe("buildStatusFilterQuery", () => {
+  it("in-transit matches shipmentStatus aliases like tab filter", () => {
+    const q = buildStatusFilterQuery("in-transit");
+    expect(q).toBeDefined();
+    const s = JSON.stringify(q);
+    expect(s).toContain("shipmentStatus");
+    expect(s).toContain("picked_up");
+    expect(s).toContain("in_transit");
+  });
+
+  it("delivered checks shipmentStatus", () => {
+    const q = buildStatusFilterQuery("delivered");
+    expect(JSON.stringify(q)).toContain("Delivered");
+  });
+
+  it("pending excludes fulfillment pipeline orders", () => {
+    const q = buildStatusFilterQuery("pending");
+    const s = JSON.stringify(q);
+    expect(s).toContain("shipmentCreated");
+    expect(s).toContain("ready_to_ship");
   });
 });

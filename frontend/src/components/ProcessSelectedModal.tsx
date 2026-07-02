@@ -3,12 +3,38 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Save, Loader2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Save, Loader2, Package, Settings2 } from "lucide-react";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { ProcessSelectedPayload } from "@/services/orderService";
 import { checkServiceability, type VelocityCarrier } from "@/services/velocityService";
+import { CourierCard } from "@/components/CourierCard";
+import { CourierPriorityConfigModal } from "@/components/CourierPriorityConfigModal";
+import { cn } from "@/lib/utils";
+
+const WEIGHT_DIMENSION_PRESETS: Record<string, { weight: string; l: string; w: string; h: string }> = {
+  "0.5": { weight: "0.5", l: "1", w: "1", h: "1" },
+  "1": { weight: "1", l: "1", w: "1", h: "1" },
+  "2": { weight: "2", l: "2", w: "2", h: "2" },
+  "5": { weight: "5", l: "5", w: "5", h: "5" },
+};
+
+const modalSelectTriggerClass =
+  "mt-1.5 h-11 w-full border-2 border-primary/15 bg-popover text-popover-foreground shadow-sm transition-all focus:ring-2 focus:ring-primary/20 hover:border-primary/30 disabled:opacity-60";
+
+const modalInputClass =
+  "border-2 border-primary/15 bg-background/90 focus-visible:ring-primary/30 focus-visible:border-primary/35 shadow-sm";
+
+type CourierSelectionMode = "priority" | "courier";
 
 export type ProcessSelectedOrderRef = {
   pincode?: string;
@@ -26,7 +52,6 @@ interface Props {
   processProgress?: { done: number; total: number } | null;
   initialPickupId?: string;
   initialCourierCarrierId?: string;
-  /** When set, courier + pickup come from the serviceability filter (fixed bulk booking). */
   fixedCourierFromFilter?: {
     courierName: string;
     carrierId?: string;
@@ -39,7 +64,7 @@ export function ProcessSelectedModal({
   open,
   onClose,
   orderIds,
-  couriers,
+  couriers: _couriers,
   referenceOrders = [],
   submitting = false,
   processProgress = null,
@@ -57,7 +82,9 @@ export function ProcessSelectedModal({
   const [shipmentMode, setShipmentMode] = useState<"" | "forward" | "reverse">("");
   const [pickupAddr, setPickupAddr] = useState("");
   const [returnAddr, setReturnAddr] = useState("");
-  const [courierSelect, setCourierSelect] = useState("");
+  const [courierMode, setCourierMode] = useState<CourierSelectionMode>("priority");
+  const [selectedCarrierId, setSelectedCarrierId] = useState("");
+  const [selectedCarrierName, setSelectedCarrierName] = useState("");
   const [weight, setWeight] = useState("");
   const [dimL, setDimL] = useState("");
   const [dimW, setDimW] = useState("");
@@ -65,19 +92,23 @@ export function ProcessSelectedModal({
   const [weightPreset, setWeightPreset] = useState("other");
   const [serviceableCouriers, setServiceableCouriers] = useState<VelocityCarrier[]>([]);
   const [serviceableLoading, setServiceableLoading] = useState(false);
+  const [priorityConfigOpen, setPriorityConfigOpen] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setShipmentMode("");
       setPickupAddr("");
       setReturnAddr("");
-      setCourierSelect("");
+      setCourierMode("priority");
+      setSelectedCarrierId("");
+      setSelectedCarrierName("");
       setWeight("");
       setDimL("");
       setDimW("");
       setDimH("");
       setWeightPreset("other");
       setServiceableCouriers([]);
+      setPriorityConfigOpen(false);
     }
   }, [open]);
 
@@ -85,11 +116,9 @@ export function ProcessSelectedModal({
     if (!open) return;
     if (fixedCourierFromFilter) {
       setPickupAddr(fixedCourierFromFilter.pickupId);
-      setCourierSelect(
-        fixedCourierFromFilter.carrierId?.trim()
-          ? `svc:${fixedCourierFromFilter.carrierId.trim()}`
-          : `name:${fixedCourierFromFilter.courierName}`
-      );
+      setCourierMode("courier");
+      setSelectedCarrierId(fixedCourierFromFilter.carrierId?.trim() ?? "");
+      setSelectedCarrierName(fixedCourierFromFilter.courierName);
       setShipmentMode("forward");
       return;
     }
@@ -103,7 +132,8 @@ export function ProcessSelectedModal({
       "";
     if (defaultPickup) setPickupAddr(defaultPickup);
     if (initialCourierCarrierId?.trim()) {
-      setCourierSelect(`svc:${initialCourierCarrierId.trim()}`);
+      setCourierMode("courier");
+      setSelectedCarrierId(initialCourierCarrierId.trim());
     }
     setShipmentMode("forward");
   }, [open, activePickups, initialPickupId, initialCourierCarrierId, fixedCourierFromFilter]);
@@ -154,7 +184,17 @@ export function ProcessSelectedModal({
     })
       .then((res) => {
         if (cancelled) return;
-        setServiceableCouriers(res.data ?? []);
+        const rows = (res.data ?? []).filter(
+          (c) => c.carrier_id != null && String(c.carrier_id).trim() !== ""
+        );
+        setServiceableCouriers(rows);
+        if (courierMode === "courier" && selectedCarrierId) {
+          const stillValid = rows.some((c) => String(c.carrier_id) === selectedCarrierId);
+          if (!stillValid) {
+            setSelectedCarrierId("");
+            setSelectedCarrierName("");
+          }
+        }
       })
       .catch(() => {
         if (!cancelled) setServiceableCouriers([]);
@@ -165,38 +205,33 @@ export function ProcessSelectedModal({
     return () => {
       cancelled = true;
     };
-  }, [open, shipmentMode, pickupPincode, destPincode, referencePayment, hasPickupPin, hasDestPin, fixedCourierFromFilter]);
+  }, [
+    open,
+    shipmentMode,
+    pickupPincode,
+    destPincode,
+    referencePayment,
+    hasPickupPin,
+    hasDestPin,
+    fixedCourierFromFilter,
+    courierMode,
+    selectedCarrierId,
+  ]);
 
-  const courierOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const rows: Array<{ value: string; label: string }> = [];
-    const add = (value: string, label: string) => {
-      if (seen.has(value)) return;
-      seen.add(value);
-      rows.push({ value, label });
-    };
-
+  const displayCouriers = useMemo(() => {
     if (fixedCourierFromFilter) {
-      add(
-        fixedCourierFromFilter.carrierId?.trim()
-          ? `svc:${fixedCourierFromFilter.carrierId.trim()}`
-          : `name:${fixedCourierFromFilter.courierName}`,
-        fixedCourierFromFilter.courierName
-      );
-      return rows;
+      return [
+        {
+          carrier_id: fixedCourierFromFilter.carrierId ?? fixedCourierFromFilter.courierName,
+          carrier_name: fixedCourierFromFilter.courierName,
+        },
+      ];
     }
-
-    for (const c of couriers) {
-      if (c.carrierId?.trim()) add(`svc:${c.carrierId.trim()}`, c.name);
-      else add(`name:${c.name}`, c.name);
-    }
-    for (const c of serviceableCouriers) {
-      if (c.carrier_id != null && String(c.carrier_id).trim()) {
-        add(`svc:${String(c.carrier_id).trim()}`, String(c.carrier_name ?? c.carrier_id));
-      }
-    }
-    return rows;
-  }, [couriers, serviceableCouriers, fixedCourierFromFilter]);
+    return serviceableCouriers.map((c) => ({
+      carrier_id: String(c.carrier_id),
+      carrier_name: String(c.carrier_name ?? c.carrier_id),
+    }));
+  }, [serviceableCouriers, fixedCourierFromFilter]);
 
   const validationMessages = useMemo(() => {
     if (!open) return [] as string[];
@@ -212,31 +247,19 @@ export function ProcessSelectedModal({
 
   const handlePreset = (val: string) => {
     setWeightPreset(val);
-    if (val !== "other") setWeight(val);
+    if (val === "other") return;
+    const preset = WEIGHT_DIMENSION_PRESETS[val];
+    if (preset) {
+      setWeight(preset.weight);
+      setDimL(preset.l);
+      setDimW(preset.w);
+      setDimH(preset.h);
+    }
   };
 
-  const resolveCourierPayload = (): { courierName: string; carrierId?: string } => {
-    if (fixedCourierFromFilter) {
-      return {
-        courierName: fixedCourierFromFilter.courierName,
-        carrierId: fixedCourierFromFilter.carrierId,
-      };
-    }
-    const sel = courierSelect.trim();
-    if (!sel || sel.toLowerCase() === "auto") return { courierName: "Auto" };
-    if (sel.startsWith("name:")) {
-      return { courierName: sel.slice(5).trim() };
-    }
-    if (sel.startsWith("svc:")) {
-      const id = sel.slice(4).trim();
-      const fromAdmin = couriers.find((c) => String(c.carrierId ?? "") === id);
-      const fromLane = serviceableCouriers.find((c) => String(c.carrier_id) === id);
-      return {
-        courierName: fromAdmin?.name ?? fromLane?.carrier_name ?? id,
-        carrierId: id,
-      };
-    }
-    return { courierName: sel };
+  const selectCourier = (carrierId: string, carrierName: string) => {
+    setSelectedCarrierId(carrierId);
+    setSelectedCarrierName(carrierName);
   };
 
   const handleSubmit = async () => {
@@ -269,18 +292,21 @@ export function ProcessSelectedModal({
       return;
     }
 
-    const { courierName, carrierId } = resolveCourierPayload();
+    const mode: CourierSelectionMode = fixedCourierFromFilter ? "courier" : courierMode;
 
-    if (courierName !== "Auto" && !carrierId?.trim() && !fixedCourierFromFilter) {
-      toast.error("Select a courier with a Velocity carrier ID, or use the serviceability filter first.");
-      return;
+    if (mode === "courier") {
+      if (!selectedCarrierId.trim() || !selectedCarrierName.trim()) {
+        toast.error("Select a courier to book with");
+        return;
+      }
     }
 
     const payload: ProcessSelectedPayload = {
       orderIds,
       pickupAddressId: pickupAddr,
-      courierName,
-      carrierId,
+      courierSelectionMode: mode,
+      courierName: mode === "priority" ? "Priority" : selectedCarrierName,
+      carrierId: mode === "courier" ? selectedCarrierId : undefined,
       shipmentMode,
       weight: w,
       length: L,
@@ -295,144 +321,204 @@ export function ProcessSelectedModal({
     }
   };
 
+  const showCourierCards = !fixedCourierFromFilter && courierMode === "courier";
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-lg font-semibold">
-            Process selected orders ({orderIds.length})
-          </DialogTitle>
-        </DialogHeader>
-
-        <p className="text-sm text-text-muted">
-          Orders are booked via Velocity with a real AWB. Dropshippers are charged your admin Rate
-          Card price (Rates &amp; Shipping), not Velocity&apos;s actual freight.
-          {fixedCourierFromFilter && (
-            <>
-              {" "}
-              Each selected order was already verified serviceable for{" "}
-              <strong>{fixedCourierFromFilter.courierName}</strong> from your pickup filter.
-            </>
-          )}
-        </p>
-
-        <div className="space-y-5 py-2">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <Label className="text-sm font-medium">
-                Shipment mode<span className="text-danger">*</span>
-              </Label>
-              <select
-                value={shipmentMode}
-                onChange={(e) => setShipmentMode(e.target.value as typeof shipmentMode)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-              >
-                <option value="">-- Select --</option>
-                <option value="forward">Forward</option>
-                <option value="reverse">Reverse</option>
-              </select>
-            </div>
-            <div>
-              <Label className="text-sm font-medium">
-                Pickup address<span className="text-danger">*</span>
-              </Label>
-              <select
-                value={pickupAddr}
-                onChange={(e) => setPickupAddr(e.target.value)}
-                disabled={Boolean(fixedCourierFromFilter)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
-              >
-                <option value="">Select pickup…</option>
-                {activePickups.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label className="text-sm font-medium">
-                Return address{shipmentMode === "reverse" ? <span className="text-danger">*</span> : ""}
-              </Label>
-              <select
-                value={returnAddr}
-                onChange={(e) => setReturnAddr(e.target.value)}
-                disabled={shipmentMode !== "reverse"}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
-              >
-                <option value="">{shipmentMode === "reverse" ? "Select return…" : "N/A (forward)"}</option>
-                {activePickups.map((a) => (
-                  <option key={`r-${a.id}`} value={a.id}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+    <>
+      <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto border-2 border-primary/20 bg-gradient-to-br from-card via-card to-primary/[0.05] shadow-2xl p-0 gap-0">
+          <div className="border-b border-primary/15 bg-gradient-to-r from-primary/10 via-card to-secondary/10 px-6 py-4">
+            <DialogHeader className="space-y-1 text-left">
+              <DialogTitle className="text-xl font-bold flex items-center gap-2 text-text-primary">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                  <Package className="h-5 w-5" />
+                </span>
+                Process selected orders ({orderIds.length})
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-text-muted mt-2 pr-4">
+              Orders are booked via Velocity with a real AWB. Dropshippers are charged your admin Rate
+              Card price (Rates &amp; Shipping), not Velocity&apos;s actual freight.
+              {fixedCourierFromFilter && (
+                <>
+                  {" "}
+                  Each selected order was already verified serviceable for{" "}
+                  <strong className="text-primary">{fixedCourierFromFilter.courierName}</strong> from your pickup filter.
+                </>
+              )}
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <Label className="text-sm font-medium">
-                Courier<span className="text-danger">*</span>
-              </Label>
-              <select
-                value={courierSelect}
-                onChange={(e) => setCourierSelect(e.target.value)}
-                disabled={Boolean(fixedCourierFromFilter)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm disabled:opacity-60"
-              >
-                {!fixedCourierFromFilter && (
-                  <option value="">Auto — system assigns courier</option>
-                )}
-                {courierOptions.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-
-              {!fixedCourierFromFilter && serviceableLoading && (
-                <p className="text-[11px] text-text-muted mt-1 flex items-center gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Loading serviceable couriers from Velocity…
-                </p>
-              )}
-
-              {!fixedCourierFromFilter &&
-                !serviceableLoading &&
-                serviceableCouriers.length === 0 &&
-                hasPickupPin &&
-                hasDestPin &&
-                shipmentMode === "forward" && (
-                <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">
-                  No live couriers returned for the first selected lane. You can still pick from your courier list above.
-                </p>
-              )}
-
-              {fixedCourierFromFilter && uniqueDestPincodes.length > 1 && (
-                <p className="text-[11px] text-text-muted mt-1">
-                  {orderIds.length} orders across {uniqueDestPincodes.length} pincodes — each is booked with{" "}
-                  {fixedCourierFromFilter.courierName} using per-order Velocity serviceability.
-                </p>
-              )}
-
-              {!fixedCourierFromFilter && uniqueDestPincodes.length > 1 && shipmentMode === "forward" && (
-                <p className="text-[11px] text-text-muted mt-1">
-                  {orderIds.length} orders across {uniqueDestPincodes.length} pincodes. Use the serviceability filter on
-                  the orders page to bulk-book one courier, or pick a courier and the backend will verify each lane.
-                </p>
-              )}
-
-              {validationMessages.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {validationMessages.map((msg) => (
-                    <p key={msg} className="text-xs text-amber-700 dark:text-amber-400">
-                      {msg}
-                    </p>
-                  ))}
-                </div>
-              )}
+          <div className="space-y-5 px-6 py-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <Label className="text-sm font-medium">
+                  Shipment mode<span className="text-danger">*</span>
+                </Label>
+                <Select
+                  value={shipmentMode || "__none__"}
+                  onValueChange={(v) => setShipmentMode(v === "__none__" ? "" : (v as typeof shipmentMode))}
+                >
+                  <SelectTrigger className={modalSelectTriggerClass}>
+                    <SelectValue placeholder="Select shipment mode" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover text-popover-foreground">
+                    <SelectItem value="__none__">-- Select --</SelectItem>
+                    <SelectItem value="forward">Forward</SelectItem>
+                    <SelectItem value="reverse">Reverse</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-sm font-medium">
+                  Pickup address<span className="text-danger">*</span>
+                </Label>
+                <Select
+                  value={pickupAddr || "__none__"}
+                  onValueChange={(v) => setPickupAddr(v === "__none__" ? "" : v)}
+                  disabled={Boolean(fixedCourierFromFilter)}
+                >
+                  <SelectTrigger className={modalSelectTriggerClass}>
+                    <SelectValue placeholder="Select pickup…" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover text-popover-foreground max-h-60">
+                    <SelectItem value="__none__">Select pickup…</SelectItem>
+                    {activePickups.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-sm font-medium">
+                  Return address{shipmentMode === "reverse" ? <span className="text-danger">*</span> : ""}
+                </Label>
+                <Select
+                  value={returnAddr || "__none__"}
+                  onValueChange={(v) => setReturnAddr(v === "__none__" ? "" : v)}
+                  disabled={shipmentMode !== "reverse"}
+                >
+                  <SelectTrigger className={modalSelectTriggerClass}>
+                    <SelectValue placeholder={shipmentMode === "reverse" ? "Select return…" : "N/A (forward)"} />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover text-popover-foreground max-h-60">
+                    <SelectItem value="__none__">
+                      {shipmentMode === "reverse" ? "Select return…" : "N/A (forward)"}
+                    </SelectItem>
+                    {activePickups.map((a) => (
+                      <SelectItem key={`r-${a.id}`} value={a.id}>
+                        {a.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+
+            {!fixedCourierFromFilter && (
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium">
+                    Choose Courier<span className="text-danger">*</span>
+                  </Label>
+                  <RadioGroup
+                    value={courierMode}
+                    onValueChange={(v) => setCourierMode(v as CourierSelectionMode)}
+                    className="mt-3 flex flex-wrap gap-6"
+                  >
+                    <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-text-primary">
+                      <RadioGroupItem value="priority" id="courier-mode-priority" />
+                      Priority Selection
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-text-primary">
+                      <RadioGroupItem value="courier" id="courier-mode-courier" />
+                      Courier Selection
+                    </label>
+                  </RadioGroup>
+                </div>
+
+                {courierMode === "priority" && (
+                  <p className="text-xs text-text-muted rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2">
+                    Each order will be booked using your saved priority list — starting from Priority #1 for every
+                    order, falling back to the next courier if the lane is not serviceable.
+                  </p>
+                )}
+
+                {showCourierCards && (
+                  <div>
+                    <Label className="text-sm font-medium">
+                      Courier<span className="text-danger">*</span>
+                    </Label>
+
+                    {serviceableLoading && (
+                      <p className="text-[11px] text-text-muted mt-2 flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Loading serviceable couriers from Velocity…
+                      </p>
+                    )}
+
+                    {!serviceableLoading && displayCouriers.length === 0 && hasPickupPin && hasDestPin && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
+                        No Velocity couriers are serviceable for this pickup and destination pincode.
+                      </p>
+                    )}
+
+                    {displayCouriers.length > 0 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-3">
+                        {displayCouriers.map((c) => (
+                          <CourierCard
+                            key={c.carrier_id}
+                            carrierId={c.carrier_id}
+                            carrierName={c.carrier_name}
+                            selected={selectedCarrierId === c.carrier_id}
+                            onClick={() => selectCourier(c.carrier_id, c.carrier_name)}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {uniqueDestPincodes.length > 1 && (
+                      <p className="text-[11px] text-text-muted mt-2">
+                        {orderIds.length} orders across {uniqueDestPincodes.length} pincodes — couriers shown for the
+                        first selected lane. The backend verifies each order&apos;s lane before booking.
+                      </p>
+                    )}
+
+                    {validationMessages.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {validationMessages.map((msg) => (
+                          <p key={msg} className="text-xs text-amber-700 dark:text-amber-400">
+                            {msg}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {fixedCourierFromFilter && (
+              <div>
+                <Label className="text-sm font-medium">Courier</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2 max-w-xs">
+                  <CourierCard
+                    carrierId={displayCouriers[0]?.carrier_id ?? ""}
+                    carrierName={displayCouriers[0]?.carrier_name ?? fixedCourierFromFilter.courierName}
+                    selected
+                  />
+                </div>
+                {uniqueDestPincodes.length > 1 && (
+                  <p className="text-[11px] text-text-muted mt-1">
+                    {orderIds.length} orders across {uniqueDestPincodes.length} pincodes — each is booked with{" "}
+                    {fixedCourierFromFilter.courierName} using per-order Velocity serviceability.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div>
               <Label className="text-sm font-medium">
                 Weight (kg)<span className="text-danger">*</span>
@@ -446,72 +532,102 @@ export function ProcessSelectedModal({
                   }}
                   placeholder="e.g. 1.2"
                   type="number"
-                  className="flex-1"
+                  className={cn("flex-1", modalInputClass)}
                 />
-                <span className="flex items-center text-sm text-text-muted px-3 bg-surface-2 rounded-md border border-border">
+                <span className="flex items-center text-sm font-semibold text-primary px-3 bg-primary/10 rounded-lg border-2 border-primary/20">
                   kg
                 </span>
               </div>
             </div>
-          </div>
 
-          <div>
-            <Label className="text-sm font-medium mb-2 block">
-              Dimensions (cm)<span className="text-danger">*</span>
-            </Label>
-            <div className="flex gap-1.5 items-center flex-wrap">
-              <Input value={dimL} onChange={(e) => setDimL(e.target.value)} placeholder="L" type="number" className="w-24" />
-              <span className="text-text-muted font-bold">×</span>
-              <Input value={dimW} onChange={(e) => setDimW(e.target.value)} placeholder="W" type="number" className="w-24" />
-              <span className="text-text-muted font-bold">×</span>
-              <Input value={dimH} onChange={(e) => setDimH(e.target.value)} placeholder="H" type="number" className="w-24" />
+            <div className="rounded-xl border border-secondary/20 bg-secondary/[0.06] p-4 space-y-3">
+              <Label className="text-sm font-semibold text-text-primary">
+                Dimensions (cm)<span className="text-danger">*</span>
+              </Label>
+              <div className="flex gap-2 items-center flex-wrap">
+                <Input value={dimL} onChange={(e) => setDimL(e.target.value)} placeholder="L" type="number" className={cn("w-24", modalInputClass)} />
+                <span className="text-primary font-bold">×</span>
+                <Input value={dimW} onChange={(e) => setDimW(e.target.value)} placeholder="W" type="number" className={cn("w-24", modalInputClass)} />
+                <span className="text-primary font-bold">×</span>
+                <Input value={dimH} onChange={(e) => setDimH(e.target.value)} placeholder="H" type="number" className={cn("w-24", modalInputClass)} />
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                {[
+                  { label: "0.5 kg", val: "0.5" },
+                  { label: "1 kg", val: "1" },
+                  { label: "2 kg", val: "2" },
+                  { label: "5 kg", val: "5" },
+                  { label: "Other", val: "other" },
+                ].map((p) => (
+                  <button
+                    key={p.val}
+                    type="button"
+                    onClick={() => handlePreset(p.val)}
+                    className={cn(
+                      "rounded-full px-4 py-2 text-xs font-bold transition-all border-2",
+                      weightPreset === p.val
+                        ? "bg-primary text-white border-primary shadow-md shadow-primary/25"
+                        : "bg-background border-primary/20 text-text-secondary hover:border-primary/40 hover:bg-primary/5"
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-4">
-            {[
-              { label: "0.5 kg", val: "0.5" },
-              { label: "1 kg", val: "1" },
-              { label: "2 kg", val: "2" },
-              { label: "5 kg", val: "5" },
-              { label: "Other", val: "other" },
-            ].map((p) => (
-              <label key={p.val} className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-                <input
-                  type="radio"
-                  name="weight-preset-modal"
-                  className="accent-primary"
-                  checked={weightPreset === p.val}
-                  onChange={() => handlePreset(p.val)}
-                />
-                {p.label}
-              </label>
-            ))}
-          </div>
-        </div>
+          {submitting && processProgress && processProgress.total > 0 && (
+            <p className="text-sm text-text-muted px-6 pb-2">
+              Booking shipments… {processProgress.done} / {processProgress.total} orders
+            </p>
+          )}
 
-        {submitting && processProgress && processProgress.total > 0 && (
-          <p className="text-sm text-text-muted">
-            Booking shipments… {processProgress.done} / {processProgress.total} orders
-          </p>
-        )}
+          <DialogFooter className="flex-col sm:flex-row gap-3 sm:gap-3 px-6 py-4 border-t border-border/60 bg-surface-2/30">
+            {!fixedCourierFromFilter && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPriorityConfigOpen(true)}
+                disabled={submitting}
+                className="h-10 gap-2 mr-auto border-2 border-primary/25 text-primary hover:bg-primary/10"
+              >
+                <Settings2 className="h-4 w-4" />
+                Priority Selection
+              </Button>
+            )}
+            <div className="flex gap-3 sm:ml-auto">
+              <Button
+                onClick={() => void handleSubmit()}
+                disabled={submitting}
+                className="h-10 gap-2 px-6 font-bold bg-gradient-to-r from-primary to-primary-dark text-white shadow-lg shadow-primary/30 hover:shadow-xl hover:brightness-105 border-0"
+              >
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {submitting && processProgress
+                  ? `Processing (${processProgress.done}/${processProgress.total})`
+                  : "Submit"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onClose}
+                disabled={submitting}
+                className="h-10 px-6 font-semibold border-2 border-secondary/30 text-secondary-dark hover:bg-secondary hover:text-white"
+              >
+                Close
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button
-            onClick={() => void handleSubmit()}
-            disabled={submitting}
-            className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2"
-          >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {submitting && processProgress
-              ? `Processing (${processProgress.done}/${processProgress.total})`
-              : "Submit"}
-          </Button>
-          <Button variant="secondary" onClick={onClose} disabled={submitting}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <CourierPriorityConfigModal
+        open={priorityConfigOpen}
+        onClose={() => setPriorityConfigOpen(false)}
+        pickupAddressId={pickupAddr || undefined}
+        destPincode={destPincode || undefined}
+        paymentMode={referencePayment}
+      />
+    </>
   );
 }

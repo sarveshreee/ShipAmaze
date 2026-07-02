@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,11 +11,12 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import * as categoryService from "@/services/categoryService";
 import type { CategoryRow } from "@/services/categoryService";
 import { invalidateCategoryCache } from "@/hooks/useCategories";
+import { invalidateMarketplaceProductsCache } from "@/hooks/useMarketplace";
 import { ApiError } from "@/lib/apiClient";
 
 const emptyForm = (): Partial<CategoryRow> => ({
@@ -53,9 +54,37 @@ export default function AdminCategories() {
     void load();
   }, [load]);
 
+  const sortedRows = useMemo(
+    () => [...rows].sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999) || a.name.localeCompare(b.name)),
+    [rows]
+  );
+
+  const moveCategory = async (row: CategoryRow, direction: -1 | 1) => {
+    const idx = sortedRows.findIndex((r) => r.id === row.id);
+    const swapIdx = idx + direction;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= sortedRows.length) return;
+    const other = sortedRows[swapIdx];
+    try {
+      await Promise.all([
+        categoryService.updateCategory(row.id, { displayOrder: other.displayOrder ?? swapIdx + 1 }),
+        categoryService.updateCategory(other.id, { displayOrder: row.displayOrder ?? idx + 1 }),
+      ]);
+      invalidateCategoryCache();
+      invalidateMarketplaceProductsCache();
+      toast.success("Section order updated");
+      void load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not reorder");
+    }
+  };
+
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm());
+    const nextOrder =
+      sortedRows.length > 0
+        ? Math.max(...sortedRows.map((r) => r.displayOrder ?? 0)) + 1
+        : 1;
+    setForm({ ...emptyForm(), displayOrder: nextOrder });
     setModalOpen(true);
   };
 
@@ -80,6 +109,7 @@ export default function AdminCategories() {
         toast.success("Category created");
       }
       invalidateCategoryCache();
+      invalidateMarketplaceProductsCache();
       setModalOpen(false);
       void load();
     } catch (e) {
@@ -94,6 +124,7 @@ export default function AdminCategories() {
     try {
       await categoryService.deleteCategory(row.id);
       invalidateCategoryCache();
+      invalidateMarketplaceProductsCache();
       toast.success("Category deleted");
       void load();
     } catch (e) {
@@ -130,6 +161,12 @@ export default function AdminCategories() {
         }
       />
 
+      <p className="text-sm text-text-muted rounded-lg border border-border/60 bg-surface-2/40 px-4 py-3">
+        <strong className="text-text-primary">Marketplace layout:</strong> enabled categories appear on the home page.
+        Use <strong className="text-text-primary">Section position</strong> to control top-to-bottom order (1 = first section).
+        Disabled or deleted categories are hidden from the marketplace.
+      </p>
+
       {loading ? (
         <div className="flex items-center gap-2 p-8 text-text-muted"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div>
       ) : (
@@ -137,18 +174,18 @@ export default function AdminCategories() {
           <table className="w-full text-sm min-w-[800px]">
             <thead>
               <tr className="border-b border-border bg-surface-2/50">
-                <th className="p-3 text-left">Order</th>
+                <th className="p-3 text-left">Position</th>
                 <th className="p-3 text-left">Category</th>
                 <th className="p-3 text-left">Slug</th>
                 <th className="p-3 text-left">HSN</th>
-                <th className="p-3 text-left">Enabled</th>
+                <th className="p-3 text-left">On marketplace</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sortedRows.map((r, index) => (
                 <tr key={r.id} className="border-b border-border/60 hover:bg-surface-2/30">
-                  <td className="p-3 tabular-nums">{r.displayOrder}</td>
+                  <td className="p-3 tabular-nums font-medium">{r.displayOrder ?? index + 1}</td>
                   <td className="p-3">
                     <span className="mr-2">{r.emoji || r.imageUrl ? (r.emoji || "🖼️") : "📦"}</span>
                     {r.name}
@@ -157,6 +194,24 @@ export default function AdminCategories() {
                   <td className="p-3 font-mono text-xs">{r.defaultHsn || "—"}</td>
                   <td className="p-3">{r.enabled ? "Yes" : "No"}</td>
                   <td className="p-3 text-right space-x-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={index === 0}
+                      onClick={() => void moveCategory(r, -1)}
+                      title="Move section up"
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={index === sortedRows.length - 1}
+                      onClick={() => void moveCategory(r, 1)}
+                      title="Move section down"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
                     <Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button>
                     <Button size="sm" variant="ghost" className="text-danger" onClick={() => void remove(r)}><Trash2 className="h-4 w-4" /></Button>
                   </td>
@@ -175,7 +230,16 @@ export default function AdminCategories() {
             <div><Label>Slug</Label><Input value={form.slug ?? ""} onChange={(e) => setForm((p) => ({ ...p, slug: e.target.value }))} placeholder="auto from name if empty" /></div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Emoji</Label><Input value={form.emoji ?? ""} onChange={(e) => setForm((p) => ({ ...p, emoji: e.target.value }))} placeholder="🔥" /></div>
-              <div><Label>Display order</Label><Input type="number" value={form.displayOrder ?? 0} onChange={(e) => setForm((p) => ({ ...p, displayOrder: Number(e.target.value) || 0 }))} /></div>
+              <div>
+                <Label>Marketplace section position</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.displayOrder ?? 1}
+                  onChange={(e) => setForm((p) => ({ ...p, displayOrder: Math.max(1, Number(e.target.value) || 1) }))}
+                />
+                <p className="text-[11px] text-text-muted mt-1">Lower number = shown higher on marketplace home.</p>
+              </div>
             </div>
             <div><Label>Default HSN</Label><Input value={form.defaultHsn ?? ""} onChange={(e) => setForm((p) => ({ ...p, defaultHsn: e.target.value }))} /></div>
             <div>
@@ -184,7 +248,10 @@ export default function AdminCategories() {
               {form.imageUrl && <img src={form.imageUrl} alt="" className="mt-2 h-16 w-16 rounded object-cover border border-border" />}
             </div>
             <div className="flex items-center justify-between rounded-lg border border-border p-3">
-              <Label>Enabled</Label>
+              <div>
+                <Label>Show on marketplace</Label>
+                <p className="text-[11px] text-text-muted mt-0.5">When off, this category is hidden from the home page.</p>
+              </div>
               <Switch checked={form.enabled !== false} onCheckedChange={(v) => setForm((p) => ({ ...p, enabled: v }))} />
             </div>
           </div>
