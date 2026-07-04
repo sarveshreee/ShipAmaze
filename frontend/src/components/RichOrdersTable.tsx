@@ -456,6 +456,8 @@ function EditPriceModal({ open, onClose, order, onSave }: { open: boolean; onClo
 
 // Edit Order Details (Address) Modal
 function EditAddressModal({ open, onClose, order, onSave }: { open: boolean; onClose: () => void; order: Order; onSave: (id: string, data: any) => Promise<void> }) {
+  const { role } = useAuth();
+  const hideCustomerContact = role === "vendor";
   const [form, setForm] = useState({
     customerName: "",
     customerEmail: "",
@@ -497,7 +499,9 @@ function EditAddressModal({ open, onClose, order, onSave }: { open: boolean; onC
   const handleSubmit = async () => {
     if (!form.state.trim()) return void toast.error("State is required");
     if (!/^\d{6}$/.test(form.pincode.trim())) return void toast.error("Pincode must be 6 digits");
-    if (form.customerNumber.replace(/\D/g, "").length < 10) return void toast.error("Phone number is invalid");
+    if (!hideCustomerContact && form.customerNumber.replace(/\D/g, "").length < 10) {
+      return void toast.error("Phone number is invalid");
+    }
     if (!(Number(form.weight) > 0)) return void toast.error("Package weight must be greater than 0");
     if (!(Number(form.length) > 0) || !(Number(form.breadth) > 0) || !(Number(form.height) > 0)) {
       return void toast.error("Length, breadth and height must be greater than 0");
@@ -528,9 +532,13 @@ function EditAddressModal({ open, onClose, order, onSave }: { open: boolean; onC
         </DialogHeader>
         <div className="grid grid-cols-2 gap-4 py-2">
           <div><Label className="text-sm font-medium">Customer Name</Label><Input value={form.customerName} onChange={e => set("customerName", e.target.value)} className="mt-1" /></div>
-          <div><Label className="text-sm font-medium">Customer Email</Label><Input value={form.customerEmail} onChange={e => set("customerEmail", e.target.value)} className="mt-1" /></div>
-          <div><Label className="text-sm font-medium">Customer Number</Label><Input value={form.customerNumber} onChange={e => set("customerNumber", e.target.value)} className="mt-1" /></div>
-          <div><Label className="text-sm font-medium">Customer Number2</Label><Input value={form.customerNumber2} onChange={e => set("customerNumber2", e.target.value)} className="mt-1" /></div>
+          {!hideCustomerContact && (
+            <>
+              <div><Label className="text-sm font-medium">Customer Email</Label><Input value={form.customerEmail} onChange={e => set("customerEmail", e.target.value)} className="mt-1" /></div>
+              <div><Label className="text-sm font-medium">Customer Number</Label><Input value={form.customerNumber} onChange={e => set("customerNumber", e.target.value)} className="mt-1" /></div>
+              <div><Label className="text-sm font-medium">Customer Number2</Label><Input value={form.customerNumber2} onChange={e => set("customerNumber2", e.target.value)} className="mt-1" /></div>
+            </>
+          )}
           <div><Label className="text-sm font-medium">Shipping Address1</Label><Input value={form.address1} onChange={e => set("address1", e.target.value)} className="mt-1" /></div>
           <div><Label className="text-sm font-medium">Shipping Address2</Label><Input value={form.address2} onChange={e => set("address2", e.target.value)} className="mt-1" /></div>
           <div><Label className="text-sm font-medium">Shipping Pincode</Label><Input value={form.pincode} onChange={e => set("pincode", e.target.value)} className="mt-1" /></div>
@@ -639,6 +647,8 @@ export function RichOrdersTable({
   const { role } = useAuth();
   const { canEditSku, canProcessOrders } = useDropshipperAccess();
   const showProviderBrand = role === "admin";
+  const hideCustomerContact = role === "vendor";
+  const showPickupColumn = role !== "dropshipper";
   const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
   const [bulkDeleteJunkConfirmOpen, setBulkDeleteJunkConfirmOpen] = useState(false);
   const showBulkPrintActions = BULK_LABEL_PRINT_TABS.has(activeTab ?? "") && selected.size > 0;
@@ -841,7 +851,7 @@ export function RichOrdersTable({
     activeTab === "out-for-delivery" ||
     activeTab === "delivered" ||
     activeTab === "failed";
-  const columnCount = hasCourierDetailsColumn ? 12 : 11;
+  const columnCount = (hasCourierDetailsColumn ? 12 : 11) - (showPickupColumn ? 0 : 1);
 
   const isValidPincode = (pin: string | undefined) => pin != null && /^\d{6}$/.test(pin);
   const channelLabel = (o: Order) =>
@@ -879,8 +889,12 @@ export function RichOrdersTable({
     const updated = await orderService.updateOrder(orderId, {
       customerName: data.customerName,
       consigneeName: data.customerName,
-      customerEmail: data.customerEmail,
-      customerPhone: data.customerNumber,
+      ...(hideCustomerContact
+        ? {}
+        : {
+            customerEmail: data.customerEmail,
+            customerPhone: data.customerNumber,
+          }),
       shippingAddress1: data.address1,
       shippingAddress2: data.address2,
       shippingPincode: data.pincode,
@@ -1275,6 +1289,7 @@ export function RichOrdersTable({
                   </div>
                 </FilterPopover>
               </th>
+              {showPickupColumn && (
               <th ref={addressRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[220px] relative">
                 <div className="flex items-center gap-2">
                   <span>Pickup Address</span>
@@ -1511,6 +1526,7 @@ export function RichOrdersTable({
                   </div>
                 </FilterPopover>
               </th>
+              )}
               {hasCourierDetailsColumn && (
                 <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[160px]">Courier Details</th>
               )}
@@ -1626,16 +1642,18 @@ export function RichOrdersTable({
                             </div>
                           </div>
                         )}
-                        {o.phone && (
+                        {!hideCustomerContact && o.phone && (
                           <div className="flex items-center gap-1.5">
                             <Phone className="h-3 w-3 text-text-muted shrink-0" />
                             <span className="text-[11px] text-text-primary">{o.phone}</span>
                           </div>
                         )}
+                        {!hideCustomerContact && (
                         <div className="flex items-center gap-1.5">
                           <Mail className="h-3 w-3 text-text-muted shrink-0" />
                           <a href={`mailto:${orderEmail}`} className="text-[11px] text-primary hover:underline">{orderEmail}</a>
                         </div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -1695,6 +1713,7 @@ export function RichOrdersTable({
                   </td>
 
                   {/* Pickup Address */}
+                  {showPickupColumn && (
                   <td className="p-3">
                     {(() => {
                       const pickup = o.pickupAddress;
@@ -1749,6 +1768,7 @@ export function RichOrdersTable({
                       );
                     })()}
                   </td>
+                  )}
 
                   {/* Courier Details (conditional) - must come BEFORE Remarks to match header order */}
                   {(activeTab === "pending-pickup" || activeTab === "in-transit" || activeTab === "out-for-delivery" || activeTab === "delivered" || activeTab === "failed") && (

@@ -109,6 +109,8 @@ export function OrderDetailDrawer({
 }: OrderDetailDrawerProps) {
   const { role } = useAuth();
   const isAdmin = role === "admin";
+  const isVendor = role === "vendor";
+  const isDropshipper = role === "dropshipper";
   const canEditLineSkus = isAdmin;
 
   const [labelSettings, setLabelSettings] = useState<LabelInvoiceSettings>(DEFAULT_LABEL_INVOICE_SETTINGS);
@@ -446,7 +448,9 @@ export function OrderDetailDrawer({
                 </div>
                 <div>
                   <p className="text-sm font-medium text-text-primary">{order.customer}</p>
-                  <p className="text-xs text-text-muted">{order.phone}</p>
+                  {!isVendor && order.phone ? (
+                    <p className="text-xs text-text-muted">{order.phone}</p>
+                  ) : null}
                 </div>
               </div>
               <div className="flex items-start gap-2 text-sm text-text-secondary">
@@ -458,7 +462,7 @@ export function OrderDetailDrawer({
             </div>
           </section>
 
-          {(() => {
+          {!isDropshipper && (() => {
             const raw = order.pickupAddress;
             const po =
               raw && typeof raw === "object"
