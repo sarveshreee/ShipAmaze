@@ -211,12 +211,16 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     sourceType: o.sourceType != null ? String(o.sourceType) : undefined,
     shopifyOrderNumericId: o.shopifyOrderNumericId != null ? String(o.shopifyOrderNumericId) : undefined,
     shopifyShopDomain: o.shopifyShopDomain != null ? String(o.shopifyShopDomain) : undefined,
+    shopifyStoreName: o.shopifyStoreName != null ? String(o.shopifyStoreName) : undefined,
     shopifyFinancialStatus: o.shopifyFinancialStatus != null ? String(o.shopifyFinancialStatus) : undefined,
     shopifyFulfillmentStatus: o.shopifyFulfillmentStatus != null ? String(o.shopifyFulfillmentStatus) : undefined,
     shopifyNote: o.shopifyNote != null ? String(o.shopifyNote) : undefined,
     shopifyTags: o.shopifyTags != null ? String(o.shopifyTags) : undefined,
     adminRemark: o.adminRemark != null ? String(o.adminRemark) : undefined,
     lastShopifySyncAt: toIsoDateString(o.lastShopifySyncAt),
+    shopifyLineItems: Array.isArray(o.shopifyLineItems)
+      ? (o.shopifyLineItems as Order["shopifyLineItems"])
+      : undefined,
     items: (o.items as Order["products"]) || (o.orderItems as Order["products"]) || undefined,
     updatedAt: toIsoDateString(o.updatedAt),
   };

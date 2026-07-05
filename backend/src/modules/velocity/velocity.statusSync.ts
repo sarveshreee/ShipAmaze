@@ -16,6 +16,7 @@ import { normalizeOrderStatus } from "../../utils/orderStatus.js";
 import { devLog } from "../../utils/devLog.js";
 import { mirrorShopifyFulfillmentStatus, pushShopifyFulfillmentUpdate } from "../../services/shopifyFulfillmentMirror.js";
 import { upsertNdrFromVelocityShipment } from "./velocity.ndrSync.js";
+import { syncVelocityFailureRemarkByAwb } from "./velocityRemarkSync.js";
 
 /** Shipment statuses that need live tracking refreshed from Velocity. */
 const STALE_STATUSES = [
@@ -181,6 +182,7 @@ export async function syncActiveShipmentStatuses(
       }
 
       if (isVelocityCancellationStatus(trackResult.status)) {
+        await syncVelocityFailureRemarkByAwb(doc, trackResult, "velocity_bg_sync_cancel").catch(() => false);
         clearShipmentForReship(doc);
         if (doc.status !== "reship") {
           appendHistoryEntry(doc, "reship", "velocity_cancelled_to_reship");
@@ -247,6 +249,7 @@ export async function syncActiveShipmentStatuses(
 
       if (changed) {
         mirrorShopifyFulfillmentStatus(doc);
+        await syncVelocityFailureRemarkByAwb(doc, trackResult, "velocity_bg_sync").catch(() => false);
         await doc.save();
         void pushShopifyFulfillmentUpdate(doc);
         result.updated++;

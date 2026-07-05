@@ -13,6 +13,7 @@ import {
   sanitizeForVelocityLog,
   buildVelocityForwardOrchestrationPayload,
   normalizeVelocityProviderOrderId,
+  shouldPreserveVelocityOrderId,
   buildVelocityWarehouseProviderPayload,
   parseWarehouseCreateResponse,
   type VelocityPreparedWarehouseInput,
@@ -139,12 +140,40 @@ export async function createForwardShipment(payload: VelocityForwardOrderRequest
 
 // ─── Forward order only (no AWB yet) ─────────────────────
 
+function resolveForwardOrderIdForPayload(
+  orderId: string,
+  opts?: { preserveExisting?: boolean }
+): string {
+  const raw = String(orderId ?? "").trim();
+  if (opts?.preserveExisting && shouldPreserveVelocityOrderId(raw)) return raw;
+  return normalizeVelocityProviderOrderId(raw);
+}
+
 export async function createForwardOrderOnly(payload: VelocityForwardOrderRequest) {
-  const safePayload = { ...payload, order_id: normalizeVelocityProviderOrderId(payload.order_id) };
+  const safePayload = { ...payload, order_id: resolveForwardOrderIdForPayload(payload.order_id) };
   const providerBody = buildVelocityForwardOrchestrationPayload(safePayload);
   if (velocityConfig.debugLogs) {
     console.info(
       `[velocity] POST /custom/api/v1/forward-order payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
+    );
+  }
+  const raw = await velocityPost<unknown>(
+    "/custom/api/v1/forward-order",
+    providerBody
+  );
+  return unwrapVelocityPayload<VelocityCreateOrderOnlyResponse>(raw);
+}
+
+/** Update an existing Velocity forward order — preserves SA-/ORD provider order ids. */
+export async function updateForwardOrderInVelocity(payload: VelocityForwardOrderRequest) {
+  const safePayload = {
+    ...payload,
+    order_id: resolveForwardOrderIdForPayload(payload.order_id, { preserveExisting: true }),
+  };
+  const providerBody = buildVelocityForwardOrchestrationPayload(safePayload);
+  if (velocityConfig.debugLogs) {
+    console.info(
+      `[velocity] POST /custom/api/v1/forward-order (update) payload (sanitized)=${JSON.stringify(sanitizeForVelocityLog(providerBody))}`
     );
   }
   const raw = await velocityPost<unknown>(

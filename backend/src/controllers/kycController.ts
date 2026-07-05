@@ -14,6 +14,7 @@ import {
 import { Dropshipper } from "../models/Dropshipper.js";
 import { Vendor } from "../models/Vendor.js";
 import { User } from "../models/User.js";
+import { ACTIVITY_ACTIONS, recordUserActivity } from "../services/userActivityService.js";
 import { assertOwnerAdmin } from "../utils/staffPermissions.js";
 import { createInAppNotification } from "../services/inAppNotifications.js";
 import { devLog } from "../utils/devLog.js";
@@ -385,6 +386,16 @@ export const approveKyc = asyncHandler(async (req: AuthRequest, res: Response) =
     "Your KYC has been approved. Your account is now active.",
     { link: "/dropshipper/settings" }
   );
+
+  if (req.user) {
+    recordUserActivity({
+      user: req.user,
+      module: "kyc",
+      action: ACTIVITY_ACTIONS.KYC_APPROVED,
+      req,
+      metadata: { userId },
+    });
+  }
 
   res.json({ ok: true, ...mapKycResponse(k) });
 });

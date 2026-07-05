@@ -111,6 +111,8 @@ export interface IOrder extends Document {
   /** Shopify Admin REST order id (numeric as string) for webhooks/dedupe */
   shopifyOrderNumericId?: string;
   shopifyShopDomain?: string;
+  /** Human-readable Shopify store name (e.g. EZYSALE.SHOP) synced from Shop API */
+  shopifyStoreName?: string;
   shopifyFinancialStatus?: string;
   shopifyFulfillmentStatus?: string;
   shopifyNote?: string;
@@ -118,6 +120,13 @@ export interface IOrder extends Document {
   lastShopifySyncAt?: Date;
   /** Admin-only internal remark shown in orders table. */
   adminRemark?: string;
+  /** History of Velocity-sourced failure/cancellation remarks. */
+  remarkHistory?: {
+    reason: string;
+    source: string;
+    velocityStatus?: string;
+    at: Date;
+  }[];
 }
 
 const trackingActivitySchema = new Schema<ITrackingActivity>(
@@ -135,6 +144,16 @@ const statusHistorySchema = new Schema<IOrderStatusEvent>(
     at: { type: Date, default: Date.now },
     updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
     note: { type: String },
+  },
+  { _id: false }
+);
+
+const remarkHistorySchema = new Schema(
+  {
+    reason: { type: String, required: true },
+    source: { type: String, default: "" },
+    velocityStatus: { type: String },
+    at: { type: Date, default: Date.now },
   },
   { _id: false }
 );
@@ -215,11 +234,13 @@ const orderSchema = new Schema<IOrder>(
     shippingState: { type: String },
     shopifyOrderNumericId: { type: String, index: true, sparse: true },
     shopifyShopDomain: { type: String, index: true, sparse: true },
+    shopifyStoreName: { type: String },
     shopifyFinancialStatus: { type: String },
     shopifyFulfillmentStatus: { type: String },
     shopifyNote: { type: String },
     shopifyTags: { type: String },
     adminRemark: { type: String },
+    remarkHistory: { type: [remarkHistorySchema], default: [] },
     lastShopifySyncAt: { type: Date },
   },
   { timestamps: true }

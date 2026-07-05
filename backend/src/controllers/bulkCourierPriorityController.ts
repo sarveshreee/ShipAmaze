@@ -7,7 +7,7 @@ import {
   saveBulkCourierPriority,
 } from "../services/bulkCourierPriorityService.js";
 import { Pickup } from "../models/Pickup.js";
-import { pickupByIdSelectableQuery } from "../utils/pickupQuery.js";
+import { pickupByIdSelectableQuery, PICKUP_NOT_DELETED } from "../utils/pickupQuery.js";
 import { normalizePincode } from "../modules/velocity/velocity.payload.js";
 import * as velocityService from "../modules/velocity/velocity.service.js";
 import { isVelocityConfigured } from "../config/env.js";
@@ -65,6 +65,17 @@ export const listVelocityCarriersForLane = asyncHandler(async (req: AuthRequest,
     if (pickup?.pincode) fromPin = normalizePincode(String(pickup.pincode));
   }
 
+  if (!fromPin) {
+    const defaultPickup = await Pickup.findOne({
+      ...PICKUP_NOT_DELETED,
+      pincode: { $exists: true, $ne: "" },
+    })
+      .sort({ isDefault: -1, updatedAt: -1 })
+      .select("pincode")
+      .lean();
+    if (defaultPickup?.pincode) fromPin = normalizePincode(String(defaultPickup.pincode));
+  }
+
   if (fromPin.length !== 6 || toPin.length !== 6) {
     throw new AppError(400, "Valid from and to pincodes (6 digits) are required");
   }
@@ -76,16 +87,38 @@ export const listVelocityCarriersForLane = asyncHandler(async (req: AuthRequest,
     shipment_type: "forward",
   });
 
+  const rates = await velocityService
+    .getRates({
+      from: fromPin,
+      to: toPin,
+      weight: 0.5,
+      length: 10,
+      width: 10,
+      height: 10,
+      payment_mode: payment,
+      shipment_type: "forward",
+      ...(payment === "cod" ? { cod_value: 500 } : {}),
+    })
+    .catch(() => ({ data: [] as { carrier_id: string | number; carrier_name: string }[] }));
+
   const seen = new Set<string>();
   const items: { carrier_id: string; carrier_name: string }[] = [];
+
+  const pushCarrier = (carrierId: unknown, carrierName: unknown) => {
+    const id = carrierId != null ? String(carrierId).trim() : "";
+    const name = String(carrierName ?? id).trim();
+    if (!id || !name) return;
+    const key = `${id}::${name}`.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push({ carrier_id: id, carrier_name: name });
+  };
+
+  for (const row of rates.data ?? []) {
+    pushCarrier(row.carrier_id, row.carrier_name);
+  }
   for (const row of svc.data ?? []) {
-    const id = row.carrier_id != null ? String(row.carrier_id).trim() : "";
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    items.push({
-      carrier_id: id,
-      carrier_name: String(row.carrier_name ?? id),
-    });
+    pushCarrier(row.carrier_id, row.carrier_name);
   }
 
   res.json({ items, fromPin, toPin });

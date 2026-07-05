@@ -5,7 +5,10 @@ import {
   mapShopifyOrderPayment,
   shopifyOrderIsCod,
   mapShopifyToInternalStatus,
+  isShopifyOrderCancelled,
+  applyShopifyCancellationToOrder,
   mergeShopifyPayloadIntoOrder,
+  SHOPIFY_CANCEL_REMARK,
 } from "./shopifyOrderSync.js";
 import type { ShopifyOrder } from "./shopify.service.js";
 import type { IOrder } from "../models/Order.js";
@@ -53,6 +56,80 @@ describe("shopifyOrderSync helpers", () => {
     const base = { id: 1 } as unknown as ShopifyOrder;
     expect(mapShopifyToInternalStatus({ ...base, financial_status: "paid", fulfillment_status: null })).toBe("pending");
     expect(mapShopifyToInternalStatus({ ...base, fulfillment_status: "fulfilled" })).toBe("shipped");
+    expect(mapShopifyToInternalStatus({ ...base, financial_status: "refunded" })).toBe("cancelled");
+  });
+
+  it("isShopifyOrderCancelled detects refunded and cancelled_at", () => {
+    const base = { id: 1 } as unknown as ShopifyOrder;
+    expect(isShopifyOrderCancelled({ ...base, cancelled_at: "2026-01-01T00:00:00Z" })).toBe(true);
+    expect(isShopifyOrderCancelled({ ...base, financial_status: "refunded" })).toBe(true);
+    expect(isShopifyOrderCancelled({ ...base, financial_status: "paid" })).toBe(false);
+  });
+
+  it("applyShopifyCancellationToOrder moves pre-shipment orders to junk with remark", () => {
+    const existing = {
+      isJunk: false,
+      status: "pending",
+      shipmentStatus: "pending",
+      awb: "",
+      adminRemark: "",
+      statusHistory: [],
+      save: () => undefined,
+      set: () => undefined,
+      get: () => undefined,
+    } as unknown as IOrder;
+
+    expect(applyShopifyCancellationToOrder(existing)).toBe(true);
+    expect(existing.isJunk).toBe(true);
+    expect(existing.status).toBe("junk");
+    expect(existing.adminRemark).toBe(SHOPIFY_CANCEL_REMARK);
+    expect(existing.junkReason).toBe(SHOPIFY_CANCEL_REMARK);
+  });
+
+  it("applyShopifyCancellationToOrder moves stuck cancelled orders to junk", () => {
+    const existing = {
+      isJunk: false,
+      status: "cancelled",
+      shipmentStatus: "cancelled",
+      awb: "",
+      adminRemark: "",
+      statusHistory: [],
+      save: () => undefined,
+      set: () => undefined,
+      get: () => undefined,
+    } as unknown as IOrder;
+
+    expect(applyShopifyCancellationToOrder(existing)).toBe(true);
+    expect(existing.isJunk).toBe(true);
+    expect(existing.status).toBe("junk");
+  });
+
+  it("mergeShopifyPayloadIntoOrder moves refunded Shopify orders to junk", () => {
+    const existing = {
+      isJunk: false,
+      status: "pending",
+      shipmentStatus: "pending",
+      awb: "",
+      customer: "Old",
+      adminRemark: "",
+      statusHistory: [],
+      save: () => undefined,
+      set: () => undefined,
+      get: () => undefined,
+    } as unknown as IOrder;
+
+    mergeShopifyPayloadIntoOrder(existing, {
+      customer: "New from Shopify",
+      status: "cancelled",
+      items: [],
+      orderItems: [],
+      shopifyLineItems: [],
+    });
+
+    expect(existing.isJunk).toBe(true);
+    expect(existing.status).toBe("junk");
+    expect(existing.adminRemark).toBe(SHOPIFY_CANCEL_REMARK);
+    expect(existing.customer).toBe("New from Shopify");
   });
 
   it("mergeShopifyPayloadIntoOrder preserves junk orders", () => {

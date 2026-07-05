@@ -2,9 +2,11 @@ import type { Request, Response, NextFunction } from "express";
 import { verifyToken } from "../utils/jwt.js";
 import { User, type IUser } from "../models/User.js";
 import { AppError } from "./errorMiddleware.js";
+import { touchLoginSessionActivity } from "../services/loginActivityService.js";
 
 export interface AuthRequest extends Request {
   user?: IUser;
+  sessionId?: string;
 }
 
 export async function authMiddleware(req: AuthRequest, _res: Response, next: NextFunction) {
@@ -24,6 +26,10 @@ export async function authMiddleware(req: AuthRequest, _res: Response, next: Nex
     }
 
     req.user = user;
+    if (payload.sid) {
+      req.sessionId = payload.sid;
+      void touchLoginSessionActivity(payload.sid);
+    }
     next();
   } catch (e) {
     if (e instanceof AppError) return next(e);

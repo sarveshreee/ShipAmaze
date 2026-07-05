@@ -13,7 +13,8 @@ import { Wallet } from "../models/Wallet.js";
 import { sendWelcomeEmail } from "../services/email/emailService.js";
 import { Order } from "../models/Order.js";
 import { ShopifyStoreConnection } from "../models/ShopifyStoreConnection.js";
-import { SupportTicket, type SupportTicketPriority, type SupportTicketStatus } from "../models/SupportTicket.js";
+import { SupportTicket, SUPPORT_TICKET_CATEGORIES, type SupportTicketCategory, type SupportTicketPriority, type SupportTicketStatus, type ISupportAttachment } from "../models/SupportTicket.js";
+import { ACTIVITY_ACTIONS, recordUserActivity } from "../services/userActivityService.js";
 import mongoose from "mongoose";
 import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotifications.js";
 import { randomBytes } from "crypto";
@@ -835,14 +836,121 @@ function nextTicketNumber(): string {
   return `TKT-${Date.now().toString(36).toUpperCase()}-${randomBytes(3).toString("hex").toUpperCase()}`;
 }
 
+function mapSupportTicketListItem(
+  t: {
+    _id: unknown;
+    ticketNumber: string;
+    title: string;
+    subject?: string;
+    category?: string;
+    status: string;
+    priority: string;
+    requesterUserId: unknown;
+    assigneeUserId?: unknown | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  reqMap: Map<string, { name?: string; email?: string; role?: string }>
+) {
+  const requester = reqMap.get(String(t.requesterUserId)) ?? { name: "", email: "", role: "" };
+  return {
+    id: String(t._id),
+    ticketNumber: t.ticketNumber,
+    title: t.subject ?? t.title,
+    subject: t.subject ?? t.title,
+    category: t.category ?? "others",
+    status: t.status,
+    priority: t.priority,
+    requester,
+    assigneeUserId: t.assigneeUserId ? String(t.assigneeUserId) : null,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+  };
+}
+
+function parseSupportDateRange(req: { query: Record<string, unknown> }) {
+  const fromRaw = String(req.query.from ?? req.query.dateFrom ?? "").trim();
+  const toRaw = String(req.query.to ?? req.query.dateTo ?? "").trim();
+  const range: Record<string, Date> = {};
+  if (fromRaw) {
+    const from = new Date(fromRaw);
+    if (Number.isNaN(from.getTime())) throw new AppError(400, "Invalid from date");
+    range.$gte = from;
+  }
+  if (toRaw) {
+    const to = new Date(toRaw);
+    if (Number.isNaN(to.getTime())) throw new AppError(400, "Invalid to date");
+    to.setHours(23, 59, 59, 999);
+    range.$lte = to;
+  }
+  return Object.keys(range).length ? range : undefined;
+}
+
+function normalizeSupportCategory(raw: unknown): SupportTicketCategory {
+  const c = String(raw ?? "others").trim().toLowerCase();
+  return (SUPPORT_TICKET_CATEGORIES as readonly string[]).includes(c)
+    ? (c as SupportTicketCategory)
+    : "others";
+}
+
+function parseSupportAttachments(body: Record<string, unknown>): ISupportAttachment[] {
+  const raw = body.attachments;
+  if (!Array.isArray(raw)) return [];
+  const out: ISupportAttachment[] = [];
+  for (const a of raw) {
+    if (!a || typeof a !== "object") continue;
+    const o = a as Record<string, unknown>;
+    const url = String(o.url ?? "").trim();
+    const fileName = String(o.fileName ?? o.name ?? "attachment").trim();
+    if (!url) continue;
+    out.push({
+      fileName: fileName.slice(0, 200),
+      url: url.slice(0, 2000),
+      mimeType: o.mimeType ? String(o.mimeType).slice(0, 120) : undefined,
+      size: typeof o.size === "number" ? o.size : undefined,
+      uploadedAt: new Date(),
+    });
+  }
+  return out;
+}
+
 export const adminListSupportTickets = asyncHandler(async (req: AuthRequest, res: Response) => {
   assertAdmin(req);
   const { page, limit, skip } = parsePagination(req);
   const status = String(req.query.status ?? "").trim();
   const priority = String(req.query.priority ?? "").trim();
+  const category = String(req.query.category ?? "").trim();
+  const roleFilter = String(req.query.role ?? req.query.requesterRole ?? "").trim();
+  const userQ = String(req.query.user ?? req.query.vendor ?? req.query.dropshipper ?? "").trim();
   const q: Record<string, unknown> = {};
-  if (status && ["open", "in_progress", "resolved", "closed"].includes(status)) q.status = status;
+  const validStatuses: SupportTicketStatus[] = [
+    "open",
+    "in_progress",
+    "waiting_for_user",
+    "resolved",
+    "closed",
+  ];
+  if (status && validStatuses.includes(status as SupportTicketStatus)) q.status = status;
   if (priority && ["low", "medium", "high"].includes(priority)) q.priority = priority;
+  if (category && (SUPPORT_TICKET_CATEGORIES as readonly string[]).includes(category)) {
+    q.category = category;
+  }
+  const createdAt = parseSupportDateRange(req);
+  if (createdAt) q.createdAt = createdAt;
+  if (roleFilter && ["vendor", "dropshipper"].includes(roleFilter)) q.requesterRole = roleFilter;
+
+  if (userQ) {
+    const users = await User.find({
+      role: { $in: ["vendor", "dropshipper", "admin"] },
+      $or: [
+        { name: new RegExp(userQ.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") },
+        { email: new RegExp(userQ.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") },
+      ],
+    })
+      .select("_id")
+      .lean();
+    q.requesterUserId = { $in: users.map((u) => u._id) };
+  }
 
   const [rows, total] = await Promise.all([
     SupportTicket.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -856,17 +964,7 @@ export const adminListSupportTickets = asyncHandler(async (req: AuthRequest, res
   const reqMap = new Map(requesters.map((u) => [String(u._id), u]));
 
   res.json({
-    items: rows.map((t) => ({
-      id: String(t._id),
-      ticketNumber: t.ticketNumber,
-      title: t.title,
-      status: t.status,
-      priority: t.priority,
-      requester: reqMap.get(String(t.requesterUserId)) ?? { name: "", email: "", role: "" },
-      assigneeUserId: t.assigneeUserId ? String(t.assigneeUserId) : null,
-      createdAt: t.createdAt,
-      updatedAt: t.updatedAt,
-    })),
+    items: rows.map((t) => mapSupportTicketListItem(t, reqMap)),
     total,
     page,
     limit,
@@ -894,16 +992,20 @@ export const adminGetSupportTicket = asyncHandler(async (req: AuthRequest, res: 
   res.json({
     id: String(t._id),
     ticketNumber: t.ticketNumber,
-    title: t.title,
+    title: t.subject ?? t.title,
+    subject: t.subject ?? t.title,
     description: t.description,
+    category: t.category ?? "others",
     status: t.status,
     priority: t.priority,
+    attachments: t.attachments ?? [],
     requester,
     assignee,
     comments: (t.comments || []).map((c) => ({
       userId: String(c.userId),
       body: c.body,
       isInternal: c.isInternal,
+      attachments: c.attachments ?? [],
       createdAt: c.createdAt,
     })),
     createdAt: t.createdAt,
@@ -923,7 +1025,7 @@ export const adminPatchSupportTicket = asyncHandler(async (req: AuthRequest, res
     assigneeUserId?: string | null;
   };
 
-  if (body.status && ["open", "in_progress", "resolved", "closed"].includes(body.status)) {
+  if (body.status && ["open", "in_progress", "waiting_for_user", "resolved", "closed"].includes(body.status)) {
     t.status = body.status;
   }
   if (body.priority && ["low", "medium", "high"].includes(body.priority)) {
@@ -939,6 +1041,16 @@ export const adminPatchSupportTicket = asyncHandler(async (req: AuthRequest, res
     }
   }
   await t.save();
+
+  if (req.user) {
+    recordUserActivity({
+      user: req.user,
+      module: "support",
+      action: ACTIVITY_ACTIONS.SUPPORT_TICKET_UPDATED,
+      req,
+      metadata: { ticketId: String(t._id), status: t.status },
+    });
+  }
 
   await createInAppNotification(
     t.requesterUserId,
@@ -967,7 +1079,7 @@ export const adminAddSupportComment = asyncHandler(async (req: AuthRequest, res:
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const t = await SupportTicket.findById(id);
   if (!t) throw new AppError(404, "Not found");
-  const body = req.body as { body?: string; isInternal?: boolean };
+  const body = req.body as { body?: string; isInternal?: boolean; attachments?: unknown[] };
   const text = String(body.body ?? "").trim();
   if (!text) throw new AppError(400, "body required");
 
@@ -975,8 +1087,10 @@ export const adminAddSupportComment = asyncHandler(async (req: AuthRequest, res:
     userId: req.user._id as mongoose.Types.ObjectId,
     body: text,
     isInternal: !!body.isInternal,
+    attachments: parseSupportAttachments({ attachments: body.attachments }),
     createdAt: new Date(),
   });
+  if (t.status === "open") t.status = "in_progress";
   await t.save();
 
   if (!body.isInternal) {
@@ -996,25 +1110,44 @@ export const adminAddSupportComment = asyncHandler(async (req: AuthRequest, res:
 export const userCreateSupportTicket = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   if (req.user.role === "admin") throw new AppError(400, "Admins use admin support console");
-  const body = req.body as { title?: string; description?: string; priority?: SupportTicketPriority };
-  const title = String(body.title ?? "").trim();
-  if (!title) throw new AppError(400, "title required");
+  const body = req.body as {
+    title?: string;
+    subject?: string;
+    description?: string;
+    priority?: SupportTicketPriority;
+    category?: string;
+    attachments?: unknown[];
+  };
+  const subject = String(body.subject ?? body.title ?? "").trim();
+  if (!subject) throw new AppError(400, "subject required");
   const description = String(body.description ?? "").trim();
 
   const doc = await SupportTicket.create({
     ticketNumber: nextTicketNumber(),
     requesterUserId: req.user._id,
-    title,
+    requesterRole: req.user.role,
+    subject,
+    title: subject,
     description,
+    category: normalizeSupportCategory(body.category),
     status: "open",
     priority: body.priority && ["low", "medium", "high"].includes(body.priority) ? body.priority : "medium",
+    attachments: parseSupportAttachments(body as Record<string, unknown>),
     comments: [],
+  });
+
+  recordUserActivity({
+    user: req.user,
+    module: "support",
+    action: ACTIVITY_ACTIONS.SUPPORT_TICKET_CREATED,
+    req,
+    metadata: { ticketNumber: doc.ticketNumber, category: doc.category },
   });
 
   await notifyAllAdmins(
     "support_update",
     "New support ticket",
-    `${title} (${doc.ticketNumber})`,
+    `${subject} (${doc.ticketNumber})`,
     { ticketId: String(doc._id), ticketNumber: doc.ticketNumber }
   );
 
@@ -1022,6 +1155,7 @@ export const userCreateSupportTicket = asyncHandler(async (req: AuthRequest, res
     id: String(doc._id),
     ticketNumber: doc.ticketNumber,
     status: doc.status,
+    category: doc.category,
   });
 });
 
@@ -1032,10 +1166,13 @@ export const userListMySupportTickets = asyncHandler(async (req: AuthRequest, re
     rows.map((t) => ({
       id: String(t._id),
       ticketNumber: t.ticketNumber,
-      title: t.title,
+      title: t.subject ?? t.title,
+      subject: t.subject ?? t.title,
+      category: t.category ?? "others",
       status: t.status,
       priority: t.priority,
       createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
     }))
   );
 });
@@ -1050,16 +1187,21 @@ export const userGetSupportTicket = asyncHandler(async (req: AuthRequest, res: R
   res.json({
     id: String(t._id),
     ticketNumber: t.ticketNumber,
-    title: t.title,
+    title: t.subject ?? t.title,
+    subject: t.subject ?? t.title,
     description: t.description,
+    category: t.category ?? "others",
     status: t.status,
     priority: t.priority,
+    attachments: t.attachments ?? [],
     comments: publicComments.map((c) => ({
       userId: String(c.userId),
       body: c.body,
+      attachments: c.attachments ?? [],
       createdAt: c.createdAt,
     })),
     createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
   });
 });
 
@@ -1070,15 +1212,18 @@ export const userAddSupportComment = asyncHandler(async (req: AuthRequest, res: 
   const t = await SupportTicket.findOne({ _id: id, requesterUserId: req.user._id });
   if (!t) throw new AppError(404, "Not found");
   if (t.status === "closed") throw new AppError(400, "Ticket is closed");
-  const text = String((req.body as { body?: string }).body ?? "").trim();
+  const body = req.body as { body?: string; attachments?: unknown[] };
+  const text = String(body.body ?? "").trim();
   if (!text) throw new AppError(400, "body required");
 
   t.comments.push({
     userId: req.user._id as mongoose.Types.ObjectId,
     body: text,
     isInternal: false,
+    attachments: parseSupportAttachments({ attachments: body.attachments }),
     createdAt: new Date(),
   });
+  if (t.status === "waiting_for_user" || t.status === "resolved") t.status = "in_progress";
   await t.save();
 
   await notifyAllAdmins("support_update", "Ticket reply", `${t.ticketNumber}: ${text.slice(0, 80)}`, {

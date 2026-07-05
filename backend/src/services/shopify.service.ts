@@ -27,6 +27,10 @@ export interface ShopifyLineItem {
   price: string;
   sku: string;
   variant_title: string | null;
+  product_id?: number | null;
+  variant_id?: number | null;
+  /** Present on some webhook/API payloads */
+  image?: { src?: string } | null;
 }
 
 export interface ShopifyOrder {
@@ -61,7 +65,9 @@ export interface ShopifyProduct {
   id: number;
   title: string;
   status: string;
-  variants: Array<{ id: number; price: string; sku: string; inventory_quantity: number }>;
+  image?: { src?: string } | null;
+  images?: Array<{ src?: string; id?: number }>;
+  variants: Array<{ id: number; price: string; sku: string; inventory_quantity: number; image_id?: number | null }>;
 }
 
 export interface ShopifyFulfillmentOrder {
@@ -334,6 +340,88 @@ export async function getProducts(
     accessToken
   );
   return data.products;
+}
+
+function productPrimaryImageUrl(product: ShopifyProduct | undefined): string | undefined {
+  if (!product) return undefined;
+  const direct = product.image?.src?.trim();
+  if (direct) return direct;
+  const fromList = product.images?.find((img) => img?.src?.trim())?.src?.trim();
+  return fromList || undefined;
+}
+
+function registerProductImages(product: ShopifyProduct | undefined, map: Map<string, string>) {
+  if (!product) return;
+  const primary = productPrimaryImageUrl(product);
+  if (primary) {
+    map.set(String(product.id), primary);
+    map.set(`product:${product.id}`, primary);
+  }
+  const imagesById = new Map<number, string>();
+  for (const img of product.images ?? []) {
+    const src = img?.src?.trim();
+    const id = (img as { id?: number }).id;
+    if (src && id != null) imagesById.set(id, src);
+  }
+  for (const variant of product.variants ?? []) {
+    const imageId = variant.image_id;
+    const variantSrc =
+      (imageId != null ? imagesById.get(imageId) : undefined) ||
+      primary;
+    if (variantSrc) map.set(`variant:${variant.id}`, variantSrc);
+  }
+}
+
+/** Paginated map of Shopify product_id → primary image URL for order line-item enrichment. */
+export async function buildShopifyProductImageMap(
+  accessToken: string,
+  shop: string
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  let url: string | null =
+    `${shopifyBaseUrl(shop)}/products.json?limit=250&fields=id,image,images,variants`;
+
+  while (url) {
+    const res = await fetch(url, { method: "GET", headers: shopifyHeaders(accessToken) });
+    if (!res.ok) break;
+    const data = (await res.json()) as { products?: ShopifyProduct[] };
+    for (const product of data.products ?? []) {
+      registerProductImages(product, map);
+    }
+    url = parseNextPageUrl(res.headers.get("link"));
+  }
+
+  return map;
+}
+
+/** Resolve image URLs for line items when a full catalog map is unavailable (webhooks). */
+export async function fetchProductImagesForLineItems(
+  accessToken: string,
+  shop: string,
+  lineItems: ShopifyLineItem[]
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const ids = [
+    ...new Set(
+      lineItems
+        .map((li) => (li as { product_id?: number | null }).product_id)
+        .filter((id): id is number => typeof id === "number" && id > 0)
+    ),
+  ].slice(0, 25);
+
+  for (const id of ids) {
+    try {
+      const data = await shopifyFetch<{ product?: ShopifyProduct }>(
+        `${shopifyBaseUrl(shop)}/products/${id}.json?fields=id,image,images,variants`,
+        accessToken
+      );
+      registerProductImages(data.product, map);
+    } catch {
+      /* skip missing products */
+    }
+  }
+
+  return map;
 }
 
 export async function getFulfillmentOrders(

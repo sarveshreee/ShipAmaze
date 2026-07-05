@@ -26,6 +26,7 @@ import { buildPickupSnapshotFromLean } from "../utils/pickupSnapshot.js";
 import { resolveVendorIdFromPickup } from "../utils/pickupVendor.js";
 import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
 import { devLog } from "../utils/devLog.js";
+import { ACTIVITY_ACTIONS, recordUserActivity } from "../services/userActivityService.js";
 import * as velocityService from "../modules/velocity/velocity.service.js";
 import {
   firstItemArrayFromOrderDoc,
@@ -36,7 +37,7 @@ import {
 import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddleware.js";
 import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 import { mapToPublicTracking } from "../utils/publicTracking.js";
-import { bookForwardShipmentForOrder } from "../modules/velocity/velocity.controller.js";
+import { bookForwardShipmentForOrder, syncLocalOrderEditsToVelocity } from "../modules/velocity/velocity.controller.js";
 import { formatErrorMessage } from "../utils/errorMessage.js";
 import { getBulkCourierPriority } from "../services/bulkCourierPriorityService.js";
 import { syncPickupToVelocity } from "../modules/velocity/velocity.warehouseSync.js";
@@ -66,6 +67,44 @@ function normalizePickupAddressForClient(pickup: unknown): unknown {
     contactName,
     contactPerson: contactName,
   };
+}
+
+function enrichProductsWithShopifyImages(
+  products: unknown[],
+  shopifyLineItems: unknown[] | undefined
+): unknown[] {
+  if (!Array.isArray(products) || products.length === 0) return products;
+  const raw = Array.isArray(shopifyLineItems) ? shopifyLineItems : [];
+
+  return products.map((product, idx) => {
+    const p = product as Record<string, unknown>;
+    if (String(p.imageUrl ?? "").trim()) return product;
+
+    const li = (raw[idx] ??
+      raw.find((row) => {
+        const r = row as Record<string, unknown>;
+        const sku = String(r.sku ?? "").trim().toLowerCase();
+        const title = String(r.title ?? r.name ?? "").trim().toLowerCase();
+        const pSku = String(p.sku ?? "").trim().toLowerCase();
+        const pName = String(p.name ?? p.productName ?? "").trim().toLowerCase();
+        return (sku && pSku && sku === pSku) || (title && pName && title === pName);
+      })) as Record<string, unknown> | undefined;
+
+    if (!li) return product;
+
+    const imageBlock = li.image as { src?: string; url?: string } | string | undefined;
+    const img =
+      (typeof imageBlock === "object" && imageBlock
+        ? String(imageBlock.src ?? imageBlock.url ?? "").trim()
+        : typeof imageBlock === "string"
+          ? imageBlock.trim()
+          : "") ||
+      String((li.featured_image as { url?: string; src?: string } | undefined)?.url ?? "").trim() ||
+      String((li.featured_image as { url?: string; src?: string } | undefined)?.src ?? "").trim();
+
+    if (!img) return product;
+    return { ...p, imageUrl: img };
+  });
 }
 
 function mapOrder(o: {
@@ -132,6 +171,7 @@ function mapOrder(o: {
   sourceType?: string;
   updatedAt?: Date;
   shopifyShopDomain?: string;
+  shopifyStoreName?: string;
   shopifyOrderNumericId?: string;
   shopifyFinancialStatus?: string;
   shopifyFulfillmentStatus?: string;
@@ -143,7 +183,8 @@ function mapOrder(o: {
   edd?: Date;
 }) {
   const items = (o.orderItems ?? o.items ?? o.products ?? []) as unknown[];
-  const productsOut = Array.isArray(o.products) && o.products.length > 0 ? o.products : items;
+  const rawProducts = Array.isArray(o.products) && o.products.length > 0 ? o.products : items;
+  const productsOut = enrichProductsWithShopifyImages(rawProducts, o.shopifyLineItems);
   return {
     id: o.orderId,
     customer: o.customer,
@@ -213,6 +254,7 @@ function mapOrder(o: {
     sourceType: o.sourceType ?? o.channel ?? "Manual",
     updatedAt: o.updatedAt,
     shopifyShopDomain: o.shopifyShopDomain,
+    shopifyStoreName: o.shopifyStoreName,
     shopifyOrderNumericId: o.shopifyOrderNumericId,
     shopifyFinancialStatus: o.shopifyFinancialStatus,
     shopifyFulfillmentStatus: o.shopifyFulfillmentStatus,
@@ -620,6 +662,13 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     `Customer: ${doc.customer}. Amount: ₹${doc.amount}.`,
     { orderId }
   );
+  recordUserActivity({
+    user: req.user,
+    module: "order",
+    action: ACTIVITY_ACTIONS.ORDER_CREATED,
+    req,
+    metadata: { orderId },
+  });
   res.status(201).json(mapOrder(doc));
 });
 
@@ -768,6 +817,7 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   }
 
   const rawPickupUpdate = body.pickupAddressId ?? body.pickupWarehouseId;
+  let pickupChanged = false;
   if (rawPickupUpdate !== undefined) {
     const s = String(rawPickupUpdate ?? "").trim();
     if (s === "") {
@@ -794,6 +844,7 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
       order.pickupWarehouseId = String(p._id);
       order.pickupAddress = built.snapshot;
       order.velocityWarehouseId = built.velocityWarehouseId;
+      pickupChanged = true;
     }
   }
 
@@ -816,7 +867,40 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   }
 
   await order.save();
-  res.json(mapOrder(order));
+
+  const shouldSyncVelocity =
+    pickupChanged ||
+    customerName ||
+    customerEmail ||
+    customerPhoneRaw ||
+    shippingAddress1 ||
+    shippingAddress2 ||
+    shippingCity ||
+    shippingState ||
+    shippingPincode ||
+    hasLineItemsUpdate ||
+    (!Number.isNaN(rawWeight) && rawWeight > 0) ||
+    amtOnly !== undefined;
+
+  let velocitySync: { synced: boolean; reason?: string } | undefined;
+  if (shouldSyncVelocity) {
+    velocitySync = await syncLocalOrderEditsToVelocity(req.user, order, { pickupChanged }).catch(
+      (err: unknown) => ({
+        synced: false,
+        reason: err instanceof Error ? err.message : "sync_failed",
+      })
+    );
+  }
+
+  recordUserActivity({
+    user: req.user,
+    module: "order",
+    action: ACTIVITY_ACTIONS.ORDER_UPDATED,
+    req,
+    metadata: { orderId: order.orderId },
+  });
+
+  res.json({ ...mapOrder(order), velocitySync });
 });
 
 /** Update SKU on a single line item with audit trail. */
@@ -1206,6 +1290,17 @@ export const updateOrderStatus = asyncHandler(async (req: AuthRequest, res: Resp
     }
   }
   await o.save();
+  const activityAction =
+    normalizeOrderStatus(o.status) === "cancelled"
+      ? ACTIVITY_ACTIONS.ORDER_CANCELLED
+      : ACTIVITY_ACTIONS.ORDER_UPDATED;
+  recordUserActivity({
+    user: req.user,
+    module: "order",
+    action: activityAction,
+    req,
+    metadata: { orderId: o.orderId, status: o.status },
+  });
   res.json(mapOrder(o));
 });
 

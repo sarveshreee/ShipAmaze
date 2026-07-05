@@ -7,6 +7,7 @@ import { User } from "../models/User.js";
 import { Wallet } from "../models/Wallet.js";
 import { Transaction } from "../models/Transaction.js";
 import { adminAdjustWallet, debitWallet } from "../services/walletLedger.js";
+import { ACTIVITY_ACTIONS, recordUserActivity } from "../services/userActivityService.js";
 import type { WalletReferenceType } from "../models/Transaction.js";
 
 const REF_TYPES = new Set<string>(["recharge", "order", "shipment", "cod", "adjustment", "refund", "manual_test"]);
@@ -72,6 +73,14 @@ export const adminAdjustWalletHandler = asyncHandler(async (req: AuthRequest, re
     reason || `Balance change: ${signed >= 0 ? "+" : ""}₹${signed}`,
     { txnId: r.txnId, signedAmount: signed }
   );
+
+  recordUserActivity({
+    user: req.user,
+    module: "wallet",
+    action: ACTIVITY_ACTIONS.WALLET_UPDATED,
+    req,
+    metadata: { targetUserId: userId, amount: signed },
+  });
 
   res.json({
     success: true,

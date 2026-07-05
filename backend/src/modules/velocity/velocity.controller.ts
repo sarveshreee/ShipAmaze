@@ -28,6 +28,7 @@ import {
 } from "./velocity.warehouseSync.js";
 import { syncActiveShipmentStatuses } from "./velocity.statusSync.js";
 import { syncNdrFromVelocity } from "./velocity.ndrSync.js";
+import { syncVelocityFailureRemarkByAwb } from "./velocityRemarkSync.js";
 import { devLog } from "../../utils/devLog.js";
 import type {
   VelocityCustomer,
@@ -56,6 +57,7 @@ import {
 } from "./velocity.warehouseMerge.js";
 import { resolveVelocityCarrierId, assertServiceableCarrierForOrder } from "./velocity.resolveCarrier.js";
 import { resolveOrderLabelPdf, mapWithConcurrency, createVelocityRefreshCache, scheduleLabelPdfCache } from "./velocity.labelPdf.js";
+import { velocityConfig } from "./velocity.config.js";
 import { mirrorShopifyFulfillmentStatus, pushShopifyFulfillmentUpdate } from "../../services/shopifyFulfillmentMirror.js";
 
 async function applyCourierPriorityRules(
@@ -1118,6 +1120,7 @@ export const trackShipment = asyncHandler(async (req: AuthRequest, res: Response
   if (localOrder) {
     localOrder.shipmentStatus = result.status;
     localOrder.trackingActivities = result.shipment_track_activities ?? localOrder.trackingActivities;
+    await syncVelocityFailureRemarkByAwb(localOrder, result, "velocity_track").catch(() => false);
     if (isVelocityCancellationStatus(result.status)) {
       moveExternallyCancelledShipmentToReship(localOrder, "velocity_track_cancelled_to_reship");
       mirrorShopifyFulfillmentStatus(localOrder);
@@ -1387,12 +1390,15 @@ function buildCustomerForForwardPayload(
   const email = firstNonEmpty(b?.email, o.customerEmail, o.email, ship?.email);
   const address = firstNonEmpty(
     b?.address,
+    o.shippingAddress1,
+    o.shippingAddress2 ? [o.shippingAddress1, o.shippingAddress2].filter(Boolean).join(", ") : "",
     o.customerAddress,
     o.addressLine1,
     ship?.address,
     ship?.street,
     ship?.addressLine1,
     o.address,
+    localOrder?.shippingAddress1,
     localOrder?.address
   );
   const city = firstNonEmpty(b?.city, o.customerCity, ship?.city, o.city, localOrder?.city);
@@ -2000,3 +2006,86 @@ export const getBulkLabelPdf = asyncHandler(async (req: AuthRequest, res: Respon
     })
   ).catch(() => undefined);
 });
+
+export type VelocityOrderEditSyncResult = { synced: boolean; reason?: string };
+
+/**
+ * Push local order edits (customer, products, weight, pickup) to Velocity when possible.
+ * - Pre-AWB orders with a Velocity order id are updated via forward-order API.
+ * - Active shipments sync pickup warehouse changes only.
+ */
+export async function syncLocalOrderEditsToVelocity(
+  user: NonNullable<AuthRequest["user"]>,
+  order: IOrder,
+  opts?: { pickupChanged?: boolean }
+): Promise<VelocityOrderEditSyncResult> {
+  if (!velocityConfig.username || !velocityConfig.password) {
+    return { synced: false, reason: "velocity_not_configured" };
+  }
+
+  let pickupSynced = false;
+  if (order.pickupAddressId) {
+    const pickupResult = await syncPickupToVelocity(order.pickupAddressId).catch((err: unknown) => {
+      console.warn(
+        "[velocity] pickup sync after order edit failed:",
+        err instanceof Error ? err.message : err
+      );
+      return null;
+    });
+    pickupSynced = Boolean(pickupResult && "linked" in pickupResult && pickupResult.linked);
+    const pickup = await Pickup.findById(order.pickupAddressId).select("velocityWarehouseId").lean();
+    if (pickup?.velocityWarehouseId?.trim()) {
+      order.velocityWarehouseId = pickup.velocityWarehouseId.trim();
+    }
+  }
+
+  const fakeReq = { user } as AuthRequest;
+  try {
+    const merged = await mergeVelocityWarehouse(fakeReq, {}, order);
+    const payload = buildForwardPayload(merged, order);
+    const existingVelocityId = String(order.velocityOrderId ?? "").trim();
+
+    if (existingVelocityId) {
+      payload.order_id = existingVelocityId;
+    } else if (order.awb?.trim()) {
+      return {
+        synced: false,
+        reason: "Order has AWB but no Velocity order id saved — re-process or contact support",
+      };
+    } else {
+      payload.order_id = buildVelocityProviderOrderId(order.orderId);
+    }
+
+    // Do not re-assign courier when editing customer/product on an active shipment.
+    if (!order.awb?.trim() && order.courierCompanyId != null && String(order.courierCompanyId).trim() !== "") {
+      payload.carrier_id = order.courierCompanyId;
+    } else {
+      delete payload.carrier_id;
+    }
+
+    if (!(Number(payload.weight) > 0)) payload.weight = 0.5;
+    if (!(Number(payload.length) > 0)) payload.length = 10;
+    if (!(Number(payload.width) > 0)) payload.width = 10;
+    if (!(Number(payload.height) > 0)) payload.height = 10;
+
+    validateForwardPayload(payload, order);
+    const result = await velocityService.updateForwardOrderInVelocity(payload);
+
+    if (result.order_id?.trim()) {
+      order.velocityOrderId = result.order_id.trim();
+    }
+    if (payload.warehouse_id) {
+      order.velocityWarehouseId = String(payload.warehouse_id);
+    }
+    await order.save();
+
+    return { synced: true };
+  } catch (err: unknown) {
+    console.warn("[velocity] order edit sync failed:", err instanceof Error ? err.message : err);
+    if (pickupSynced) return { synced: true };
+    return {
+      synced: false,
+      reason: err instanceof Error ? err.message : "sync_failed",
+    };
+  }
+}

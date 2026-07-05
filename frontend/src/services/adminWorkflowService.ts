@@ -122,11 +122,14 @@ export type SupportTicketListItem = {
   id: string;
   ticketNumber: string;
   title: string;
+  subject?: string;
+  category?: string;
   status: string;
   priority: string;
   requester: { name?: string; email?: string; role?: string };
   assigneeUserId: string | null;
   createdAt: string;
+  updatedAt?: string;
 };
 
 export function adminListSupportTickets(params: Record<string, string | undefined>) {
@@ -152,11 +155,20 @@ export function adminAddSupportTicketComment(id: string, body: string, isInterna
   return apiClient.post<{ ok: boolean }>(`/admin/support/tickets/${enc(id)}/comments`, { body, isInternal });
 }
 
-export function userCreateSupportTicket(title: string, description: string, priority?: string) {
+export function userCreateSupportTicket(
+  subject: string,
+  description: string,
+  priority?: string,
+  category?: string,
+  attachments?: { fileName: string; url: string }[]
+) {
   return apiClient.post<{ id: string; ticketNumber: string; status: string }>("/support/tickets", {
-    title,
+    subject,
+    title: subject,
     description,
     priority,
+    category,
+    attachments,
   });
 }
 

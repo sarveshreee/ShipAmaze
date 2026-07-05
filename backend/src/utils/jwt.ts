@@ -5,6 +5,8 @@ import { AppError } from "../middleware/errorMiddleware.js";
 export interface JwtPayload {
   sub: string;
   role: string;
+  /** Login session id for activity tracking */
+  sid?: string;
 }
 
 function getJwtSecret(): string {

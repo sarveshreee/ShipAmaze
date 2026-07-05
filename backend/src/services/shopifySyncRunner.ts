@@ -11,6 +11,7 @@ import { decrypt } from "../utils/crypto.js";
 import * as shopifyService from "./shopify.service.js";
 import {
   buildShopifyOrderPayload,
+  isShopifyOrderCancelled,
   mergeShopifyPayloadIntoOrder,
   normalizeShopifyOrderNumericId,
   shopifyExternalOrderId,
@@ -87,6 +88,22 @@ function summarizeSkipReasons(skipReasons: ShopifySkipReason[]): string {
   return parts.join("; ");
 }
 
+export async function performShopifyOrderSyncForAllConnections(
+  ownerUserId: Types.ObjectId,
+  role: "admin" | "vendor" | "dropshipper"
+): Promise<ShopifyOrderSyncResult[]> {
+  const connections = await ShopifyStoreConnection.find({ ownerUserId, isActive: true })
+    .select("shopDomain")
+    .lean();
+  const results: ShopifyOrderSyncResult[] = [];
+  for (const conn of connections) {
+    results.push(
+      await performShopifyOrderSyncForUser(ownerUserId, role, { shopDomain: conn.shopDomain })
+    );
+  }
+  return results;
+}
+
 export async function performShopifyOrderSyncForUser(
   ownerUserId: Types.ObjectId,
   role: "admin" | "vendor" | "dropshipper",
@@ -129,6 +146,16 @@ export async function performShopifyOrderSyncForUser(
     throw e instanceof AppError ? e : new AppError(502, msg);
   }
 
+  let shopName = "";
+  let productImageByProductId = new Map<string, string>();
+  try {
+    const shopDetails = await shopifyService.getShopDetails(accessToken, conn.shopDomain);
+    shopName = String(shopDetails.name ?? "").trim();
+    productImageByProductId = await shopifyService.buildShopifyProductImageMap(accessToken, conn.shopDomain);
+  } catch (e: unknown) {
+    console.warn("[shopify-sync] shop/image enrichment skipped:", e instanceof Error ? e.message : e);
+  }
+
   const vendor =
     role === "vendor" ? await Vendor.findOne({ userId: ownerUserId }).select("_id").lean() : null;
   const ctx: ShopifySyncUserContext = {
@@ -137,6 +164,8 @@ export async function performShopifyOrderSyncForUser(
     dropshipperId: role === "dropshipper" ? ownerUserId : undefined,
     vendorId: vendor?._id,
   };
+
+  const syncEnrichment = { shopName, productImageByProductId };
 
   const defaultPickup = await findDefaultOrFirstActivePickupForShopifyOwner(ownerUserId, role);
 
@@ -168,7 +197,7 @@ export async function performShopifyOrderSyncForUser(
     const externalId = shopifyExternalOrderId(conn.shopDomain, numericId);
 
     try {
-      const mapped = buildShopifyOrderPayload(conn.shopDomain, so, ctx);
+      const mapped = buildShopifyOrderPayload(conn.shopDomain, so, ctx, syncEnrichment);
       const existing = await Order.findOne({ orderId: externalId });
 
       if (existing) {
@@ -183,7 +212,7 @@ export async function performShopifyOrderSyncForUser(
           });
           continue;
         }
-        mergeShopifyPayloadIntoOrder(existing, mapped, Boolean(so.cancelled_at));
+        mergeShopifyPayloadIntoOrder(existing, mapped, isShopifyOrderCancelled(so));
         existing.createdBy = ownerUserId;
         existing.ownerUserId = ownerUserId;
         if (ctx.dropshipperId) existing.dropshipperId = ctx.dropshipperId;

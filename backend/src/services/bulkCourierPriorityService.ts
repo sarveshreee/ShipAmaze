@@ -1,9 +1,7 @@
-import { Courier } from "../models/Courier.js";
 import {
   BulkCourierPriority,
   type IBulkCourierPriorityEntry,
 } from "../models/BulkCourierPriority.js";
-
 export type BulkCourierPriorityCandidate = {
   courierName: string;
   carrierId?: string;
@@ -28,15 +26,7 @@ export async function getBulkCourierPriority(): Promise<BulkCourierPriorityCandi
   if (doc?.priorities?.length) {
     return mapEntries(doc.priorities);
   }
-
-  const couriers = await Courier.find({ active: { $ne: false } })
-    .sort({ priority: 1, name: 1 })
-    .lean();
-  return couriers.map((c, idx) => ({
-    courierName: c.name,
-    carrierId: c.carrierId?.trim() || undefined,
-    rank: idx + 1,
-  }));
+  return [];
 }
 
 export async function saveBulkCourierPriority(
@@ -53,14 +43,15 @@ export async function saveBulkCourierPriority(
     const o = row as Record<string, unknown>;
     const courierName = String(o.courierName ?? "").trim();
     const rank = Number(o.rank);
+    const carrierId = String(o.carrierId ?? "").trim();
     if (!courierName) throw new Error("Each priority entry needs courierName");
     if (!Number.isFinite(rank) || rank < 1) throw new Error("Each priority entry needs rank ≥ 1");
-    const key = courierName.toLowerCase();
+    const key = carrierId ? `id:${carrierId.toLowerCase()}` : `name:${courierName.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     priorities.push({
       courierName,
-      carrierId: String(o.carrierId ?? "").trim() || undefined,
+      carrierId: carrierId || undefined,
       rank,
     });
   }

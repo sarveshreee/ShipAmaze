@@ -58,7 +58,7 @@ export interface Order {
   date: string;
   awb: string;
   amount: number;
-  products: { name: string; productName?: string; qty: number; price: number; weight: string; sku?: string; productCode?: string }[];
+  products: { name: string; productName?: string; qty: number; price: number; weight: string; sku?: string; productCode?: string; imageUrl?: string }[];
   /** Line items (alias of products / orderItems from API) */
   items?: {
     name: string;
@@ -142,6 +142,7 @@ export interface Order {
   /** Shopify Admin REST order id (stringified) */
   shopifyOrderNumericId?: string;
   shopifyShopDomain?: string;
+  shopifyStoreName?: string;
   shopifyFinancialStatus?: string;
   shopifyFulfillmentStatus?: string;
   shopifyNote?: string;
@@ -149,6 +150,7 @@ export interface Order {
   lastShopifySyncAt?: string;
   adminRemark?: string;
   vendorId?: string;
+  shopifyLineItems?: Array<Record<string, unknown>>;
 }
 
 export interface Dropshipper {

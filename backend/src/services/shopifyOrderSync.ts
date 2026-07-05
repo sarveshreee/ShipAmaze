@@ -5,7 +5,34 @@
 
 import type { Types } from "mongoose";
 import type { IOrder } from "../models/Order.js";
-import type { ShopifyOrder } from "./shopify.service.js";
+import type { ShopifyOrder, ShopifyLineItem } from "./shopify.service.js";
+
+export type ShopifyOrderEnrichment = {
+  shopName?: string;
+  productImageByProductId?: Map<string, string>;
+};
+
+function lineItemImageUrl(
+  li: ShopifyLineItem,
+  imageMap?: Map<string, string>
+): string | undefined {
+  const inline = (li as { image?: { src?: string } | null }).image?.src?.trim();
+  if (inline) return inline;
+
+  const variantId = (li as { variant_id?: number | null }).variant_id;
+  if (variantId != null) {
+    const variantKey = `variant:${variantId}`;
+    if (imageMap?.has(variantKey)) return imageMap.get(variantKey);
+  }
+
+  const productId = (li as { product_id?: number | null }).product_id;
+  if (productId != null) {
+    const productKey = String(productId);
+    if (imageMap?.has(productKey)) return imageMap.get(productKey);
+    if (imageMap?.has(`product:${productKey}`)) return imageMap.get(`product:${productKey}`);
+  }
+  return undefined;
+}
 
 export type ShopifySyncUserContext = {
   ownerUserId: Types.ObjectId;
@@ -70,22 +97,32 @@ export function mapShopifyFinancialToPayment(financial: string | undefined): str
   return "COD";
 }
 
+export const SHOPIFY_CANCEL_REMARK = "cancelled from shopify";
+
+/** True when Shopify marks an order cancelled, voided, refunded, or restocked. */
+export function isShopifyOrderCancelled(so: ShopifyOrder): boolean {
+  if (so.cancelled_at) return true;
+  const ff = String(so.fulfillment_status ?? "").toLowerCase();
+  if (ff === "restocked") return true;
+  const fin = String(so.financial_status ?? "").toLowerCase();
+  if (fin === "voided" || fin === "refunded") return true;
+  return false;
+}
+
 /** Map fulfillment + financial hints to internal order status when no shipment yet */
 export function mapShopifyToInternalStatus(so: ShopifyOrder): string {
-  if (so.cancelled_at) return "cancelled";
+  if (isShopifyOrderCancelled(so)) return "cancelled";
   const ff = String(so.fulfillment_status ?? "").toLowerCase();
   if (ff === "fulfilled") return "shipped";
   if (ff === "partial") return "in-transit";
-  if (ff === "restocked") return "cancelled";
-  const fin = String(so.financial_status ?? "").toLowerCase();
-  if (fin === "voided" || fin === "refunded") return "cancelled";
   return "pending";
 }
 
 export function buildShopifyOrderPayload(
   shopDomain: string,
   so: ShopifyOrder,
-  ctx: ShopifySyncUserContext
+  ctx: ShopifySyncUserContext,
+  enrichment: ShopifyOrderEnrichment = {}
 ): Record<string, unknown> {
   const shipping = so.shipping_address;
   const lineItems = Array.isArray(so.line_items) ? so.line_items : [];
@@ -94,6 +131,8 @@ export function buildShopifyOrderPayload(
   const payment = mapShopifyOrderPayment(so);
   const createdDate =
     typeof so.created_at === "string" && so.created_at.length >= 10 ? so.created_at.slice(0, 10) : "";
+
+  const imageMap = enrichment.productImageByProductId;
 
   const products = lineItems.map((li) => ({
     name: li.title || "Item",
@@ -109,6 +148,7 @@ export function buildShopifyOrderPayload(
           0
         )
       : 0,
+    imageUrl: lineItemImageUrl(li, imageMap),
   }));
 
   const itemBlocks = lineItems.map((li, idx) => ({
@@ -128,6 +168,7 @@ export function buildShopifyOrderPayload(
           0
         )
       : 0,
+    imageUrl: lineItemImageUrl(li, imageMap),
   }));
 
   const note = typeof (so as { note?: string }).note === "string" ? String((so as { note?: string }).note) : "";
@@ -170,6 +211,7 @@ export function buildShopifyOrderPayload(
     shippingCity: shipping?.city || "",
     shippingState: (shipping as { province?: string } | undefined)?.province || "",
     shopifyShopDomain: shopDomain.toLowerCase(),
+    shopifyStoreName: enrichment.shopName?.trim() || "",
     shopifyOrderNumericId: String(so.id),
     shopifyFinancialStatus: so.financial_status || "",
     shopifyFulfillmentStatus: so.fulfillment_status ?? "",
@@ -207,7 +249,66 @@ function normalizeLocalStatusKey(raw: unknown): string {
 /** Local workflow states that must not be overwritten by Shopify import/sync. */
 function isShopifyProtectedLocalStatus(status: unknown): boolean {
   const st = normalizeLocalStatusKey(status);
-  return st === "junk" || st === "reship" || st === "cancelled";
+  return st === "junk" || st === "reship";
+}
+
+/** Statuses where Shopify cancellation should not override in-flight courier movement. */
+function isShopifyCancellationBlockedStatus(status: unknown): boolean {
+  const st = normalizeLocalStatusKey(status);
+  return ["in_transit", "out_for_delivery", "delivered", "ndr", "rto"].includes(st);
+}
+
+function clearShipmentFieldsForReship(existing: IOrder): void {
+  existing.shipmentCreated = false;
+  existing.awb = "";
+  existing.trackingId = undefined;
+  existing.shipmentId = undefined;
+  existing.velocityOrderId = undefined;
+  existing.velocityShipmentId = undefined;
+  existing.velocityReturnId = undefined;
+  existing.labelUrl = undefined;
+  existing.manifestUrl = undefined;
+  existing.trackingUrl = undefined;
+  existing.trackingActivities = undefined;
+}
+
+/**
+ * Apply Shopify cancellation: pre-shipment → Junk with remark; post-AWB → Reship.
+ * Returns false when the local workflow state must not be overwritten (in-transit, etc.).
+ */
+export function applyShopifyCancellationToOrder(existing: IOrder): boolean {
+  if (existing.isJunk || isShopifyProtectedLocalStatus(existing.status)) return false;
+  if (isShopifyCancellationBlockedStatus(existing.status)) return false;
+
+  const remark = SHOPIFY_CANCEL_REMARK;
+  const prev = (existing.statusHistory as { status: string; at: Date; note?: string }[] | undefined) ?? [];
+  const hasAwb = Boolean(String(existing.awb ?? "").trim());
+
+  if (hasAwb) {
+    existing.isJunk = false;
+    existing.junkedAt = undefined;
+    existing.junkReason = undefined;
+    clearShipmentFieldsForReship(existing);
+    existing.status = "reship";
+    existing.shipmentStatus = "reship";
+    existing.adminRemark = remark;
+    existing.statusHistory = [
+      ...prev,
+      { status: "reship", at: new Date(), note: "shopify_cancelled_to_reship" },
+    ].slice(-50);
+    return true;
+  }
+
+  existing.isJunk = true;
+  existing.junkedAt = new Date();
+  existing.junkReason = remark;
+  existing.adminRemark = remark;
+  existing.status = "junk";
+  existing.statusHistory = [
+    ...prev,
+    { status: "junk", at: new Date(), note: "shopify_cancelled_to_junk" },
+  ].slice(-50);
+  return true;
 }
 
 /** Apply Shopify fields onto an existing Order document without clobbering shipment state. */
@@ -236,6 +337,8 @@ export function mergeShopifyPayloadIntoOrder(existing: IOrder, mapped: Record<st
   existing.shippingCity = String(mapped.shippingCity ?? existing.shippingCity ?? "");
   existing.shippingState = String(mapped.shippingState ?? existing.shippingState ?? "");
   existing.shopifyShopDomain = String(mapped.shopifyShopDomain ?? existing.shopifyShopDomain ?? "");
+  const mappedStoreName = String(mapped.shopifyStoreName ?? "").trim();
+  if (mappedStoreName) existing.shopifyStoreName = mappedStoreName;
   existing.shopifyOrderNumericId = String(mapped.shopifyOrderNumericId ?? existing.shopifyOrderNumericId ?? "");
   existing.shopifyFinancialStatus = String(mapped.shopifyFinancialStatus ?? existing.shopifyFinancialStatus ?? "");
   existing.shopifyFulfillmentStatus = String(mapped.shopifyFulfillmentStatus ?? existing.shopifyFulfillmentStatus ?? "");
@@ -248,11 +351,8 @@ export function mergeShopifyPayloadIntoOrder(existing: IOrder, mapped: Record<st
     return;
   }
 
-  if (forceCancelled) {
-    if (!hasLocalShipment(existing)) {
-      existing.status = "cancelled";
-      existing.shipmentStatus = "cancelled";
-    }
+  if (forceCancelled || normalizeLocalStatusKey(mapped.status) === "cancelled") {
+    applyShopifyCancellationToOrder(existing);
     return;
   }
 

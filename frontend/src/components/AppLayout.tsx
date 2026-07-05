@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, UserCog, ChevronRight,
+  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, UserCog, ChevronRight, Activity,
   type LucideIcon,
 } from "lucide-react";
 import { ShipAmazeLogo, SidebarBrand } from "@/components/brand/ShipAmazeLogo";
@@ -89,6 +89,10 @@ const adminNav: NavGroup[] = [
     { label: "Analytics", icon: BarChart3, path: "/admin/analytics", staffPermission: "analytics.view" },
     { label: "Reports", icon: FileText, path: "/admin/reports", ownerOnly: true },
     { label: "Support", icon: Headphones, path: "/admin/support", ownerOnly: true },
+    { label: "Activity Logs", icon: Activity, path: "/admin/activity-logs", ownerOnly: true },
+  ]},
+  { title: "SECURITY", items: [
+    { label: "Login Activity", icon: Shield, path: "/admin/security/login-activity", ownerOnly: true },
   ]},
 ];
 
@@ -106,6 +110,7 @@ const vendorNav: NavGroup[] = [
     { label: "Wallet", icon: Wallet, path: "/vendor/wallet", tabKey: "wallet" },
     { label: "Payouts", icon: IndianRupee, path: "/vendor/payouts", tabKey: "payouts" },
   ]},
+  { title: "SUPPORT", items: [{ label: "Support", icon: Headphones, path: "/vendor/support", tabKey: "support" }] },
 ];
 
 const dropshipperNav: NavGroup[] = [
@@ -139,6 +144,7 @@ const dropshipperNav: NavGroup[] = [
   ]},
   { title: "ACCOUNT", items: [
     { label: "Profile", icon: User, path: "/dropshipper/profile" },
+    { label: "Support", icon: Headphones, path: "/dropshipper/support", tabKey: "support" },
     { label: "Track Shipment", icon: Truck, path: "/dropshipper/tracking", tabKey: "tracking" },
     { label: "Settings", icon: Settings, path: "/dropshipper/settings", tabKey: "settings" },
   ]},

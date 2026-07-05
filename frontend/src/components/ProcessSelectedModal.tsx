@@ -625,6 +625,7 @@ export function ProcessSelectedModal({
         open={priorityConfigOpen}
         onClose={() => setPriorityConfigOpen(false)}
         pickupAddressId={pickupAddr || undefined}
+        fromPin={pickupPincode || undefined}
         destPincode={destPincode || undefined}
         paymentMode={referencePayment}
       />

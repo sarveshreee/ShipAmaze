@@ -31,6 +31,8 @@ import * as debugController from "./controllers/debugController.js";
 import * as walletController from "./controllers/walletController.js";
 import * as notificationController from "./controllers/notificationController.js";
 import * as adminWorkflowController from "./controllers/adminWorkflowController.js";
+import * as loginActivityController from "./controllers/loginActivityController.js";
+import * as userActivityController from "./controllers/userActivityController.js";
 import * as approvalController from "./controllers/approvalController.js";
 import * as reportsController from "./controllers/reportsController.js";
 import * as invoiceController from "./controllers/invoiceController.js";
@@ -211,7 +213,7 @@ export function createApp() {
   api.get("/auth/profile", authMiddleware, authController.me);
   api.put("/users/profile", authMiddleware, authController.updateProfile);
   api.patch("/auth/profile", authMiddleware, authController.updateProfile);
-  api.post("/auth/logout", authController.logout);
+  api.post("/auth/logout", authMiddleware, authController.logout);
   api.post("/auth/change-password", authMiddleware, authController.changePassword);
   api.patch("/auth/change-password", authMiddleware, authController.changePassword);
 
@@ -463,6 +465,28 @@ export function createApp() {
     requireRoles("admin"),
     requireOwnerAdmin,
     adminWorkflowController.adminAddSupportComment
+  );
+
+  api.get(
+    "/admin/security/login-activity",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    loginActivityController.adminListLoginActivity
+  );
+  api.get(
+    "/admin/activity-logs",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    userActivityController.adminListUserActivity
+  );
+  api.get(
+    "/admin/activity-logs/modules",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    userActivityController.adminListActivityModules
   );
 
   api.get("/warehouses", authMiddleware, requireDropshipperWarehouseAccess, resourceController.listWarehouses);

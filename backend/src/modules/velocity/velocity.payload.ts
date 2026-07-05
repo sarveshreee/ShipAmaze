@@ -68,12 +68,22 @@ export function normalizeVelocityProviderOrderId(raw: string): string {
       .replace(/[^a-zA-Z0-9_-]+/g, "-")
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "") || "order";
+  if (shouldPreserveVelocityOrderId(base)) return base;
   const withSuffixWouldOverflow = `${base}-${Date.now().toString(36)}`.length > VELOCITY_PROVIDER_ORDER_ID_MAX;
   const marketplaceId = /^shopify-/i.test(base);
   if (marketplaceId || base.length > VELOCITY_READABLE_ORDER_ID_MAX || withSuffixWouldOverflow) {
     return buildVelocityProviderOrderId(base);
   }
   return base;
+}
+
+/** Keep existing Velocity booking ids (SA-…, ORD…) when updating an order already on Velocity. */
+export function shouldPreserveVelocityOrderId(raw: string): boolean {
+  const id = String(raw ?? "").trim();
+  if (!id) return false;
+  if (/^SA-/i.test(id)) return true;
+  if (/^ORD/i.test(id)) return true;
+  return false;
 }
 
 /** Delhivery/Ekart JSON bridges are fragile with Unicode punctuation, backslashes, quotes, and pipes. */

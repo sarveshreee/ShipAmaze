@@ -17,6 +17,7 @@ import { isOrderReadyToShip } from "@/lib/orderTabFilters";
 import { toast } from "sonner";
 import { printBulkInvoices, printBulkLabels, printShippingLabel } from "@/components/ShippingLabel";
 import * as orderService from "@/services/orderService";
+import { updatePickupAddress } from "@/services/pickupService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
@@ -137,6 +138,74 @@ function displayOrderNumber(order: Order): string {
 
   return rawId || "—";
 }
+
+/** Shopify merchant order name (#FK00011078) when synced from Shopify. */
+function displayShopifyOrderLabel(order: Order): string {
+  const name = String(order.externalOrderName ?? "").trim();
+  if (name) return name.startsWith("#") ? name : `#${name}`;
+  return `Order #${displayOrderNumber(order)}`;
+}
+
+function formatShopifyStoreLabel(order: Order): string {
+  const storeName = String(order.shopifyStoreName ?? "").trim();
+  if (storeName) return storeName.toUpperCase();
+  const domain = String(order.shopifyShopDomain ?? "").trim();
+  if (!domain) return "—";
+  return domain.replace(/\.myshopify\.com$/i, "").toUpperCase();
+}
+
+function productImageUrl(product: { imageUrl?: string; image?: string } | undefined): string | undefined {
+  const url = String(product?.imageUrl ?? product?.image ?? "").trim();
+  return url || undefined;
+}
+
+function resolveOrderProductImage(
+  order: Order,
+  product: { name?: string; productName?: string; sku?: string; imageUrl?: string; image?: string },
+  index: number
+): string | undefined {
+  const direct = productImageUrl(product);
+  if (direct) return direct;
+
+  const raw = order.shopifyLineItems;
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+
+  const li = (raw[index] ??
+    raw.find((row) => {
+      const sku = String(row.sku ?? "").trim().toLowerCase();
+      const title = String(row.title ?? row.name ?? "").trim().toLowerCase();
+      const pSku = String(product.sku ?? "").trim().toLowerCase();
+      const pName = String(product.name ?? product.productName ?? "").trim().toLowerCase();
+      return (sku && pSku && sku === pSku) || (title && pName && title === pName);
+    })) as Record<string, unknown> | undefined;
+
+  if (!li) return undefined;
+  const imageBlock = li.image as { src?: string; url?: string } | string | undefined;
+  if (typeof imageBlock === "string" && imageBlock.trim()) return imageBlock.trim();
+  if (typeof imageBlock === "object" && imageBlock) {
+    const src = String(imageBlock.src ?? imageBlock.url ?? "").trim();
+    if (src) return src;
+  }
+  const featured = li.featured_image as { url?: string; src?: string } | undefined;
+  return String(featured?.url ?? featured?.src ?? "").trim() || undefined;
+}
+
+function reportVelocitySync(result: { velocitySync?: { synced: boolean; reason?: string } } | undefined) {
+  if (!result?.velocitySync) return;
+  if (result.velocitySync.synced) {
+    toast.success("Changes synced to Velocity");
+    return;
+  }
+  const reason = result.velocitySync.reason ?? "unknown error";
+  toast.warning(`Saved locally. Velocity sync failed: ${reason}`);
+}
+
+const COURIER_FILTER_TABS = new Set([
+  "pending-pickup",
+  "in-transit",
+  "out-for-delivery",
+  "delivered",
+]);
 
 function normalizeStatusKey(status: unknown): string {
   return String(status ?? "").toLowerCase().replace(/[-\s]+/g, "_");
@@ -329,7 +398,7 @@ function EditProductModal({ open, onClose, order, onSave }: EditProductModalProp
     try {
       await onSave(order.id, mapped, Number(codAmount));
       onClose();
-      toast.success("Product details updated");
+      toast.success("Product details updated and synced with Velocity");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Could not update products");
     } finally {
@@ -354,8 +423,12 @@ function EditProductModal({ open, onClose, order, onSave }: EditProductModalProp
           {products.map((p, idx) => (
             <div key={idx} className="border border-border rounded-lg p-4 space-y-3">
               <div className="flex gap-4">
-                <div className="h-20 w-20 rounded-lg bg-surface-2 flex items-center justify-center shrink-0">
-                  <Package className="h-8 w-8 text-text-muted" />
+                <div className="h-20 w-20 rounded-lg bg-surface-2 flex items-center justify-center shrink-0 overflow-hidden border border-border/60">
+                  {productImageUrl(p) ? (
+                    <img src={productImageUrl(p)} alt={p.name || "Product"} className="h-full w-full object-cover" />
+                  ) : (
+                    <Package className="h-8 w-8 text-text-muted" />
+                  )}
                 </div>
                 <div className="flex-1 grid grid-cols-2 gap-3">
                   <div>
@@ -417,7 +490,7 @@ function EditPriceModal({ open, onClose, order, onSave }: { open: boolean; onClo
     try {
       await onSave(order.id, Number(orderAmount), Number(codAmount));
       onClose();
-      toast.success("Order price updated");
+      toast.success("Order price updated and synced with Velocity");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Could not update price");
     } finally {
@@ -514,7 +587,7 @@ function EditAddressModal({ open, onClose, order, onSave }: { open: boolean; onC
         customerNumber: form.customerNumber.replace(/\D/g, ""),
       });
       onClose();
-      toast.success("Order details updated");
+      toast.success("Order details updated and synced with Velocity");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to update order");
     } finally {
@@ -548,6 +621,103 @@ function EditAddressModal({ open, onClose, order, onSave }: { open: boolean; onC
           <div><Label className="text-sm font-medium">Length (cm)</Label><Input value={form.length} onChange={e => set("length", e.target.value)} type="number" min="0" step="0.01" className="mt-1" /></div>
           <div><Label className="text-sm font-medium">Width / Breadth (cm)</Label><Input value={form.breadth} onChange={e => set("breadth", e.target.value)} type="number" min="0" step="0.01" className="mt-1" /></div>
           <div><Label className="text-sm font-medium">Height (cm)</Label><Input value={form.height} onChange={e => set("height", e.target.value)} type="number" min="0" step="0.01" className="mt-1" /></div>
+        </div>
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button onClick={() => void handleSubmit()} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
+            <Save className="h-4 w-4" /> Submit
+          </Button>
+          <Button variant="secondary" onClick={onClose} className="bg-sidebar text-sidebar-primary-foreground hover:bg-sidebar-accent">
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditPickupModal({
+  open,
+  onClose,
+  order,
+  warehouses,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  order: Order;
+  warehouses: Array<{ id: string; warehouseName: string }>;
+  onSave: (orderId: string, data: { pickupAddressId: string; phone: string; email: string; contactName: string }) => Promise<void>;
+}) {
+  const [pickupId, setPickupId] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!open || !order) return;
+    const pickupObj =
+      typeof order.pickupAddress === "object" && order.pickupAddress ? (order.pickupAddress as Record<string, unknown>) : null;
+    setPickupId(String(order.pickupAddressId ?? pickupObj?.id ?? warehouses[0]?.id ?? ""));
+    setContactName(String(pickupObj?.contactName ?? pickupObj?.label ?? pickupObj?.warehouseName ?? "").trim());
+    setPhone(String(pickupObj?.phone ?? "").trim());
+    setEmail(String(pickupObj?.email ?? "").trim());
+  }, [open, order, warehouses]);
+
+  const handleSubmit = async () => {
+    if (!pickupId.trim()) return void toast.error("Select a pickup address");
+    if (phone.replace(/\D/g, "").length < 10) return void toast.error("Pickup phone must be at least 10 digits");
+    setSubmitting(true);
+    try {
+      await onSave(order.id, {
+        pickupAddressId: pickupId.trim(),
+        phone: phone.replace(/\D/g, ""),
+        email: email.trim(),
+        contactName: contactName.trim(),
+      });
+      onClose();
+      toast.success("Pickup address updated");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to update pickup address");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold">Edit Pickup Address</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div>
+            <Label className="text-sm font-medium">Pickup warehouse</Label>
+            <select
+              value={pickupId}
+              onChange={(e) => setPickupId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Select pickup…</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.warehouseName}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-sm font-medium">Contact name</Label>
+            <Input value={contactName} onChange={(e) => setContactName(e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-sm font-medium">Contact phone</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-sm font-medium">Contact email</Label>
+            <Input value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1" />
+          </div>
         </div>
         <DialogFooter className="gap-2 sm:gap-2">
           <Button onClick={() => void handleSubmit()} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2">
@@ -649,6 +819,8 @@ export function RichOrdersTable({
   const showProviderBrand = role === "admin";
   const hideCustomerContact = role === "vendor";
   const showPickupColumn = role !== "dropshipper";
+  const showStoreDetailsColumn = role === "admin";
+  const showCourierRemarkFilters = COURIER_FILTER_TABS.has(activeTab ?? "");
   const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
   const [bulkDeleteJunkConfirmOpen, setBulkDeleteJunkConfirmOpen] = useState(false);
   const showBulkPrintActions = BULK_LABEL_PRINT_TABS.has(activeTab ?? "") && selected.size > 0;
@@ -660,6 +832,9 @@ export function RichOrdersTable({
   // New filters for Order Details and Customer Details
   const [orderDetailsFilter, setOrderDetailsFilter] = useState({ open: false, dateFrom: "", dateTo: "", paymentType: "" as "" | "COD" | "Prepaid" });
   const [customerFilter, setCustomerFilter] = useState({ open: false, search: "", city: "" });
+  const [storeFilter, setStoreFilter] = useState({ open: false, search: "", selectedStores: new Set<string>() });
+  const [courierFilter, setCourierFilter] = useState({ open: false, search: "", selectedCouriers: new Set<string>() });
+  const [remarkFilter, setRemarkFilter] = useState({ open: false, search: "", hasRemark: false, noRemark: false });
 
   const productRef = useRef<HTMLTableCellElement>(null);
   const amountRef = useRef<HTMLTableCellElement>(null);
@@ -667,6 +842,9 @@ export function RichOrdersTable({
   const commRef = useRef<HTMLTableCellElement>(null);
   const orderDetailsRef = useRef<HTMLTableCellElement>(null);
   const customerRef = useRef<HTMLTableCellElement>(null);
+  const storeRef = useRef<HTMLTableCellElement>(null);
+  const courierRef = useRef<HTMLTableCellElement>(null);
+  const remarkRef = useRef<HTMLTableCellElement>(null);
 
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [editingRemark, setEditingRemark] = useState<string | null>(null);
@@ -747,10 +925,36 @@ export function RichOrdersTable({
   const [editProductOrder, setEditProductOrder] = useState<Order | null>(null);
   const [editPriceOrder, setEditPriceOrder] = useState<Order | null>(null);
   const [editAddressOrder, setEditAddressOrder] = useState<Order | null>(null);
+  const [editPickupOrder, setEditPickupOrder] = useState<Order | null>(null);
   const [editSku, setEditSku] = useState<{ order: Order; lineIndex: number } | null>(null);
 
   const allProductNames = Array.from(new Set(orders.flatMap(o => (o.products || []).map(p => p.name))));
   const allCities = Array.from(new Set(orders.map(o => o.city).filter(Boolean)));
+
+  const courierFilterOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const o of orders) {
+      const name = String(o.courierName || o.courier || "").trim();
+      if (!name) continue;
+      map.set(name, (map.get(name) ?? 0) + 1);
+    }
+    return [...map.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [orders]);
+
+  const storeFilterOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const o of orders) {
+      if (o.channel !== "Shopify" && o.externalSource !== "shopify") continue;
+      const label = formatShopifyStoreLabel(o);
+      if (!label || label === "—") continue;
+      map.set(label, (map.get(label) ?? 0) + 1);
+    }
+    return [...map.entries()]
+      .map(([store, count]) => ({ store, count }))
+      .sort((a, b) => b.count - a.count || a.store.localeCompare(b.store));
+  }, [orders]);
 
   const pickupFilterOptions = useMemo(() => {
     const locationMap = new Map<string, { key: string; label: string; count: number }>();
@@ -843,6 +1047,21 @@ export function RichOrdersTable({
     if (customerFilter.city) {
       if ((o.city || "").toLowerCase() !== customerFilter.city.toLowerCase()) return false;
     }
+    if (storeFilter.selectedStores.size > 0) {
+      if (o.channel !== "Shopify" && o.externalSource !== "shopify") return false;
+      if (!storeFilter.selectedStores.has(formatShopifyStoreLabel(o))) return false;
+    }
+    if (courierFilter.selectedCouriers.size > 0) {
+      const courierName = String(o.courierName || o.courier || "").trim();
+      if (!courierFilter.selectedCouriers.has(courierName)) return false;
+    }
+    if (remarkFilter.hasRemark && !(remarks[o.id] ?? o.adminRemark ?? "").trim()) return false;
+    if (remarkFilter.noRemark && Boolean((remarks[o.id] ?? o.adminRemark ?? "").trim())) return false;
+    if (remarkFilter.search.trim()) {
+      const q = remarkFilter.search.trim().toLowerCase();
+      const text = (remarks[o.id] ?? o.adminRemark ?? "").toLowerCase();
+      if (!text.includes(q)) return false;
+    }
     return true;
   });
   const hasCourierDetailsColumn =
@@ -851,7 +1070,10 @@ export function RichOrdersTable({
     activeTab === "out-for-delivery" ||
     activeTab === "delivered" ||
     activeTab === "failed";
-  const columnCount = (hasCourierDetailsColumn ? 12 : 11) - (showPickupColumn ? 0 : 1);
+  const columnCount =
+    (hasCourierDetailsColumn ? 12 : 11) -
+    (showPickupColumn ? 0 : 1) +
+    (showStoreDetailsColumn ? 1 : 0);
 
   const isValidPincode = (pin: string | undefined) => pin != null && /^\d{6}$/.test(pin);
   const channelLabel = (o: Order) =>
@@ -866,22 +1088,24 @@ export function RichOrdersTable({
   }, [onOrdersChanged]);
 
   const handleEditProductSave = async (orderId: string, products: any[], codAmount: number) => {
-    await orderService.updateOrder(orderId, {
+    const updated = await orderService.updateOrder(orderId, {
       products,
       orderItems: products,
       items: products,
       amount: codAmount,
     });
+    reportVelocitySync(updated);
     await refreshOrders();
   };
 
   const handleEditPriceSave = async (orderId: string, amount: number, codAmount: number) => {
     const order = orders.find((o) => o.id === orderId);
     const isCod = order?.payment === "COD";
-    await orderService.updateOrder(orderId, {
+    const updated = await orderService.updateOrder(orderId, {
       amount: isCod ? codAmount : amount,
       ...(isCod ? { payment: "COD" as const } : {}),
     });
+    reportVelocitySync(updated);
     await refreshOrders();
   };
 
@@ -908,13 +1132,29 @@ export function RichOrdersTable({
     });
 
     setShipmentModalOrder((prev) => (prev && prev.id === orderId ? { ...prev, ...updated } : prev));
+    reportVelocitySync(updated);
+    await refreshOrders();
+  };
+
+  const handleEditPickupSave = async (
+    orderId: string,
+    data: { pickupAddressId: string; phone: string; email: string; contactName: string }
+  ) => {
+    await updatePickupAddress(data.pickupAddressId, {
+      phone: data.phone,
+      email: data.email,
+      contactName: data.contactName,
+    });
+    const updated = await orderService.updateOrder(orderId, { pickupAddressId: data.pickupAddressId });
+    reportVelocitySync(updated);
     await refreshOrders();
   };
 
   const handleRemarkSave = async (orderId: string, text: string) => {
     setSavingRemarkId(orderId);
     try {
-      await orderService.updateOrder(orderId, { adminRemark: text });
+      const updated = await orderService.updateOrder(orderId, { adminRemark: text });
+      reportVelocitySync(updated);
       await refreshOrders();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Could not save remark");
@@ -1191,10 +1431,83 @@ export function RichOrdersTable({
                   </div>
                 </FilterPopover>
               </th>
-              {/* Product Name header with filter */}
-              <th ref={productRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[200px] relative">
+              {showStoreDetailsColumn && (
+                <th ref={storeRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[150px] relative">
+                  <div className="flex items-center gap-2">
+                    <span>Store Details</span>
+                    <button
+                      onClick={() => setStoreFilter((f) => ({ ...f, open: !f.open }))}
+                      className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"
+                    >
+                      <FilterIcon active={storeFilter.selectedStores.size > 0} />
+                    </button>
+                  </div>
+                  <FilterPopover
+                    open={storeFilter.open}
+                    onClose={() => setStoreFilter((f) => ({ ...f, open: false }))}
+                    anchorRef={storeRef}
+                  >
+                    <div className="space-y-3">
+                      <p className="font-semibold text-text-primary text-sm">Filter by Store</p>
+                      <Input
+                        placeholder="Search store..."
+                        value={storeFilter.search}
+                        onChange={(e) => setStoreFilter((f) => ({ ...f, search: e.target.value }))}
+                        className="h-9 text-xs"
+                      />
+                      <div className="max-h-[180px] overflow-auto space-y-1">
+                        {storeFilterOptions
+                          .filter((row) => row.store.toLowerCase().includes(storeFilter.search.toLowerCase()))
+                          .map((row) => (
+                            <label
+                              key={row.store}
+                              className="flex items-center justify-between gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1"
+                            >
+                              <span className="flex items-center gap-2 min-w-0">
+                                <input
+                                  type="checkbox"
+                                  className="rounded accent-primary shrink-0"
+                                  checked={storeFilter.selectedStores.has(row.store)}
+                                  onChange={() =>
+                                    setStoreFilter((f) => {
+                                      const n = new Set(f.selectedStores);
+                                      if (n.has(row.store)) n.delete(row.store);
+                                      else n.add(row.store);
+                                      return { ...f, selectedStores: n };
+                                    })
+                                  }
+                                />
+                                <span className="truncate">{row.store}</span>
+                              </span>
+                              <span className="text-[10px] text-text-muted shrink-0">{row.count}</span>
+                            </label>
+                          ))}
+                      </div>
+                      <div className="flex justify-between pt-3 border-t border-border">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs px-4"
+                          onClick={() => setStoreFilter({ open: false, search: "", selectedStores: new Set() })}
+                        >
+                          Clear
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark"
+                          onClick={() => setStoreFilter((f) => ({ ...f, open: false }))}
+                        >
+                          Apply
+                        </Button>
+                      </div>
+                    </div>
+                  </FilterPopover>
+                </th>
+              )}
+              {/* Product Details header with filter */}
+              <th ref={productRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[240px] relative">
                 <div className="flex items-center gap-2">
-                  <span>Product Name</span>
+                  <span>Product Details</span>
                   <button onClick={() => setProductFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
                     <FilterIcon active={productFilter.selectedNames.size > 0} />
@@ -1528,9 +1841,147 @@ export function RichOrdersTable({
               </th>
               )}
               {hasCourierDetailsColumn && (
-                <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[160px]">Courier Details</th>
+                <th ref={courierRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[160px] relative">
+                  <div className="flex items-center gap-2">
+                    <span>Courier Details</span>
+                    {showCourierRemarkFilters && (
+                      <button
+                        onClick={() => setCourierFilter((f) => ({ ...f, open: !f.open }))}
+                        className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"
+                      >
+                        <FilterIcon active={courierFilter.selectedCouriers.size > 0} />
+                      </button>
+                    )}
+                  </div>
+                  {showCourierRemarkFilters && (
+                    <FilterPopover
+                      open={courierFilter.open}
+                      onClose={() => setCourierFilter((f) => ({ ...f, open: false }))}
+                      anchorRef={courierRef}
+                    >
+                      <div className="space-y-3">
+                        <p className="font-semibold text-text-primary text-sm">Filter by Courier</p>
+                        <Input
+                          placeholder="Search courier..."
+                          value={courierFilter.search}
+                          onChange={(e) => setCourierFilter((f) => ({ ...f, search: e.target.value }))}
+                          className="h-9 text-xs"
+                        />
+                        <div className="max-h-[180px] overflow-auto space-y-1">
+                          {courierFilterOptions
+                            .filter((row) => row.name.toLowerCase().includes(courierFilter.search.toLowerCase()))
+                            .map((row) => (
+                              <label
+                                key={row.name}
+                                className="flex items-center justify-between gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1"
+                              >
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    className="rounded accent-primary shrink-0"
+                                    checked={courierFilter.selectedCouriers.has(row.name)}
+                                    onChange={() =>
+                                      setCourierFilter((f) => {
+                                        const n = new Set(f.selectedCouriers);
+                                        if (n.has(row.name)) n.delete(row.name);
+                                        else n.add(row.name);
+                                        return { ...f, selectedCouriers: n };
+                                      })
+                                    }
+                                  />
+                                  <span className="truncate">{row.name}</span>
+                                </span>
+                                <span className="text-[10px] text-text-muted shrink-0">{row.count}</span>
+                              </label>
+                            ))}
+                        </div>
+                        <div className="flex justify-between pt-3 border-t border-border">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs px-4"
+                            onClick={() => setCourierFilter({ open: false, search: "", selectedCouriers: new Set() })}
+                          >
+                            Clear
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark"
+                            onClick={() => setCourierFilter((f) => ({ ...f, open: false }))}
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      </div>
+                    </FilterPopover>
+                  )}
+                </th>
               )}
-              <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[120px]">Remarks</th>
+              <th ref={remarkRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[120px] relative">
+                <div className="flex items-center gap-2">
+                  <span>Remarks</span>
+                  {showCourierRemarkFilters && (
+                    <button
+                      onClick={() => setRemarkFilter((f) => ({ ...f, open: !f.open }))}
+                      className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"
+                    >
+                      <FilterIcon active={remarkFilter.hasRemark || remarkFilter.noRemark || !!remarkFilter.search.trim()} />
+                    </button>
+                  )}
+                </div>
+                {showCourierRemarkFilters && (
+                  <FilterPopover
+                    open={remarkFilter.open}
+                    onClose={() => setRemarkFilter((f) => ({ ...f, open: false }))}
+                    anchorRef={remarkRef}
+                  >
+                    <div className="space-y-3">
+                      <p className="font-semibold text-text-primary text-sm">Filter Remarks</p>
+                      <Input
+                        placeholder="Search remark text..."
+                        value={remarkFilter.search}
+                        onChange={(e) => setRemarkFilter((f) => ({ ...f, search: e.target.value }))}
+                        className="h-9 text-xs"
+                      />
+                      <label className="flex items-center gap-2 text-xs py-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="rounded accent-primary"
+                          checked={remarkFilter.hasRemark}
+                          onChange={() => setRemarkFilter((f) => ({ ...f, hasRemark: !f.hasRemark, noRemark: false }))}
+                        />
+                        Has remark
+                      </label>
+                      <label className="flex items-center gap-2 text-xs py-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="rounded accent-primary"
+                          checked={remarkFilter.noRemark}
+                          onChange={() => setRemarkFilter((f) => ({ ...f, noRemark: !f.noRemark, hasRemark: false }))}
+                        />
+                        No remark
+                      </label>
+                      <div className="flex justify-between pt-3 border-t border-border">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs px-4"
+                          onClick={() => setRemarkFilter({ open: false, search: "", hasRemark: false, noRemark: false })}
+                        >
+                          Clear
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark"
+                          onClick={() => setRemarkFilter((f) => ({ ...f, open: false }))}
+                        >
+                          Apply
+                        </Button>
+                      </div>
+                    </div>
+                  </FilterPopover>
+                )}
+              </th>
               <th className="p-3 text-center font-medium text-text-secondary min-w-[130px]">Action</th>
             </tr>
           </thead>
@@ -1554,6 +2005,7 @@ export function RichOrdersTable({
               const orderEmail = (o as any).email || `${(o.customer || '').toLowerCase().replace(/\s/g, '')}@email.com`;
               const orderTimestamp = orderTimestampForTab(o, activeTab);
               const visibleOrderNumber = displayOrderNumber(o);
+              const shopifyOrderLabel = displayShopifyOrderLabel(o);
               return (
                 <tr key={o.id} className={cn("border-b border-border last:border-0 align-top transition-colors hover:bg-surface-2/40", selected.has(o.id) && "bg-primary-light/30")}>
                   <td className="p-3 align-middle">
@@ -1569,7 +2021,7 @@ export function RichOrdersTable({
                           <Clock className="h-3 w-3" />
                           <span className="text-[11px]">{orderTimestamp.label}: {formatOrderTimestamp(orderTimestamp.date)}</span>
                         </div>
-                        <p className="text-xs text-text-secondary">Order #{visibleOrderNumber}</p>
+                        <p className="text-xs text-text-secondary">{shopifyOrderLabel}</p>
                         <div className="border-t border-border pt-1.5 mt-1.5">
                           <p className="text-xs"><span className="text-text-muted">Tag Status : </span><span className={cn("font-semibold", o.payment === "COD" ? "text-primary" : "text-success")}>{o.payment}</span></p>
                         </div>
@@ -1577,9 +2029,26 @@ export function RichOrdersTable({
                     </div>
                   </td>
 
-                  {/* Product Name */}
+                  {showStoreDetailsColumn && (
+                    <td className="p-3 align-middle">
+                      {channelLabel(o) === "Shopify" ? (
+                        <div className="flex items-center gap-2 min-w-[120px]">
+                          <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#96bf48]/15 text-[#5e8e3e] text-[10px] font-bold shrink-0">
+                            S
+                          </span>
+                          <span className="text-xs font-semibold text-text-primary leading-tight">
+                            {formatShopifyStoreLabel(o)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-text-muted">—</span>
+                      )}
+                    </td>
+                  )}
+
+                  {/* Product Details */}
                   <td className="p-3">
-                    <div className="relative min-w-[140px] max-w-[220px]">
+                    <div className="relative min-w-[180px] max-w-[280px]">
                       <div className="absolute -top-1 -right-1 flex gap-0.5 z-10">
                         <button
                           type="button"
@@ -1590,12 +2059,29 @@ export function RichOrdersTable({
                           <Pencil className="h-3 w-3 text-primary" />
                         </button>
                       </div>
-                      <div className="pr-8 space-y-2">
-                        {products.length > 0 ? products.map((p, pi) => (
-                          <div key={pi} className={cn(pi > 0 && "pt-2 border-t border-border/50")}>
-                            <ProductNameText product={{ name: p.name, productName: (p as any).productName }} compact />
-                          </div>
-                        )) : <p className="text-xs text-text-muted">No products</p>}
+                      <div className="pr-8 space-y-3">
+                        {products.length > 0 ? products.map((p, pi) => {
+                          const img = resolveOrderProductImage(o, p as { name?: string; productName?: string; sku?: string; imageUrl?: string }, pi);
+                          return (
+                            <div key={pi} className={cn(pi > 0 && "pt-3 border-t border-border/50")}>
+                              <div className="flex gap-2.5">
+                                <div className="h-14 w-14 rounded-lg border border-border/60 bg-surface-2 overflow-hidden shrink-0 shadow-sm">
+                                  {img ? (
+                                    <img src={img} alt={p.name || "Product"} className="h-full w-full object-cover" loading="lazy" />
+                                  ) : (
+                                    <div className="h-full w-full flex items-center justify-center">
+                                      <Package className="h-5 w-5 text-text-muted" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <p className="text-[10px] text-text-muted uppercase tracking-wide">QTY: {p.qty ?? 1}</p>
+                                  <ProductNameText product={{ name: p.name, productName: (p as any).productName }} compact />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }) : <p className="text-xs text-text-muted">No products</p>}
                       </div>
                     </div>
                   </td>
@@ -1728,7 +2214,7 @@ export function RichOrdersTable({
                       const pickupVelocityWh = pickupObj?.velocityWarehouseId || (o as any).velocityWarehouseId || "";
                       return (
                         <div className="relative">
-                          <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditAddressOrder(o)}>
+                          <button className="absolute -top-1 -right-1 p-1 rounded hover:bg-primary-light transition-colors z-10" onClick={() => setEditPickupOrder(o)}>
                             <Pencil className="h-3 w-3 text-primary" />
                           </button>
                           <div className="space-y-1.5 pr-6">
@@ -1924,6 +2410,16 @@ export function RichOrdersTable({
       {/* Edit Address Modal */}
       {editAddressOrder && (
         <EditAddressModal open={!!editAddressOrder} onClose={() => setEditAddressOrder(null)} order={editAddressOrder} onSave={handleEditAddressSave} />
+      )}
+
+      {editPickupOrder && (
+        <EditPickupModal
+          open={!!editPickupOrder}
+          onClose={() => setEditPickupOrder(null)}
+          order={editPickupOrder}
+          warehouses={warehouses.map((w) => ({ id: w.id, warehouseName: w.warehouseName }))}
+          onSave={handleEditPickupSave}
+        />
       )}
 
       {/* Reship (Cancel) Confirmation Dialog */}

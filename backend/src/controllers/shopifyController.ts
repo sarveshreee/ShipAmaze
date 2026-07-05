@@ -12,7 +12,7 @@ import { AppError } from "../middleware/errorMiddleware.js";
 import { decrypt, encrypt } from "../utils/crypto.js";
 import * as shopifyService from "../services/shopify.service.js";
 import { ensureShopifyWebhooksRegistered } from "../services/shopifyWebhooks.js";
-import { buildShopifyOrderPayload, mergeShopifyPayloadIntoOrder } from "../services/shopifyOrderSync.js";
+import { buildShopifyOrderPayload, isShopifyOrderCancelled, mergeShopifyPayloadIntoOrder } from "../services/shopifyOrderSync.js";
 import type { ShopifyOrder } from "../services/shopify.service.js";
 import type { ShopifySyncUserContext } from "../services/shopifyOrderSync.js";
 import {
@@ -936,9 +936,28 @@ export async function handleWebhook(req: Request, res: Response): Promise<void> 
           ? (await Vendor.findOne({ userId: conn.ownerUserId }).select("_id").lean())?._id
           : undefined,
     };
-    const mapped = buildShopifyOrderPayload(shopDomain || conn.shopDomain, soNormalized, ctx);
+    const mapped = buildShopifyOrderPayload(shopDomain || conn.shopDomain, soNormalized, ctx, await (async () => {
+      try {
+        const accessToken = decrypt(conn.accessTokenEncrypted);
+        const shop = shopDomain || conn.shopDomain;
+        const [shopDetails, productImageByProductId] = await Promise.all([
+          shopifyService.getShopDetails(accessToken, shop).catch(() => null),
+          shopifyService.fetchProductImagesForLineItems(
+            accessToken,
+            shop,
+            Array.isArray(soNormalized.line_items) ? soNormalized.line_items : []
+          ),
+        ]);
+        return {
+          shopName: shopDetails?.name?.trim() || "",
+          productImageByProductId,
+        };
+      } catch {
+        return {};
+      }
+    })());
     const externalId = String(mapped.orderId);
-    const cancelled = topic === "orders/cancelled" || Boolean(soNormalized.cancelled_at);
+    const cancelled = topic === "orders/cancelled" || isShopifyOrderCancelled(soNormalized);
 
     const existing = await Order.findOne({ orderId: externalId });
     if (existing) {

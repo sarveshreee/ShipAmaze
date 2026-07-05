@@ -10,6 +10,7 @@ import { ShopifyStoreConnection } from "./models/ShopifyStoreConnection.js";
 import { performShopifyOrderSyncForUser } from "./services/shopifySyncRunner.js";
 import { Courier } from "./models/Courier.js";
 import { syncActiveShipmentStatuses } from "./modules/velocity/velocity.statusSync.js";
+import { syncFailureRemarksBatch } from "./modules/velocity/velocityRemarkSync.js";
 import { syncNdrFromVelocity } from "./modules/velocity/velocity.ndrSync.js";
 
 validateEnv();
@@ -153,6 +154,18 @@ async function main() {
     }
   }, 10 * 60 * 1000);
   velocityNdrSync.unref();
+
+  // Velocity failure remark sync — keeps order Remarks populated from courier reasons
+  const velocityRemarkSync = setInterval(async () => {
+    try {
+      if (!isVelocityConfigured()) return;
+      const r = await syncFailureRemarksBatch(80);
+      devLog.info(`[velocity:remark-sync] processed=${r.processed} updated=${r.updated}`);
+    } catch (e: unknown) {
+      devLog.warn("[velocity:remark-sync] error", e instanceof Error ? e.message : e);
+    }
+  }, 10 * 60 * 1000);
+  velocityRemarkSync.unref();
 
   // Background Shopify order sync — runs every 5 minutes as a fallback for any webhook misses
   const shopifyBgSync = setInterval(async () => {

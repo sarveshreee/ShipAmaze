@@ -3,8 +3,10 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Headphones, Loader2, RefreshCw } from "lucide-react";
 import * as adminWorkflowService from "@/services/adminWorkflowService";
+import { SUPPORT_CATEGORIES, categoryLabel } from "@/services/supportService";
 import type { SupportTicketListItem } from "@/services/adminWorkflowService";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -32,6 +34,11 @@ export default function AdminSupport() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [userFilter, setUserFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -49,6 +56,11 @@ export default function AdminSupport() {
         limit: String(limit),
         status: statusFilter !== "all" ? statusFilter : undefined,
         priority: priorityFilter !== "all" ? priorityFilter : undefined,
+        category: categoryFilter !== "all" ? categoryFilter : undefined,
+        role: roleFilter !== "all" ? roleFilter : undefined,
+        user: userFilter || undefined,
+        from: dateFrom || undefined,
+        to: dateTo || undefined,
       });
       setItems(r.items ?? []);
       setTotal(r.total ?? 0);
@@ -59,7 +71,7 @@ export default function AdminSupport() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, statusFilter, priorityFilter]);
+  }, [page, limit, statusFilter, priorityFilter, categoryFilter, roleFilter, userFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     void load();
@@ -135,9 +147,23 @@ export default function AdminSupport() {
 
   return (
     <div className="animate-fade-in-up space-y-4">
-      <PageHeader title="Support tickets" breadcrumb={["Admin", "Support"]} />
+      <PageHeader title="Support Dashboard" breadcrumb={["Admin", "Support"]} />
 
       <div className="flex flex-col sm:flex-row gap-3 flex-wrap rounded-lg border border-border bg-card p-4 shadow-card">
+        <Input
+          placeholder="Vendor / dropshipper"
+          value={userFilter}
+          onChange={(e) => { setUserFilter(e.target.value); setPage(1); }}
+          className="sm:w-44"
+        />
+        <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-full sm:w-[140px]"><SelectValue placeholder="Role" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All roles</SelectItem>
+            <SelectItem value="vendor">Vendor</SelectItem>
+            <SelectItem value="dropshipper">Dropshipper</SelectItem>
+          </SelectContent>
+        </Select>
         <Select
           value={statusFilter}
           onValueChange={(v) => {
@@ -152,6 +178,7 @@ export default function AdminSupport() {
             <SelectItem value="all">All statuses</SelectItem>
             <SelectItem value="open">Open</SelectItem>
             <SelectItem value="in_progress">In progress</SelectItem>
+            <SelectItem value="waiting_for_user">Waiting for user</SelectItem>
             <SelectItem value="resolved">Resolved</SelectItem>
             <SelectItem value="closed">Closed</SelectItem>
           </SelectContent>
@@ -173,6 +200,25 @@ export default function AdminSupport() {
             <SelectItem value="high">High</SelectItem>
           </SelectContent>
         </Select>
+        <Select
+          value={categoryFilter}
+          onValueChange={(v) => {
+            setCategoryFilter(v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-[160px]">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All categories</SelectItem>
+            {SUPPORT_CATEGORIES.map((c) => (
+              <SelectItem key={c} value={c}>{categoryLabel(c)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className="sm:w-36" />
+        <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className="sm:w-36" />
         <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
@@ -202,6 +248,7 @@ export default function AdminSupport() {
               <tr className="border-b border-border bg-surface-2/50">
                 <th className="p-3 text-left font-medium text-text-secondary">Ticket</th>
                 <th className="p-3 text-left font-medium text-text-secondary">Requester</th>
+                <th className="p-3 text-left font-medium text-text-secondary">Category</th>
                 <th className="p-3 text-left font-medium text-text-secondary">Priority</th>
                 <th className="p-3 text-left font-medium text-text-secondary">Status</th>
                 <th className="p-3 text-left font-medium text-text-secondary">Created</th>
@@ -222,6 +269,7 @@ export default function AdminSupport() {
                     <br />
                     <span className="capitalize">{t.requester?.role}</span>
                   </td>
+                  <td className="p-3 capitalize text-xs">{categoryLabel(t.category ?? "others")}</td>
                   <td className="p-3">
                     <span
                       className={cn(
@@ -296,6 +344,7 @@ export default function AdminSupport() {
                   <SelectContent>
                     <SelectItem value="open">Open</SelectItem>
                     <SelectItem value="in_progress">In progress</SelectItem>
+                    <SelectItem value="waiting_for_user">Waiting for user</SelectItem>
                     <SelectItem value="resolved">Resolved</SelectItem>
                     <SelectItem value="closed">Closed</SelectItem>
                   </SelectContent>

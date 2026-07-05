@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
+import type { AuthRequest } from "../middleware/authMiddleware.js";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import type { AuthRequest } from "../middleware/authMiddleware.js";
 import { User, type UserRole } from "../models/User.js";
 import { PasswordResetOtp } from "../models/PasswordResetOtp.js";
 import { sendPasswordResetOtp } from "../services/mail.js";
@@ -25,6 +25,8 @@ import { isOwnerAdmin, isStaffAdmin } from "../utils/staffPermissions.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { safeErrorMessage } from "../utils/logRedact.js";
+import { startLoginSession, endLoginSession } from "../services/loginActivityService.js";
+import { ACTIVITY_ACTIONS, recordUserActivity } from "../services/userActivityService.js";
 
 const PASSWORD_RESET_MAX_ATTEMPTS = Math.min(20, Math.max(3, Number(process.env.PASSWORD_RESET_MAX_ATTEMPTS ?? 8) || 8));
 
@@ -227,8 +229,16 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError(403, "Please verify your email before logging in.");
   }
 
-  const token = signToken({ sub: String(user._id), role: user.role });
+  const sessionId = await startLoginSession(user, req);
+  const token = signToken({ sub: String(user._id), role: user.role, sid: sessionId });
   const publicUser = await toPublicUser(user);
+  recordUserActivity({
+    user,
+    module: "auth",
+    action: ACTIVITY_ACTIONS.LOGIN,
+    req,
+    metadata: { email: user.email },
+  });
   res.json({ user: publicUser, token });
 });
 
@@ -283,7 +293,27 @@ export const updateProfile = asyncHandler(async (req: AuthRequest, res: Response
   res.json({ user: await toPublicUser(req.user) });
 });
 
-export const logout = asyncHandler(async (_req: Request, res: Response) => {
+export const logout = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const header = req.headers.authorization;
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+  let sessionId = req.sessionId;
+  if (!sessionId && token) {
+    try {
+      const payload = (await import("../utils/jwt.js")).verifyToken(token);
+      sessionId = payload.sid;
+    } catch {
+      /* ignore invalid token on logout */
+    }
+  }
+  await endLoginSession(sessionId);
+  if (req.user) {
+    recordUserActivity({
+      user: req.user,
+      module: "auth",
+      action: ACTIVITY_ACTIONS.LOGOUT,
+      req,
+    });
+  }
   res.json({ ok: true });
 });
 

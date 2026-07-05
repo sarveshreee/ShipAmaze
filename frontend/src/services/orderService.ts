@@ -107,8 +107,12 @@ export async function updateOrderStatus(orderId: string, status: string) {
   return apiClient.patch<Order>(`/orders/${encodeURIComponent(orderId)}/status`, { status });
 }
 
+export type OrderUpdateResult = Order & {
+  velocitySync?: { synced: boolean; reason?: string };
+};
+
 export async function updateOrder(orderId: string, body: Record<string, unknown>) {
-  return apiClient.put<Order>(`/orders/${encodeURIComponent(orderId)}`, body);
+  return apiClient.put<OrderUpdateResult>(`/orders/${encodeURIComponent(orderId)}`, body);
 }
 
 export async function patchOrderLineItemSku(orderId: string, lineIndex: number, sku: string) {

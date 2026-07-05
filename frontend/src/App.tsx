@@ -34,6 +34,8 @@ const AdminVendors = lazy(() => import("@/pages/admin/AdminVendors"));
 const AdminFinance = lazy(() => import("@/pages/admin/AdminFinance"));
 const AdminAnalytics = lazy(() => import("@/pages/admin/AdminAnalytics"));
 const AdminSupport = lazy(() => import("@/pages/admin/AdminSupport"));
+const AdminLoginActivity = lazy(() => import("@/pages/admin/AdminLoginActivity"));
+const AdminActivityLogs = lazy(() => import("@/pages/admin/AdminActivityLogs"));
 const AdminCatalogue = lazy(() => import("@/pages/admin/AdminCatalogue"));
 const AdminApprovals = lazy(() => import("@/pages/admin/AdminApprovals"));
 const AdminSettings = lazy(() => import("@/pages/admin/AdminSettings"));
@@ -59,6 +61,7 @@ const VendorCatalogue = lazy(() => import("@/pages/vendor/VendorCatalogue"));
 const VendorPayouts = lazy(() => import("@/pages/vendor/VendorPayouts"));
 const VendorWarehouse = lazy(() => import("@/pages/vendor/VendorWarehouse"));
 const VendorProducts = lazy(() => import("@/pages/vendor/VendorProducts"));
+const VendorSupport = lazy(() => import("@/pages/vendor/VendorSupport"));
 
 // Dropshipper
 const DropshipperDashboard = lazy(() => import("@/pages/dropshipper/DropshipperDashboard"));
@@ -76,6 +79,7 @@ const DropshipperNDR = lazy(() => import("@/pages/dropshipper/DropshipperNDR"));
 const DropshipperWeightDisputes = lazy(() => import("@/pages/dropshipper/DropshipperWeightDisputes"));
 const DropshipperPickupAddresses = lazy(() => import("@/pages/dropshipper/DropshipperPickupAddresses"));
 const DropshipperVendors = lazy(() => import("@/pages/dropshipper/DropshipperVendors"));
+const DropshipperSupport = lazy(() => import("@/pages/dropshipper/DropshipperSupport"));
 // Supplier (shared across all roles)
 const SourceProduct = lazy(() => import("@/pages/supplier/SourceProduct"));
 const ProductsPage = lazy(() => import("@/pages/supplier/ProductsPage"));
@@ -210,6 +214,8 @@ function AppRoutes() {
       <Route path="/admin/analytics" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="analytics.view"><AdminAnalytics /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/reports" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminReports /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/support" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminSupport /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/security/login-activity" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminLoginActivity /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/activity-logs" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminActivityLogs /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/settings" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminSettings /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/channels" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="channels.view"><AdminChannels /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/permissions" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminPermissions /></AdminStaffRoute></RoleProtectedRoute>} />
@@ -225,6 +231,7 @@ function AppRoutes() {
       <Route path="/vendor/settings" element={<RoleProtectedRoute allow={["vendor"]}><VendorSettings /></RoleProtectedRoute>} />
       <Route path="/vendor/payouts" element={<RoleProtectedRoute allow={["vendor"]}><VendorPayouts /></RoleProtectedRoute>} />
       <Route path="/vendor/warehouse" element={<RoleProtectedRoute allow={["vendor"]}><VendorWarehouse /></RoleProtectedRoute>} />
+      <Route path="/vendor/support" element={<RoleProtectedRoute allow={["vendor"]}><VendorSupport /></RoleProtectedRoute>} />
       <Route path="/vendor/profile" element={<RoleProtectedRoute allow={["vendor"]}><ProfilePage /></RoleProtectedRoute>} />
       <Route path="/vendor" element={<Navigate to="/vendor/dashboard" replace />} />
 
@@ -256,6 +263,7 @@ function AppRoutes() {
       />
       <Route path="/dropshipper/tracking" element={<RoleProtectedRoute allow={["dropshipper"]}><PublicTracking /></RoleProtectedRoute>} />
       <Route path="/dropshipper/settings" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperSettings /></RoleProtectedRoute>} />
+      <Route path="/dropshipper/support" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperSupport /></RoleProtectedRoute>} />
       <Route path="/dropshipper/profile" element={<RoleProtectedRoute allow={["dropshipper"]}><ProfilePage /></RoleProtectedRoute>} />
       <Route path="/dropshipper" element={<Navigate to="/dropshipper/dashboard" replace />} />
 
