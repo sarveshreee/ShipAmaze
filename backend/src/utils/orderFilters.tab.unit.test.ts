@@ -27,10 +27,21 @@ describe("buildTabQuery", () => {
     expect(JSON.stringify(q)).toContain("awb");
   });
 
-  it("pending-pickup includes awb on ready_to_ship", () => {
+  it("pending-pickup includes ready_for_pickup and not_picked", () => {
     const q = buildTabQuery("pending-pickup");
-    expect(JSON.stringify(q)).toContain("pickup_scheduled");
-    expect(JSON.stringify(q)).toContain("ready_to_ship");
+    const s = JSON.stringify(q);
+    expect(s).toContain("pickup_scheduled");
+    expect(s).toContain("ready_to_ship");
+    expect(s).toContain("ready_for_pickup");
+    expect(s).toContain("not_picked");
+  });
+
+  it("failed includes ndr but not not_picked", () => {
+    const q = buildTabQuery("failed");
+    const s = JSON.stringify(q);
+    expect(s).toContain("failed");
+    expect(s).toContain("ndr");
+    expect(s).not.toContain("not_picked");
   });
 
   it("in-transit includes picked_up", () => {
@@ -49,13 +60,6 @@ describe("buildTabQuery", () => {
     const q = buildTabQuery("delivered");
     expect(JSON.stringify(q)).toContain("shipmentStatus");
     expect(JSON.stringify(q)).toContain("Delivered");
-  });
-
-  it("failed includes ndr and not_picked", () => {
-    const q = buildTabQuery("failed");
-    expect(JSON.stringify(q)).toContain("failed");
-    expect(JSON.stringify(q)).toContain("ndr");
-    expect(JSON.stringify(q)).toContain("not_picked");
   });
 
   it("reship excludes junk", () => {

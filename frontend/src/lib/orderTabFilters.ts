@@ -15,8 +15,10 @@ export function normalizeTabStatus(raw: unknown): string {
 
 const FULFILLMENT_PIPELINE = new Set([
   "ready_to_ship",
+  "ready_for_pickup",
   "pending_pickup",
   "pickup_scheduled",
+  "not_picked",
   "picked_up",
   "in_transit",
   "shipped",
@@ -35,7 +37,12 @@ const READY_TO_SHIP_STATUSES = new Set([
   "ready to ship",
   "awaiting_shipment",
 ]);
-const PENDING_PICKUP_STATUSES = new Set(["pending_pickup", "pickup_scheduled"]);
+const PENDING_PICKUP_STATUSES = new Set([
+  "pending_pickup",
+  "pickup_scheduled",
+  "ready_for_pickup",
+  "not_picked",
+]);
 const IN_TRANSIT_STATUSES = new Set(["in_transit", "shipped", "picked_up"]);
 const FAILED_STATUSES = new Set([
   "failed",
@@ -44,7 +51,6 @@ const FAILED_STATUSES = new Set([
   "need_attention",
   "needs_attention",
   "reattempt_delivery",
-  "not_picked",
 ]);
 const OUT_FOR_DELIVERY_STATUSES = new Set(["out_for_delivery"]);
 
@@ -54,7 +60,8 @@ const STATUS_RANK: Record<string, number> = {
   ready_to_ship: 10,
   pending_pickup: 20,
   pickup_scheduled: 20,
-  not_picked: 22,
+  ready_for_pickup: 20,
+  not_picked: 20,
   picked_up: 30,
   in_transit: 35,
   shipped: 35,

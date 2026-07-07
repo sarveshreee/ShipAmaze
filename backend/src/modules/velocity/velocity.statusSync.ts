@@ -42,6 +42,10 @@ const STALE_STATUSES = [
   "Out For Delivery",
   "ready_to_ship",
   "ready-to-ship",
+  "ready_for_pickup",
+  "Ready for Pickup",
+  "not_picked",
+  "Not Picked",
 ];
 
 export interface StatusSyncResult {

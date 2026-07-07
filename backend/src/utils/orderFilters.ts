@@ -27,12 +27,17 @@ const READY_OR_PENDING_PICKUP = [
   "ready-to-ship",
   "ready_to_ship",
   "Ready to Ship",
+  "ready_for_pickup",
+  "Ready for Pickup",
   "pending-pickup",
   "pending_pickup",
   "Pending Pickup",
   "pickup_scheduled",
   "pickup-scheduled",
   "Pickup Scheduled",
+  "not_picked",
+  "not-picked",
+  "Not Picked",
 ];
 
 /** Orders past Manual / Channel staging — hidden until moved to Ready to Ship. */
@@ -81,6 +86,11 @@ const PENDING_PICKUP_STATUSES = [
   "pickup_scheduled",
   "pickup-scheduled",
   "Pickup Scheduled",
+  "ready_for_pickup",
+  "Ready for Pickup",
+  "not_picked",
+  "not-picked",
+  "Not Picked",
 ];
 const IN_TRANSIT_STATUSES = [
   "in-transit",
@@ -105,9 +115,6 @@ const FAILED_STATUSES = [
   "need_attention",
   "needs_attention",
   "reattempt_delivery",
-  "not_picked",
-  "not-picked",
-  "Not Picked",
 ];
 const OUT_FOR_DELIVERY_STATUSES = [
   "out-for-delivery",

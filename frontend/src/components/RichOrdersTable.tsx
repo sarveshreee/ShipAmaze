@@ -244,7 +244,14 @@ function orderTimestampForTab(order: Order, activeTab?: string): { label: string
     return {
       label: "Pending Pickup",
       date:
-        latestStatusTime(order, ["pending_pickup", "pending-pickup", "pickup_scheduled", "pickup-scheduled"]) ??
+        latestStatusTime(order, [
+          "pending_pickup",
+          "pending-pickup",
+          "pickup_scheduled",
+          "pickup-scheduled",
+          "ready_for_pickup",
+          "not_picked",
+        ]) ??
         validDate(order.assignedDateTime) ??
         validDate(order.movedToReadyAt) ??
         createdAt,

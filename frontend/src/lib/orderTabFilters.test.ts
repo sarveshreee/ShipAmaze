@@ -93,4 +93,40 @@ describe("order tab filters", () => {
     expect(orderMatchesTab(order, "manual")).toBe(false);
     expect(orderMatchesTab(order, "channel")).toBe(false);
   });
+
+  it("matches pending-pickup for ready_for_pickup shipmentStatus", () => {
+    const order = orderWith({
+      status: "pickup_scheduled",
+      shipmentStatus: "ready_for_pickup",
+      awb: "AWB123",
+    });
+
+    expect(orderMatchesTab(order, "pending-pickup")).toBe(true);
+    expect(orderMatchesTab(order, "failed")).toBe(false);
+    expect(orderMatchesTab(order, "in-transit")).toBe(false);
+  });
+
+  it("matches pending-pickup for not_picked shipmentStatus", () => {
+    const order = orderWith({
+      status: "pickup_scheduled",
+      shipmentStatus: "not_picked",
+      awb: "AWB123",
+    });
+
+    expect(orderMatchesTab(order, "pending-pickup")).toBe(true);
+    expect(orderMatchesTab(order, "failed")).toBe(false);
+    expect(orderMatchesTab(order, "in-transit")).toBe(false);
+  });
+
+  it("moves not_picked orders to in-transit when shipmentStatus advances", () => {
+    const order = orderWith({
+      status: "pickup_scheduled",
+      shipmentStatus: "in_transit",
+      awb: "AWB123",
+    });
+
+    expect(orderMatchesTab(order, "pending-pickup")).toBe(false);
+    expect(orderMatchesTab(order, "in-transit")).toBe(true);
+    expect(orderMatchesTab(order, "failed")).toBe(false);
+  });
 });
