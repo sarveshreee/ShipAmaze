@@ -17,6 +17,15 @@ export default defineConfig(({ mode }) => {
   server: {
     host: "::",
     port: 8080,
+    // Allow ngrok tunnel hostnames (Vite blocks unknown Host headers by default)
+    allowedHosts: [".ngrok-free.dev", ".ngrok-free.app", ".ngrok.io", ".ngrok.app"],
+    // Same-origin /api so ngrok HTTPS can reach the local backend (avoids localhost + mixed content)
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+    },
     hmr: {
       overlay: false,
     },

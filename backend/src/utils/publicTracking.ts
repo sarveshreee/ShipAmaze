@@ -74,6 +74,7 @@ type OrderLike = {
   shipmentCreated?: boolean;
   trackingId?: string;
   statusHistory?: { status: string; at: Date; note?: string }[];
+  edd?: Date | string | null;
 };
 
 function buildTimeline(o: OrderLike): PublicTrackingTimelineEntry[] {
@@ -92,6 +93,16 @@ function buildTimeline(o: OrderLike): PublicTrackingTimelineEntry[] {
     }));
   }
   return [];
+}
+
+function formatEdd(edd: Date | string | null | undefined): string | null {
+  if (edd == null || edd === "") return null;
+  const d = edd instanceof Date ? edd : new Date(edd);
+  if (Number.isNaN(d.getTime())) {
+    const raw = String(edd).trim();
+    return raw || null;
+  }
+  return d.toISOString();
 }
 
 export function mapToPublicTracking(o: OrderLike): PublicTrackingOrder {
@@ -118,7 +129,7 @@ export function mapToPublicTracking(o: OrderLike): PublicTrackingOrder {
     channel: o.channel ? String(o.channel) : undefined,
     trackingUrl: o.trackingUrl ? String(o.trackingUrl) : undefined,
     trackingActivities: buildTimeline(o),
-    estimatedDelivery: null,
+    estimatedDelivery: formatEdd(o.edd),
     pendingShipment: !hasShipment,
   };
 }

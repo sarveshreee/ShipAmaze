@@ -1,11 +1,11 @@
 /**
  * Velocity Shipping – bulk shipment status sync.
  *
- * Fetches every active order that has an AWB but a stale "in-progress" shipment
- * status, calls the Velocity tracking API for each, and persists the result.
+ * Fetches active orders that have an AWB, calls the Velocity tracking API for
+ * each, and persists the result so website tabs stay in sync with Velocity.
  *
  * Designed to be called:
- *   • From the background interval in server.ts (every ~10 minutes).
+ *   • From the background interval in server.ts (every ~5 minutes).
  *   • From the admin API endpoint POST /velocity/sync-statuses (on-demand).
  */
 
@@ -13,39 +13,24 @@ import { Order } from "../../models/Order.js";
 import { listShipments, trackShipment } from "./velocity.service.js";
 import { mapVelocityStatus, shouldApplyInternalStatusUpdate } from "./velocity.mapper.js";
 import { normalizeOrderStatus } from "../../utils/orderStatus.js";
-import { devLog } from "../../utils/devLog.js";
 import { mirrorShopifyFulfillmentStatus, pushShopifyFulfillmentUpdate } from "../../services/shopifyFulfillmentMirror.js";
 import { upsertNdrFromVelocityShipment } from "./velocity.ndrSync.js";
 import { syncVelocityFailureRemarkByAwb } from "./velocityRemarkSync.js";
 
-/** Shipment statuses that need live tracking refreshed from Velocity. */
-const STALE_STATUSES = [
-  // hyphenated (legacy stored values)
-  "pending-pickup",
-  "pickup-scheduled",
-  "picked-up",
-  "in-transit",
-  "out-for-delivery",
-  // underscore canonical
-  "pending_pickup",
-  "pickup_scheduled",
-  "picked_up",
-  "in_transit",
-  "out_for_delivery",
-  // Velocity raw strings that may have been stored directly
-  "In Transit",
-  "In-Transit",
-  "In transit",
-  "Pickup Scheduled",
-  "Picked Up",
-  "Out for Delivery",
-  "Out For Delivery",
-  "ready_to_ship",
-  "ready-to-ship",
-  "ready_for_pickup",
-  "Ready for Pickup",
-  "not_picked",
-  "Not Picked",
+/** Terminal / closed statuses that do not need further Velocity polling. */
+const TERMINAL_STATUS_VALUES = [
+  "delivered",
+  "Delivered",
+  "cancelled",
+  "canceled",
+  "Cancelled",
+  "Canceled",
+  "rto",
+  "RTO",
+  "rto_delivered",
+  "RTO Delivered",
+  "reship",
+  "junk",
 ];
 
 export interface StatusSyncResult {
@@ -53,8 +38,16 @@ export interface StatusSyncResult {
   updated: number;
   errors: number;
   skipped: number;
-  /** Sample error messages (up to 5) for surfacing to admin UI. */
+  /** Sample error messages (up to 10) for surfacing to admin UI / logs. */
   errorDetails?: string[];
+}
+
+/** Always-on sync logger so failed status syncs are visible in production. */
+function syncLog(level: "info" | "warn" | "error", message: string, meta?: Record<string, unknown>) {
+  const line = meta ? `${message} ${JSON.stringify(meta)}` : message;
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.info(line);
 }
 
 function extractVelocityShipmentEdd(row: unknown): string | undefined {
@@ -118,9 +111,16 @@ function clearShipmentForReship(order: InstanceType<typeof Order>) {
   order.trackingActivities = undefined;
 }
 
+function markSynced(order: InstanceType<typeof Order>) {
+  order.lastVelocityStatusSyncedAt = new Date();
+}
+
 /**
- * Refresh all active orders whose `shipmentStatus` (or `status`) indicates
- * they are somewhere between Pickup Scheduled and Out for Delivery.
+ * Refresh active Velocity shipments whose lifecycle is not yet terminal.
+ *
+ * Uses exclusion of terminal statuses (not a brittle include-list) and fair
+ * rotation via `lastVelocityStatusSyncedAt` so every order is eventually polled
+ * even when the active set exceeds `batchSize`.
  *
  * @param batchSize - max orders to process per call (default 100 to avoid timeouts)
  */
@@ -128,26 +128,33 @@ export async function syncActiveShipmentStatuses(
   batchSize = 100
 ): Promise<StatusSyncResult> {
   const result: StatusSyncResult = { processed: 0, updated: 0, errors: 0, skipped: 0, errorDetails: [] };
+  const startedAt = Date.now();
 
   const orders = await Order.find({
     awb: { $exists: true, $nin: ["", null] },
-    // Only track orders that were actually submitted through Velocity — placeholder
-    // AWBs (e.g. "AWB-{timestamp}-{random}") have no velocityShipmentId and
-    // Velocity will return 400 "Shipment not found" for them.
-    velocityShipmentId: { $exists: true, $nin: ["", null] },
-    isJunk: { $ne: true },
-    status: { $nin: ["reship", "junk", "cancelled"] },
-    shipmentStatus: { $nin: ["reship", "cancelled"] },
+    // Prefer Velocity shipment id; also accept legacy `shipmentId` so older rows sync.
     $or: [
-      { shipmentStatus: { $in: STALE_STATUSES } },
-      { status: { $in: STALE_STATUSES } },
+      { velocityShipmentId: { $exists: true, $nin: ["", null] } },
+      { shipmentId: { $exists: true, $nin: ["", null] } },
     ],
+    isJunk: { $ne: true },
+    // Drive off main `status` so we still poll when shipmentStatus already shows a
+    // terminal Velocity raw value but the website status has not caught up yet.
+    status: { $nin: TERMINAL_STATUS_VALUES },
+    shipmentStatus: { $nin: ["reship"] },
   })
-    .select("_id orderId awb status shipmentStatus trackingActivities statusHistory velocityOrderId velocityShipmentId courierName")
+    .select(
+      "_id orderId awb status shipmentStatus trackingActivities statusHistory velocityOrderId velocityShipmentId shipmentId courierName lastVelocityStatusSyncedAt"
+    )
+    // Oldest / never-synced first so large fleets rotate fairly across runs.
+    .sort({ lastVelocityStatusSyncedAt: 1, updatedAt: 1 })
     .limit(batchSize)
     .lean();
 
-  devLog.info(`[velocity:status-sync] ${orders.length} orders to refresh`);
+  syncLog("info", "[velocity:status-sync] starting", {
+    candidates: orders.length,
+    batchSize,
+  });
 
   for (const lean of orders) {
     result.processed++;
@@ -159,6 +166,24 @@ export async function syncActiveShipmentStatuses(
 
     try {
       const trackResult = await trackShipment({ awb });
+
+      if (!trackResult.status || !String(trackResult.status).trim()) {
+        result.errors++;
+        const emptyMsg = `${lean.orderId}: empty status from Velocity for awb=${awb}`;
+        syncLog("warn", "[velocity:status-sync] empty tracking status", {
+          orderId: lean.orderId,
+          awb,
+        });
+        if ((result.errorDetails?.length ?? 0) < 10) {
+          result.errorDetails = [...(result.errorDetails ?? []), emptyMsg];
+        }
+        // Still stamp sync time so one bad AWB does not block the rotation forever.
+        await Order.updateOne(
+          { _id: lean._id },
+          { $set: { lastVelocityStatusSyncedAt: new Date() } }
+        );
+        continue;
+      }
 
       // internalStatus is the hyphenated value from mapVelocityStatus (e.g. "in-transit")
       const internalStatus = mapVelocityStatus(trackResult.status);
@@ -173,6 +198,8 @@ export async function syncActiveShipmentStatuses(
       }
 
       if (doc.isJunk || doc.status === "reship" || doc.shipmentStatus === "reship") {
+        markSynced(doc);
+        await doc.save();
         result.skipped++;
         continue;
       }
@@ -193,13 +220,15 @@ export async function syncActiveShipmentStatuses(
           doc.status = "reship";
         }
         doc.shipmentStatus = "reship";
+        markSynced(doc);
         mirrorShopifyFulfillmentStatus(doc);
         await doc.save();
         void pushShopifyFulfillmentUpdate(doc);
         result.updated++;
-        devLog.info(
-          `[velocity:status-sync] moved cancelled Velocity order to reship orderId=${lean.orderId} awb=${awb}`
-        );
+        syncLog("info", "[velocity:status-sync] moved cancelled Velocity order to reship", {
+          orderId: lean.orderId,
+          awb,
+        });
         continue;
       }
 
@@ -226,7 +255,14 @@ export async function syncActiveShipmentStatuses(
 
       // Velocity's UI Delivery Date is returned by /shipments search under
       // shipment_milestones.original_expected_delivery_date, not by /order-tracking.
-      const velocityEdd = await getVelocityDeliveryDateForAwb(awb).catch(() => undefined);
+      const velocityEdd = await getVelocityDeliveryDateForAwb(awb).catch((eddErr: unknown) => {
+        syncLog("warn", "[velocity:status-sync] EDD lookup failed", {
+          orderId: lean.orderId,
+          awb,
+          error: eddErr instanceof Error ? eddErr.message : String(eddErr),
+        });
+        return undefined;
+      });
       if (velocityEdd) {
         const velocityEddMs = Date.parse(velocityEdd);
         if (!isNaN(velocityEddMs)) {
@@ -244,12 +280,14 @@ export async function syncActiveShipmentStatuses(
       if (
         internalStatus &&
         shouldApplyInternalStatusUpdate(currentStatus, internalStatus) &&
-        doc.status !== internalCanonical
+        normalizeOrderStatus(doc.status) !== internalCanonical
       ) {
         appendHistoryEntry(doc, internalCanonical, "velocity_bg_sync");
         doc.status = internalCanonical;
         changed = true;
       }
+
+      markSynced(doc);
 
       if (changed) {
         mirrorShopifyFulfillmentStatus(doc);
@@ -257,11 +295,15 @@ export async function syncActiveShipmentStatuses(
         await doc.save();
         void pushShopifyFulfillmentUpdate(doc);
         result.updated++;
-        devLog.info(
-          `[velocity:status-sync] updated orderId=${lean.orderId} awb=${awb} ` +
-            `${currentStatus} → ${internalCanonical} (velocity raw: ${trackResult.status})`
-        );
+        syncLog("info", "[velocity:status-sync] updated", {
+          orderId: lean.orderId,
+          awb,
+          from: currentStatus,
+          to: internalCanonical,
+          velocityRaw: trackResult.status,
+        });
       } else {
+        await doc.save();
         result.skipped++;
       }
 
@@ -280,26 +322,38 @@ export async function syncActiveShipmentStatuses(
             doc
           );
         } catch (ndrErr: unknown) {
-          devLog.warn(
-            `[velocity:status-sync] NDR upsert failed awb=${awb}:`,
-            ndrErr instanceof Error ? ndrErr.message : ndrErr
-          );
+          syncLog("warn", "[velocity:status-sync] NDR upsert failed", {
+            awb,
+            error: ndrErr instanceof Error ? ndrErr.message : String(ndrErr),
+          });
         }
       }
     } catch (err: unknown) {
       result.errors++;
       const msg = err instanceof Error ? err.message : String(err);
-      devLog.warn(
-        `[velocity:status-sync] tracking failed awb=${awb} orderId=${lean.orderId}: ${msg}`
-      );
-      if ((result.errorDetails?.length ?? 0) < 5) {
+      syncLog("error", "[velocity:status-sync] tracking failed", {
+        awb,
+        orderId: lean.orderId,
+        error: msg,
+      });
+      if ((result.errorDetails?.length ?? 0) < 10) {
         result.errorDetails = [...(result.errorDetails ?? []), `${lean.orderId}: ${msg}`];
       }
+      // Advance sync cursor so a persistently failing AWB does not starve others.
+      await Order.updateOne(
+        { _id: lean._id },
+        { $set: { lastVelocityStatusSyncedAt: new Date() } }
+      ).catch(() => undefined);
     }
   }
 
-  devLog.info(
-    `[velocity:status-sync] done — processed=${result.processed} updated=${result.updated} errors=${result.errors} skipped=${result.skipped}`
-  );
+  syncLog("info", "[velocity:status-sync] done", {
+    processed: result.processed,
+    updated: result.updated,
+    errors: result.errors,
+    skipped: result.skipped,
+    durationMs: Date.now() - startedAt,
+    errorDetails: result.errorDetails?.length ? result.errorDetails : undefined,
+  });
   return result;
 }

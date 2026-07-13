@@ -177,7 +177,7 @@ export function preloadProductImages(productIds: string[]): void {
 function resolveMediaUrlForPreload(path: string): string | null {
   if (/^https?:\/\//i.test(path) || path.startsWith("data:")) return path;
   const envBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
-  const normalized = envBase ? envBase.replace(/\/$/, "") : import.meta.env.DEV ? "http://localhost:5000/api" : "";
+  const normalized = envBase ? envBase.replace(/\/$/, "") : import.meta.env.DEV ? "/api" : "";
   const apiBase = /\/api$/i.test(normalized) ? normalized : normalized ? `${normalized}/api` : "";
   return apiBase ? `${apiBase}${path.startsWith("/") ? path : `/${path}`}` : path;
 }

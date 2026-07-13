@@ -110,11 +110,13 @@ async function main() {
     try {
       if (!isVelocityConfigured()) return;
       const r = await syncActiveShipmentStatuses(150);
-      devLog.info(
-        `[velocity:bg-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}`
+      // Always-on so failed syncs are visible in production logs
+      console.info(
+        `[velocity:bg-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}` +
+          (r.errorDetails?.length ? ` errorDetails=${JSON.stringify(r.errorDetails)}` : "")
       );
     } catch (e: unknown) {
-      devLog.warn("[velocity:bg-sync] error", e instanceof Error ? e.message : e);
+      console.error("[velocity:bg-sync] error", e instanceof Error ? e.message : e);
     }
   }, 5 * 60 * 1000);
   velocityBgSync.unref();
@@ -124,11 +126,12 @@ async function main() {
     setTimeout(async () => {
       try {
         const r = await syncActiveShipmentStatuses(150);
-        devLog.info(
-          `[velocity:startup-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}`
+        console.info(
+          `[velocity:startup-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}` +
+            (r.errorDetails?.length ? ` errorDetails=${JSON.stringify(r.errorDetails)}` : "")
         );
       } catch (e: unknown) {
-        devLog.warn("[velocity:startup-sync] error", e instanceof Error ? e.message : e);
+        console.error("[velocity:startup-sync] error", e instanceof Error ? e.message : e);
       }
       try {
         const ndr = await syncNdrFromVelocity({ daysBack: 120 });

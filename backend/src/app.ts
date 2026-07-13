@@ -74,12 +74,18 @@ function parseCorsOrigins(): string[] {
   );
 }
 
-/** localhost / 127.0.0.1 on any port — browser origin may differ from http://localhost:8080. */
+/** localhost / 127.0.0.1 / ngrok — browser origin may differ from http://localhost:8080. */
 function isLocalDevOrigin(origin: string): boolean {
   try {
     const { hostname, protocol } = new URL(origin);
     if (protocol !== "http:" && protocol !== "https:") return false;
-    return hostname === "localhost" || hostname === "127.0.0.1";
+    if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+    return (
+      hostname.endsWith(".ngrok-free.dev") ||
+      hostname.endsWith(".ngrok-free.app") ||
+      hostname.endsWith(".ngrok.io") ||
+      hostname.endsWith(".ngrok.app")
+    );
   } catch {
     return false;
   }
@@ -254,6 +260,14 @@ export function createApp() {
     requireOwnerAdmin,
     labelInvoiceSettingsController.putLabelInvoiceSettings
   );
+  api.post(
+    "/settings/label-invoice/resolve-logos",
+    authMiddleware,
+    labelInvoiceSettingsController.resolveOrderLabelLogos
+  );
+  api.get("/account/label-logo", authMiddleware, requireRoles("dropshipper"), labelInvoiceSettingsController.getMyLabelLogo);
+  api.put("/account/label-logo", authMiddleware, requireRoles("dropshipper"), labelInvoiceSettingsController.putMyLabelLogo);
+  api.delete("/account/label-logo", authMiddleware, requireRoles("dropshipper"), labelInvoiceSettingsController.deleteMyLabelLogo);
 
   api.get("/settings/profit-calculator", authMiddleware, profitCalculatorSettingsController.getProfitCalculatorSettings);
   api.put(

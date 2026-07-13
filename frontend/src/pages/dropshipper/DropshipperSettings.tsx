@@ -13,9 +13,12 @@ import * as dropshipperService from "@/services/dropshipperService";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Shield, Building2, Users2, Upload, CheckCircle2, Clock, AlertCircle, Plus,
-  Star, Trash2, Copy, RefreshCw, User, Briefcase, FileCheck, X, Link2, Loader2
+  Star, Trash2, Copy, RefreshCw, User, Briefcase, FileCheck, X, Link2, Loader2, Image as ImageIcon
 } from "lucide-react";
 import ShopifyConnect from "@/components/ShopifyConnect";
+import * as labelInvoiceSettingsService from "@/services/labelInvoiceSettingsService";
+import { DEFAULT_LABEL_INVOICE_SETTINGS } from "@/types/labelInvoice";
+import { createOrderLabelElement, getLabelPreviewSampleOrder } from "@/components/orderLabelDom";
 
 /* ===========================================================
    Types
@@ -82,12 +85,15 @@ export default function DropshipperSettings() {
       </p>
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4 h-auto p-1 bg-surface-2 rounded-xl mb-5">
+        <TabsList className="grid w-full grid-cols-5 h-auto p-1 bg-surface-2 rounded-xl mb-5">
           <TabsTrigger value="kyc" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
             <Shield className="h-4 w-4" /> KYC
           </TabsTrigger>
           <TabsTrigger value="bank" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
             <Building2 className="h-4 w-4" /> Bank
+          </TabsTrigger>
+          <TabsTrigger value="logo" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
+            <ImageIcon className="h-4 w-4" /> Label Logo
           </TabsTrigger>
           <TabsTrigger value="team" className="gap-2 py-2.5 data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-lg">
             <Users2 className="h-4 w-4" /> Team
@@ -99,6 +105,7 @@ export default function DropshipperSettings() {
 
         <TabsContent value="kyc" className="mt-0"><KycTab userId={userId} /></TabsContent>
         <TabsContent value="bank" className="mt-0"><BankTab userId={userId} /></TabsContent>
+        <TabsContent value="logo" className="mt-0"><LabelLogoTab /></TabsContent>
         <TabsContent value="team" className="mt-0"><TeamTab userId={userId} /></TabsContent>
         <TabsContent value="channels" className="mt-0"><ChannelsTab /></TabsContent>
       </Tabs>
@@ -676,6 +683,161 @@ function AddBankModal({ open, onClose, onAdd }: {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ===========================================================
+   LABEL LOGO TAB
+=========================================================== */
+function LabelLogoTab() {
+  const [logoUrl, setLogoUrl] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [previewHost, setPreviewHost] = useState<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { logoUrl: url } = await labelInvoiceSettingsService.getMyLabelLogo();
+        if (!cancelled) setLogoUrl(url || "");
+      } catch {
+        if (!cancelled) setLogoUrl("");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!previewHost) return;
+    previewHost.replaceChildren();
+    const settings = {
+      ...DEFAULT_LABEL_INVOICE_SETTINGS,
+      logoUrl: logoUrl || DEFAULT_LABEL_INVOICE_SETTINGS.logoUrl,
+      showLogo: true,
+      labelSize: "4x6" as const,
+    };
+    const node = createOrderLabelElement(getLabelPreviewSampleOrder(), settings, {
+      documentTitle: "Preview",
+    });
+    node.style.transform = "scale(0.55)";
+    node.style.transformOrigin = "top left";
+    previewHost.appendChild(node);
+  }, [logoUrl, previewHost]);
+
+  const onFile = (file: File | null) => {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|jpg|webp|svg\+xml)$/i.test(file.type)) {
+      toast.error("Upload a PNG, JPG, WEBP, or SVG image");
+      return;
+    }
+    if (file.size > 900_000) {
+      toast.error("Logo must be under 900 KB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const r = String(reader.result ?? "");
+      if (r.startsWith("data:")) setLogoUrl(r);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const save = async () => {
+    if (!logoUrl.trim()) {
+      toast.error("Upload a logo first");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await labelInvoiceSettingsService.putMyLabelLogo(logoUrl.trim());
+      setLogoUrl(res.logoUrl);
+      toast.success("Label logo saved — it will appear on your shipping labels");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to save logo");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    setSaving(true);
+    try {
+      await labelInvoiceSettingsService.deleteMyLabelLogo();
+      setLogoUrl("");
+      toast.success("Custom logo removed — labels will use the default ShipAmaze logo");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to remove logo");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-text-muted py-10 justify-center">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading logo settings…
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+        <div>
+          <h3 className="font-semibold text-text-primary">Shipping label logo</h3>
+          <p className="text-sm text-text-muted mt-1">
+            Upload your brand logo. It replaces the default logo on labels for your orders only.
+            Other dropshippers keep their own logos.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="h-16 w-40 rounded-lg border border-dashed border-border bg-surface-2 flex items-center justify-center overflow-hidden">
+            {logoUrl ? (
+              <img src={logoUrl} alt="Label logo" className="max-h-14 max-w-[150px] object-contain" />
+            ) : (
+              <span className="text-xs text-text-muted">No custom logo</span>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ds-label-logo" className="cursor-pointer inline-flex items-center gap-2 text-sm font-medium text-primary">
+              <Upload className="h-4 w-4" /> Choose image
+            </Label>
+            <Input
+              id="ds-label-logo"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              className="hidden"
+              onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+            />
+            <p className="text-xs text-text-muted">PNG / JPG / WEBP / SVG · max 900 KB</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void save()} disabled={saving || !logoUrl.trim()}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Save logo
+          </Button>
+          <Button variant="outline" onClick={() => void remove()} disabled={saving || !logoUrl}>
+            <Trash2 className="h-4 w-4 mr-2" /> Remove
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="font-semibold text-text-primary mb-3">Label preview</h3>
+        <div
+          ref={setPreviewHost}
+          className="overflow-hidden bg-surface-2 rounded-lg border border-border h-[320px]"
+        />
+      </div>
+    </div>
   );
 }
 

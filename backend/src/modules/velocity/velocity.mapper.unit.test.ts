@@ -37,4 +37,12 @@ describe("velocity status mapping", () => {
     expect(shouldApplyInternalStatusUpdate("out_for_delivery", "delivered")).toBe(true);
     expect(shouldApplyInternalStatusUpdate("delivered", "in_transit")).toBe(false);
   });
+
+  it("maps compact and booking aliases used by Velocity", () => {
+    expect(mapVelocityStatus("OFD")).toBe("out-for-delivery");
+    expect(mapVelocityStatus("outfordelivery")).toBe("out-for-delivery");
+    expect(mapVelocityStatus("intransit")).toBe("in-transit");
+    expect(mapVelocityStatus("Booked")).toBe("pickup-scheduled");
+    expect(mapVelocityStatus("Manifested")).toBe("pickup-scheduled");
+  });
 });

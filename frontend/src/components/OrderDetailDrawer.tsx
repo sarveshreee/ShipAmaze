@@ -75,7 +75,32 @@ const timelineSteps = [
   { label: "Delivered", detail: "Successfully delivered" },
 ];
 
-const allStatuses: OrderStatus[] = ['pending', 'ready-to-ship', 'not-picked', 'in-transit', 'out-for-delivery', 'delivered', 'ndr', 'rto', 'cancelled'];
+const allStatuses: OrderStatus[] = [
+  "pending",
+  "ready-to-ship",
+  "not-picked",
+  "on-process",
+  "in-transit",
+  "out-for-delivery",
+  "delivered",
+  "ndr",
+  "rto",
+  "cancelled",
+];
+
+/** Extra courier pipeline statuses (snake_case) shown when the order already has them. */
+const COURIER_PIPELINE_STATUSES = [
+  "ready_for_pickup",
+  "pending_pickup",
+  "pickup_scheduled",
+  "picked_up",
+  "in_transit",
+  "out_for_delivery",
+  "delivered",
+  "ndr",
+  "rto",
+  "cancelled",
+] as const;
 
 const DEV_VELOCITY_WH_CODE = (import.meta.env.VITE_VELOCITY_DEV_WAREHOUSE_CODE as string | undefined)?.trim();
 /** Never expose dev warehouse fallback in production builds. */
@@ -184,10 +209,30 @@ export function OrderDetailDrawer({
   if (!order) return null;
 
   const currentStep = statusToStep[order.status] ?? -1;
-  const steps = timelineSteps.map((s, i) => ({
-    ...s,
-    timestamp: i <= currentStep ? `Apr ${1 + i * 2}, 2026 — ${9 + i * 2}:${15 + i * 10} AM` : "",
-  }));
+  const steps = timelineSteps.map((s, i) => {
+    // Real timestamps only from statusHistory — never invent dates
+    const hist = (order.statusHistory ?? []).find((e) => {
+      const key = String(e.status ?? "")
+        .toLowerCase()
+        .replace(/-/g, "_");
+      const labelKey = s.label.toLowerCase().replace(/\s+/g, "_");
+      return key.includes(labelKey.replace("order_placed", "draft")) || key === labelKey;
+    });
+    const at = hist?.at ? new Date(hist.at) : null;
+    const timestamp =
+      at && !Number.isNaN(at.getTime())
+        ? at.toLocaleString(undefined, {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : i === 0 && order.date
+          ? order.date
+          : undefined;
+    return { ...s, timestamp };
+  });
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -815,6 +860,22 @@ export function OrderDetailDrawer({
               )}
             </h4>
 
+            {order.edd ? (
+              <p className="text-sm text-text-secondary mb-3">
+                Expected delivery (Velocity):{" "}
+                <span className="font-semibold text-text-primary">
+                  {(() => {
+                    const d = new Date(order.edd);
+                    return Number.isNaN(d.getTime())
+                      ? order.edd
+                      : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+                  })()}
+                </span>
+              </p>
+            ) : (
+              <p className="text-xs text-text-muted mb-3">Expected delivery date not available from Velocity yet.</p>
+            )}
+
             {(liveActivities ?? order.trackingActivities)?.length ? (
               <div className="rounded-xl border border-border bg-card divide-y divide-border">
                 {(liveActivities ?? order.trackingActivities)!.map((act, i) => (
@@ -847,11 +908,12 @@ export function OrderDetailDrawer({
                 <SelectValue placeholder="Change status..." />
               </SelectTrigger>
               <SelectContent>
-                {allStatuses
-                  .filter((s) => s !== order.status)
+                {[...new Set([...allStatuses, ...COURIER_PIPELINE_STATUSES, order.status, order.shipmentStatus].filter(Boolean))]
+                  .filter((s) => s !== order.status && s !== order.shipmentStatus)
                   .map((s) => (
                     <SelectItem key={s} value={s}>
-                      {s
+                      {String(s)
+                        .replace(/_/g, " ")
                         .replace(/-/g, " ")
                         .replace(/\b\w/g, (l) => l.toUpperCase())}
                     </SelectItem>
@@ -954,7 +1016,7 @@ export function OrderDetailDrawer({
                   onClick={() => {
                     setPdfLoading("label");
                     void downloadShippingLabelPdf(order, labelSettings)
-                      .then(() => toast.success("Label PDF downloaded"))
+                      .then(() => toast.success("Label opened — use Print / Save as PDF"))
                       .catch((err: unknown) => toast.error(errMsg(err)))
                       .finally(() => setPdfLoading(null));
                   }}

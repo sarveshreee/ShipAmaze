@@ -4,12 +4,14 @@ import {
   createOrderLabelElement,
   displayOrderNumber,
   downloadOrderLabelPdf,
-  openLabelNodesAsPdf,
+  openPrintWindowForLabel,
+  openPrintWindowForLabelNodes,
   renderLabelNodesToPdfBlob,
 } from "@/components/orderLabelDom";
 import { shouldUseVelocityCourierPdf } from "@/lib/labelPrintUtils";
 import { toast } from "sonner";
 import { getStoredToken } from "@/lib/apiClient";
+import * as labelInvoiceSettingsService from "@/services/labelInvoiceSettingsService";
 
 const BULK_FETCH_TIMEOUT_MS = 120_000;
 const MAX_STYLED_BULK_LABELS = 50;
@@ -20,7 +22,7 @@ function getApiBase(): string {
     const n = u.replace(/\/$/, "");
     return /\/api$/i.test(n) ? n : `${n}/api`;
   }
-  if (import.meta.env.DEV) return "http://localhost:5000/api";
+  if (import.meta.env.DEV) return "/api";
   return "";
 }
 
@@ -133,11 +135,36 @@ async function openCourierLabelPdf(order: Order): Promise<void> {
   openPdfBlob(await fetchCourierLabelPdfBlob(order));
 }
 
-async function openStyledLabelPdf(order: Order, settings?: LabelInvoiceSettings): Promise<void> {
-  const s = settings ?? DEFAULT_LABEL_INVOICE_SETTINGS;
-  const visibleOrderNumber = displayOrderNumber(order);
-  const node = createOrderLabelElement(order, s, { documentTitle: `Shipping label · ${visibleOrderNumber}` });
-  await openLabelNodesAsPdf([node], s, `Shipping label · ${visibleOrderNumber}`);
+/** Load global (or dropshipper-merged) settings, then apply per-order logos when present. */
+async function resolveSettingsForOrders(
+  orders: Order[],
+  settings?: LabelInvoiceSettings
+): Promise<{ base: LabelInvoiceSettings; logos: Record<string, string> }> {
+  let base = settings;
+  if (!base) {
+    try {
+      base = await labelInvoiceSettingsService.getLabelInvoiceSettings();
+    } catch {
+      base = DEFAULT_LABEL_INVOICE_SETTINGS;
+    }
+  }
+  let logos: Record<string, string> = {};
+  try {
+    logos = await labelInvoiceSettingsService.resolveOrderLabelLogos(orders.map((o) => o.id));
+  } catch (err) {
+    console.warn("[label] resolve logos failed", err instanceof Error ? err.message : err);
+  }
+  return { base, logos };
+}
+
+function settingsForOrder(
+  base: LabelInvoiceSettings,
+  order: Order,
+  logos: Record<string, string>
+): LabelInvoiceSettings {
+  const custom = logos[order.id]?.trim();
+  if (!custom) return base;
+  return { ...base, logoUrl: custom, showLogo: true };
 }
 
 export function printShippingLabel(order: Order, settings?: LabelInvoiceSettings) {
@@ -147,9 +174,15 @@ export function printShippingLabel(order: Order, settings?: LabelInvoiceSettings
     });
     return;
   }
-  openStyledLabelPdf(order, settings).catch((e: unknown) => {
-    toast.error(e instanceof Error ? e.message : "Failed to open label PDF");
-  });
+  void (async () => {
+    try {
+      const { base, logos } = await resolveSettingsForOrders([order], settings);
+      const s = settingsForOrder(base, order, logos);
+      openPrintWindowForLabel(order, s, `Shipping label · ${displayOrderNumber(order)}`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to open label");
+    }
+  })();
 }
 
 export async function printBulkLabels(orders: Order[], settings?: LabelInvoiceSettings): Promise<void> {
@@ -174,8 +207,11 @@ export async function printBulkLabels(orders: Order[], settings?: LabelInvoiceSe
     }
 
     if (styledOrders.length > 0) {
-      const s = { ...(settings ?? DEFAULT_LABEL_INVOICE_SETTINGS), labelSize: "4x6" as const };
-      const nodes = styledOrders.map((o) => createOrderLabelElement(o, s, { documentTitle: "Shipping label" }));
+      const { base, logos } = await resolveSettingsForOrders(styledOrders, settings);
+      const s = { ...base, labelSize: "4x6" as const };
+      const nodes = styledOrders.map((o) =>
+        createOrderLabelElement(o, settingsForOrder(s, o, logos), { documentTitle: "Shipping label" })
+      );
       pdfParts.push(await renderLabelNodesToPdfBlob(nodes, s));
     }
 
@@ -196,9 +232,12 @@ export async function printBulkInvoices(orders: Order[], settings?: LabelInvoice
   if (orders.length > MAX_STYLED_BULK_LABELS) {
     throw new Error(`Print at most ${MAX_STYLED_BULK_LABELS} invoices at a time.`);
   }
-  const s = settings ?? DEFAULT_LABEL_INVOICE_SETTINGS;
-  const nodes = orders.map((o) => createOrderLabelElement(o, s, { documentTitle: "Invoice" }));
-  await openLabelNodesAsPdf(nodes, s, "Bulk invoices");
+  const { base, logos } = await resolveSettingsForOrders(orders, settings);
+  const nodes = orders.map((o) =>
+    createOrderLabelElement(o, settingsForOrder(base, o, logos), { documentTitle: "Invoice" })
+  );
+  // Fast path for viewing/printing; use PDF blob path only when merging with courier PDFs elsewhere.
+  openPrintWindowForLabelNodes(nodes, base, "Bulk invoices");
 }
 
 export async function downloadShippingLabelPdf(order: Order, settings?: LabelInvoiceSettings) {
@@ -212,11 +251,14 @@ export async function downloadShippingLabelPdf(order: Order, settings?: LabelInv
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
     return;
   }
-  const s = settings ?? DEFAULT_LABEL_INVOICE_SETTINGS;
-  await downloadOrderLabelPdf(order, s, `label-${displayOrderNumber(order)}.pdf`, "Shipping label");
+  const { base, logos } = await resolveSettingsForOrders([order], settings);
+  const s = settingsForOrder(base, order, logos);
+  // Fast high-res path: open native print preview (Save as PDF). Avoids slow html2canvas.
+  openPrintWindowForLabel(order, s, `Shipping label · ${displayOrderNumber(order)}`);
 }
 
 export async function downloadInvoicePdf(order: Order, settings?: LabelInvoiceSettings) {
-  const s = settings ?? DEFAULT_LABEL_INVOICE_SETTINGS;
+  const { base, logos } = await resolveSettingsForOrders([order], settings);
+  const s = settingsForOrder(base, order, logos);
   await downloadOrderLabelPdf(order, s, `invoice-${order.id}.pdf`, "Invoice");
 }

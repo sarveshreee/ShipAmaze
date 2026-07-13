@@ -575,95 +575,95 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     merged.warehouse_id != null && String(merged.warehouse_id).trim() !== ""
       ? String(merged.warehouse_id).trim()
       : "";
-  const velocityOrderIdLooksProvider = (id: string) => /^ORD/i.test(String(id || "").trim());
+  const existingVelocityOrderId = String(localOrder?.velocityOrderId ?? "").trim();
 
-  // Only use "assign AWB later" when we have a real Velocity order id (usually starts with ORD...).
-  if (
-    localOrder?.velocityOrderId &&
-    velocityOrderIdLooksProvider(localOrder.velocityOrderId) &&
-    !localOrder.awb
-  ) {
+  // Prefer assign-AWB on an existing Velocity order. If that fails (order not on
+  // Velocity yet), fall through and create with the same locked order_id.
+  if (existingVelocityOrderId && !localOrder?.awb) {
     const assignPayloadEarly = buildForwardPayload(merged, localOrder);
     validateForwardPayload(assignPayloadEarly, localOrder);
     await enforceServiceabilityLaneIfRequested(merged as PickupPinMerged, assignPayloadEarly, body);
     try {
       await precheckForwardShipmentWallet(localOrder);
       const later = await velocityService.createForwardShipmentLater({
-        order_id: localOrder.velocityOrderId,
+        order_id: existingVelocityOrderId,
         carrier_id: merged.carrier_id as string | number | undefined,
       });
-      applyMergedPickupAndWarehouse(localOrder, merged);
-      localOrder.awb = later.awb_code ?? localOrder.awb;
-      localOrder.courier = later.carrier_name ?? localOrder.courier;
-      localOrder.velocityShipmentId = later.shipment_id;
-      localOrder.courierCompanyId = later.carrier_id;
-      localOrder.courierName = later.carrier_name;
-      localOrder.labelUrl = later.label_url;
-      scheduleLabelPdfCache(localOrder);
-      await applyBillableShippingToOrder(localOrder, {
-        courierName: String(later.carrier_name ?? localOrder.courierName ?? localOrder.courier ?? ""),
+      applyMergedPickupAndWarehouse(localOrder!, merged);
+      localOrder!.awb = later.awb_code ?? localOrder!.awb;
+      localOrder!.courier = later.carrier_name ?? localOrder!.courier;
+      localOrder!.velocityShipmentId = later.shipment_id;
+      localOrder!.courierCompanyId = later.carrier_id;
+      localOrder!.courierName = later.carrier_name;
+      localOrder!.labelUrl = later.label_url;
+      scheduleLabelPdfCache(localOrder!);
+      await applyBillableShippingToOrder(localOrder!, {
+        courierName: String(later.carrier_name ?? localOrder!.courierName ?? localOrder!.courier ?? ""),
         velocityFreightCost: later.shipping_charges,
-        weightKg: parseFloat(String(localOrder.weight ?? "")) || undefined,
+        weightKg: parseFloat(String(localOrder!.weight ?? "")) || undefined,
       });
-      localOrder.shipmentStatus = later.status;
-      localOrder.assignedDateTime = new Date();
-      applyVelocityMappedOrderStatus(localOrder, later.status, "pending-pickup", "velocity_assign_awb");
-      localOrder.shipmentCreated = true;
-      if (later.awb_code) localOrder.trackingId = later.awb_code;
-      mirrorShopifyFulfillmentStatus(localOrder);
-      await localOrder.save();
-      void pushShopifyFulfillmentUpdate(localOrder);
+      localOrder!.shipmentStatus = later.status;
+      localOrder!.assignedDateTime = new Date();
+      applyVelocityMappedOrderStatus(localOrder!, later.status, "pending-pickup", "velocity_assign_awb");
+      localOrder!.shipmentCreated = true;
+      if (later.awb_code) localOrder!.trackingId = later.awb_code;
+      mirrorShopifyFulfillmentStatus(localOrder!);
+      await localOrder!.save();
+      void pushShopifyFulfillmentUpdate(localOrder!);
       devLog.info(
         "[velocity:forward] create_shipment_success",
         JSON.stringify({
           orderId: requestOrderId,
           warehouseId: requestWarehouseId,
           resolved_warehouse_id: resolvedVelocityWarehouseId,
-          final_order_id: localOrder.velocityOrderId,
+          final_order_id: existingVelocityOrderId,
           order_items_len: Array.isArray((body as any).items) ? (body as any).items.length : undefined,
           provider_endpoint: "/custom/api/v1/forward-order-shipment",
           provider_status: undefined,
           provider_response_body: sanitizeForVelocityLog(later),
         })
       );
-      const walletExtra = await forwardShipmentWalletPayload(localOrder, later.shipping_charges);
-      res.status(201).json({ success: true, data: later, orderId: localOrder.orderId, ...walletExtra });
+      const walletExtra = await forwardShipmentWalletPayload(localOrder!, later.shipping_charges);
+      res.status(201).json({ success: true, data: later, orderId: localOrder!.orderId, ...walletExtra });
       return;
     } catch (err: unknown) {
-      const e = err as any;
-      const statusCode =
-        e instanceof AppError && e.statusCode === 402 ? 402 : typeof e?.statusCode === "number" ? e.statusCode : 500;
-      console.error(
-        "[velocity:forward] create_shipment_error",
+      if (err instanceof AppError && err.statusCode === 402) throw err;
+      devLog.info(
+        "[velocity:forward] assign_awb_fallback_to_create",
         JSON.stringify({
           orderId: requestOrderId,
-          warehouseId: requestWarehouseId,
-          resolved_warehouse_id: resolvedVelocityWarehouseId,
-          final_order_id: localOrder.velocityOrderId,
-          order_items_len: undefined,
-          provider_endpoint: "/custom/api/v1/forward-order-shipment",
-          provider_status: e?.providerStatusCode,
-          provider_response_body: sanitizeForVelocityLog(e?.providerError),
-          message: typeof e?.message === "string" ? e.message : "Create shipment failed",
+          velocity_order_id: existingVelocityOrderId,
+          message: err instanceof Error ? err.message : String(err),
         })
       );
-      res.status(statusCode).json({
-        success: false,
-        message: err instanceof AppError ? err.message : typeof e?.message === "string" ? e.message : "Create shipment failed",
-        providerError: sanitizeForVelocityLog(e?.providerError),
-      });
-      return;
+      // Fall through — create/orchestration with the same order_id (no remint).
     }
   }
 
   if (!merged.order_id && localOrder) {
-    merged.order_id = buildVelocityProviderOrderId(localOrder.orderId);
+    merged.order_id = existingVelocityOrderId || buildVelocityProviderOrderId(localOrder.orderId);
   }
   const payload = buildForwardPayload(merged, localOrder);
-  payload.order_id = normalizeVelocityProviderOrderId(payload.order_id);
+  payload.order_id = existingVelocityOrderId
+    ? existingVelocityOrderId
+    : normalizeVelocityProviderOrderId(payload.order_id);
   validateForwardPayload(payload, localOrder);
   await enforceServiceabilityLaneIfRequested(merged as PickupPinMerged, payload, body);
   await precheckForwardShipmentWallet(localOrder);
+
+  // Lock provider order_id before Velocity create so retries cannot fork a second clone.
+  if (localOrder && !existingVelocityOrderId) {
+    localOrder.velocityOrderId = payload.order_id;
+    try {
+      await localOrder.save();
+    } catch (saveErr) {
+      console.warn(
+        `[velocity] Failed to persist velocityOrderId before create for ${localOrder.orderId}:`,
+        saveErr instanceof Error ? saveErr.message : saveErr
+      );
+    }
+  }
+
   devLog.info(
     "[velocity:forward] payload_summary",
     JSON.stringify({
@@ -686,7 +686,6 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
 
   let result;
   let usedPayloadOrderId = payload.order_id;
-  let duplicateRetryUsed = false;
   try {
     result = await velocityService.createForwardShipment(payload);
   } catch (err: unknown) {
@@ -754,27 +753,11 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
         });
         return;
       } catch {
-        if (!localOrder?.awb) {
-          const retryOrderIdBase = localOrder?.orderId || payload.order_id;
-          const retryOrderId = buildVelocityProviderOrderId(retryOrderIdBase);
-          const retryPayload: VelocityForwardOrderRequest = { ...payload, order_id: retryOrderId };
-          devLog.info(
-            "[velocity:forward] duplicate_order_retry",
-            JSON.stringify({
-              original_order_id: payload.order_id,
-              retry_order_id: retryOrderId,
-              warehouse_id: retryPayload.warehouse_id,
-            })
-          );
-          result = await velocityService.createForwardShipment(retryPayload);
-          usedPayloadOrderId = retryOrderId;
-          duplicateRetryUsed = true;
-        } else {
-          throw new AppError(
-            409,
-            "This order already exists in Velocity. Try resync tracking or create shipment with a new shipment attempt."
-          );
-        }
+        // Never mint a second Velocity order_id with a different courier — that forks clones.
+        throw new AppError(
+          409,
+          "This order already exists in Velocity. Try resync tracking or create shipment with a new shipment attempt."
+        );
       }
     }
     else {
@@ -842,14 +825,14 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       provider_endpoint: PROVIDER_ENDPOINT,
       provider_status: undefined,
       provider_response_body: sanitizeForVelocityLog(result),
-      duplicateRetryUsed,
+      duplicateRetryUsed: false,
     })
   );
   res.status(201).json({
     success: true,
     data: result,
     orderId: localOrder?.orderId,
-    duplicateRetryUsed,
+    duplicateRetryUsed: false,
     velocityOrderIdUsed: usedPayloadOrderId,
     ...walletExtraMain,
   });
@@ -1123,19 +1106,13 @@ export const trackShipment = asyncHandler(async (req: AuthRequest, res: Response
     await syncVelocityFailureRemarkByAwb(localOrder, result, "velocity_track").catch(() => false);
     if (isVelocityCancellationStatus(result.status)) {
       moveExternallyCancelledShipmentToReship(localOrder, "velocity_track_cancelled_to_reship");
+      localOrder.lastVelocityStatusSyncedAt = new Date();
       mirrorShopifyFulfillmentStatus(localOrder);
       await localOrder.save();
       void pushShopifyFulfillmentUpdate(localOrder);
     } else {
-      const internalStatus = mapVelocityStatus(result.status);
-      if (
-        internalStatus &&
-        shouldApplyInternalStatusUpdate(localOrder.status, internalStatus) &&
-        localOrder.status !== internalStatus
-      ) {
-        appendStatusHistoryEntry(localOrder, internalStatus, "velocity_track");
-        localOrder.status = internalStatus;
-      }
+      applyVelocityMappedOrderStatus(localOrder, result.status, localOrder.status, "velocity_track");
+      localOrder.lastVelocityStatusSyncedAt = new Date();
       mirrorShopifyFulfillmentStatus(localOrder);
       await localOrder.save();
       void pushShopifyFulfillmentUpdate(localOrder);
@@ -1194,19 +1171,13 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
       doc.trackingActivities = result.shipment_track_activities ?? doc.trackingActivities;
       if (isVelocityCancellationStatus(result.status)) {
         moveExternallyCancelledShipmentToReship(doc, "velocity_public_track_cancelled_to_reship");
+        doc.lastVelocityStatusSyncedAt = new Date();
         mirrorShopifyFulfillmentStatus(doc);
         await doc.save();
         void pushShopifyFulfillmentUpdate(doc);
       } else {
-        const internalStatus = mapVelocityStatus(result.status);
-        if (
-          internalStatus &&
-          shouldApplyInternalStatusUpdate(doc.status, internalStatus) &&
-          doc.status !== internalStatus
-        ) {
-          appendStatusHistoryEntry(doc, internalStatus, "velocity_public_track");
-          doc.status = internalStatus;
-        }
+        applyVelocityMappedOrderStatus(doc, result.status, doc.status, "velocity_public_track");
+        doc.lastVelocityStatusSyncedAt = new Date();
         mirrorShopifyFulfillmentStatus(doc);
         await doc.save();
         void pushShopifyFulfillmentUpdate(doc);
@@ -1738,6 +1709,7 @@ export type ForwardBookingResult = {
 /**
  * Book a real forward shipment via Velocity for an existing order document.
  * Used by Process Selected and other server-side flows (no HTTP response).
+ * Creates at most one Velocity order_id per ShipAmaze order — never remints on retry.
  */
 export async function bookForwardShipmentForOrder(
   req: AuthRequest,
@@ -1746,9 +1718,22 @@ export async function bookForwardShipmentForOrder(
 ): Promise<ForwardBookingResult> {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
+  if (localOrder.shipmentCreated || String(localOrder.awb || "").trim()) {
+    throw new AppError(
+      409,
+      `Order ${localOrder.orderId} already has a Velocity shipment` +
+        (localOrder.awb ? ` (AWB ${localOrder.awb})` : "")
+    );
+  }
+
   const merged = await mergeVelocityWarehouse(req, body, localOrder);
   const manualCourierName = String(body.courier_name ?? "").trim();
   const explicitCourier = Boolean(manualCourierName && manualCourierName.toLowerCase() !== "auto");
+  const explicitCarrierId =
+    body.carrier_id != null && String(body.carrier_id).trim() !== ""
+      ? String(body.carrier_id).trim()
+      : "";
+  const skipServiceability = body.skip_serviceability === true && Boolean(explicitCarrierId);
 
   const carrierResolveOpts = {
     pickupPincode:
@@ -1765,33 +1750,59 @@ export async function bookForwardShipmentForOrder(
     localOrder.courierName = manualCourierName;
     localOrder.courier = manualCourierName;
   }
-  if (body.carrier_id != null && String(body.carrier_id).trim() !== "") {
-    merged.carrier_id = body.carrier_id;
-  } else if (explicitCourier) {
-    const resolvedId = await resolveVelocityCarrierId(manualCourierName, localOrder, carrierResolveOpts);
-    if (resolvedId != null && String(resolvedId).trim() !== "") {
-      merged.carrier_id = resolvedId;
+
+  if (skipServiceability) {
+    // Process Selected already verified this carrier via serviceability — skip another Velocity round-trip.
+    merged.carrier_id = explicitCarrierId;
+    localOrder.courierCompanyId = explicitCarrierId;
+  } else {
+    if (explicitCarrierId) {
+      merged.carrier_id = explicitCarrierId;
+    } else if (explicitCourier) {
+      const resolvedId = await resolveVelocityCarrierId(manualCourierName, localOrder, carrierResolveOpts);
+      if (resolvedId != null && String(resolvedId).trim() !== "") {
+        merged.carrier_id = resolvedId;
+      }
     }
+
+    const serviceable = await assertServiceableCarrierForOrder(localOrder, {
+      ...carrierResolveOpts,
+      preferredCourierName: explicitCourier ? manualCourierName : undefined,
+    });
+    merged.carrier_id = serviceable.carrier_id;
+    localOrder.courierName = serviceable.carrier_name;
+    localOrder.courier = serviceable.carrier_name;
+    localOrder.courierCompanyId = serviceable.carrier_id;
   }
 
-  const serviceable = await assertServiceableCarrierForOrder(localOrder, {
-    ...carrierResolveOpts,
-    preferredCourierName: explicitCourier ? manualCourierName : undefined,
-  });
-  merged.carrier_id = serviceable.carrier_id;
-  localOrder.courierName = serviceable.carrier_name;
-  localOrder.courier = serviceable.carrier_name;
-  localOrder.courierCompanyId = serviceable.carrier_id;
-
+  // Reuse existing Velocity order id when present so retries never fork a second shipment.
+  const existingVelocityOrderId = String(localOrder.velocityOrderId || "").trim();
   if (!merged.order_id) {
-    merged.order_id = buildVelocityProviderOrderId(localOrder.orderId);
+    merged.order_id = existingVelocityOrderId || buildVelocityProviderOrderId(localOrder.orderId);
   }
 
   const payload = buildForwardPayload(merged, localOrder);
-  payload.order_id = normalizeVelocityProviderOrderId(payload.order_id);
+  // Never remint when we already have a provider id for this order.
+  payload.order_id = existingVelocityOrderId
+    ? existingVelocityOrderId
+    : normalizeVelocityProviderOrderId(payload.order_id);
 
   validateForwardPayload(payload, localOrder);
   await precheckForwardShipmentWallet(localOrder);
+
+  // Persist provider order_id BEFORE calling Velocity so a timeout/crash cannot
+  // cause priority fallback to mint a second clone with a different courier.
+  if (!existingVelocityOrderId) {
+    localOrder.velocityOrderId = payload.order_id;
+    try {
+      await localOrder.save();
+    } catch (saveErr) {
+      console.warn(
+        `[velocity] Failed to persist velocityOrderId before create for ${localOrder.orderId}:`,
+        saveErr instanceof Error ? saveErr.message : saveErr
+      );
+    }
+  }
 
   let result: VelocityCreateShipmentResponse & { manifest_url?: string; rto_charges?: number };
   let usedPayloadOrderId = payload.order_id;
@@ -1815,23 +1826,19 @@ export async function bookForwardShipmentForOrder(
           status: localOrder.shipmentStatus || localOrder.status,
         };
       } else {
-        try {
-          result = await velocityService.createForwardShipmentLater({
-            order_id: localOrder.velocityOrderId || payload.order_id,
-            carrier_id: payload.carrier_id,
-          });
-        } catch {
-          const retryOrderId = buildVelocityProviderOrderId(localOrder.orderId);
-          const retryPayload: VelocityForwardOrderRequest = { ...payload, order_id: retryOrderId };
-          result = await velocityService.createForwardShipment(retryPayload);
-          usedPayloadOrderId = retryOrderId;
-        }
+        // Assign carrier on the existing Velocity order — never mint a second order_id.
+        result = await velocityService.createForwardShipmentLater({
+          order_id: localOrder.velocityOrderId || payload.order_id,
+          carrier_id: payload.carrier_id,
+        });
       }
     } else {
       throw err;
     }
   }
 
+  // Mark shipment immediately so priority fallback cannot book another courier
+  // even if post-create steps (billing/wallet) throw.
   applyMergedPickupAndWarehouse(localOrder, merged);
   localOrder.awb = result.awb_code ?? localOrder.awb;
   const displayCourier = result.carrier_name?.trim() || (explicitCourier ? manualCourierName : localOrder.courier);
@@ -1843,27 +1850,42 @@ export async function bookForwardShipmentForOrder(
   localOrder.labelUrl = result.label_url;
   localOrder.manifestUrl = result.manifest_url;
   localOrder.rtoCharges = result.rto_charges;
-  await applyBillableShippingToOrder(localOrder, {
-    courierName: displayCourier,
-    velocityFreightCost: result.shipping_charges,
-    weightKg: parseFloat(String(localOrder.weight ?? "")) || undefined,
-  });
   localOrder.shipmentStatus = result.status;
   localOrder.assignedDateTime = new Date();
-  applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_process_selected");
   localOrder.shipmentCreated = true;
   if (result.awb_code) localOrder.trackingId = result.awb_code;
+  applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_process_selected");
   mirrorShopifyFulfillmentStatus(localOrder);
-  await localOrder.save();
-  void pushShopifyFulfillmentUpdate(localOrder);
-  await forwardShipmentWalletPayload(localOrder, result.shipping_charges);
 
-  if (!result.awb_code?.trim()) {
-    throw new AppError(502, "Courier did not return an AWB. Check Velocity credentials and courier mapping.");
+  try {
+    await applyBillableShippingToOrder(localOrder, {
+      courierName: displayCourier,
+      velocityFreightCost: result.shipping_charges,
+      weightKg: parseFloat(String(localOrder.weight ?? "")) || undefined,
+    });
+  } catch (billErr) {
+    console.warn(
+      `[velocity] Billable shipping failed after shipment create for ${localOrder.orderId}:`,
+      billErr instanceof Error ? billErr.message : billErr
+    );
   }
 
+  await localOrder.save();
+  void pushShopifyFulfillmentUpdate(localOrder);
+
+  try {
+    await forwardShipmentWalletPayload(localOrder, result.shipping_charges);
+  } catch (walletErr) {
+    console.warn(
+      `[velocity] Wallet debit failed after shipment create for ${localOrder.orderId}:`,
+      walletErr instanceof Error ? walletErr.message : walletErr
+    );
+  }
+
+  // Shipment already exists on Velocity — return whatever we have.
+  // Do NOT throw here: callers (priority mode) must not try the next courier.
   return {
-    awb_code: result.awb_code,
+    awb_code: String(result.awb_code ?? localOrder.awb ?? "").trim(),
     carrier_name: result.carrier_name ?? localOrder.courierName ?? "",
     carrier_id: result.carrier_id,
     label_url: result.label_url,

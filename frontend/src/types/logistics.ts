@@ -150,6 +150,8 @@ export interface Order {
   lastShopifySyncAt?: string;
   adminRemark?: string;
   vendorId?: string;
+  ownerUserId?: string;
+  dropshipperId?: string;
   shopifyLineItems?: Array<Record<string, unknown>>;
 }
 

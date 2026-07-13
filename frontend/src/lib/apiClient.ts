@@ -28,7 +28,8 @@ function baseUrl(): string {
     if (/\/api$/i.test(normalized)) return normalized;
     return `${normalized}/api`;
   }
-  if (import.meta.env.DEV) return "http://localhost:5000/api";
+  // Same-origin via Vite proxy (see vite.config.ts) — works with localhost and ngrok
+  if (import.meta.env.DEV) return "/api";
   if (typeof console !== "undefined") {
     console.error(
       "[ShipAmaze] VITE_API_BASE_URL is not set. Configure it in Vercel (or your host) to your Render API base URL including /api."

@@ -55,10 +55,11 @@ export function normalizeForwardOrderResponse(raw: Record<string, unknown>): Vel
   const rto = charges?.rto_charges as Record<string, unknown> | undefined;
   const carrierId = raw.courier_company_id ?? raw.carrier_id ?? "";
   const carrierName = String(raw.courier_name ?? raw.carrier_name ?? "");
+  const awbRaw = raw.awb_code ?? raw.awb ?? raw.tracking_number ?? raw.trackingNumber ?? "";
   return {
     order_id: String(raw.order_id ?? ""),
     shipment_id: String(raw.shipment_id ?? ""),
-    awb_code: String(raw.awb_code ?? ""),
+    awb_code: String(awbRaw),
     carrier_name: String(carrierName),
     carrier_id: carrierId as string | number,
     label_url: typeof raw.label_url === "string" ? raw.label_url : undefined,

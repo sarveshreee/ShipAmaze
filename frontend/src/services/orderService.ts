@@ -238,7 +238,9 @@ export async function processSelectedOrders(payload: ProcessSelectedPayload) {
   return apiClient.post<ProcessSelectedResult>("/orders/process-selected", payload);
 }
 
-const PROCESS_SELECTED_BATCH_SIZE = 10;
+const PROCESS_SELECTED_BATCH_SIZE = 25;
+/** Run a few HTTP batches in parallel to cut wall-clock time for large selections. */
+const PROCESS_SELECTED_PARALLEL_BATCHES = 2;
 
 /** Process large selections in batches to avoid gateway timeouts and show progress. */
 export async function processSelectedOrdersBatched(
@@ -259,17 +261,26 @@ export async function processSelectedOrdersBatched(
     total: allIds.length,
   };
 
-  let processed = 0;
+  const batches: string[][] = [];
   for (let i = 0; i < allIds.length; i += PROCESS_SELECTED_BATCH_SIZE) {
-    const batchIds = allIds.slice(i, i + PROCESS_SELECTED_BATCH_SIZE);
-    const res = await processSelectedOrders({ ...payload, orderIds: batchIds });
-    aggregated.updated.push(...res.updated);
-    aggregated.failed.push(...res.failed);
-    aggregated.skipped.push(...res.skipped);
-    aggregated.updatedCount += res.updatedCount;
-    if (res.failed.length > 0) aggregated.success = false;
-    processed += batchIds.length;
-    onProgress?.(processed, allIds.length);
+    batches.push(allIds.slice(i, i + PROCESS_SELECTED_BATCH_SIZE));
+  }
+
+  let processed = 0;
+  for (let i = 0; i < batches.length; i += PROCESS_SELECTED_PARALLEL_BATCHES) {
+    const wave = batches.slice(i, i + PROCESS_SELECTED_PARALLEL_BATCHES);
+    const results = await Promise.all(
+      wave.map((batchIds) => processSelectedOrders({ ...payload, orderIds: batchIds }))
+    );
+    for (const res of results) {
+      aggregated.updated.push(...res.updated);
+      aggregated.failed.push(...res.failed);
+      aggregated.skipped.push(...res.skipped);
+      aggregated.updatedCount += res.updatedCount;
+      if (res.failed.length > 0) aggregated.success = false;
+    }
+    processed += wave.reduce((n, b) => n + b.length, 0);
+    onProgress?.(Math.min(processed, allIds.length), allIds.length);
   }
 
   return aggregated;

@@ -143,29 +143,46 @@ export async function resolveVelocityCarrierId(
   return undefined;
 }
 
+/** Shared across one bulk Process Selected request so same lane hits Velocity once. */
+export type ServiceabilityCache = Map<string, Promise<VelocityCarrier[]>>;
+
 /** List serviceable carriers for a lane (Velocity Serviceability API). */
 export async function listServiceableCarriersForOrder(
   order: IOrder,
-  opts: ResolveCarrierOpts = {}
+  opts: ResolveCarrierOpts & { cache?: ServiceabilityCache } = {}
 ): Promise<VelocityCarrier[]> {
   const lane = await resolveLanePincodes(order, opts);
   if (!lane) return [];
-  try {
-    const svc = await velocityService.checkServiceability({
-      from: lane.fromPin,
-      to: lane.toPin,
-      payment_mode: lane.payment,
-      shipment_type: "forward",
-    });
-    return svc.data ?? [];
-  } catch {
-    return [];
+  const key = `${lane.fromPin}|${lane.toPin}|${lane.payment}`;
+  if (opts.cache?.has(key)) {
+    return opts.cache.get(key)!;
   }
+  const pending = (async (): Promise<VelocityCarrier[]> => {
+    try {
+      const svc = await velocityService.checkServiceability({
+        from: lane.fromPin,
+        to: lane.toPin,
+        payment_mode: lane.payment,
+        shipment_type: "forward",
+      });
+      return svc.data ?? [];
+    } catch {
+      return [];
+    }
+  })();
+  opts.cache?.set(key, pending);
+  return pending;
 }
 
 export type ResolvedServiceableCarrier = {
   carrier_id: string;
   carrier_name: string;
+};
+
+export type PriorityCourierCandidate = {
+  courierName: string;
+  carrierId?: string;
+  rank?: number;
 };
 
 function carrierRowToResolved(row: VelocityCarrier, fallbackName: string): ResolvedServiceableCarrier | undefined {
@@ -174,6 +191,31 @@ function carrierRowToResolved(row: VelocityCarrier, fallbackName: string): Resol
     carrier_id: String(row.carrier_id).trim(),
     carrier_name: String(row.carrier_name ?? fallbackName).trim() || fallbackName,
   };
+}
+
+/**
+ * Walk priority list in rank order and return the first courier that appears
+ * in the live serviceability list. Used by Process Selected (priority mode)
+ * so each order books exactly once with the highest-priority serviceable courier.
+ */
+export function pickPriorityServiceableCourier(
+  priorities: PriorityCourierCandidate[],
+  serviceable: VelocityCarrier[]
+): ResolvedServiceableCarrier | undefined {
+  if (!priorities.length || !serviceable.length) return undefined;
+
+  for (const candidate of priorities) {
+    const preferredId = candidate.carrierId?.trim();
+    if (preferredId) {
+      const byId = serviceable.find((c) => String(c.carrier_id ?? "").trim() === preferredId);
+      const resolved = byId ? carrierRowToResolved(byId, candidate.courierName) : undefined;
+      if (resolved) return resolved;
+    }
+    const byName = pickCarrierFromList(serviceable, candidate.courierName);
+    const resolved = byName ? carrierRowToResolved(byName, candidate.courierName) : undefined;
+    if (resolved) return resolved;
+  }
+  return undefined;
 }
 
 /**

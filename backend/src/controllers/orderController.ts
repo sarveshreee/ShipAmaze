@@ -38,14 +38,23 @@ import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddlew
 import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 import { mapToPublicTracking } from "../utils/publicTracking.js";
 import { bookForwardShipmentForOrder, syncLocalOrderEditsToVelocity } from "../modules/velocity/velocity.controller.js";
+import {
+  listServiceableCarriersForOrder,
+  pickPriorityServiceableCourier,
+  type ServiceabilityCache,
+} from "../modules/velocity/velocity.resolveCarrier.js";
 import { formatErrorMessage } from "../utils/errorMessage.js";
-import { getBulkCourierPriority } from "../services/bulkCourierPriorityService.js";
+import {
+  getBulkCourierPriority,
+  type BulkCourierPriorityCandidate,
+} from "../services/bulkCourierPriorityService.js";
 import { syncPickupToVelocity } from "../modules/velocity/velocity.warehouseSync.js";
 import { velocityConfig } from "../modules/velocity/velocity.config.js";
 import { mapWithConcurrency } from "../modules/velocity/velocity.labelPdf.js";
 
 const PROCESS_SELECTED_MAX_ORDERS = 100;
-const PROCESS_SELECTED_CONCURRENCY = 5;
+/** Higher concurrency — each order is mostly waiting on Velocity I/O. */
+const PROCESS_SELECTED_CONCURRENCY = 10;
 
 function normalizePickupAddressForClient(pickup: unknown): unknown {
   if (pickup == null) return pickup;
@@ -181,6 +190,9 @@ function mapOrder(o: {
   adminRemark?: string;
   pickupDate?: Date;
   edd?: Date;
+  ownerUserId?: unknown;
+  dropshipperId?: unknown;
+  createdBy?: unknown;
 }) {
   const items = (o.orderItems ?? o.items ?? o.products ?? []) as unknown[];
   const rawProducts = Array.isArray(o.products) && o.products.length > 0 ? o.products : items;
@@ -261,6 +273,8 @@ function mapOrder(o: {
     shopifyNote: o.shopifyNote,
     shopifyTags: o.shopifyTags,
     adminRemark: o.adminRemark,
+    ownerUserId: o.ownerUserId ? String(o.ownerUserId) : undefined,
+    dropshipperId: o.dropshipperId ? String(o.dropshipperId) : undefined,
     pickupDate: o.pickupDate instanceof Date ? o.pickupDate.toISOString() : o.pickupDate ? String(o.pickupDate) : undefined,
     edd: o.edd instanceof Date ? o.edd.toISOString() : o.edd ? String(o.edd) : undefined,
     lastShopifySyncAt:
@@ -1284,6 +1298,12 @@ export const updateOrderStatus = asyncHandler(async (req: AuthRequest, res: Resp
     if (!check.ok) throw new AppError(400, check.message ?? "Invalid status transition");
     appendStatusHistory(o, nextNorm, req.user._id);
     o.status = nextNorm;
+    // Keep shipmentStatus in sync so order tabs (Pending Pickup → In Transit, etc.) move correctly.
+    if (nextNorm === "cancelled") {
+      o.shipmentStatus = "cancelled";
+    } else if (nextNorm !== "draft") {
+      o.shipmentStatus = nextNorm;
+    }
     if (nextNorm === "ready_to_ship") {
       o.shipmentStatus = "ready_to_ship";
       o.movedToReadyAt = new Date();
@@ -1387,6 +1407,10 @@ type ProcessSelectedPrep = {
   velocityWarehouseId: string;
   vendorIdFromPickup: Types.ObjectId | undefined;
   now: Date;
+  /** Loaded once per bulk request (priority mode). */
+  priorities: BulkCourierPriorityCandidate[];
+  /** Dedupes Velocity serviceability calls for identical lanes. */
+  serviceabilityCache: ServiceabilityCache;
 };
 
 type OrderDoc = InstanceType<typeof Order>;
@@ -1487,7 +1511,7 @@ async function processOneSelectedOrder(
   };
 
   if (prep.courierSelectionMode === "priority") {
-    const priorities = await getBulkCourierPriority();
+    const priorities = prep.priorities;
     if (priorities.length === 0) {
       return {
         outcome: "failed",
@@ -1496,8 +1520,90 @@ async function processOneSelectedOrder(
       };
     }
 
+    const carrierResolveOpts = {
+      pickupPincode:
+        prep.pickupSnapshot && typeof prep.pickupSnapshot === "object"
+          ? String((prep.pickupSnapshot as { pincode?: string }).pincode ?? "")
+          : undefined,
+      weight: prep.weight,
+      length: prep.length,
+      width: prep.width,
+      height: prep.height,
+      cache: prep.serviceabilityCache,
+    };
+
     const attemptErrors: string[] = [];
+    let bookedPreferredId: string | undefined;
+
+    // Prefer one serviceability lookup → book the highest-priority match once.
+    const serviceable = await listServiceableCarriersForOrder(o, carrierResolveOpts);
+    const preferred = pickPriorityServiceableCourier(priorities, serviceable);
+    if (preferred) {
+      bookedPreferredId = preferred.carrier_id;
+      try {
+        const booking = await bookForwardShipmentForOrder(req, o, {
+          ...bookingBase,
+          courier_name: preferred.carrier_name,
+          carrier_id: preferred.carrier_id,
+          // Carrier already verified via shared serviceability list — skip second Velocity call.
+          skip_serviceability: true,
+        });
+        appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
+        await o.save();
+        return {
+          outcome: "updated",
+          orderId: o.orderId,
+          awb: booking.awb_code,
+          carrier: booking.carrier_name,
+        };
+      } catch (err: unknown) {
+        // If Velocity already created a shipment, never try another courier.
+        if (o.shipmentCreated || String(o.awb || "").trim()) {
+          appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
+          try {
+            await o.save();
+          } catch {
+            /* already saved in book helper */
+          }
+          return {
+            outcome: "updated",
+            orderId: o.orderId,
+            awb: String(o.awb || ""),
+            carrier: String(o.courierName || o.courier || preferred.carrier_name),
+          };
+        }
+        attemptErrors.push(
+          `${preferred.carrier_name}: ${formatErrorMessage(err, "booking failed")}`
+        );
+      }
+    }
+
+    // Fallback: try remaining priorities in order when serviceability was empty
+    // or the preferred courier failed before any Velocity shipment was created.
     for (const candidate of priorities) {
+      if (o.shipmentCreated || String(o.awb || "").trim()) {
+        appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
+        try {
+          await o.save();
+        } catch {
+          /* already saved */
+        }
+        return {
+          outcome: "updated",
+          orderId: o.orderId,
+          awb: String(o.awb || ""),
+          carrier: String(o.courierName || o.courier || candidate.courierName),
+        };
+      }
+
+      if (
+        bookedPreferredId &&
+        (candidate.carrierId?.trim() === bookedPreferredId ||
+          candidate.courierName.trim().toLowerCase() === preferred?.carrier_name.trim().toLowerCase())
+      ) {
+        continue;
+      }
+
       const bookingBody: Record<string, unknown> = {
         ...bookingBase,
         courier_name: candidate.courierName,
@@ -1516,6 +1622,20 @@ async function processOneSelectedOrder(
           carrier: booking.carrier_name,
         };
       } catch (err: unknown) {
+        if (o.shipmentCreated || String(o.awb || "").trim()) {
+          appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
+          try {
+            await o.save();
+          } catch {
+            /* already saved */
+          }
+          return {
+            outcome: "updated",
+            orderId: o.orderId,
+            awb: String(o.awb || ""),
+            carrier: String(o.courierName || o.courier || candidate.courierName),
+          };
+        }
         attemptErrors.push(
           `${candidate.courierName}: ${formatErrorMessage(err, "not serviceable or booking failed")}`
         );
@@ -1525,7 +1645,10 @@ async function processOneSelectedOrder(
     return {
       outcome: "failed",
       orderId: o.orderId,
-      error: attemptErrors.join(" → "),
+      error:
+        attemptErrors.length > 0
+          ? attemptErrors.join(" → ")
+          : "No courier in your priority list can deliver to this pincode.",
     };
   }
 
@@ -1533,6 +1656,7 @@ async function processOneSelectedOrder(
   bookingBody.courier_name = prep.courierName;
   if (prep.carrierId?.trim()) {
     bookingBody.carrier_id = prep.carrierId.trim();
+    bookingBody.skip_serviceability = true;
   }
 
   try {
@@ -1668,6 +1792,16 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     .map((id) => orderById.get(id))
     .filter((o): o is OrderDoc => o != null);
 
+  // Load priority list once for the whole batch (not per order).
+  const priorities =
+    courierSelectionMode === "priority" ? await getBulkCourierPriority() : [];
+  if (courierSelectionMode === "priority" && priorities.length === 0) {
+    throw new AppError(
+      400,
+      "No courier priority list configured. Open Priority Selection to set one."
+    );
+  }
+
   const prep: ProcessSelectedPrep = {
     pickupAddressId,
     courierSelectionMode,
@@ -1682,6 +1816,8 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     velocityWarehouseId,
     vendorIdFromPickup: vendorIdFromPickup ?? undefined,
     now: new Date(),
+    priorities,
+    serviceabilityCache: new Map(),
   };
 
   const results = await mapWithConcurrency(ordered, PROCESS_SELECTED_CONCURRENCY, (o) =>

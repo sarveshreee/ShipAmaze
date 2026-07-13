@@ -47,7 +47,7 @@ export function resolveMediaUrl(path: string | null | undefined): string | null 
   if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("data:")) return trimmed;
 
   const envBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
-  const normalized = envBase ? envBase.replace(/\/$/, "") : import.meta.env.DEV ? "http://localhost:5000/api" : "";
+  const normalized = envBase ? envBase.replace(/\/$/, "") : import.meta.env.DEV ? "/api" : "";
   const apiBase = /\/api$/i.test(normalized) ? normalized : normalized ? `${normalized}/api` : "";
   if (!apiBase) return trimmed;
 

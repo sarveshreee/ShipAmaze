@@ -1,4 +1,4 @@
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useState, useEffect, Suspense } from "react";
 import {
   Package,
@@ -25,6 +25,9 @@ import { DEFAULT_LABEL_INVOICE_SETTINGS, type LabelInvoiceSettings } from "@/typ
 import { TimelineTracker } from "@/components/TimelineTracker";
 import { cn } from "@/lib/utils";
 import * as orderService from "@/services/orderService";
+import * as velocityService from "@/services/velocityService";
+import { getStoredToken } from "@/lib/apiClient";
+import type { Order } from "@/types/logistics";
 import {
   Dialog,
   DialogContent,
@@ -40,18 +43,35 @@ import { getFinalLineItemUnitPrice, formatProductPriceInr } from "@/lib/pricing"
 
 const statusColors: Record<string, string> = {
   delivered: "bg-success-light text-success-dark",
+  in_transit: "bg-primary-light text-primary-dark",
   "in-transit": "bg-primary-light text-primary-dark",
+  out_for_delivery: "bg-secondary-light text-secondary-dark",
   "out-for-delivery": "bg-secondary-light text-secondary-dark",
   ndr: "bg-warning-light text-warning-dark",
   rto: "bg-danger-light text-danger-dark",
   pending: "bg-surface-2 text-text-muted",
+  ready_to_ship: "bg-accent text-accent-foreground",
   "ready-to-ship": "bg-accent text-accent-foreground",
+  ready_for_pickup: "bg-warning-light text-warning-dark",
+  pending_pickup: "bg-warning-light text-warning-dark",
+  pickup_scheduled: "bg-warning-light text-warning-dark",
   "not-picked": "bg-warning-light text-warning-dark",
   cancelled: "bg-surface-2 text-text-muted",
   draft: "bg-surface-2 text-text-muted",
 };
 
-const STATUS_FLOW = ["ready-to-ship", "not-picked", "in-transit", "out-for-delivery", "delivered", "rto"];
+/** Status options offered in Update Status (API accepts hyphen or snake_case). */
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "ready_to_ship", label: "Ready to Ship" },
+  { value: "pickup_scheduled", label: "Pending Pickup" },
+  { value: "picked_up", label: "Picked Up" },
+  { value: "in_transit", label: "In Transit" },
+  { value: "out_for_delivery", label: "Out for Delivery" },
+  { value: "delivered", label: "Delivered" },
+  { value: "ndr", label: "NDR" },
+  { value: "rto", label: "RTO" },
+  { value: "cancelled", label: "Cancelled" },
+];
 
 const NDR_REASONS = [
   "Customer not available",
@@ -61,87 +81,168 @@ const NDR_REASONS = [
   "COD amount issue",
 ];
 
-function getNextStatuses(current: string): { value: string; label: string }[] {
-  const idx = STATUS_FLOW.indexOf(current);
-  if (idx === -1) {
-    // For statuses not in flow, show all
-    return STATUS_FLOW.map(s => ({ value: s, label: s.replace(/-/g, " ") }));
+function normalizeStatusKey(raw: unknown): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+}
+
+function formatStatusLabel(raw: unknown): string {
+  return normalizeStatusKey(raw).replace(/_/g, " ") || "—";
+}
+
+function formatDisplayDateTime(raw: unknown): string | undefined {
+  if (raw == null || raw === "" || raw === "—") return undefined;
+  const s = String(raw).trim();
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) {
+    return d.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
-  return STATUS_FLOW.slice(idx + 1).map(s => ({ value: s, label: s.replace(/-/g, " ") }));
+  // Keep courier-provided strings as-is when they aren't ISO parseable
+  return s || undefined;
 }
 
-function updateLocalStorageOrder(orderId: string, updates: Record<string, any>) {
-  const orders = getStoredOrders();
-  const idx = orders.findIndex((o: any) => getOrderRecordId(o) === orderId);
-  if (idx !== -1) {
-    orders[idx] = { ...orders[idx], ...updates };
-    localStorage.setItem("shipflow_orders", JSON.stringify(orders));
+function formatEddDisplay(raw: unknown): string | undefined {
+  if (raw == null || raw === "" || raw === "—") return undefined;
+  const d = new Date(String(raw));
+  if (Number.isNaN(d.getTime())) return String(raw).trim() || undefined;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** Map status history / shipment status to milestone index (real data only). */
+const MILESTONE_DEFS = [
+  { key: "placed", label: "Order Placed", match: ["draft", "pending", "created", "order_placed"] },
+  { key: "ready", label: "Ready to Ship", match: ["ready_to_ship", "rts"] },
+  {
+    key: "pickup",
+    label: "Pending Pickup",
+    match: ["pickup_scheduled", "pending_pickup", "ready_for_pickup", "not_picked", "picked_up"],
+  },
+  { key: "transit", label: "In Transit", match: ["in_transit", "shipped", "picked_up"] },
+  { key: "ofd", label: "Out for Delivery", match: ["out_for_delivery"] },
+  { key: "delivered", label: "Delivered", match: ["delivered"] },
+] as const;
+
+function statusMatchesMilestone(statusKey: string, match: readonly string[]): boolean {
+  return match.some((m) => statusKey === m || statusKey.includes(m));
+}
+
+function buildRealMilestoneSteps(order: Order): {
+  steps: { label: string; detail?: string; timestamp?: string }[];
+  currentStep: number;
+} {
+  const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+  const firstAtByMilestone: (string | undefined)[] = MILESTONE_DEFS.map(() => undefined);
+
+  // Order placed date from order.date when available (real order date, not fabricated)
+  const placed = formatDisplayDateTime(order.date) || formatDisplayDateTime(order.createdAt);
+  if (placed) firstAtByMilestone[0] = placed;
+
+  for (const ev of history) {
+    const key = normalizeStatusKey(ev.status);
+    const at = formatDisplayDateTime(ev.at);
+    if (!at) continue;
+    for (let i = 0; i < MILESTONE_DEFS.length; i++) {
+      if (statusMatchesMilestone(key, MILESTONE_DEFS[i]!.match) && !firstAtByMilestone[i]) {
+        firstAtByMilestone[i] = at;
+      }
+    }
   }
+
+  const effective = normalizeStatusKey(order.shipmentStatus || order.status);
+  let currentStep = 0;
+  for (let i = MILESTONE_DEFS.length - 1; i >= 0; i--) {
+    if (statusMatchesMilestone(effective, MILESTONE_DEFS[i]!.match)) {
+      currentStep = i;
+      break;
+    }
+  }
+  // Pickup-scheduled / ready_for_pickup sit on Pending Pickup (index 2), not In Transit
+  if (
+    ["pickup_scheduled", "pending_pickup", "ready_for_pickup", "not_picked"].includes(effective)
+  ) {
+    currentStep = 2;
+  } else if (effective === "picked_up") {
+    currentStep = 3;
+  } else if (effective === "ready_to_ship" || effective === "rts") {
+    currentStep = 1;
+  }
+
+  const steps = MILESTONE_DEFS.map((m, i) => ({
+    label: m.label,
+    // Only attach a timestamp when we actually have one — never invent dates
+    timestamp: firstAtByMilestone[i],
+  }));
+
+  return { steps, currentStep };
 }
 
-function removeLocalStorageOrder(orderId: string) {
-  const orders = getStoredOrders().filter((o: any) => getOrderRecordId(o) !== orderId);
-  localStorage.setItem("shipflow_orders", JSON.stringify(orders));
-}
-
-function getStoredOrders(): any[] {
+function notifyOrdersListRefresh(orderId: string, status?: string) {
   try {
-    const stored = localStorage.getItem("shipflow_orders");
-    const parsed = stored ? JSON.parse(stored) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    window.opener?.postMessage(
+      { type: "shipamaze:order-updated", orderId, status },
+      window.location.origin
+    );
   } catch {
-    return [];
+    /* ignore cross-origin */
+  }
+  try {
+    localStorage.setItem(
+      "shipamaze_order_updated",
+      JSON.stringify({ orderId, status, at: Date.now() })
+    );
+  } catch {
+    /* ignore quota */
   }
 }
 
-function getOrderRecordId(order: any): string | null {
-  if (!order) return null;
-  return order.id ?? order.orderId ?? order.order_id ?? order.shipment?.orderId ?? order.data?.shipment?.orderId ?? null;
-}
-
-function normalizeOrderRecord(order: any) {
-  const shipment = order?.shipment ?? order?.data?.shipment ?? {};
-  const consignee = order?.consignee ?? order?.data?.consignee ?? {};
-  const packageDetails = order?.pkg ?? order?.data?.pkg ?? {};
-  const rawAmount = order?.amount ?? shipment?.invoiceValue ?? 0;
-  const amount = Number(rawAmount);
-  const dimensions = order?.dimensions ?? (
-    packageDetails.length || packageDetails.width || packageDetails.height
-      ? `${packageDetails.length || 0}x${packageDetails.width || 0}x${packageDetails.height || 0} cm`
-      : ""
-  );
-
+function toDisplayOrder(data: Order): Order {
+  const weightRaw = data.weight;
+  const weight =
+    weightRaw == null || weightRaw === ""
+      ? "—"
+      : String(weightRaw).toLowerCase().includes("kg")
+        ? String(weightRaw)
+        : `${weightRaw} kg`;
+  const dims =
+    data.dimensions ||
+    (data.length || data.width || data.height
+      ? `${data.length || 0}x${data.width || data.breadth || 0}x${data.height || 0} cm`
+      : "");
   return {
-    ...order,
-    id: getOrderRecordId(order) ?? "N/A",
-    customer: order.customer ?? order.consigneeName ?? consignee.fullName ?? "N/A",
-    phone: order.phone ?? consignee.phone ?? "N/A",
-    address: order.address ?? shipment.address ?? order.data?.address ?? "N/A",
-    city: order.city ?? order.data?.city ?? "N/A",
-    pincode: order.pincode ?? order.data?.pincode ?? "N/A",
-    weight: order.weight ?? (packageDetails.weight ? `${packageDetails.weight} kg` : "N/A"),
-    courier: order.courier ?? shipment.courier ?? "N/A",
-    payment: order.payment ?? shipment.paymentType ?? "Prepaid",
-    status: order.status ?? shipment.status ?? "pending",
-    date: order.date ?? order.dateSaved ?? shipment.date ?? "N/A",
-    awb: order.awb ?? shipment.awb ?? "N/A",
-    amount: Number.isNaN(amount) ? 0 : amount,
-    dimensions,
-    zone: order.zone ?? "",
-    products: Array.isArray(order.products) ? order.products : Array.isArray(order.data?.products) ? order.data.products : [],
+    ...data,
+    weight,
+    dimensions: dims,
+    courier: data.courierName || data.courier || "—",
+    awb: data.awb || data.trackingId || "—",
+    products: Array.isArray(data.products) ? data.products : [],
   };
 }
 
 export default function PublicOrderDetail() {
   const [params] = useSearchParams();
-  const navigate = useNavigate();
   const orderId = params.get("id");
-  const [order, setOrder] = useState<any>(null);
+  const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [labelSettings, setLabelSettings] = useState<LabelInvoiceSettings>(DEFAULT_LABEL_INVOICE_SETTINGS);
   const [pdfLoading, setPdfLoading] = useState<null | "label" | "invoice">(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [liveActivities, setLiveActivities] = useState<
+    Array<{ date: string; activity: string; location: string }> | null
+  >(null);
 
-  // Modal states
   const [cancelOpen, setCancelOpen] = useState(false);
   const [ndrOpen, setNdrOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
@@ -164,14 +265,26 @@ export default function PublicOrderDetail() {
   }, []);
 
   useEffect(() => {
-    if (!orderId) { setLoading(false); return; }
+    if (!orderId) {
+      setLoading(false);
+      return;
+    }
+    setLiveActivities(null);
 
     const fetchOrder = async () => {
+      setLoading(true);
       try {
-        const localMatch = getStoredOrders().find((o: any) => getOrderRecordId(o) === orderId);
-        if (localMatch) {
-          setOrder(normalizeOrderRecord(localMatch));
-          return;
+        const token = getStoredToken();
+        if (token) {
+          try {
+            const data = await orderService.getOrder(orderId);
+            if (data?.id) {
+              setOrder(toDisplayOrder(data));
+              return;
+            }
+          } catch {
+            /* fall through to public endpoints */
+          }
         }
 
         try {
@@ -179,7 +292,7 @@ export default function PublicOrderDetail() {
           if (data?.id) {
             const location = [data.city, data.state].filter(Boolean).join(", ") || "—";
             setOrder(
-              normalizeOrderRecord({
+              toDisplayOrder({
                 id: data.id ?? orderId,
                 customer: "Recipient",
                 phone: data.customerPhoneMasked || "—",
@@ -188,11 +301,15 @@ export default function PublicOrderDetail() {
                 pincode: data.pincodeMasked || "—",
                 weight: "—",
                 courier: data.courier || data.courierName || "—",
-                payment: data.payment ?? "—",
-                status: data.status,
-                date: data.date,
-                awb: data.awb || "N/A",
+                payment: (data.payment as Order["payment"]) ?? "Prepaid",
+                status: data.status as Order["status"],
+                shipmentStatus: data.shipmentStatus,
+                date: data.date || "—",
+                awb: data.awb || "—",
+                amount: 0,
                 products: [],
+                trackingActivities: data.trackingActivities ?? [],
+                edd: data.estimatedDelivery ?? undefined,
               })
             );
             return;
@@ -200,12 +317,13 @@ export default function PublicOrderDetail() {
         } catch {
           /* try AWB */
         }
+
         try {
           const data = await orderService.trackByAwb(orderId);
           if (data?.id) {
             const location = [data.city, data.state].filter(Boolean).join(", ") || "—";
             setOrder(
-              normalizeOrderRecord({
+              toDisplayOrder({
                 id: data.id,
                 customer: "Recipient",
                 phone: data.customerPhoneMasked || "—",
@@ -214,11 +332,15 @@ export default function PublicOrderDetail() {
                 pincode: data.pincodeMasked || "—",
                 weight: "—",
                 courier: data.courier || data.courierName || "—",
-                payment: data.payment ?? "—",
-                status: data.status,
-                date: data.date,
-                awb: data.awb,
+                payment: (data.payment as Order["payment"]) ?? "Prepaid",
+                status: data.status as Order["status"],
+                shipmentStatus: data.shipmentStatus,
+                date: data.date || "—",
+                awb: data.awb || "—",
+                amount: 0,
                 products: [],
+                trackingActivities: data.trackingActivities ?? [],
+                edd: data.estimatedDelivery ?? undefined,
               })
             );
             return;
@@ -231,56 +353,130 @@ export default function PublicOrderDetail() {
         setLoading(false);
       }
     };
-    fetchOrder();
+    void fetchOrder();
   }, [orderId]);
 
-  const handleCancelOrder = () => {
-    if (!orderId) return;
-    removeLocalStorageOrder(orderId);
-    setCancelOpen(false);
-    toast.success("Order cancelled successfully.");
-    // We're on /order-detail (public route, possibly new tab) — go back or close
-    if (window.opener) {
-      window.close();
-    } else {
-      // Use window.location to avoid React Router auth guard issues
-      window.location.href = "/dropshipper/orders";
+  const refreshLiveTracking = async (opts?: { silent?: boolean }) => {
+    if (!order) return;
+    const awb = String(order.awb || "").trim();
+    if (!awb || awb === "—" || awb === "N/A") return;
+    setTrackingLoading(true);
+    try {
+      if (getStoredToken()) {
+        const resp = await velocityService.trackShipment({ awb, orderId: order.id });
+        const activities = resp.data?.activities ?? [];
+        setLiveActivities(activities);
+        if (resp.data?.status) {
+          setOrder((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  shipmentStatus: resp.data.status,
+                  trackingActivities: activities.length ? activities : prev.trackingActivities,
+                }
+              : prev
+          );
+        }
+        // Re-fetch order so Velocity-synced EDD is current
+        try {
+          const fresh = await orderService.getOrder(order.id);
+          if (fresh?.id) {
+            setOrder(toDisplayOrder({ ...fresh, trackingActivities: activities.length ? activities : fresh.trackingActivities }));
+          }
+        } catch {
+          /* keep current */
+        }
+        if (!opts?.silent) toast.success("Tracking refreshed from Velocity");
+      } else {
+        const resp = await velocityService.trackShipmentPublic(awb);
+        const activities = resp.data?.activities ?? [];
+        setLiveActivities(activities);
+        if (!opts?.silent) toast.success("Tracking refreshed");
+      }
+    } catch (err: unknown) {
+      if (!opts?.silent) {
+        toast.error(err instanceof Error ? err.message : "Could not refresh tracking");
+      }
+    } finally {
+      setTrackingLoading(false);
     }
   };
 
-  const handleRaiseNDR = () => {
-    if (!orderId || !ndrReason || !order) return;
-    updateLocalStorageOrder(orderId, { status: "ndr" });
-    // Create NDR entry in localStorage
-    const today = new Date().toISOString().split("T")[0];
-    const ndrEntry = {
-      awb: order.awb && order.awb !== "N/A" ? order.awb : `AWB${orderId}`,
-      customer: order.customer || "",
-      seller: "Seller User",
-      reason: ndrReason,
-      attempts: 1,
-      lastUpdate: today,
-      status: "Active",
-      phone: order.phone || "",
-      nextAction: "Re-attempt",
-    };
-    const storedNdr = localStorage.getItem("shipflow_ndr");
-    const ndrList: any[] = storedNdr ? JSON.parse(storedNdr) : [];
-    ndrList.unshift(ndrEntry);
-    localStorage.setItem("shipflow_ndr", JSON.stringify(ndrList));
-    setOrder((prev: any) => prev ? { ...prev, status: "ndr" } : prev);
-    setNdrOpen(false);
-    setNdrReason("");
-    toast.success("NDR raised successfully.");
+  // Auto-pull live Velocity tracking + EDD once order with AWB is loaded
+  useEffect(() => {
+    if (!order?.id) return;
+    const awb = String(order.awb || "").trim();
+    if (!awb || awb === "—" || awb === "N/A") return;
+    void refreshLiveTracking({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when order id / awb identity changes
+  }, [order?.id, order?.awb]);
+
+  const handleCancelOrder = async () => {
+    if (!orderId || !order) return;
+    setActionLoading(true);
+    try {
+      const awb = String(order.awb || "").trim();
+      if (awb && awb !== "—" && awb !== "N/A" && getStoredToken()) {
+        await velocityService.cancelShipment({ awbs: [awb], orderId: order.id });
+      } else if (getStoredToken()) {
+        await orderService.updateOrderStatus(order.id, "cancelled");
+      } else {
+        throw new Error("Sign in to cancel this order");
+      }
+      setOrder((prev) => (prev ? { ...prev, status: "cancelled" as Order["status"], shipmentStatus: "cancelled" } : prev));
+      notifyOrdersListRefresh(order.id, "cancelled");
+      setCancelOpen(false);
+      toast.success("Order cancelled successfully.");
+      if (window.opener) {
+        window.close();
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Cancel failed");
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const handleUpdateStatus = () => {
-    if (!orderId || !newStatus) return;
-    updateLocalStorageOrder(orderId, { status: newStatus });
-    setOrder((prev: any) => prev ? { ...prev, status: newStatus } : prev);
-    setStatusOpen(false);
-    setNewStatus("");
-    toast.success(`Status updated to ${newStatus.replace(/-/g, " ")}.`);
+  const handleRaiseNDR = async () => {
+    if (!orderId || !ndrReason || !order) return;
+    if (!getStoredToken()) {
+      toast.error("Sign in to raise NDR");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await orderService.updateOrderStatus(order.id, "ndr");
+      setOrder((prev) => (prev ? { ...prev, status: "ndr" as Order["status"], shipmentStatus: "ndr" } : prev));
+      notifyOrdersListRefresh(order.id, "ndr");
+      setNdrOpen(false);
+      setNdrReason("");
+      toast.success(`NDR raised (${ndrReason}).`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to raise NDR");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUpdateStatus = async () => {
+    if (!orderId || !newStatus || !order) return;
+    if (!getStoredToken()) {
+      toast.error("Sign in to update order status");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const updated = await orderService.updateOrderStatus(order.id, newStatus);
+      setOrder(toDisplayOrder(updated));
+      notifyOrdersListRefresh(order.id, updated.status || newStatus);
+      setStatusOpen(false);
+      setNewStatus("");
+      toast.success(`Status updated to ${formatStatusLabel(updated.status || newStatus)}.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to update status");
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   if (loading) {
@@ -303,7 +499,16 @@ export default function PublicOrderDetail() {
     );
   }
 
-  const nextStatuses = getNextStatuses(order.status);
+  const currentKey = normalizeStatusKey(order.status);
+  const nextStatuses = STATUS_OPTIONS.filter((s) => s.value !== currentKey);
+  const activities =
+    (liveActivities && liveActivities.length > 0
+      ? liveActivities
+      : order.trackingActivities && order.trackingActivities.length > 0
+        ? order.trackingActivities
+        : null) ?? null;
+  const { steps: milestoneSteps, currentStep } = buildRealMilestoneSteps(order);
+  const eddLabel = formatEddDisplay(order.edd);
 
   return (
     <div className="min-h-screen bg-background">
@@ -315,13 +520,17 @@ export default function PublicOrderDetail() {
           <h1 className="text-lg font-bold text-text-primary">Order {order.id}</h1>
           <p className="text-xs text-text-muted">Shipment Details</p>
         </div>
-        <span className={cn("ml-auto rounded-full px-3 py-1 text-xs font-semibold capitalize", statusColors[order.status] || "bg-surface-2 text-text-muted")}>
-          {order.status?.replace(/-/g, " ")}
+        <span
+          className={cn(
+            "ml-auto rounded-full px-3 py-1 text-xs font-semibold capitalize",
+            statusColors[currentKey] || statusColors[order.status] || "bg-surface-2 text-text-muted"
+          )}
+        >
+          {formatStatusLabel(order.shipmentStatus || order.status)}
         </span>
       </header>
 
       <main className="max-w-3xl mx-auto p-6 space-y-6">
-        {/* Customer & Shipping */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded-xl bg-card border border-border p-5 space-y-3">
             <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
@@ -329,9 +538,18 @@ export default function PublicOrderDetail() {
             </h2>
             <div className="space-y-2 text-sm">
               <p className="text-text-primary font-medium">{order.customer}</p>
-              <p className="text-text-muted flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{order.phone}</p>
-              <p className="text-text-muted flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" />{order.address}</p>
-              <p className="text-text-muted">{order.city} — {order.pincode}</p>
+              <p className="text-text-muted flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5" />
+                {order.phone}
+              </p>
+              <p className="text-text-muted flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5" />
+                {order.address}
+              </p>
+              <p className="text-text-muted">
+                {order.city}
+                {order.state ? `, ${order.state}` : ""} — {order.pincode}
+              </p>
             </div>
           </div>
           <div className="rounded-xl bg-card border border-border p-5 space-y-3">
@@ -339,37 +557,70 @@ export default function PublicOrderDetail() {
               <Truck className="h-4 w-4 text-secondary" /> Shipping Info
             </h2>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-text-muted">AWB</span><span className="font-mono text-text-primary">{order.awb}</span></div>
-              <div className="flex justify-between"><span className="text-text-muted">Courier</span><span className="text-text-primary">{order.courier}</span></div>
-              <div className="flex justify-between"><span className="text-text-muted flex items-center gap-1"><Weight className="h-3.5 w-3.5" />Weight</span><span className="text-text-primary">{order.weight}</span></div>
-              {order.dimensions && <div className="flex justify-between"><span className="text-text-muted flex items-center gap-1"><Ruler className="h-3.5 w-3.5" />Dimensions</span><span className="text-text-primary">{order.dimensions}</span></div>}
-              {order.zone && <div className="flex justify-between"><span className="text-text-muted">Zone</span><span className="text-text-primary">{order.zone}</span></div>}
+              <div className="flex justify-between">
+                <span className="text-text-muted">AWB</span>
+                <span className="font-mono text-text-primary font-semibold">{order.awb || "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-muted">Courier</span>
+                <span className="text-text-primary">{order.courierName || order.courier || "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-muted flex items-center gap-1">
+                  <Weight className="h-3.5 w-3.5" />
+                  Weight
+                </span>
+                <span className="text-text-primary">{order.weight || "—"}</span>
+              </div>
+              {order.dimensions ? (
+                <div className="flex justify-between">
+                  <span className="text-text-muted flex items-center gap-1">
+                    <Ruler className="h-3.5 w-3.5" />
+                    Dimensions
+                  </span>
+                  <span className="text-text-primary">{order.dimensions}</span>
+                </div>
+              ) : null}
+              {order.zone ? (
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Zone</span>
+                  <span className="text-text-primary">{order.zone}</span>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
 
-        {/* Payment */}
         <div className="rounded-xl bg-card border border-border p-5 space-y-3">
           <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
             <CreditCard className="h-4 w-4 text-accent-foreground" /> Payment
           </h2>
           <div className="flex items-center justify-between text-sm">
             <div className="flex items-center gap-3">
-              <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", order.payment === "COD" ? "bg-warning-light text-warning-dark" : "bg-success-light text-success-dark")}>{order.payment}</span>
-              <span className="text-text-muted flex items-center gap-1"><Calendar className="h-3.5 w-3.5" />{order.date}</span>
+              <span
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-xs font-medium",
+                  order.payment === "COD" ? "bg-warning-light text-warning-dark" : "bg-success-light text-success-dark"
+                )}
+              >
+                {order.payment}
+              </span>
+              <span className="text-text-muted flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5" />
+                {order.date}
+              </span>
             </div>
-            <span className="text-xl font-bold text-text-primary">₹{Number(order.amount).toLocaleString()}</span>
+            <span className="text-xl font-bold text-text-primary">₹{Number(order.amount || 0).toLocaleString()}</span>
           </div>
         </div>
 
-        {/* Products */}
         {order.products && order.products.length > 0 && (
           <div className="rounded-xl bg-card border border-border p-5 space-y-3">
             <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
               <Package className="h-4 w-4 text-primary" /> Products
             </h2>
             <div className="divide-y divide-border">
-              {(Array.isArray(order.products) ? order.products : []).map((p: any, i: number) => (
+              {order.products.map((p, i) => (
                 <div key={i} className="flex items-center justify-between gap-4 py-2 text-sm">
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1">Product Name</p>
@@ -378,7 +629,9 @@ export default function PublicOrderDetail() {
                       <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1">SKU</p>
                       <SkuBadge product={{ sku: p.sku }} index={i} />
                     </div>
-                    <p className="text-xs text-text-muted mt-2">Qty: {p.qty} · {p.weight}</p>
+                    <p className="text-xs text-text-muted mt-2">
+                      Qty: {p.qty} · {p.weight}
+                    </p>
                   </div>
                   <span className="font-medium text-text-primary">{formatProductPriceInr(getFinalLineItemUnitPrice(p))}</span>
                 </div>
@@ -387,7 +640,6 @@ export default function PublicOrderDetail() {
           </div>
         )}
 
-        {/* Quick Actions */}
         <div className="rounded-xl bg-card border border-border p-5 space-y-3">
           <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Quick Actions</h2>
           <div className="flex flex-col gap-3">
@@ -409,7 +661,7 @@ export default function PublicOrderDetail() {
                 onClick={() => {
                   setPdfLoading("label");
                   void downloadShippingLabelPdf(order, labelSettings)
-                    .then(() => toast.success("Label PDF downloaded"))
+                    .then(() => toast.success("Label opened — use Print / Save as PDF"))
                     .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Download failed"))
                     .finally(() => setPdfLoading(null));
                 }}
@@ -434,45 +686,98 @@ export default function PublicOrderDetail() {
               </Button>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Button variant="outline" className="h-11 gap-2 text-sm font-medium" onClick={() => { setNewStatus(""); setStatusOpen(true); }}>
+              <Button
+                variant="outline"
+                className="h-11 gap-2 text-sm font-medium"
+                onClick={() => {
+                  setNewStatus("");
+                  setStatusOpen(true);
+                }}
+              >
                 <RefreshCw className="h-4 w-4" /> Update Status
               </Button>
-              <Button variant="outline" className="h-11 gap-2 text-sm font-medium text-warning-dark" onClick={() => { setNdrReason(""); setNdrOpen(true); }}>
+              <Button
+                variant="outline"
+                className="h-11 gap-2 text-sm font-medium text-warning-dark"
+                onClick={() => {
+                  setNdrReason("");
+                  setNdrOpen(true);
+                }}
+              >
                 <AlertTriangle className="h-4 w-4" /> Raise NDR
               </Button>
-              <Button variant="outline" className="h-11 gap-2 text-sm font-medium text-destructive border-destructive/30 bg-destructive/5 hover:bg-destructive/10 col-span-2" onClick={() => setCancelOpen(true)}>
+              <Button
+                variant="outline"
+                className="h-11 gap-2 text-sm font-medium text-destructive border-destructive/30 bg-destructive/5 hover:bg-destructive/10 col-span-2"
+                onClick={() => setCancelOpen(true)}
+              >
                 <XCircle className="h-4 w-4" /> Cancel Order
               </Button>
             </div>
           </div>
         </div>
 
-        {/* Timeline */}
         <Suspense fallback={<div className="rounded-xl bg-card border border-border p-5 animate-pulse h-32" />}>
-          <div className="rounded-xl bg-card border border-border p-5">
-            <TimelineTracker
-              steps={[
-                { label: "Order Placed", detail: order.date },
-                { label: "Ready to Ship" },
-                { label: "Picked Up" },
-                { label: "In Transit" },
-                { label: "Out for Delivery" },
-                { label: "Delivered" },
-              ]}
-              currentStep={
-                order.status === "delivered" ? 5
-                  : order.status === "out-for-delivery" ? 4
-                  : order.status === "in-transit" ? 3
-                  : order.status === "not-picked" ? 2
-                  : order.status === "ready-to-ship" ? 1
-                  : 0
-              }
-            />
+          <div className="rounded-xl bg-card border border-border p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wider flex items-center gap-2">
+                <Calendar className="h-3.5 w-3.5" /> Shipment Timeline
+              </h2>
+              <div className="flex items-center gap-2">
+                {eddLabel ? (
+                  <span className="rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[11px] font-semibold">
+                    EDD: {eddLabel}
+                  </span>
+                ) : null}
+                {String(order.awb || "").trim() && order.awb !== "—" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    disabled={trackingLoading}
+                    onClick={() => void refreshLiveTracking()}
+                  >
+                    {trackingLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                    Refresh
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            {eddLabel ? (
+              <p className="text-sm text-text-secondary">
+                Expected delivery (Velocity): <span className="font-semibold text-text-primary">{eddLabel}</span>
+              </p>
+            ) : (
+              <p className="text-xs text-text-muted">Expected delivery date not available from Velocity yet.</p>
+            )}
+
+            {activities && activities.length > 0 ? (
+              <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                {activities.map((act, i) => (
+                  <div key={`${act.date}-${act.activity}-${i}`} className="px-4 py-3 bg-background">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm text-text-primary font-medium">{act.activity}</p>
+                      <span className="text-[11px] text-text-muted whitespace-nowrap font-mono">
+                        {formatDisplayDateTime(act.date) || act.date || "—"}
+                      </span>
+                    </div>
+                    {act.location ? <p className="text-xs text-text-muted mt-0.5">{act.location}</p> : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <TimelineTracker steps={milestoneSteps} currentStep={currentStep} />
+            )}
+
+            {!activities?.length && !(order.statusHistory && order.statusHistory.length) ? (
+              <p className="text-xs text-text-muted">No tracking scan history yet for this shipment.</p>
+            ) : null}
           </div>
         </Suspense>
       </main>
 
-      {/* Cancel Order Modal */}
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>
           <DialogHeader>
@@ -482,48 +787,62 @@ export default function PublicOrderDetail() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelOpen(false)}>No, Keep It</Button>
-            <Button variant="destructive" onClick={handleCancelOrder}>Yes, Cancel Order</Button>
+            <Button variant="outline" onClick={() => setCancelOpen(false)} disabled={actionLoading}>
+              No, Keep It
+            </Button>
+            <Button variant="destructive" onClick={() => void handleCancelOrder()} disabled={actionLoading}>
+              {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Yes, Cancel Order
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Raise NDR Modal */}
       <Dialog open={ndrOpen} onOpenChange={setNdrOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Raise NDR — Select Reason</DialogTitle>
           </DialogHeader>
           <RadioGroup value={ndrReason} onValueChange={setNdrReason} className="space-y-3">
-            {NDR_REASONS.map(reason => (
+            {NDR_REASONS.map((reason) => (
               <div key={reason} className="flex items-center space-x-3">
                 <RadioGroupItem value={reason} id={reason} />
-                <Label htmlFor={reason} className="cursor-pointer">{reason}</Label>
+                <Label htmlFor={reason} className="cursor-pointer">
+                  {reason}
+                </Label>
               </div>
             ))}
           </RadioGroup>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setNdrOpen(false)}>Cancel</Button>
-            <Button onClick={handleRaiseNDR} disabled={!ndrReason}>Submit NDR</Button>
+            <Button variant="outline" onClick={() => setNdrOpen(false)} disabled={actionLoading}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleRaiseNDR()} disabled={!ndrReason || actionLoading}>
+              {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Submit NDR
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Update Status Modal */}
       <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Update Order Status</DialogTitle>
             <DialogDescription>
-              Current status: <span className="font-medium capitalize">{order.status?.replace(/-/g, " ")}</span>
+              Current status:{" "}
+              <span className="font-medium capitalize">{formatStatusLabel(order.shipmentStatus || order.status)}</span>
+              . Changing status moves the order to the matching tab on the orders list.
             </DialogDescription>
           </DialogHeader>
           {nextStatuses.length > 0 ? (
             <RadioGroup value={newStatus} onValueChange={setNewStatus} className="space-y-3">
-              {nextStatuses.map(s => (
+              {nextStatuses.map((s) => (
                 <div key={s.value} className="flex items-center space-x-3">
                   <RadioGroupItem value={s.value} id={s.value} />
-                  <Label htmlFor={s.value} className="cursor-pointer capitalize">{s.label}</Label>
+                  <Label htmlFor={s.value} className="cursor-pointer capitalize">
+                    {s.label}
+                  </Label>
                 </div>
               ))}
             </RadioGroup>
@@ -531,8 +850,13 @@ export default function PublicOrderDetail() {
             <p className="text-sm text-text-muted">No further status transitions available.</p>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setStatusOpen(false)}>Cancel</Button>
-            <Button onClick={handleUpdateStatus} disabled={!newStatus}>Update Status</Button>
+            <Button variant="outline" onClick={() => setStatusOpen(false)} disabled={actionLoading}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleUpdateStatus()} disabled={!newStatus || actionLoading}>
+              {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Update Status
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

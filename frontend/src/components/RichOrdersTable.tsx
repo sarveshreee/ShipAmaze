@@ -768,6 +768,8 @@ interface Props {
   warehouses?: Array<{ id: string; warehouseName: string; city?: string; velocityWarehouseId?: string; isDefault?: boolean }>;
   /** Refetch orders after inline edits so the table updates immediately. */
   onOrdersChanged?: () => void | Promise<void>;
+  /** Open order details (eye / order id) — uses authenticated drawer with live data. */
+  onViewOrder?: (order: Order) => void;
   onCreateShipment?: (payload: {
     orderId: string;
     warehouseId: string;
@@ -817,6 +819,7 @@ export function RichOrdersTable({
   couriers: _couriers = [],
   warehouses = [],
   onOrdersChanged,
+  onViewOrder,
   onCreateShipment,
   emptyDescription = "No orders found for these filters.",
 }: Props) {
@@ -2023,7 +2026,13 @@ export function RichOrdersTable({
                   <td className="p-3">
                     <div className="relative">
                       <div className="space-y-1.5">
-                        <button onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')} className="text-primary font-semibold text-sm hover:underline">{visibleOrderNumber}</button>
+                        <button
+                          type="button"
+                          onClick={() => (onViewOrder ? onViewOrder(o) : window.open(`/order-detail?id=${o.id}`, "_blank"))}
+                          className="text-primary font-semibold text-sm hover:underline"
+                        >
+                          {visibleOrderNumber}
+                        </button>
                         <div className="flex items-center gap-1 text-text-muted">
                           <Clock className="h-3 w-3" />
                           <span className="text-[11px]">{orderTimestamp.label}: {formatOrderTimestamp(orderTimestamp.date)}</span>
@@ -2322,8 +2331,13 @@ export function RichOrdersTable({
                     <div className="flex flex-col items-center gap-2">
                       {!["all", "channel", "manual", "ready-to-ship"].includes(activeTab) && (
                         <div className="flex gap-1.5">
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light"
-                            onClick={() => window.open(`/order-detail?id=${o.id}`, '_blank')}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-text-secondary hover:text-primary hover:bg-primary-light"
+                            onClick={() => window.open(`/order-detail?id=${encodeURIComponent(o.id)}`, "_blank")}
+                            title="View order details in new tab"
+                          >
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light"

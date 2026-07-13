@@ -127,6 +127,8 @@ export interface IOrder extends Document {
     velocityStatus?: string;
     at: Date;
   }[];
+  /** Last successful/attempted Velocity status poll (fair rotation across batches). */
+  lastVelocityStatusSyncedAt?: Date;
 }
 
 const trackingActivitySchema = new Schema<ITrackingActivity>(
@@ -242,6 +244,7 @@ const orderSchema = new Schema<IOrder>(
     adminRemark: { type: String },
     remarkHistory: { type: [remarkHistorySchema], default: [] },
     lastShopifySyncAt: { type: Date },
+    lastVelocityStatusSyncedAt: { type: Date, index: true },
   },
   { timestamps: true }
 );

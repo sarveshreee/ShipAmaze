@@ -12,6 +12,11 @@ export interface IDropshipper extends Document {
   activeOrders: number;
   kycVerified: boolean;
   joinDate?: Date;
+  /**
+   * Optional custom logo for shipping labels (http(s) or data: URL).
+   * When set, labels for this dropshipper's orders use this instead of the global default.
+   */
+  labelLogoUrl?: string;
 }
 
 const dropshipperSchema = new Schema<IDropshipper>(
@@ -27,6 +32,7 @@ const dropshipperSchema = new Schema<IDropshipper>(
     activeOrders: { type: Number, default: 0 },
     kycVerified: { type: Boolean, default: false },
     joinDate: { type: Date },
+    labelLogoUrl: { type: String, default: "" },
   },
   { timestamps: true }
 );

@@ -242,6 +242,28 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     counts: countsFilterKey !== listFilterKey || !cachedTabCounts,
   });
 
+  // Refresh list when order status is updated from /order-detail (new tab) or sibling windows.
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as { type?: string } | null;
+      if (data?.type === "shipamaze:order-updated") {
+        void refetch({ includeCounts: true });
+      }
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "shipamaze_order_updated" && event.newValue) {
+        void refetch({ includeCounts: true });
+      }
+    };
+    window.addEventListener("message", onMessage);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [refetch]);
+
   useEffect(() => {
     if (tabCounts) {
       setCachedTabCounts(tabCounts);
@@ -1153,6 +1175,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onOrdersChanged={async () => {
             await refetch({ includeCounts: true });
           }}
+          onViewOrder={openOrder}
           onCreateShipment={
             canProcessOrders
               ? async (payload) => {
