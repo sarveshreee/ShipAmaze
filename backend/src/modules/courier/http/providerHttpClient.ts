@@ -24,11 +24,29 @@ export interface ProviderHttpClientOptions {
   mapErrorMessage?: (rawMsg: string, data: unknown, status: number) => string;
   /** Called when the cached token is cleared (401 refresh / explicit invalidate). */
   onTokenInvalidate?: () => void;
+  /** When true, log every request with requestId/duration/retries (not only debug mode). */
+  alwaysLogRequests?: boolean;
+  /** Optional hook after a finished request (success or failure). */
+  onRequestComplete?: (info: {
+    requestId: string;
+    method: string;
+    endpoint: string;
+    durationMs: number;
+    retryCount: number;
+    ok: boolean;
+    statusCode?: number;
+  }) => void;
 }
 
 interface TokenCache {
   token: string;
   expiresAt: number;
+}
+
+export interface ProviderAuthCacheInfo {
+  hasToken: boolean;
+  /** ISO timestamp when the in-memory token cache expires; null if none. */
+  cacheExpiresAt: string | null;
 }
 
 export interface ProviderHttpRequestOptions {
@@ -46,6 +64,7 @@ export interface ProviderHttpClient {
   post<T>(endpoint: string, body?: unknown, options?: Omit<ProviderHttpRequestOptions, "method" | "body">): Promise<T>;
   ensureAuth(): Promise<void>;
   invalidateToken(): void;
+  getAuthCacheInfo(): ProviderAuthCacheInfo;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -62,8 +81,11 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
   let tokenCache: TokenCache | null = null;
   let authPromise: Promise<string> | null = null;
 
-  const logInfo = (msg: string) => {
+  const debugLog = (msg: string) => {
     if (opts.debugLogs) console.info(msg);
+  };
+  const requestLog = (msg: string) => {
+    if (opts.debugLogs || opts.alwaysLogRequests) console.info(msg);
   };
 
   const authHeaders =
@@ -133,7 +155,7 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
       : `${baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
     const started = Date.now();
-    logInfo(`[${opts.providerId}] ${method} ${endpoint} requestId=${requestId}`);
+    debugLog(`[${opts.providerId}] ${method} ${endpoint} attempt requestId=${requestId}`);
 
     const buildHeaders = async (): Promise<Record<string, string>> => {
       const headers: Record<string, string> = {
@@ -196,8 +218,8 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
       });
     }
 
-    logInfo(
-      `[${opts.providerId}] ${method} ${endpoint} ok ${elapsedMs}ms requestId=${requestId}`
+    debugLog(
+      `[${opts.providerId}] ${method} ${endpoint} attempt-ok ${elapsedMs}ms requestId=${requestId}`
     );
     return data as T;
   }
@@ -208,18 +230,56 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
   ): Promise<T> {
     const maxAttempts = opts.maxTransientRetries + 1;
     const requestId = randomUUID();
+    const method = options.method ?? (options.body !== undefined ? "POST" : "GET");
+    const started = Date.now();
     let lastErr: unknown;
+    let retryCount = 0;
+
+    requestLog(
+      `[${opts.providerId}] ${method} ${endpoint} start requestId=${requestId}`
+    );
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        return await requestOnce<T>(endpoint, options, requestId);
+        const data = await requestOnce<T>(endpoint, options, requestId);
+        const durationMs = Date.now() - started;
+        requestLog(
+          `[${opts.providerId}] ${method} ${endpoint} ok durationMs=${durationMs} retries=${retryCount} requestId=${requestId}`
+        );
+        opts.onRequestComplete?.({
+          requestId,
+          method,
+          endpoint,
+          durationMs,
+          retryCount,
+          ok: true,
+        });
+        return data;
       } catch (err) {
         lastErr = err;
         const retryable = isRetryableProviderError(err);
-        if (!retryable || attempt >= maxAttempts - 1) throw err;
+        if (!retryable || attempt >= maxAttempts - 1) {
+          const durationMs = Date.now() - started;
+          const statusCode =
+            err instanceof AppError ? err.statusCode : undefined;
+          requestLog(
+            `[${opts.providerId}] ${method} ${endpoint} failed durationMs=${durationMs} retries=${retryCount} requestId=${requestId}`
+          );
+          opts.onRequestComplete?.({
+            requestId,
+            method,
+            endpoint,
+            durationMs,
+            retryCount,
+            ok: false,
+            statusCode,
+          });
+          throw err;
+        }
+        retryCount += 1;
         const backoff = 400 * (attempt + 1) + Math.floor(Math.random() * 200);
-        logInfo(
-          `[${opts.providerId}] retry ${endpoint} after ${backoff}ms (attempt ${attempt + 1}) requestId=${requestId}`
+        requestLog(
+          `[${opts.providerId}] retry ${endpoint} after ${backoff}ms (attempt ${attempt + 1}) retriesSoFar=${retryCount} requestId=${requestId}`
         );
         await sleep(backoff);
       }
@@ -237,6 +297,10 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
       await getToken();
     },
     invalidateToken,
+    getAuthCacheInfo: () => ({
+      hasToken: !!tokenCache && tokenCache.expiresAt > Date.now(),
+      cacheExpiresAt: tokenCache ? new Date(tokenCache.expiresAt).toISOString() : null,
+    }),
   };
 }
 

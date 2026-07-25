@@ -45,7 +45,11 @@ describe("Lorrigo status diagnostics", () => {
 
     const probe = await probeLorrigoAuth();
     expect(probe.status).toBe("disabled");
+    expect(probe.authenticated).toBe(false);
+    expect(probe.healthy).toBe(false);
+    expect(probe.metrics.apiVersion).toBe("v2");
+    expect(typeof probe.metrics.uptimeSeconds).toBe("number");
     expect(JSON.stringify(probe)).not.toContain("secret-should-not-appear");
-    expect(JSON.stringify(probe).toLowerCase()).not.toContain("token");
+    expect(JSON.stringify(probe).toLowerCase()).not.toContain('"token"');
   });
 });
