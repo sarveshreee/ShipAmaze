@@ -140,3 +140,31 @@ Backward compatible: existing Velocity orders and APIs keep working with no chan
 | `lastProviderStatusSyncedAt` | Fair-rotation cursor for Lorrigo polls |
 
 Lorrigo status polling: `LORRIGO_STATUS_SYNC_INTERVAL_MS` (default 5 minutes). Health: `GET /api/lorrigo/status` → `sync.activeShipments`, `lastPollAt`, `consecutiveFailures`, etc.
+
+## NDR (Phase 7)
+
+| Piece | Location |
+|-------|----------|
+| Contract | `supportsNDR` / `fetchNDR` / `performNDRAction` / `syncNDR` on `CourierProvider` |
+| Normalize | `ProviderNdrRecord` in `courier/types.ts` |
+| Lorrigo fetch/action | `lorrigo.ndr.ts` → `GET /v2/orders?status=NDR`, `POST /v2/ndr/action` |
+| Sync + dedupe | `lorrigo.ndrSync.ts` (`lastNdrFingerprint`) |
+| Timeline | `NDR_RECEIVED` → `NDR_ACTION` → `NDR_RESOLVED` on `providerEvents` |
+| Manual sync | `POST /api/courier/sync-ndr` |
+| Metrics | `GET /api/courier/ndr-metrics` |
+| UI | Existing Admin/Dropshipper NDR pages (provider-aware actions only) |
+
+Interval: `LORRIGO_NDR_SYNC_INTERVAL_MS` (default 10 minutes).
+
+## Phase 8 docs
+
+- [Production audit](./phase8-production-audit.md)
+- [Architecture final](./architecture-final.md)
+- [ER diagram](./er-diagram.md)
+- [Sequence diagrams](./sequence-diagrams.md)
+- [Provider integration guide](./provider-integration-guide.md)
+- [Developer onboarding](./developer-onboarding.md)
+- [Operations runbook](./operations-runbook.md)
+- [Rollback guide](./rollback-guide.md)
+- [Disaster recovery](./disaster-recovery.md)
+- [Performance benchmark report](./performance-benchmark-report.md)
