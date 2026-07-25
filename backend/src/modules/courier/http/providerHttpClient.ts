@@ -88,7 +88,8 @@ function truncateForLog(s: string, max = 180): string {
 }
 
 function parseRetryAfterMs(res: Response): number | undefined {
-  const raw = res.headers.get("retry-after");
+  const raw =
+    typeof res.headers?.get === "function" ? res.headers.get("retry-after") : undefined;
   if (!raw) return undefined;
   const asInt = parseInt(raw, 10);
   if (Number.isFinite(asInt) && asInt >= 0) {

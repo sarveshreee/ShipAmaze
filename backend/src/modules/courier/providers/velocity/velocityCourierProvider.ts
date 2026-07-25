@@ -24,7 +24,7 @@ import type {
   ProviderTrackingResult,
 } from "../../types.js";
 import { AppError } from "../../../../middleware/errorMiddleware.js";
-import { isVelocityConfigured } from "../../../../config/env.js";
+import { isVelocityActive, isVelocityEnabledFlag } from "../../../../config/env.js";
 import { velocityConfig } from "../../../velocity/velocity.config.js";
 import { ensureVelocityAuth } from "../../../velocity/velocity.client.js";
 import * as velocityService from "../../../velocity/velocity.service.js";
@@ -90,10 +90,13 @@ export const velocityCourierProvider: CourierProvider = {
   capabilities: VELOCITY_CAPABILITIES,
 
   isConfigured(): boolean {
-    return isVelocityConfigured();
+    return isVelocityActive();
   },
 
   async authenticate(): Promise<void> {
+    if (!isVelocityEnabledFlag()) {
+      throw new AppError(503, "Velocity integration is disabled (VELOCITY_ENABLED=false).");
+    }
     if (!this.isConfigured()) {
       throw new AppError(503, "Velocity integration is not configured (missing credentials).");
     }

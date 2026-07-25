@@ -4,6 +4,7 @@
 
 import type { CourierDiscoveryMode, CourierProviderId } from "./types.js";
 import { isLorrigoEnabledFlag } from "../lorrigo/lorrigo.config.js";
+import { isVelocityEnabledFlag } from "../../config/env.js";
 
 function intEnv(name: string, fallback: number): number {
   const n = parseInt(process.env[name] || "", 10);
@@ -38,15 +39,17 @@ export const discoveryConfig = {
   },
 };
 
-/** Resolve which providers to query for discovery (respects LORRIGO_ENABLED). */
+/** Resolve which providers to query for discovery (respects VELOCITY_ENABLED / LORRIGO_ENABLED). */
 export function resolveDiscoveryProviderIds(
   mode: CourierDiscoveryMode = discoveryConfig.mode
 ): CourierProviderId[] {
+  const velocityOk = isVelocityEnabledFlag();
   const lorrigoOk = isLorrigoEnabledFlag();
-  if (mode === "velocity") return ["velocity"];
+  if (mode === "velocity") return velocityOk ? ["velocity"] : [];
   if (mode === "lorrigo") return lorrigoOk ? ["lorrigo"] : [];
   // both
-  const ids: CourierProviderId[] = ["velocity"];
+  const ids: CourierProviderId[] = [];
+  if (velocityOk) ids.push("velocity");
   if (lorrigoOk) ids.push("lorrigo");
   return ids;
 }

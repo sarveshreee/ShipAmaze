@@ -6,11 +6,12 @@ const isProd = process.env.NODE_ENV === "production";
 
 function truthyFlag(raw: string | undefined): boolean {
   const v = raw?.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
+  return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
-function truthyVelocityEnabled(): boolean {
-  return truthyFlag(process.env.VELOCITY_ENABLED);
+function falsyFlag(raw: string | undefined): boolean {
+  const v = raw?.trim().toLowerCase();
+  return v === "0" || v === "false" || v === "no" || v === "off";
 }
 
 function truthyLorrigoEnabled(): boolean {
@@ -39,7 +40,7 @@ export function validateEnv(): void {
 
     if (!process.env.SHOPIFY_REDIRECT_URI?.trim()) missing.push("SHOPIFY_REDIRECT_URI");
 
-    if (truthyVelocityEnabled()) {
+    if (isVelocityEnabledFlag()) {
       for (const k of ["VELOCITY_USERNAME", "VELOCITY_PASSWORD"] as const) {
         if (!process.env[k]?.trim()) missing.push(k);
       }
@@ -63,13 +64,29 @@ export function isProduction(): boolean {
   return isProd;
 }
 
+/**
+ * True feature flag for Velocity.
+ * - Explicit false/0/no/off → disabled (kill switch)
+ * - Explicit true/1/yes/on → enabled
+ * - Unset/empty → enabled (backward compatible default; Velocity is the legacy provider)
+ */
 export function isVelocityEnabledFlag(): boolean {
-  return truthyVelocityEnabled();
+  const raw = process.env.VELOCITY_ENABLED;
+  if (raw === undefined || String(raw).trim() === "") return true;
+  if (falsyFlag(raw)) return false;
+  return truthyFlag(raw);
 }
 
 /**
- * Returns true when Velocity credentials are configured, regardless of the VELOCITY_ENABLED flag.
- * Used to gate background sync — if credentials exist, we can sync even in dev/staging.
+ * Credentials present AND feature flag enabled.
+ * Background sync / API booking must use this (or check both separately).
+ */
+export function isVelocityActive(): boolean {
+  return isVelocityEnabledFlag() && isVelocityConfigured();
+}
+
+/**
+ * Returns true when Velocity credentials are configured (ignores feature flag).
  */
 export function isVelocityConfigured(): boolean {
   return !!(process.env.VELOCITY_USERNAME?.trim() && process.env.VELOCITY_PASSWORD?.trim());

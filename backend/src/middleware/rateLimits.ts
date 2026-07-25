@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 
 const jsonMessage = { success: false, message: "Too many requests. Please try again later." };
 
@@ -66,4 +66,26 @@ export const publicTrackingLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: jsonMessage,
+});
+
+/**
+ * Courier booking — prevents double-click / retry storms on POST /api/courier/shipments.
+ * Keyed by user id when authenticated, else IP. Emits standard RateLimit-* + Retry-After.
+ */
+export const courierBookingLimiter = rateLimit({
+  windowMs: Number(process.env.RATE_LIMIT_COURIER_BOOKING_WINDOW_MS ?? 60_000),
+  max: Number(process.env.RATE_LIMIT_COURIER_BOOKING_MAX ?? 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many booking requests. Please wait and try again.",
+    code: "BOOKING_RATE_LIMITED",
+    retryable: true,
+  },
+  keyGenerator: (req) => {
+    const userId = (req as { user?: { _id?: unknown } }).user?._id;
+    if (userId != null) return `booking:user:${String(userId)}`;
+    return `booking:ip:${ipKeyGenerator(req.ip ?? "unknown")}`;
+  },
 });

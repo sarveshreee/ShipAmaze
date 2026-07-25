@@ -13,12 +13,16 @@ import { authMiddleware } from "../../middleware/authMiddleware.js";
 import { publicTrackingLimiter } from "../../middleware/rateLimits.js";
 import { requireRoles } from "../../middleware/roleMiddleware.js";
 import { requireFullDropshipper } from "../../middleware/dropshipperAccessMiddleware.js";
+import { requireVelocityEnabled } from "./velocityEnabledMiddleware.js";
 import * as vc from "./velocity.controller.js";
 
 const router = Router();
 
-// ── Public tracking (no auth required) ──────────────────
+// ── Public tracking (no auth required; allowed for existing AWBs even if disabled) ──
 router.get("/track/public/:awb", publicTrackingLimiter, vc.trackShipmentPublic);
+
+// ── Feature flag kill switch for all authenticated Velocity APIs ──
+router.use(requireVelocityEnabled);
 
 // ── All remaining routes require a valid session ─────────
 router.use(authMiddleware);

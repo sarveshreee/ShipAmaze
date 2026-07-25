@@ -52,6 +52,7 @@ describe("Lorrigo Phase 2 authentication", () => {
   });
 
   it("does not register Lorrigo when LORRIGO_ENABLED=false", () => {
+    process.env.VELOCITY_ENABLED = "true";
     setLorrigoEnv({ enabled: false, email: "a@b.com", password: "x" });
     registerCourierProviders();
     const ids = listCourierProviders().map((p) => p.id);

@@ -4,7 +4,7 @@ import { createApp } from "./app.js";
 import { connectDb, disconnectDb } from "./config/db.js";
 import {
   isVelocityEnabledFlag,
-  isVelocityConfigured,
+  isVelocityActive,
   isLorrigoEnabledFlag,
   isLorrigoConfigured,
   redactMongoUri,
@@ -20,7 +20,8 @@ import { syncFailureRemarksBatch } from "./modules/velocity/velocityRemarkSync.j
 import { registerCourierProviders, getCourierProvider } from "./modules/courier/index.js";
 import { getLorrigoStatusSyncIntervalMs } from "./modules/lorrigo/lorrigo.statusSync.js";
 import { getLorrigoNdrSyncIntervalMs } from "./modules/lorrigo/lorrigo.ndrSync.js";
-import { isSyncMutexSkipResult, withSyncMutex } from "./modules/courier/syncMutex.js";
+import { isSyncMutexSkipResult } from "./modules/courier/syncMutex.js";
+import { withSyncLock } from "./modules/courier/distributedLock.js";
 
 validateEnv();
 registerCourierProviders();
@@ -104,7 +105,7 @@ async function main() {
     if (isVelocityEnabledFlag()) {
       devLog.info(`[server] Velocity: enabled (credentials ${process.env.VELOCITY_USERNAME?.trim() ? "set" : "missing"})`);
     } else {
-      devLog.info(`[server] Velocity: not enabled (set VELOCITY_ENABLED=true to require credentials in production)`);
+      devLog.info(`[server] Velocity: disabled (VELOCITY_ENABLED=false — kill switch; no register/sync/booking)`);
     }
     if (isLorrigoEnabledFlag()) {
       devLog.info(
@@ -118,16 +119,13 @@ async function main() {
     }
   });
 
-  // Background Velocity shipment status sync — runs every 5 minutes.
-  // Updates `status`, `shipmentStatus`, `pickupDate`, and `edd` for all active AWB orders
-  // so that In Transit / Out for Delivery / Delivered tabs and EDD stay current automatically.
-  // Runs whenever Velocity credentials are configured (VELOCITY_USERNAME + VELOCITY_PASSWORD),
-  // regardless of the VELOCITY_ENABLED flag so dev/staging environments sync correctly too.
+  // Background Velocity shipment status sync — only when VELOCITY_ENABLED + credentials.
   const velocityBgSync = setInterval(async () => {
     try {
+      if (!isVelocityActive()) return;
       const velocity = getCourierProvider("velocity");
       if (!velocity.isConfigured()) return;
-      const r = await withSyncMutex("velocity:status", () =>
+      const r = await withSyncLock("velocity:status", () =>
         velocity.syncStatus({ batchSize: 150 })
       );
       if (isSyncMutexSkipResult(r)) return;
@@ -149,7 +147,7 @@ async function main() {
       if (!isLorrigoEnabledFlag() || !isLorrigoConfigured()) return;
       const lorrigo = getCourierProvider("lorrigo");
       if (!lorrigo.isConfigured()) return;
-      const r = await withSyncMutex("lorrigo:status", () =>
+      const r = await withSyncLock("lorrigo:status", () =>
         lorrigo.syncStatus({ batchSize: 100 })
       );
       if (isSyncMutexSkipResult(r)) return;
@@ -167,7 +165,7 @@ async function main() {
     setTimeout(async () => {
       try {
         const lorrigo = getCourierProvider("lorrigo");
-        const r = await withSyncMutex("lorrigo:status", () =>
+        const r = await withSyncLock("lorrigo:status", () =>
           lorrigo.syncStatus({ batchSize: 100 })
         );
         if (isSyncMutexSkipResult(r)) return;
@@ -181,11 +179,11 @@ async function main() {
   }
 
   // Run an initial sync 30 seconds after startup so statuses are fresh on first page load.
-  if (isVelocityConfigured()) {
+  if (isVelocityActive()) {
     setTimeout(async () => {
       try {
         const velocity = getCourierProvider("velocity");
-        const r = await withSyncMutex("velocity:status", () =>
+        const r = await withSyncLock("velocity:status", () =>
           velocity.syncStatus({ batchSize: 150 })
         );
         if (!isSyncMutexSkipResult(r)) {
@@ -200,7 +198,7 @@ async function main() {
       }
       try {
         const velocity = getCourierProvider("velocity");
-        const ndr = await withSyncMutex("velocity:ndr", () =>
+        const ndr = await withSyncLock("velocity:ndr", () =>
           velocity.syncNDR({ daysBack: 120 })
         );
         if (!isSyncMutexSkipResult(ndr)) {
@@ -217,9 +215,10 @@ async function main() {
   // Background NDR sync — Velocity every 10 minutes; Lorrigo on its own interval.
   const velocityNdrSync = setInterval(async () => {
     try {
+      if (!isVelocityActive()) return;
       const velocity = getCourierProvider("velocity");
       if (!velocity.isConfigured() || !velocity.supportsNDR()) return;
-      const ndr = await withSyncMutex("velocity:ndr", () =>
+      const ndr = await withSyncLock("velocity:ndr", () =>
         velocity.syncNDR({ daysBack: 120 })
       );
       if (isSyncMutexSkipResult(ndr)) return;
@@ -238,7 +237,7 @@ async function main() {
       if (!isLorrigoEnabledFlag() || !isLorrigoConfigured()) return;
       const lorrigo = getCourierProvider("lorrigo");
       if (!lorrigo.isConfigured() || !lorrigo.supportsNDR()) return;
-      const ndr = await withSyncMutex("lorrigo:ndr", () =>
+      const ndr = await withSyncLock("lorrigo:ndr", () =>
         lorrigo.syncNDR({ daysBack: 30 })
       );
       if (isSyncMutexSkipResult(ndr)) return;
@@ -257,7 +256,7 @@ async function main() {
       try {
         const lorrigo = getCourierProvider("lorrigo");
         if (!lorrigo.supportsNDR()) return;
-        const ndr = await withSyncMutex("lorrigo:ndr", () =>
+        const ndr = await withSyncLock("lorrigo:ndr", () =>
           lorrigo.syncNDR({ daysBack: 30 })
         );
         if (isSyncMutexSkipResult(ndr)) return;
@@ -273,7 +272,7 @@ async function main() {
   // Velocity failure remark sync — keeps order Remarks populated from courier reasons
   const velocityRemarkSync = setInterval(async () => {
     try {
-      if (!isVelocityConfigured()) return;
+      if (!isVelocityActive()) return;
       const r = await syncFailureRemarksBatch(80);
       devLog.info(`[velocity:remark-sync] processed=${r.processed} updated=${r.updated}`);
     } catch (e: unknown) {

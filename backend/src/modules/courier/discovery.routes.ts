@@ -6,6 +6,7 @@
 import { Router } from "express";
 import { authMiddleware } from "../../middleware/authMiddleware.js";
 import { requireRoles } from "../../middleware/roleMiddleware.js";
+import { courierBookingLimiter } from "../../middleware/rateLimits.js";
 import * as dc from "./discovery.controller.js";
 import * as bc from "./booking.controller.js";
 
@@ -24,7 +25,12 @@ router.get("/discovery-metrics", requireRoles("admin"), dc.discoveryMetrics);
 router.get("/booking-metrics", requireRoles("admin"), bc.bookingMetrics);
 router.get("/ndr-metrics", requireRoles("admin"), bc.ndrMetrics);
 router.post("/sync-ndr", requireRoles("admin", "vendor", "dropshipper"), bc.syncNdr);
-router.post("/shipments", requireRoles("admin", "vendor", "dropshipper"), bc.createShipment);
+router.post(
+  "/shipments",
+  courierBookingLimiter,
+  requireRoles("admin", "vendor", "dropshipper"),
+  bc.createShipment
+);
 router.post("/shipments/cancel", requireRoles("admin", "vendor", "dropshipper"), bc.cancelShipment);
 
 export default router;

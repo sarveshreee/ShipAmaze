@@ -43,6 +43,7 @@ import { getCourierProvider } from "../modules/courier/providerRegistry.js";
 import { providerSupports } from "../modules/courier/capabilities.js";
 import type { CourierProviderId } from "../modules/courier/types.js";
 import { isLorrigoEnabledFlag } from "../modules/lorrigo/lorrigo.config.js";
+import { isVelocityEnabledFlag } from "../config/env.js";
 import {
   listServiceableCarriersForOrder,
   pickPriorityServiceableCourier,
@@ -1802,11 +1803,16 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     if (!providerSupports(lorrigo.capabilities, "booking") || !lorrigo.isConfigured()) {
       throw new AppError(503, "Lorrigo booking is not available (provider not configured).");
     }
-  } else if (!isVelocityConfigured()) {
-    throw new AppError(
-      503,
-      "Velocity courier credentials are not configured. Set VELOCITY_USERNAME and VELOCITY_PASSWORD to book real AWBs."
-    );
+  } else {
+    if (!isVelocityEnabledFlag()) {
+      throw new AppError(503, "Velocity is disabled (VELOCITY_ENABLED=false).");
+    }
+    if (!isVelocityConfigured()) {
+      throw new AppError(
+        503,
+        "Velocity courier credentials are not configured. Set VELOCITY_USERNAME and VELOCITY_PASSWORD to book real AWBs."
+      );
+    }
   }
 
   const weight = body.weight != null && String(body.weight).trim() !== "" ? Number(body.weight) : undefined;

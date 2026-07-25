@@ -70,6 +70,7 @@ describe("discoverServiceability", () => {
   const prevMode = process.env.COURIER_DISCOVERY_MODE;
   const prevTtl = process.env.COURIER_SERVICEABILITY_CACHE_TTL_SECONDS;
   const prevLorrigo = process.env.LORRIGO_ENABLED;
+  const prevVelocity = process.env.VELOCITY_ENABLED;
 
   beforeEach(() => {
     clearCourierProviderRegistryForTests();
@@ -78,6 +79,7 @@ describe("discoverServiceability", () => {
     process.env.COURIER_DISCOVERY_MODE = "both";
     process.env.COURIER_SERVICEABILITY_CACHE_TTL_SECONDS = "60";
     process.env.LORRIGO_ENABLED = "true";
+    process.env.VELOCITY_ENABLED = "true";
   });
 
   afterEach(() => {
@@ -87,6 +89,8 @@ describe("discoverServiceability", () => {
     else process.env.COURIER_SERVICEABILITY_CACHE_TTL_SECONDS = prevTtl;
     if (prevLorrigo === undefined) delete process.env.LORRIGO_ENABLED;
     else process.env.LORRIGO_ENABLED = prevLorrigo;
+    if (prevVelocity === undefined) delete process.env.VELOCITY_ENABLED;
+    else process.env.VELOCITY_ENABLED = prevVelocity;
   });
 
   it("returns normalized couriers from both providers (success)", async () => {
