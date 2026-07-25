@@ -81,6 +81,11 @@ export interface IOrder extends Document {
   externalOrderName?: string;
   channel?: string;
   shipmentCreated?: boolean;
+  /** Atomic booking claim — true while a worker is calling the provider. */
+  bookingInProgress?: boolean;
+  bookingInProgressAt?: Date;
+  /** Client/server idempotency key for booking replays. */
+  bookingIdempotencyKey?: string;
   shipmentId?: string;
   trackingId?: string;
   isJunk?: boolean;
@@ -243,6 +248,9 @@ const orderSchema = new Schema<IOrder>(
     externalOrderName: { type: String },
     channel: { type: String, default: "Manual" },
     shipmentCreated: { type: Boolean, default: false },
+    bookingInProgress: { type: Boolean, default: false, index: true },
+    bookingInProgressAt: { type: Date },
+    bookingIdempotencyKey: { type: String, sparse: true, index: true },
     shipmentId: { type: String },
     trackingId: { type: String },
     isJunk: { type: Boolean, default: false, index: true },
@@ -259,7 +267,7 @@ const orderSchema = new Schema<IOrder>(
     providerEvents: { type: [providerEventSchema], default: undefined },
     lastProviderStatusSyncedAt: { type: Date, index: true },
     // Velocity Shipping
-    velocityOrderId: { type: String, sparse: true },
+    velocityOrderId: { type: String, sparse: true, index: true },
     velocityShipmentId: { type: String, sparse: true },
     velocityReturnId: { type: String },
     courierCompanyId: { type: Schema.Types.Mixed },
@@ -309,6 +317,9 @@ orderSchema.index({ ownerUserId: 1 });
 orderSchema.index({ shipmentStatus: 1 });
 orderSchema.index({ courierName: 1 });
 orderSchema.index({ shopifyShopDomain: 1, shopifyOrderNumericId: 1 }, { sparse: true });
+orderSchema.index({ courierProvider: 1, status: 1, lastProviderStatusSyncedAt: 1 });
+orderSchema.index({ status: 1, awb: 1, lastVelocityStatusSyncedAt: 1 });
+orderSchema.index({ shipmentCreated: 1, bookingInProgress: 1 });
 
 registerOrderEmailHooks(orderSchema);
 

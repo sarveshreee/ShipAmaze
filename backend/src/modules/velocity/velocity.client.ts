@@ -86,6 +86,10 @@ function getClient(): ProviderHttpClient {
       maxTransientRetries: velocityConfig.maxTransientRetries,
       tokenCacheTtlMinutes: velocityConfig.tokenCacheTtlMinutes,
       debugLogs: velocityConfig.debugLogs,
+      maxConcurrentRequests: Math.min(
+        20,
+        Math.max(1, parseInt(process.env.VELOCITY_MAX_CONCURRENT_REQUESTS || "6", 10) || 6)
+      ),
       fetchToken: fetchNewToken,
       mapErrorMessage: mapVelocityErrorMessage,
     });

@@ -156,7 +156,11 @@ function getClient(): ProviderHttpClient {
       maxTransientRetries: lorrigoConfig.maxTransientRetries,
       tokenCacheTtlMinutes: lorrigoConfig.tokenCacheTtlMinutes,
       debugLogs: lorrigoConfig.debugLogs,
-      alwaysLogRequests: true,
+      alwaysLogRequests: process.env.LORRIGO_ALWAYS_LOG_REQUESTS === "true",
+      maxConcurrentRequests: Math.min(
+        20,
+        Math.max(1, parseInt(process.env.LORRIGO_MAX_CONCURRENT_REQUESTS || "6", 10) || 6)
+      ),
       fetchToken: fetchNewToken,
       onTokenInvalidate: () => {
         lastRefreshAt = new Date();

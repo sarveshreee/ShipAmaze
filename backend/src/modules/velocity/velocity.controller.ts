@@ -775,10 +775,15 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           message: typeof e?.message === "string" ? e.message : "Velocity create failed",
         })
       );
+      // Never return raw provider bodies to clients (log sanitized body server-side above).
       res.status(typeof e?.statusCode === "number" ? e.statusCode : 500).json({
         success: false,
         message: typeof e?.message === "string" ? e.message : "Velocity create failed",
-        providerError: sanitizeForVelocityLog(e?.providerError),
+        provider: "velocity",
+        code: typeof e?.code === "string" ? e.code : "BOOKING_FAILED",
+        retryable: e?.retryable === true,
+        requestId: typeof e?.requestId === "string" ? e.requestId : undefined,
+        correlationId: typeof e?.correlationId === "string" ? e.correlationId : undefined,
       });
       return;
     }

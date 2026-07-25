@@ -20,6 +20,7 @@ import { syncFailureRemarksBatch } from "./modules/velocity/velocityRemarkSync.j
 import { registerCourierProviders, getCourierProvider } from "./modules/courier/index.js";
 import { getLorrigoStatusSyncIntervalMs } from "./modules/lorrigo/lorrigo.statusSync.js";
 import { getLorrigoNdrSyncIntervalMs } from "./modules/lorrigo/lorrigo.ndrSync.js";
+import { isSyncMutexSkipResult, withSyncMutex } from "./modules/courier/syncMutex.js";
 
 validateEnv();
 registerCourierProviders();
@@ -126,9 +127,11 @@ async function main() {
     try {
       const velocity = getCourierProvider("velocity");
       if (!velocity.isConfigured()) return;
-      const r = await velocity.syncStatus({ batchSize: 150 });
+      const r = await withSyncMutex("velocity:status", () =>
+        velocity.syncStatus({ batchSize: 150 })
+      );
+      if (isSyncMutexSkipResult(r)) return;
       const errorDetails = Array.isArray(r.errorDetails) ? r.errorDetails : [];
-      // Always-on so failed syncs are visible in production logs
       console.info(
         `[velocity:bg-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}` +
           (errorDetails.length ? ` errorDetails=${JSON.stringify(errorDetails)}` : "")
@@ -146,7 +149,10 @@ async function main() {
       if (!isLorrigoEnabledFlag() || !isLorrigoConfigured()) return;
       const lorrigo = getCourierProvider("lorrigo");
       if (!lorrigo.isConfigured()) return;
-      const r = await lorrigo.syncStatus({ batchSize: 100 });
+      const r = await withSyncMutex("lorrigo:status", () =>
+        lorrigo.syncStatus({ batchSize: 100 })
+      );
+      if (isSyncMutexSkipResult(r)) return;
       console.info(
         `[lorrigo:bg-sync] scanned=${r.scanned ?? 0} updated=${r.updated ?? 0} errors=${r.errors ?? 0}` +
           (r.statusChanges != null ? ` statusChanges=${r.statusChanges}` : "")
@@ -161,7 +167,10 @@ async function main() {
     setTimeout(async () => {
       try {
         const lorrigo = getCourierProvider("lorrigo");
-        const r = await lorrigo.syncStatus({ batchSize: 100 });
+        const r = await withSyncMutex("lorrigo:status", () =>
+          lorrigo.syncStatus({ batchSize: 100 })
+        );
+        if (isSyncMutexSkipResult(r)) return;
         console.info(
           `[lorrigo:startup-sync] scanned=${r.scanned ?? 0} updated=${r.updated ?? 0} errors=${r.errors ?? 0}`
         );
@@ -176,21 +185,29 @@ async function main() {
     setTimeout(async () => {
       try {
         const velocity = getCourierProvider("velocity");
-        const r = await velocity.syncStatus({ batchSize: 150 });
-        const errorDetails = Array.isArray(r.errorDetails) ? r.errorDetails : [];
-        console.info(
-          `[velocity:startup-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}` +
-            (errorDetails.length ? ` errorDetails=${JSON.stringify(errorDetails)}` : "")
+        const r = await withSyncMutex("velocity:status", () =>
+          velocity.syncStatus({ batchSize: 150 })
         );
+        if (!isSyncMutexSkipResult(r)) {
+          const errorDetails = Array.isArray(r.errorDetails) ? r.errorDetails : [];
+          console.info(
+            `[velocity:startup-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}` +
+              (errorDetails.length ? ` errorDetails=${JSON.stringify(errorDetails)}` : "")
+          );
+        }
       } catch (e: unknown) {
         console.error("[velocity:startup-sync] error", e instanceof Error ? e.message : e);
       }
       try {
         const velocity = getCourierProvider("velocity");
-        const ndr = await velocity.syncNDR({ daysBack: 120 });
-        devLog.info(
-          `[velocity:ndr-startup-sync] fetched=${ndr.fetched} upserted=${ndr.upserted} closed=${ndr.closed} errors=${ndr.errors}`
+        const ndr = await withSyncMutex("velocity:ndr", () =>
+          velocity.syncNDR({ daysBack: 120 })
         );
+        if (!isSyncMutexSkipResult(ndr)) {
+          devLog.info(
+            `[velocity:ndr-startup-sync] fetched=${ndr.fetched} upserted=${ndr.upserted} closed=${ndr.closed} errors=${ndr.errors}`
+          );
+        }
       } catch (e: unknown) {
         devLog.warn("[velocity:ndr-startup-sync] error", e instanceof Error ? e.message : e);
       }
@@ -202,7 +219,10 @@ async function main() {
     try {
       const velocity = getCourierProvider("velocity");
       if (!velocity.isConfigured() || !velocity.supportsNDR()) return;
-      const ndr = await velocity.syncNDR({ daysBack: 120 });
+      const ndr = await withSyncMutex("velocity:ndr", () =>
+        velocity.syncNDR({ daysBack: 120 })
+      );
+      if (isSyncMutexSkipResult(ndr)) return;
       devLog.info(
         `[velocity:ndr-bg-sync] fetched=${ndr.fetched} upserted=${ndr.upserted} closed=${ndr.closed} errors=${ndr.errors}`
       );
@@ -218,7 +238,10 @@ async function main() {
       if (!isLorrigoEnabledFlag() || !isLorrigoConfigured()) return;
       const lorrigo = getCourierProvider("lorrigo");
       if (!lorrigo.isConfigured() || !lorrigo.supportsNDR()) return;
-      const ndr = await lorrigo.syncNDR({ daysBack: 30 });
+      const ndr = await withSyncMutex("lorrigo:ndr", () =>
+        lorrigo.syncNDR({ daysBack: 30 })
+      );
+      if (isSyncMutexSkipResult(ndr)) return;
       console.info(
         `[lorrigo:ndr-bg-sync] fetched=${ndr.fetched ?? 0} upserted=${ndr.upserted ?? 0} ` +
           `dupes=${ndr.duplicatesSuppressed ?? 0} errors=${ndr.errors ?? 0}`
@@ -234,7 +257,10 @@ async function main() {
       try {
         const lorrigo = getCourierProvider("lorrigo");
         if (!lorrigo.supportsNDR()) return;
-        const ndr = await lorrigo.syncNDR({ daysBack: 30 });
+        const ndr = await withSyncMutex("lorrigo:ndr", () =>
+          lorrigo.syncNDR({ daysBack: 30 })
+        );
+        if (isSyncMutexSkipResult(ndr)) return;
         console.info(
           `[lorrigo:ndr-startup-sync] fetched=${ndr.fetched ?? 0} upserted=${ndr.upserted ?? 0} errors=${ndr.errors ?? 0}`
         );

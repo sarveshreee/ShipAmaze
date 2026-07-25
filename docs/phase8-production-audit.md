@@ -143,12 +143,12 @@ ShipAmaze is close to multi-provider production readiness. Auth, capability gati
 
 ## Priority fix order
 
-1. Stop returning raw `providerError` from `errorMiddleware`.
-2. Make Lorrigo booking retries reconcile-only; disable HTTP retries for create-shipment POSTs.
-3. Atomic booking claim on Order before provider call.
-4. Fix Velocity status-sync N+1; add sync compound indexes.
-5. Rate-limit booking/discovery; set mongoose pool options; add ready health check.
-6. Align `VELOCITY_ENABLED` kill-switch; add sync overlap locks; cap serviceability cache.
+1. Stop returning raw `providerError` from `errorMiddleware`. ✅ Phase 9
+2. Make Lorrigo booking retries reconcile-only; disable HTTP retries for create-shipment POSTs. ✅ Phase 9
+3. Atomic booking claim on Order before provider call. ✅ Phase 9
+4. Fix Velocity status-sync N+1; add sync compound indexes. ✅ Phase 9
+5. Rate-limit booking/discovery; set mongoose pool options; add ready health check. ✅ Phase 9 (pool + ready + provider concurrency/backoff; app-level booking rate limit still recommended)
+6. Align `VELOCITY_ENABLED` kill-switch; add sync overlap locks; cap serviceability cache. ✅ Phase 9 (mutex + cache cap; Velocity flag kill-switch still Medium)
 
 ## Related docs
 

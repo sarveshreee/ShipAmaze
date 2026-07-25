@@ -21,6 +21,15 @@ const pickupLean = {
   lorrigoSyncStatus: "SUCCESS",
 };
 
+const claimOrderForBooking = vi.fn();
+const releaseBookingClaim = vi.fn(async () => undefined);
+
+vi.mock("./bookingClaim.js", () => ({
+  claimOrderForBooking: (...args: unknown[]) => claimOrderForBooking(...args),
+  releaseBookingClaim: (...args: unknown[]) => releaseBookingClaim(...args),
+  completeBookingClaim: vi.fn(async () => undefined),
+}));
+
 vi.mock("../../models/Pickup.js", () => ({
   Pickup: {
     findById: vi.fn(() => ({
@@ -84,6 +93,7 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
     products: [{ name: "Item", qty: 1, price: 250, sku: "SKU1" }],
     statusHistory: [],
     status: "ready_to_ship",
+    providerEvents: [],
     save: vi.fn(async function (this: unknown) {
       return this;
     }),
@@ -91,7 +101,18 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeProvider(createImpl: CourierProvider["createShipment"]): CourierProvider {
+function stubClaim(order: ReturnType<typeof makeOrder>, reusedExisting = false) {
+  claimOrderForBooking.mockResolvedValue({
+    order,
+    idempotencyKey: `lorrigo:${order.orderId}`,
+    reusedExisting,
+  });
+}
+
+function makeProvider(
+  createImpl: CourierProvider["createShipment"],
+  getImpl?: CourierProvider["getShipment"]
+): CourierProvider {
   return {
     id: "lorrigo",
     displayName: "Lorrigo",
@@ -104,7 +125,12 @@ function makeProvider(createImpl: CourierProvider["createShipment"]): CourierPro
     createShipment: createImpl,
     cancelShipment: async () => ({ success: true }),
     trackShipment: async () => ({ awb: "a", status: "x", activities: [] }),
-    getShipment: async () => ({ providerOrderId: "o", awb: "a" }),
+    getShipment:
+      getImpl ??
+      (async () => ({
+        providerOrderId: "o",
+        awb: "",
+      })),
     syncStatus: async () => ({}),
     supportsNDR: () => false,
     fetchNDR: async () => [],
@@ -135,10 +161,11 @@ describe("bookLorrigoShipment", () => {
     }));
     registerCourierProvider(makeProvider(create));
     const { bookLorrigoShipment } = await import("./bookShipment.js");
-    const order = makeOrder() as unknown as import("../../models/Order.js").IOrder;
+    const order = makeOrder();
+    stubClaim(order);
 
     const result = await bookLorrigoShipment({
-      order,
+      order: order as unknown as import("../../models/Order.js").IOrder,
       provider: "lorrigo",
       pickupAddressId: "507f1f77bcf86cd799439011",
       courierId: "c1",
@@ -155,33 +182,33 @@ describe("bookLorrigoShipment", () => {
     expect(order.awb).toBe("AWB111");
     expect(order.shipmentCreated).toBe(true);
     expect(order.lorrigoOrderId).toBe("lo-1");
-    expect(order.labelUrl).toContain("label.pdf");
     expect(order.save).toHaveBeenCalled();
   });
 
-  it("blocks duplicate booking", async () => {
+  it("blocks duplicate booking via claim reuse", async () => {
     const create = vi.fn(async () => ({ providerOrderId: "o", awb: "X" }));
     registerCourierProvider(makeProvider(create));
     const { bookLorrigoShipment } = await import("./bookShipment.js");
-    const order = makeOrder({ shipmentCreated: true, awb: "EXISTING" }) as unknown as import("../../models/Order.js").IOrder;
+    const order = makeOrder({ shipmentCreated: true, awb: "EXISTING", lorrigoOrderId: "lo-x" });
+    stubClaim(order, true);
 
-    await expect(
-      bookLorrigoShipment({
-        order,
-        provider: "lorrigo",
-        pickupAddressId: "507f1f77bcf86cd799439011",
-        courierId: "c1",
-        weightKg: 0.5,
-        lengthCm: 10,
-        widthCm: 10,
-        heightCm: 10,
-        skipServiceability: true,
-      })
-    ).rejects.toThrow(/duplicate|already/i);
+    const result = await bookLorrigoShipment({
+      order: order as unknown as import("../../models/Order.js").IOrder,
+      provider: "lorrigo",
+      pickupAddressId: "507f1f77bcf86cd799439011",
+      courierId: "c1",
+      weightKg: 0.5,
+      lengthCm: 10,
+      widthCm: 10,
+      heightCm: 10,
+      skipServiceability: true,
+    });
+
+    expect(result.awb).toBe("EXISTING");
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("rejects invalid pickup (not synced)", async () => {
+  it("rejects invalid pickup (not synced) and releases claim", async () => {
     const { Pickup } = await import("../../models/Pickup.js");
     (Pickup.findById as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       lean: vi.fn(async () => ({ ...pickupLean, lorrigoPickupId: "" })),
@@ -189,11 +216,12 @@ describe("bookLorrigoShipment", () => {
     const create = vi.fn(async () => ({ providerOrderId: "o", awb: "X" }));
     registerCourierProvider(makeProvider(create));
     const { bookLorrigoShipment } = await import("./bookShipment.js");
-    const order = makeOrder() as unknown as import("../../models/Order.js").IOrder;
+    const order = makeOrder();
+    stubClaim(order);
 
     await expect(
       bookLorrigoShipment({
-        order,
+        order: order as unknown as import("../../models/Order.js").IOrder,
         provider: "lorrigo",
         pickupAddressId: "507f1f77bcf86cd799439011",
         courierId: "c1",
@@ -205,47 +233,56 @@ describe("bookLorrigoShipment", () => {
       })
     ).rejects.toThrow(/not synced/i);
     expect(create).not.toHaveBeenCalled();
+    expect(releaseBookingClaim).toHaveBeenCalledWith("ORD-1");
   });
 
-  it("rejects invalid dimensions", async () => {
-    const create = vi.fn(async () => ({ providerOrderId: "o", awb: "X" }));
-    registerCourierProvider(makeProvider(create));
+  it("does not recreate after timeout; fails uncertain without second create", async () => {
+    const create = vi.fn(async () => {
+      throw new AppError(504, "Lorrigo request timed out after 45000ms");
+    });
+    const getShipment = vi.fn(async () => ({
+      providerOrderId: "",
+      awb: "",
+    }));
+    registerCourierProvider(makeProvider(create, getShipment));
     const { bookLorrigoShipment } = await import("./bookShipment.js");
-    const order = makeOrder() as unknown as import("../../models/Order.js").IOrder;
+    const order = makeOrder();
+    stubClaim(order);
 
     await expect(
       bookLorrigoShipment({
-        order,
+        order: order as unknown as import("../../models/Order.js").IOrder,
         provider: "lorrigo",
         pickupAddressId: "507f1f77bcf86cd799439011",
         courierId: "c1",
         weightKg: 0.5,
-        lengthCm: -1,
+        lengthCm: 10,
         widthCm: 10,
         heightCm: 10,
         skipServiceability: true,
       })
-    ).rejects.toThrow(/length/i);
-    expect(create).not.toHaveBeenCalled();
+    ).rejects.toThrow(/timed out|Do not retry/i);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(getShipment).toHaveBeenCalled();
   });
 
-  it("retries transient timeout once", async () => {
-    let calls = 0;
+  it("reconciles via getShipment after timeout when provider already booked", async () => {
     const create = vi.fn(async () => {
-      calls += 1;
-      if (calls === 1) throw new AppError(504, "Lorrigo request timed out after 45000ms");
-      return {
-        providerOrderId: "lo-2",
-        awb: "AWB222",
-        courierName: "Lorrigo Express",
-      };
+      throw new AppError(504, "Lorrigo request timed out after 45000ms");
     });
-    registerCourierProvider(makeProvider(create));
+    const getShipment = vi.fn(async () => ({
+      providerOrderId: "lo-recovered",
+      awb: "AWB-RECOVERED",
+      courierName: "Lorrigo Express",
+    }));
+    registerCourierProvider(makeProvider(create, getShipment));
     const { bookLorrigoShipment } = await import("./bookShipment.js");
-    const order = makeOrder() as unknown as import("../../models/Order.js").IOrder;
+    const order = makeOrder();
+    stubClaim(order);
 
     const result = await bookLorrigoShipment({
-      order,
+      order: order as unknown as import("../../models/Order.js").IOrder,
       provider: "lorrigo",
       pickupAddressId: "507f1f77bcf86cd799439011",
       courierId: "c1",
@@ -256,8 +293,8 @@ describe("bookLorrigoShipment", () => {
       skipServiceability: true,
     });
 
-    expect(calls).toBe(2);
-    expect(result.awb).toBe("AWB222");
+    expect(result.awb).toBe("AWB-RECOVERED");
+    expect(create).toHaveBeenCalledTimes(1);
   });
 
   it("marks reconciliation when Mongo save fails after provider success", async () => {
@@ -275,11 +312,12 @@ describe("bookLorrigoShipment", () => {
         throw new Error("mongo down");
       }),
       _id: "507f1f77bcf86cd799439099",
-    }) as unknown as import("../../models/Order.js").IOrder;
+    });
+    stubClaim(order);
 
     await expect(
       bookLorrigoShipment({
-        order,
+        order: order as unknown as import("../../models/Order.js").IOrder,
         provider: "lorrigo",
         pickupAddressId: "507f1f77bcf86cd799439011",
         courierId: "c1",

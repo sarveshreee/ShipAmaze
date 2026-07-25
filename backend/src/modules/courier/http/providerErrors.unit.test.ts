@@ -23,16 +23,19 @@ describe("providerErrors", () => {
     expect(isRetryableProviderError(new AppError(400, "bad"))).toBe(false);
   });
 
-  it("builds provider AppError with sanitized public message", () => {
+  it("builds provider AppError with sanitized public message and no raw body", () => {
     const err = buildProviderAppError({
       provider: "velocity",
       providerStatus: 422,
-      data: { message: "Invalid pincode" },
+      data: { message: "Invalid pincode", token: "secret" },
       requestId: "req-1",
     });
     expect(err.statusCode).toBe(422);
     expect(err.message).toBe("Invalid pincode");
     expect(err.provider).toBe("velocity");
     expect(err.requestId).toBe("req-1");
+    expect(err.providerError).toBeUndefined();
+    expect(err.code).toBe("VALIDATION_FAILED");
   });
 });
+

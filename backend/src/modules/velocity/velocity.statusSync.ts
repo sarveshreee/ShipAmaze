@@ -166,6 +166,10 @@ export async function syncActiveShipmentStatuses(
     batchSize,
   });
 
+  // Batch-load mutable docs once (avoids N× findById).
+  const docs = await Order.find({ _id: { $in: orders.map((o) => o._id) } });
+  const docById = new Map(docs.map((d) => [String(d._id), d]));
+
   for (const lean of orders) {
     result.processed++;
     const awb = String(lean.awb ?? "").trim();
@@ -201,7 +205,7 @@ export async function syncActiveShipmentStatuses(
       const internalCanonical = normalizeOrderStatus(internalStatus);
       const currentStatus = String(lean.status ?? "");
 
-      const doc = await Order.findById(lean._id);
+      const doc = docById.get(String(lean._id));
       if (!doc) {
         result.skipped++;
         continue;
@@ -263,21 +267,21 @@ export async function syncActiveShipmentStatuses(
         }
       }
 
-      // Velocity's UI Delivery Date is returned by /shipments search under
-      // shipment_milestones.original_expected_delivery_date, not by /order-tracking.
-      const velocityEdd = await getVelocityDeliveryDateForAwb(awb).catch((eddErr: unknown) => {
-        syncLog("warn", "[velocity:status-sync] EDD lookup failed", {
-          orderId: lean.orderId,
-          awb,
-          error: eddErr instanceof Error ? eddErr.message : String(eddErr),
+      // EDD comes from /shipments search (extra provider call). Only when missing
+      // and pickup is known — avoids N+1 on every poll.
+      if (!doc.edd && trackResult.pickup_date) {
+        const velocityEdd = await getVelocityDeliveryDateForAwb(awb).catch((eddErr: unknown) => {
+          syncLog("warn", "[velocity:status-sync] EDD lookup failed", {
+            orderId: lean.orderId,
+            awb,
+            error: eddErr instanceof Error ? eddErr.message : String(eddErr),
+          });
+          return undefined;
         });
-        return undefined;
-      });
-      if (velocityEdd) {
-        const velocityEddMs = Date.parse(velocityEdd);
-        if (!isNaN(velocityEddMs)) {
-          const velocityEddDate = new Date(velocityEddMs);
-          if (!doc.edd || doc.edd.getTime() !== velocityEddDate.getTime()) {
+        if (velocityEdd) {
+          const velocityEddMs = Date.parse(velocityEdd);
+          if (!isNaN(velocityEddMs)) {
+            const velocityEddDate = new Date(velocityEddMs);
             doc.edd = velocityEddDate;
             changed = true;
           }

@@ -1,6 +1,9 @@
 /**
  * Shared authenticated HTTP client for courier providers.
- * Provides token cache, 401 re-auth, timeouts, retries, request IDs, and sanitized logging.
+ * Provides token cache, 401 re-auth, timeouts, safe retries, request IDs, and sanitized logging.
+ *
+ * Retries: GET (idempotent) only by default. POST/PUT/PATCH never auto-retry
+ * (prevents duplicate bookings). Explicit `retryable: true` opts in.
  */
 
 import { randomUUID } from "crypto";
@@ -26,6 +29,8 @@ export interface ProviderHttpClientOptions {
   onTokenInvalidate?: () => void;
   /** When true, log every request with requestId/duration/retries (not only debug mode). */
   alwaysLogRequests?: boolean;
+  /** Max in-flight requests for this client (provider concurrency limit). Default 6. */
+  maxConcurrentRequests?: number;
   /** Optional hook after a finished request (success or failure). */
   onRequestComplete?: (info: {
     requestId: string;
@@ -56,6 +61,12 @@ export interface ProviderHttpRequestOptions {
   headers?: Record<string, string>;
   /** Skip Authorization header (e.g. login endpoints). */
   skipAuth?: boolean;
+  /**
+   * When true, allow transient retries. Defaults to true for GET only.
+   * Booking POSTs must leave this false/undefined.
+   */
+  retryable?: boolean;
+  correlationId?: string;
 }
 
 export interface ProviderHttpClient {
@@ -76,10 +87,34 @@ function truncateForLog(s: string, max = 180): string {
   return t.length <= max ? t : `${t.slice(0, max)}…`;
 }
 
+function parseRetryAfterMs(res: Response): number | undefined {
+  const raw = res.headers.get("retry-after");
+  if (!raw) return undefined;
+  const asInt = parseInt(raw, 10);
+  if (Number.isFinite(asInt) && asInt >= 0) {
+    return Math.min(asInt * 1000, 60_000);
+  }
+  const when = Date.parse(raw);
+  if (!Number.isNaN(when)) {
+    return Math.min(Math.max(0, when - Date.now()), 60_000);
+  }
+  return undefined;
+}
+
+function backoffMs(attempt: number, retryAfterMs?: number): number {
+  if (retryAfterMs != null && retryAfterMs > 0) return retryAfterMs;
+  const exp = Math.min(8_000, 400 * 2 ** attempt);
+  const jitter = Math.floor(Math.random() * 250);
+  return exp + jitter;
+}
+
 export function createProviderHttpClient(opts: ProviderHttpClientOptions): ProviderHttpClient {
   const baseUrl = opts.baseUrl.replace(/\/$/, "");
   let tokenCache: TokenCache | null = null;
   let authPromise: Promise<string> | null = null;
+  const maxConcurrent = Math.max(1, opts.maxConcurrentRequests ?? 6);
+  let inFlight = 0;
+  const waitQueue: Array<() => void> = [];
 
   const debugLog = (msg: string) => {
     if (opts.debugLogs) console.info(msg);
@@ -93,6 +128,21 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
     ((token: string) => ({
       Authorization: `Bearer ${token}`,
     }));
+
+  async function acquireSlot(): Promise<void> {
+    if (inFlight < maxConcurrent) {
+      inFlight += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => waitQueue.push(resolve));
+    inFlight += 1;
+  }
+
+  function releaseSlot(): void {
+    inFlight = Math.max(0, inFlight - 1);
+    const next = waitQueue.shift();
+    if (next) next();
+  }
 
   function invalidateToken() {
     const hadToken = !!tokenCache;
@@ -148,7 +198,7 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
     endpoint: string,
     options: ProviderHttpRequestOptions,
     requestId: string
-  ): Promise<T> {
+  ): Promise<{ data: T; retryAfterMs?: number }> {
     const method = options.method ?? (options.body !== undefined ? "POST" : "GET");
     const url = endpoint.startsWith("http")
       ? endpoint
@@ -163,6 +213,9 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
         "X-Request-Id": requestId,
         ...(options.headers ?? {}),
       };
+      if (options.correlationId) {
+        headers["X-Correlation-Id"] = options.correlationId;
+      }
       if (!options.skipAuth) {
         const token = await getToken();
         Object.assign(headers, authHeaders(token));
@@ -196,74 +249,64 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
     }
 
     const elapsedMs = Date.now() - started;
+    const retryAfterMs = parseRetryAfterMs(res);
 
     if (!res.ok) {
-      const safeBody = sanitizeForProviderLog(data);
       if (opts.debugLogs) {
         console.error(
           `[${opts.providerId}] ${method} ${endpoint} error ${res.status} ${elapsedMs}ms requestId=${requestId}`,
-          safeBody
+          sanitizeForProviderLog(data)
         );
       } else {
         console.error(
           `[${opts.providerId}] ${method} ${endpoint} error ${res.status} ${elapsedMs}ms requestId=${requestId}`
         );
       }
-      throw buildProviderAppError({
+      const err = buildProviderAppError({
         provider: opts.providerId,
         providerStatus: res.status,
         data,
         requestId,
+        correlationId: options.correlationId,
         mapMessage: opts.mapErrorMessage,
       });
+      if (retryAfterMs != null) {
+        Object.assign(err, { retryAfterMs });
+      }
+      throw err;
     }
 
     debugLog(
       `[${opts.providerId}] ${method} ${endpoint} attempt-ok ${elapsedMs}ms requestId=${requestId}`
     );
-    return data as T;
+    return { data: data as T, retryAfterMs };
   }
 
   async function request<T>(
     endpoint: string,
     options: ProviderHttpRequestOptions = {}
   ): Promise<T> {
-    const maxAttempts = opts.maxTransientRetries + 1;
-    const requestId = randomUUID();
     const method = options.method ?? (options.body !== undefined ? "POST" : "GET");
+    const allowRetry = options.retryable ?? method === "GET";
+    const maxAttempts = allowRetry ? opts.maxTransientRetries + 1 : 1;
+    const requestId = randomUUID();
     const started = Date.now();
     let lastErr: unknown;
     let retryCount = 0;
 
     requestLog(
-      `[${opts.providerId}] ${method} ${endpoint} start requestId=${requestId}`
+      `[${opts.providerId}] ${method} ${endpoint} start requestId=${requestId}` +
+        (options.correlationId ? ` correlationId=${options.correlationId}` : "")
     );
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const data = await requestOnce<T>(endpoint, options, requestId);
-        const durationMs = Date.now() - started;
-        requestLog(
-          `[${opts.providerId}] ${method} ${endpoint} ok durationMs=${durationMs} retries=${retryCount} requestId=${requestId}`
-        );
-        opts.onRequestComplete?.({
-          requestId,
-          method,
-          endpoint,
-          durationMs,
-          retryCount,
-          ok: true,
-        });
-        return data;
-      } catch (err) {
-        lastErr = err;
-        const retryable = isRetryableProviderError(err);
-        if (!retryable || attempt >= maxAttempts - 1) {
+    await acquireSlot();
+    try {
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const { data } = await requestOnce<T>(endpoint, options, requestId);
           const durationMs = Date.now() - started;
-          const statusCode =
-            err instanceof AppError ? err.statusCode : undefined;
           requestLog(
-            `[${opts.providerId}] ${method} ${endpoint} failed durationMs=${durationMs} retries=${retryCount} requestId=${requestId}`
+            `[${opts.providerId}] ${method} ${endpoint} ok durationMs=${durationMs} retries=${retryCount} requestId=${requestId}`
           );
           opts.onRequestComplete?.({
             requestId,
@@ -271,18 +314,44 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
             endpoint,
             durationMs,
             retryCount,
-            ok: false,
-            statusCode,
+            ok: true,
           });
-          throw err;
+          return data;
+        } catch (err) {
+          lastErr = err;
+          const retryable = allowRetry && isRetryableProviderError(err);
+          if (!retryable || attempt >= maxAttempts - 1) {
+            const durationMs = Date.now() - started;
+            const statusCode =
+              err instanceof AppError ? err.statusCode : undefined;
+            requestLog(
+              `[${opts.providerId}] ${method} ${endpoint} failed durationMs=${durationMs} retries=${retryCount} requestId=${requestId}`
+            );
+            opts.onRequestComplete?.({
+              requestId,
+              method,
+              endpoint,
+              durationMs,
+              retryCount,
+              ok: false,
+              statusCode,
+            });
+            throw err;
+          }
+          retryCount += 1;
+          const retryAfterMs =
+            err && typeof err === "object" && "retryAfterMs" in err
+              ? Number((err as { retryAfterMs?: number }).retryAfterMs)
+              : undefined;
+          const delay = backoffMs(attempt, retryAfterMs);
+          requestLog(
+            `[${opts.providerId}] retry ${endpoint} after ${delay}ms (attempt ${attempt + 1}) retriesSoFar=${retryCount} requestId=${requestId}`
+          );
+          await sleep(delay);
         }
-        retryCount += 1;
-        const backoff = 400 * (attempt + 1) + Math.floor(Math.random() * 200);
-        requestLog(
-          `[${opts.providerId}] retry ${endpoint} after ${backoff}ms (attempt ${attempt + 1}) retriesSoFar=${retryCount} requestId=${requestId}`
-        );
-        await sleep(backoff);
       }
+    } finally {
+      releaseSlot();
     }
 
     throw lastErr;

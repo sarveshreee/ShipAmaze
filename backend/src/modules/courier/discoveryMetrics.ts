@@ -39,8 +39,14 @@ export function recordDiscoveryCall(opts: {
   state.lastLatencyMs = opts.latencyMs;
 }
 
-export function getDiscoveryMetricsSnapshot(): DiscoveryMetricsSnapshot {
-  return { ...state };
+export function getDiscoveryMetricsSnapshot(): DiscoveryMetricsSnapshot & {
+  cacheHitRatio: number | null;
+} {
+  const total = state.cacheHits + state.cacheMisses;
+  return {
+    ...state,
+    cacheHitRatio: total > 0 ? state.cacheHits / total : null,
+  };
 }
 
 export function resetDiscoveryMetricsForTests(): void {

@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
+import mongoose from "mongoose";
 import { getUploadsRoot } from "./services/productImageService.js";
 import { errorMiddleware } from "./middleware/errorMiddleware.js";
 import { notFoundHandler } from "./middleware/notFound.js";
@@ -207,6 +208,18 @@ export function createApp() {
       service: "shipamaze-api",
       gitCommit: process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? null,
       imageRoute: true,
+    });
+  });
+
+  /** Readiness — Mongo connected (and optionally providers later). */
+  api.get("/health/ready", (_req, res) => {
+    const mongoReady = mongoose.connection.readyState === 1;
+    const status = mongoReady ? 200 : 503;
+    res.status(status).json({
+      ok: mongoReady,
+      service: "shipamaze-api",
+      mongo: mongoReady ? "connected" : "disconnected",
+      readyState: mongoose.connection.readyState,
     });
   });
 

@@ -8,7 +8,7 @@ import type { Types } from "mongoose";
 import { AppError } from "../../middleware/errorMiddleware.js";
 import { Order, type IOrder } from "../../models/Order.js";
 import { Pickup } from "../../models/Pickup.js";
-import { isRetryableProviderError } from "./http/providerErrors.js";
+import { isTransientNetworkMessage } from "./http/providerErrors.js";
 import { getCourierProvider } from "./providerRegistry.js";
 import { providerSupports } from "./capabilities.js";
 import type {
@@ -21,11 +21,14 @@ import {
   recordBookingFailure,
   recordBookingSuccess,
   recordBookingValidationFailure,
-  recordDuplicateBookingAttempt,
 } from "../lorrigo/lorrigo.bookingMetrics.js";
 import { discoverServiceability } from "./discoverCouriers.js";
 import { appendProviderEvent } from "./providerEvents.js";
 import { CURRENT_BOOKING_VERSION, ensureCorrelationId } from "./correlation.js";
+import {
+  claimOrderForBooking,
+  releaseBookingClaim,
+} from "./bookingClaim.js";
 
 export type BookShipmentInput = {
   order: IOrder;
@@ -39,6 +42,8 @@ export type BookShipmentInput = {
   heightCm: number;
   skipServiceability?: boolean;
   userId?: Types.ObjectId;
+  /** Optional idempotency key for safe client retries. */
+  idempotencyKey?: string;
 };
 
 export type BookShipmentResult = {
@@ -92,15 +97,7 @@ export async function validateLorrigoBooking(input: BookShipmentInput): Promise<
   pickupLean: Record<string, unknown>;
 }> {
   const { order } = input;
-
-  if (order.shipmentCreated || String(order.awb || "").trim()) {
-    recordDuplicateBookingAttempt();
-    throw new AppError(409, "Order already has a shipment (duplicate booking blocked)");
-  }
-  if (String(order.lorrigoOrderId ?? "").trim() && String(order.awb || "").trim()) {
-    recordDuplicateBookingAttempt();
-    throw new AppError(409, "Order already booked on Lorrigo");
-  }
+  // Duplicate / race protection is owned by claimOrderForBooking (atomic).
 
   if (!(input.weightKg > 0) || !Number.isFinite(input.weightKg)) {
     recordBookingValidationFailure();
@@ -260,8 +257,38 @@ function applyShipmentToOrder(
   });
 }
 
+function resultFromOrder(order: IOrder): BookShipmentResult {
+  return {
+    awb: String(order.awb ?? ""),
+    providerOrderId: String(order.lorrigoOrderId ?? ""),
+    providerShipmentId: order.lorrigoShipmentId,
+    courierId: order.courierCompanyId != null ? String(order.courierCompanyId) : undefined,
+    courierName: order.courierName,
+    labelUrl: order.labelUrl,
+    freightCharge: order.shippingCharges,
+    status: order.shipmentStatus,
+  };
+}
+
+/**
+ * True only for failures that likely happened before the provider accepted the request.
+ * Timeouts / aborts are NOT safe to recreate — the provider may already have booked.
+ */
+function isSafePreAckNetworkFailure(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const m = err.message.toLowerCase();
+  if (m.includes("timeout") || m.includes("abort")) return false;
+  return (
+    m.includes("econnrefused") ||
+    m.includes("enotfound") ||
+    m.includes("dns") ||
+    m.includes("network error")
+  );
+}
+
 /**
  * Book a Lorrigo shipment for an order. Does not touch Velocity booking code.
+ * Uses atomic claim + idempotency; never blindly retries create after possible ack.
  */
 export async function bookLorrigoShipment(input: BookShipmentInput): Promise<BookShipmentResult> {
   const provider = getCourierProvider("lorrigo");
@@ -273,76 +300,102 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
   }
 
   const started = Date.now();
-  const { lorrigoPickupId, pickupLean } = await validateLorrigoBooking(input);
   const correlationId = ensureCorrelationId(input.order);
-  input.order.bookingVersion = CURRENT_BOOKING_VERSION;
+
+  // Atomic claim first — prevents races and enables idempotent replay.
+  const claim = await claimOrderForBooking({
+    orderId: input.order.orderId,
+    provider: "lorrigo",
+    idempotencyKey: input.idempotencyKey,
+    correlationId,
+  });
+
+  const order = claim.order;
+  input.order = order;
+
+  if (claim.reusedExisting && (order.shipmentCreated || String(order.awb || "").trim())) {
+    recordBookingSuccess(Date.now() - started);
+    console.info(
+      `[lorrigo] booking idempotent reuse correlationId=${correlationId} orderId=${order.orderId} awb=${order.awb}`
+    );
+    return resultFromOrder(order);
+  }
+
+  let lorrigoPickupId: string;
+  let pickupLean: Record<string, unknown>;
+  try {
+    const validated = await validateLorrigoBooking(input);
+    lorrigoPickupId = validated.lorrigoPickupId;
+    pickupLean = validated.pickupLean;
+  } catch (err) {
+    await releaseBookingClaim(order.orderId);
+    throw err;
+  }
+
+  order.bookingVersion = CURRENT_BOOKING_VERSION;
   recordBookingAttempt(0);
 
-  appendProviderEvent(input.order, {
+  appendProviderEvent(order, {
     provider: "lorrigo",
     type: "BOOKING_REQUEST",
     status: "PENDING",
     correlationId,
-    metadata: { courierId: input.courierId, pickupAddressId: input.pickupAddressId },
+    metadata: {
+      courierId: input.courierId,
+      pickupAddressId: input.pickupAddressId,
+      idempotencyKey: claim.idempotencyKey,
+    },
   });
   console.info(
-    `[lorrigo] booking correlationId=${correlationId} orderId=${input.order.orderId} bookingVersion=${CURRENT_BOOKING_VERSION}`
+    `[lorrigo] booking correlationId=${correlationId} orderId=${order.orderId} ` +
+      `idempotencyKey=${claim.idempotencyKey} bookingVersion=${CURRENT_BOOKING_VERSION} provider=lorrigo`
   );
 
-  // Idempotency token: persist intent before provider call when we already have a provider order id.
-  if (String(input.order.lorrigoOrderId ?? "").trim() && !String(input.order.awb || "").trim()) {
-    // Previous attempt may have succeeded remotely — try getShipment if AWB missing.
+  // Reconcile prior partial success before creating.
+  if (String(order.lorrigoOrderId ?? "").trim() && !String(order.awb || "").trim()) {
     try {
       const existing = await provider.getShipment({
-        providerOrderId: String(input.order.lorrigoOrderId),
-        awb: String(input.order.awb || "") || undefined,
+        providerOrderId: String(order.lorrigoOrderId),
+        awb: String(order.awb || "") || undefined,
       });
       if (existing.awb) {
-        applyShipmentToOrder(input.order, existing, input, pickupLean, {
+        applyShipmentToOrder(order, existing, input, pickupLean, {
           correlationId,
           durationMs: Date.now() - started,
         });
-        await input.order.save();
+        order.bookingInProgress = false;
+        await order.save();
         recordBookingSuccess(Date.now() - started);
-        return {
-          awb: existing.awb,
-          providerOrderId: existing.providerOrderId,
-          providerShipmentId: existing.providerShipmentId,
-          courierId: existing.courierId,
-          courierName: existing.courierName,
-          labelUrl: existing.labelUrl,
-          freightCharge: existing.freightCharge,
-          status: existing.status,
-        };
+        return resultFromOrder(order);
       }
     } catch {
       /* proceed to create */
     }
   }
 
-  const pay = paymentModeOf(input.order);
+  const pay = paymentModeOf(order);
   const createInput: ProviderCreateShipmentInput = {
-    orderId: input.order.orderId,
+    orderId: order.orderId,
     pickupId: lorrigoPickupId,
     paymentMode: pay,
-    orderAmount: Number(input.order.amount ?? 0) || 0,
-    codAmount: pay === "cod" ? Number(input.order.amount ?? 0) : undefined,
+    orderAmount: Number(order.amount ?? 0) || 0,
+    codAmount: pay === "cod" ? Number(order.amount ?? 0) : undefined,
     weightKg: input.weightKg,
     lengthCm: input.lengthCm,
     widthCm: input.widthCm,
     heightCm: input.heightCm,
     courierId: input.courierId,
     customer: {
-      name: String(input.order.customer ?? ""),
-      phone: String(input.order.customerPhone ?? input.order.phone ?? "").replace(/\D/g, "").slice(-10),
-      email: input.order.customerEmail,
-      address: String(input.order.shippingAddress1 ?? input.order.address ?? ""),
-      city: String(input.order.shippingCity ?? input.order.city ?? ""),
-      state: String(input.order.shippingState ?? input.order.state ?? ""),
-      pincode: pin(input.order.shippingPincode ?? input.order.pincode),
+      name: String(order.customer ?? ""),
+      phone: String(order.customerPhone ?? order.phone ?? "").replace(/\D/g, "").slice(-10),
+      email: order.customerEmail,
+      address: String(order.shippingAddress1 ?? order.address ?? ""),
+      city: String(order.shippingCity ?? order.city ?? ""),
+      state: String(order.shippingState ?? order.state ?? ""),
+      pincode: pin(order.shippingPincode ?? order.pincode),
       country: "India",
     },
-    items: orderItems(input.order),
+    items: orderItems(order),
     providerPayload: {
       pickupName: pickupLean.label,
       contactPerson: pickupLean.contactName,
@@ -361,24 +414,68 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
         state: pickupLean.state,
         pickupAddressId: lorrigoPickupId,
       },
+      idempotencyKey: claim.idempotencyKey,
+      correlationId,
     },
   };
 
   let result: ProviderShipmentResult;
   try {
+    // HTTP client does not retry POST. App layer: create once; on uncertain failure reconcile only.
     result = await provider.createShipment(createInput);
   } catch (err) {
-    // Retry once on transient errors only (never validation / duplicate).
-    if (isRetryableProviderError(err)) {
+    // After possible provider ack (timeout): never recreate — try getShipment by merchant order id.
+    const maybeAcked =
+      err instanceof AppError &&
+      (err.statusCode === 504 || isTransientNetworkMessage(err.message));
+
+    if (maybeAcked) {
       try {
-        result = await provider.createShipment(createInput);
-      } catch (err2) {
+        const recovered = await provider.getShipment({
+          providerOrderId: String(order.lorrigoOrderId ?? "") || undefined,
+        });
+        if (recovered.awb) {
+          result = recovered;
+        } else if (isSafePreAckNetworkFailure(err)) {
+          // Extremely narrow: connection never established — safe single recreate.
+          result = await provider.createShipment(createInput);
+        } else {
+          order.bookingReconciliationRequired = true;
+          appendProviderEvent(order, {
+            provider: "lorrigo",
+            type: "BOOKING_FAILED",
+            status: "FAILED",
+            durationMs: Date.now() - started,
+            correlationId,
+            message: "Uncertain booking state after provider timeout — reconcile required",
+          });
+          await order.save().catch(() => undefined);
+          await releaseBookingClaim(order.orderId);
+          recordBookingFailure(Date.now() - started);
+          throw Object.assign(
+            new AppError(
+              504,
+              "Shipment booking timed out. Do not retry blindly — check order status or contact support."
+            ),
+            {
+              provider: "lorrigo",
+              code: "BOOKING_UNCERTAIN",
+              retryable: false,
+              correlationId,
+            }
+          );
+        }
+      } catch (inner) {
+        if (inner instanceof AppError && (inner as { code?: string }).code === "BOOKING_UNCERTAIN") {
+          throw inner;
+        }
+        await releaseBookingClaim(order.orderId);
         recordBookingFailure(Date.now() - started);
-        throw err2;
+        throw err;
       }
     } else {
       recordBookingFailure(Date.now() - started);
-      appendProviderEvent(input.order, {
+      appendProviderEvent(order, {
         provider: "lorrigo",
         type: "BOOKING_FAILED",
         status: "FAILED",
@@ -387,28 +484,29 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
         message: err instanceof Error ? err.message : String(err),
       });
       try {
-        await input.order.save();
+        await order.save();
       } catch {
         /* best effort */
       }
+      await releaseBookingClaim(order.orderId);
       throw err;
     }
   }
 
-  // Pre-mark provider ids before save for reconciliation if Mongo fails.
-  input.order.lorrigoOrderId = result.providerOrderId || input.order.lorrigoOrderId;
-  input.order.courierProvider = "lorrigo";
+  order.lorrigoOrderId = result.providerOrderId || order.lorrigoOrderId;
+  order.courierProvider = "lorrigo";
+  order.bookingInProgress = false;
 
-  applyShipmentToOrder(input.order, result, input, pickupLean, {
+  applyShipmentToOrder(order, result, input, pickupLean, {
     correlationId,
     durationMs: Date.now() - started,
   });
 
   try {
-    await input.order.save();
+    await order.save();
   } catch (saveErr) {
-    input.order.bookingReconciliationRequired = true;
-    appendProviderEvent(input.order, {
+    order.bookingReconciliationRequired = true;
+    appendProviderEvent(order, {
       provider: "lorrigo",
       type: "RECONCILIATION",
       status: "FAILED",
@@ -417,34 +515,36 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
       metadata: { awb: result.awb, providerOrderId: result.providerOrderId },
     });
     console.error(
-      `[CRITICAL] Lorrigo booking succeeded but Mongo save failed correlationId=${correlationId} orderId=${input.order.orderId} ` +
-        `awb=${result.awb} providerOrderId=${result.providerOrderId} error=${String(saveErr)}`
+      `[CRITICAL] Lorrigo booking succeeded but Mongo save failed correlationId=${correlationId} orderId=${order.orderId} ` +
+        `awb=${result.awb} providerOrderId=${result.providerOrderId} provider=lorrigo error=${String(saveErr)}`
     );
     try {
       await Order.updateOne(
-        { _id: input.order._id },
+        { _id: order._id },
         {
           $set: {
             awb: result.awb,
             trackingId: result.awb,
             shipmentCreated: true,
+            bookingInProgress: false,
             lorrigoOrderId: result.providerOrderId,
             lorrigoShipmentId: result.providerShipmentId,
             courierProvider: "lorrigo",
             correlationId,
             bookingVersion: CURRENT_BOOKING_VERSION,
+            bookingIdempotencyKey: claim.idempotencyKey,
             labelUrl: result.labelUrl,
             bookingReconciliationRequired: true,
             bookedAt: new Date(),
             courierCompanyId: result.courierId ?? input.courierId,
             courierName: result.courierName ?? input.courierName,
-            providerEvents: input.order.providerEvents,
+            providerEvents: order.providerEvents,
           },
         }
       );
     } catch (updateErr) {
       console.error(
-        `[CRITICAL] Lorrigo reconciliation update also failed correlationId=${correlationId} orderId=${input.order.orderId} awb=${result.awb} error=${String(updateErr)}`
+        `[CRITICAL] Lorrigo reconciliation update also failed correlationId=${correlationId} orderId=${order.orderId} awb=${result.awb} error=${String(updateErr)}`
       );
     }
     recordBookingFailure(Date.now() - started);
@@ -453,6 +553,19 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
       `Shipment created on Lorrigo (AWB ${result.awb}) but failed to save locally. Reconciliation required.`
     );
   }
+
+  // Keep caller's order object in sync when it was a plain mock / separate ref.
+  Object.assign(input.order, {
+    awb: order.awb,
+    shipmentCreated: order.shipmentCreated,
+    lorrigoOrderId: order.lorrigoOrderId,
+    lorrigoShipmentId: order.lorrigoShipmentId,
+    labelUrl: order.labelUrl,
+    bookingReconciliationRequired: order.bookingReconciliationRequired,
+    courierProvider: order.courierProvider,
+    correlationId: order.correlationId,
+    bookingInProgress: false,
+  });
 
   recordBookingSuccess(Date.now() - started);
   return {

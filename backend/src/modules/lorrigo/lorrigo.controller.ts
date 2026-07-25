@@ -11,6 +11,9 @@ import { getLorrigoStatusSyncHealth } from "./lorrigo.statusSyncMetrics.js";
 import { getLorrigoStatusSyncIntervalMs } from "./lorrigo.statusSync.js";
 import { Order } from "../../models/Order.js";
 import { TERMINAL_ORDER_STATUS_VALUES } from "../courier/statusNormalize.js";
+import { getLorrigoBookingMetrics } from "./lorrigo.bookingMetrics.js";
+import { getLorrigoNdrMetrics } from "./lorrigo.ndrMetrics.js";
+import { getSyncMutexSnapshot } from "../courier/syncMutex.js";
 
 /**
  * GET /api/lorrigo/status
@@ -59,15 +62,20 @@ export const getLorrigoStatus = asyncHandler(async (req: AuthRequest, res: Respo
     message: probe.message,
     sync: {
       activeShipments,
+      queueBacklog: activeShipments,
       lastPollAt: syncHealth.lastPollAt,
       lastSuccessfulSyncAt: syncHealth.lastSuccessfulSyncAt,
       consecutiveFailures: syncHealth.consecutiveFailures,
       lastSyncLatencyMs: syncHealth.lastSyncLatencyMs,
       lastProviderLatencyMs: syncHealth.lastProviderLatencyMs,
+      averageLatency: syncHealth.lastSyncLatencyMs,
       statusChanges: syncHealth.statusChanges,
       pollFailures: syncHealth.pollFailures,
       pollIntervalMs: getLorrigoStatusSyncIntervalMs(),
     },
+    booking: getLorrigoBookingMetrics(),
+    ndr: getLorrigoNdrMetrics(),
+    mutex: getSyncMutexSnapshot(),
     // Never include password, token, Authorization, or cookies
   });
 });

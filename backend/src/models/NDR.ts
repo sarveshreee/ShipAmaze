@@ -77,4 +77,6 @@ const ndrSchema = new Schema<INDR>(
   { timestamps: true }
 );
 
+ndrSchema.index({ status: 1, updatedAt: -1 });
+
 export const NDR: Model<INDR> = mongoose.models.NDR || mongoose.model<INDR>("NDR", ndrSchema);

@@ -12,6 +12,18 @@ type CacheEntry = {
 };
 
 const store = new Map<string, CacheEntry>();
+const MAX_CACHE_ENTRIES = Math.min(
+  5000,
+  Math.max(50, parseInt(process.env.COURIER_SERVICEABILITY_CACHE_MAX_ENTRIES || "500", 10) || 500)
+);
+
+function evictIfNeeded(): void {
+  while (store.size > MAX_CACHE_ENTRIES) {
+    const oldest = store.keys().next().value;
+    if (oldest === undefined) break;
+    store.delete(oldest);
+  }
+}
 
 export function buildServiceabilityCacheKey(parts: {
   provider: string;
@@ -58,6 +70,7 @@ export function setCachedCouriers(key: string, couriers: ProviderCourierOption[]
     expiresAt: Date.now() + ttlMs,
     couriers: couriers.map((c) => ({ ...c, metadata: c.metadata ? { ...c.metadata } : undefined })),
   });
+  evictIfNeeded();
 }
 
 /** Test helper */
