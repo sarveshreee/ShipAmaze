@@ -22,6 +22,8 @@ export interface ProviderHttpClientOptions {
   authHeaders?: (token: string) => Record<string, string>;
   /** Optional friendly error rewriting (e.g. Velocity WAREHOUSE_NOT_FOUND). */
   mapErrorMessage?: (rawMsg: string, data: unknown, status: number) => string;
+  /** Called when the cached token is cleared (401 refresh / explicit invalidate). */
+  onTokenInvalidate?: () => void;
 }
 
 interface TokenCache {
@@ -71,7 +73,11 @@ export function createProviderHttpClient(opts: ProviderHttpClientOptions): Provi
     }));
 
   function invalidateToken() {
+    const hadToken = !!tokenCache;
     tokenCache = null;
+    if (hadToken) {
+      opts.onTokenInvalidate?.();
+    }
   }
 
   async function getToken(): Promise<string> {

@@ -14,4 +14,5 @@ export function applyDefaultTestEnv(): void {
   process.env.SHOPIFY_WEBHOOK_URL ??= "http://localhost:5000/api/shopify/webhooks";
   process.env.SHOPIFY_SCOPES ??= "read_orders";
   process.env.VELOCITY_ENABLED ??= "false";
+  process.env.LORRIGO_ENABLED ??= "false";
 }

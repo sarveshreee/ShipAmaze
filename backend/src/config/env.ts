@@ -4,9 +4,17 @@
 
 const isProd = process.env.NODE_ENV === "production";
 
-function truthyVelocityEnabled(): boolean {
-  const v = process.env.VELOCITY_ENABLED?.trim().toLowerCase();
+function truthyFlag(raw: string | undefined): boolean {
+  const v = raw?.trim().toLowerCase();
   return v === "1" || v === "true" || v === "yes";
+}
+
+function truthyVelocityEnabled(): boolean {
+  return truthyFlag(process.env.VELOCITY_ENABLED);
+}
+
+function truthyLorrigoEnabled(): boolean {
+  return truthyFlag(process.env.LORRIGO_ENABLED);
 }
 
 /** Redact user:password from a MongoDB URI for logs. */
@@ -36,6 +44,12 @@ export function validateEnv(): void {
         if (!process.env[k]?.trim()) missing.push(k);
       }
     }
+
+    if (truthyLorrigoEnabled()) {
+      for (const k of ["LORRIGO_EMAIL", "LORRIGO_PASSWORD"] as const) {
+        if (!process.env[k]?.trim()) missing.push(k);
+      }
+    }
   }
 
   if (missing.length) {
@@ -59,4 +73,12 @@ export function isVelocityEnabledFlag(): boolean {
  */
 export function isVelocityConfigured(): boolean {
   return !!(process.env.VELOCITY_USERNAME?.trim() && process.env.VELOCITY_PASSWORD?.trim());
+}
+
+export function isLorrigoEnabledFlag(): boolean {
+  return truthyLorrigoEnabled();
+}
+
+export function isLorrigoConfigured(): boolean {
+  return !!(process.env.LORRIGO_EMAIL?.trim() && process.env.LORRIGO_PASSWORD?.trim());
 }

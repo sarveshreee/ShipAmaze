@@ -2,7 +2,14 @@ import "dotenv/config";
 import http from "node:http";
 import { createApp } from "./app.js";
 import { connectDb, disconnectDb } from "./config/db.js";
-import { isVelocityEnabledFlag, isVelocityConfigured, redactMongoUri, validateEnv } from "./config/env.js";
+import {
+  isVelocityEnabledFlag,
+  isVelocityConfigured,
+  isLorrigoEnabledFlag,
+  isLorrigoConfigured,
+  redactMongoUri,
+  validateEnv,
+} from "./config/env.js";
 import { getMailTransportStatus } from "./services/mail.js";
 import { brevoApiKeyHint, isLikelyBrevoV3ApiKey } from "./services/email/emailApiTransport.js";
 import { devLog } from "./utils/devLog.js";
@@ -95,6 +102,13 @@ async function main() {
       devLog.info(`[server] Velocity: enabled (credentials ${process.env.VELOCITY_USERNAME?.trim() ? "set" : "missing"})`);
     } else {
       devLog.info(`[server] Velocity: not enabled (set VELOCITY_ENABLED=true to require credentials in production)`);
+    }
+    if (isLorrigoEnabledFlag()) {
+      devLog.info(
+        `[server] Lorrigo: enabled (credentials ${isLorrigoConfigured() ? "set" : "missing"})`
+      );
+    } else {
+      devLog.info(`[server] Lorrigo: disabled (set LORRIGO_ENABLED=true to activate)`);
     }
     if (process.env.NODE_ENV === "production") {
       console.info(`[server] ShipAmaze API ready on port ${PORT}`);

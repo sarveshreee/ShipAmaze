@@ -9,5 +9,8 @@ export {
   DEFAULT_COURIER_PROVIDER_ID,
   clearCourierProviderRegistryForTests,
 } from "./providerRegistry.js";
-export { registerCourierProviders } from "./registerProviders.js";
+export {
+  registerCourierProviders,
+  resetCourierProviderRegistrationForTests,
+} from "./registerProviders.js";
 export type * from "./types.js";
