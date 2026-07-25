@@ -20,6 +20,7 @@ import {
   discoverServiceability,
   type DiscoveredCourier,
 } from "@/services/courierDiscoveryService";
+import { providerSupports } from "@/lib/providerCapabilities";
 import { CourierCard } from "@/components/CourierCard";
 import { CourierPriorityConfigModal } from "@/components/CourierPriorityConfigModal";
 import { cn } from "@/lib/utils";
@@ -313,8 +314,8 @@ export function ProcessSelectedModal({
         toast.error("Select a courier to book with");
         return;
       }
-      if (selectedCarrierProvider === "lorrigo") {
-        toast.error("Lorrigo booking is not available yet. Choose a Velocity courier or Priority mode.");
+      if (!providerSupports(selectedCarrierProvider, "booking")) {
+        toast.error("Selected courier provider does not support booking yet.");
         return;
       }
     }
@@ -325,6 +326,7 @@ export function ProcessSelectedModal({
       courierSelectionMode: mode,
       courierName: mode === "priority" ? "Priority" : selectedCarrierName,
       carrierId: mode === "courier" ? selectedCarrierId : undefined,
+      provider: mode === "courier" ? (selectedCarrierProvider === "lorrigo" ? "lorrigo" : "velocity") : "velocity",
       shipmentMode,
       weight: w,
       length: L,

@@ -155,7 +155,41 @@ export async function createShipment(body: {
   /** Empty string = Velocity auto-assign */
   carrier_id?: string | number | "";
   courier_name?: string;
+  /** velocity (default) | lorrigo */
+  provider?: "velocity" | "lorrigo";
+  weight?: number;
+  length?: number;
+  width?: number;
+  height?: number;
 }) {
+  const provider = body.provider === "lorrigo" ? "lorrigo" : "velocity";
+  if (provider === "lorrigo") {
+    return apiClient.post<{
+      success: boolean;
+      data: {
+        order_id: string;
+        shipment_id?: string;
+        awb_code: string;
+        carrier_name?: string;
+        label_url?: string;
+        shipping_charges?: number;
+        status?: string;
+        provider?: string;
+      };
+      orderId?: string;
+    }>("/courier/shipments", {
+      orderId: body.orderId,
+      warehouseId: body.warehouseId,
+      provider: "lorrigo",
+      carrier_id: body.carrier_id,
+      courier_name: body.courier_name,
+      weight: body.weight,
+      length: body.length,
+      width: body.width,
+      height: body.height,
+    });
+  }
+
   return apiClient.post<{
     success: boolean;
     data: {
@@ -218,6 +252,8 @@ export type ProcessSelectedPayload = {
   courierSelectionMode: "priority" | "courier";
   courierName: string;
   carrierId?: string;
+  /** velocity (default) | lorrigo */
+  provider?: "velocity" | "lorrigo";
   shipmentMode: "forward" | "reverse";
   weight?: number;
   length?: number;

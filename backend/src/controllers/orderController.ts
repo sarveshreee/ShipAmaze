@@ -38,6 +38,11 @@ import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddlew
 import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 import { mapToPublicTracking } from "../utils/publicTracking.js";
 import { bookForwardShipmentForOrder, syncLocalOrderEditsToVelocity } from "../modules/velocity/velocity.controller.js";
+import { bookLorrigoShipment } from "../modules/courier/bookShipment.js";
+import { getCourierProvider } from "../modules/courier/providerRegistry.js";
+import { providerSupports } from "../modules/courier/capabilities.js";
+import type { CourierProviderId } from "../modules/courier/types.js";
+import { isLorrigoEnabledFlag } from "../modules/lorrigo/lorrigo.config.js";
 import {
   listServiceableCarriersForOrder,
   pickPriorityServiceableCourier,
@@ -1398,6 +1403,8 @@ type ProcessSelectedPrep = {
   courierSelectionMode: CourierSelectionMode;
   courierName: string;
   carrierId: string | undefined;
+  /** Provider for explicit courier booking; priority mode remains Velocity. */
+  courierProvider: CourierProviderId;
   shipmentMode: string;
   weight: number | undefined;
   length: number | undefined;
@@ -1659,6 +1666,43 @@ async function processOneSelectedOrder(
     bookingBody.skip_serviceability = true;
   }
 
+  // Lorrigo explicit courier booking — Velocity path below is untouched.
+  if (prep.courierProvider === "lorrigo") {
+    try {
+      const w = Number(prep.weight ?? o.weight);
+      const L = Number(prep.length ?? o.length ?? 10);
+      const W = Number(prep.width ?? o.width ?? o.breadth ?? 10);
+      const H = Number(prep.height ?? o.height ?? 10);
+      const booking = await bookLorrigoShipment({
+        order: o,
+        provider: "lorrigo",
+        pickupAddressId: prep.pickupAddressId,
+        courierId: String(prep.carrierId ?? "").trim(),
+        courierName: prep.courierName,
+        weightKg: w,
+        lengthCm: L,
+        widthCm: W,
+        heightCm: H,
+        skipServiceability: true,
+        userId: req.user._id,
+      });
+      appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Lorrigo)");
+      await o.save();
+      return {
+        outcome: "updated",
+        orderId: o.orderId,
+        awb: booking.awb,
+        carrier: booking.courierName || prep.courierName,
+      };
+    } catch (err: unknown) {
+      return {
+        outcome: "failed",
+        orderId: o.orderId,
+        error: formatErrorMessage(err, "Lorrigo booking failed"),
+      };
+    }
+  }
+
   try {
     const booking = await bookForwardShipmentForOrder(req, o, bookingBody);
     appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity)");
@@ -1692,6 +1736,9 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     courierName?: unknown;
     carrierId?: unknown;
     courierSelectionMode?: unknown;
+    /** velocity | lorrigo — optional; defaults to velocity */
+    provider?: unknown;
+    courierProvider?: unknown;
     shipmentMode?: unknown;
     weight?: unknown;
     length?: unknown;
@@ -1735,7 +1782,27 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   if (shipmentMode === "reverse") {
     throw new AppError(400, "Reverse shipments must be created from the order shipment dialog.");
   }
-  if (!isVelocityConfigured()) {
+
+  const providerRaw = String(body.provider ?? body.courierProvider ?? "velocity")
+    .trim()
+    .toLowerCase();
+  const courierProvider: CourierProviderId = providerRaw === "lorrigo" ? "lorrigo" : "velocity";
+
+  if (courierProvider === "lorrigo") {
+    if (courierSelectionMode === "priority") {
+      throw new AppError(
+        400,
+        "Lorrigo booking requires selecting a specific courier. Priority mode uses Velocity."
+      );
+    }
+    if (!isLorrigoEnabledFlag()) {
+      throw new AppError(503, "Lorrigo is disabled (LORRIGO_ENABLED is not true).");
+    }
+    const lorrigo = getCourierProvider("lorrigo");
+    if (!providerSupports(lorrigo.capabilities, "booking") || !lorrigo.isConfigured()) {
+      throw new AppError(503, "Lorrigo booking is not available (provider not configured).");
+    }
+  } else if (!isVelocityConfigured()) {
     throw new AppError(
       503,
       "Velocity courier credentials are not configured. Set VELOCITY_USERNAME and VELOCITY_PASSWORD to book real AWBs."
@@ -1758,23 +1825,34 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
 
   const pickup = await Pickup.findOne(pickupByIdSelectableQuery(pickupAddressId, req.user))
     .select(
-      "label contactName phone alternatePhone email addressLine1 addressLine2 landmark city state pincode country gstin velocityWarehouseId vendorId createdByRole userId"
+      "label contactName phone alternatePhone email addressLine1 addressLine2 landmark city state pincode country gstin velocityWarehouseId lorrigoPickupId lorrigoSyncStatus vendorId createdByRole userId"
     )
     .lean();
   if (!pickup) throw new AppError(404, "Pickup address not found");
 
-  const syncResult = await syncPickupToVelocity(pickupAddressId);
-  if ("error" in syncResult && syncResult.error) {
-    throw new AppError(422, `Pickup address is not linked to Velocity: ${syncResult.error}`);
-  }
-  const velocityWarehouseId =
-    ("warehouse_id" in syncResult && syncResult.warehouse_id?.trim()) ||
-    String(pickup.velocityWarehouseId ?? "").trim();
-  if (!velocityWarehouseId) {
-    throw new AppError(
-      422,
-      "Pickup address must be linked to a Velocity warehouse before booking shipments. Sync the pickup in Admin settings."
-    );
+  let velocityWarehouseId = "";
+  if (courierProvider === "velocity") {
+    const syncResult = await syncPickupToVelocity(pickupAddressId);
+    if ("error" in syncResult && syncResult.error) {
+      throw new AppError(422, `Pickup address is not linked to Velocity: ${syncResult.error}`);
+    }
+    velocityWarehouseId =
+      ("warehouse_id" in syncResult && syncResult.warehouse_id?.trim()) ||
+      String(pickup.velocityWarehouseId ?? "").trim();
+    if (!velocityWarehouseId) {
+      throw new AppError(
+        422,
+        "Pickup address must be linked to a Velocity warehouse before booking shipments. Sync the pickup in Admin settings."
+      );
+    }
+  } else {
+    const lorrigoPickupId = String((pickup as { lorrigoPickupId?: string }).lorrigoPickupId ?? "").trim();
+    if (!lorrigoPickupId) {
+      throw new AppError(
+        422,
+        "Pickup address must be synced to Lorrigo before booking. Use Retry Sync on the pickup address."
+      );
+    }
   }
 
   const vendorIdFromPickup = await resolveVendorIdFromPickup(pickup);
@@ -1807,6 +1885,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     courierSelectionMode,
     courierName,
     carrierId,
+    courierProvider,
     shipmentMode,
     weight,
     length,

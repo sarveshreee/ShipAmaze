@@ -15,4 +15,12 @@ export {
 } from "./registerProviders.js";
 export { discoverServiceability, discoverRates } from "./discoverCouriers.js";
 export { discoveryConfig, resolveDiscoveryProviderIds } from "./discoveryConfig.js";
+export { bookLorrigoShipment, bookShipmentViaProvider } from "./bookShipment.js";
+export {
+  VELOCITY_CAPABILITIES,
+  LORRIGO_CAPABILITIES,
+  getStaticProviderCapabilities,
+  providerSupports,
+} from "./capabilities.js";
+export type { CourierProviderCapabilities } from "./capabilities.js";
 export type * from "./types.js";

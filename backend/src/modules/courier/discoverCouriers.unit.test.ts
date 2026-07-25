@@ -36,6 +36,19 @@ function stub(
   return {
     id,
     displayName: id,
+    capabilities: {
+      authentication: true,
+      serviceability: true,
+      rates: true,
+      booking: false,
+      tracking: false,
+      cancel: false,
+      ndr: false,
+      returns: false,
+      pickupSync: true,
+      labels: false,
+      webhooks: false,
+    },
     isConfigured: () => impl.configured !== false,
     authenticate: async () => undefined,
     serviceability: impl.serviceability ?? (async () => []),
@@ -44,6 +57,7 @@ function stub(
     createShipment: async () => ({ providerOrderId: "o", awb: "a" }),
     cancelShipment: async () => ({ success: true }),
     trackShipment: async () => ({ awb: "a", status: "x", activities: [] }),
+    getShipment: async () => ({ providerOrderId: "o", awb: "a" }),
     syncStatus: async () => ({}),
     syncNDR: async () => ({}),
   };

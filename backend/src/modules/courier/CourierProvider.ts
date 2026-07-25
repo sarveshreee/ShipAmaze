@@ -1,8 +1,10 @@
+import type { CourierProviderCapabilities } from "./capabilities.js";
 import type {
   CourierProviderId,
   ProviderCancelInput,
   ProviderCancelResult,
   ProviderCreateShipmentInput,
+  ProviderGetShipmentInput,
   ProviderPickupInput,
   ProviderPickupResult,
   ProviderCourierOption,
@@ -22,6 +24,9 @@ export interface CourierProvider {
   readonly id: CourierProviderId;
   readonly displayName: string;
 
+  /** Declared feature support — prefer this over provider-id conditionals. */
+  readonly capabilities: CourierProviderCapabilities;
+
   /** True when credentials / config required for API calls are present. */
   isConfigured(): boolean;
 
@@ -39,6 +44,9 @@ export interface CourierProvider {
   cancelShipment(input: ProviderCancelInput): Promise<ProviderCancelResult>;
 
   trackShipment(input: ProviderTrackInput): Promise<ProviderTrackingResult>;
+
+  /** Fetch shipment details by provider order id and/or AWB. */
+  getShipment(input: ProviderGetShipmentInput): Promise<ProviderShipmentResult>;
 
   /** Background poll of active shipments → order status updates. */
   syncStatus(opts?: { batchSize?: number }): Promise<ProviderSyncResult>;

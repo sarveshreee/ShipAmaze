@@ -12,6 +12,7 @@ import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import { cn } from "@/lib/utils";
 
 import { discoverRates, type DiscoveredCourier } from "@/services/courierDiscoveryService";
+import { providerSupports } from "@/lib/providerCapabilities";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { isOrderReadyToShip } from "@/lib/orderTabFilters";
 import { toast } from "sonner";
@@ -776,19 +777,20 @@ interface Props {
     velocityWarehouseId?: string;
     carrier_id?: string | number | "";
     courier_name?: string;
+    provider?: "velocity" | "lorrigo";
   }) => Promise<{
     success: boolean;
     data: {
       order_id: string;
-      shipment_id: string;
+      shipment_id?: string;
       awb_code: string;
-      carrier_name: string;
+      carrier_name?: string;
       label_url?: string;
       manifest_url?: string;
       shipping_charges?: number;
       cod_charges?: number;
       rto_charges?: number;
-      status: string;
+      status?: string;
     };
   }>;
   /** Shown under the icon when the server returned zero rows (not loading). */
@@ -2635,10 +2637,15 @@ export function RichOrdersTable({
                   const name = String(r.courierName || r.carrier_name || id);
                   const providerLabel = r.provider === "lorrigo" ? "Lorrigo" : "Velocity";
                   const charge = Number(r.totalCharge ?? r.total_charge ?? r.freight ?? r.freight_charge ?? 0);
+                  const canBook = providerSupports(r.provider, "booking");
                   return (
-                    <option key={`${r.provider}:${id}`} value={id} disabled={r.provider === "lorrigo"}>
+                    <option
+                      key={`${r.provider}:${id}`}
+                      value={canBook ? `${r.provider || "velocity"}:${id}` : id}
+                      disabled={!canBook}
+                    >
                       {name} ({providerLabel}) — ₹{charge.toFixed(0)}
-                      {r.provider === "lorrigo" ? " — booking soon" : ""}
+                      {!canBook ? " — booking unavailable" : ""}
                     </option>
                   );
                 })}
@@ -2667,8 +2674,27 @@ export function RichOrdersTable({
                   return;
                 }
                 const selectedPickup = warehouses.find((w) => w.id === selectedWarehouseId);
-                if (!selectedPickup?.velocityWarehouseId?.trim()) {
-                  toast.error(showProviderBrand ? "Selected pickup is not linked to Velocity" : "Selected pickup is not linked for shipping");
+                const courierPick = selectedCourierId || "";
+                let provider: "velocity" | "lorrigo" = "velocity";
+                let carrierRaw = courierPick;
+                if (courierPick.startsWith("lorrigo:")) {
+                  provider = "lorrigo";
+                  carrierRaw = courierPick.slice("lorrigo:".length);
+                } else if (courierPick.startsWith("velocity:")) {
+                  provider = "velocity";
+                  carrierRaw = courierPick.slice("velocity:".length);
+                }
+                if (provider === "lorrigo") {
+                  if (!selectedPickup?.lorrigoPickupId?.trim()) {
+                    toast.error("Selected pickup is not synced to Lorrigo");
+                    return;
+                  }
+                } else if (!selectedPickup?.velocityWarehouseId?.trim()) {
+                  toast.error(
+                    showProviderBrand
+                      ? "Selected pickup is not linked to Velocity"
+                      : "Selected pickup is not linked for shipping"
+                  );
                   return;
                 }
                 setShipmentSubmitting(true);
@@ -2680,13 +2706,13 @@ export function RichOrdersTable({
                       ? ((shipmentModalOrder.pickupAddress as any).id as string | undefined)
                       : undefined) ||
                     "";
-                  const courierPick = selectedCourierId || "";
-                  const carrier_id = courierPick.startsWith("name:") ? "" : courierPick;
+                  const carrier_id = carrierRaw.startsWith("name:") ? "" : carrierRaw;
                   const res = await onCreateShipment({
                     orderId: shipmentModalOrder.id,
                     warehouseId: selectedWarehouseId || fallbackPickupId,
                     carrier_id,
-                    courier_name: courierPick.startsWith("name:") ? courierPick.slice(5) : undefined,
+                    courier_name: carrierRaw.startsWith("name:") ? carrierRaw.slice(5) : undefined,
+                    provider,
                   });
                   const d = res.data;
                   const lines = [

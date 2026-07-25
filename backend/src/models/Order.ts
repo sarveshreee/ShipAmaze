@@ -74,6 +74,16 @@ export interface IOrder extends Document {
   isJunk?: boolean;
   junkedAt?: Date;
   junkReason?: string;
+  /** Active courier provider for this shipment (optional; default velocity). */
+  courierProvider?: "velocity" | "lorrigo";
+  /** Lorrigo order / shipment ids after booking (optional). */
+  lorrigoOrderId?: string;
+  lorrigoShipmentId?: string;
+  /** Sanitized provider booking response for support / reconciliation. */
+  providerBookingRaw?: Record<string, unknown>;
+  /** Set when provider booking succeeded but local persistence failed. */
+  bookingReconciliationRequired?: boolean;
+  bookedAt?: Date;
   // Velocity Shipping fields (all optional – never break existing data)
   velocityOrderId?: string;
   velocityShipmentId?: string;
@@ -204,6 +214,12 @@ const orderSchema = new Schema<IOrder>(
     isJunk: { type: Boolean, default: false, index: true },
     junkedAt: { type: Date },
     junkReason: { type: String },
+    courierProvider: { type: String, enum: ["velocity", "lorrigo"], index: true },
+    lorrigoOrderId: { type: String, sparse: true, index: true },
+    lorrigoShipmentId: { type: String, sparse: true },
+    providerBookingRaw: { type: Schema.Types.Mixed },
+    bookingReconciliationRequired: { type: Boolean, default: false, index: true },
+    bookedAt: { type: Date },
     // Velocity Shipping
     velocityOrderId: { type: String, sparse: true },
     velocityShipmentId: { type: String, sparse: true },

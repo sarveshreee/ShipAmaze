@@ -9,6 +9,7 @@ import type {
   ProviderCancelResult,
   ProviderCourierOption,
   ProviderCreateShipmentInput,
+  ProviderGetShipmentInput,
   ProviderPickupInput,
   ProviderPickupResult,
   ProviderRatesInput,
@@ -26,7 +27,7 @@ import * as velocityService from "../../../velocity/velocity.service.js";
 import { syncActiveShipmentStatuses } from "../../../velocity/velocity.statusSync.js";
 import { syncNdrFromVelocity } from "../../../velocity/velocity.ndrSync.js";
 import type { VelocityForwardOrderRequest } from "../../../velocity/velocity.types.js";
-
+import { VELOCITY_CAPABILITIES } from "../../capabilities.js";
 import { finalizeCourierOption, parseEstimatedDays } from "../../normalizeCourierOption.js";
 
 function mapServiceability(
@@ -82,6 +83,7 @@ function mapRates(
 export const velocityCourierProvider: CourierProvider = {
   id: "velocity",
   displayName: "Velocity",
+  capabilities: VELOCITY_CAPABILITIES,
 
   isConfigured(): boolean {
     return isVelocityConfigured();
@@ -231,6 +233,19 @@ export const velocityCourierProvider: CourierProvider = {
       deliveredDate: res.delivered_date,
       message: res.message,
       raw: res,
+    };
+  },
+
+  async getShipment(input: ProviderGetShipmentInput): Promise<ProviderShipmentResult> {
+    const awb = String(input.awb ?? "").trim();
+    if (!awb) throw new AppError(400, "Velocity getShipment requires AWB");
+    const res = await velocityService.trackShipment({ awb });
+    return {
+      providerOrderId: res.order_id ?? String(input.providerOrderId ?? ""),
+      awb: res.awb,
+      courierName: res.carrier_name,
+      status: res.status,
+      raw: res as unknown as Record<string, unknown>,
     };
   },
 

@@ -2,20 +2,24 @@
  * Lorrigo CourierProvider adapter.
  * Phase 2: authentication
  * Phase 3: createPickup
- * Phase 4: serviceability / getRates (discovery — no booking)
- * Other capabilities throw until later phases.
+ * Phase 4: serviceability / getRates
+ * Phase 5: createShipment / cancelShipment / getShipment / trackShipment
  */
 
 import type { CourierProvider } from "../../CourierProvider.js";
 import type {
   ProviderCancelInput,
+  ProviderCancelResult,
   ProviderCourierOption,
   ProviderCreateShipmentInput,
+  ProviderGetShipmentInput,
   ProviderPickupInput,
   ProviderPickupResult,
   ProviderRatesInput,
   ProviderServiceabilityInput,
+  ProviderShipmentResult,
   ProviderTrackInput,
+  ProviderTrackingResult,
 } from "../../types.js";
 import { AppError } from "../../../../middleware/errorMiddleware.js";
 import {
@@ -25,6 +29,13 @@ import {
 } from "../../../lorrigo/lorrigo.client.js";
 import { isLorrigoConfigured, isLorrigoEnabledFlag } from "../../../lorrigo/lorrigo.config.js";
 import { fetchLorrigoServiceableCouriers } from "../../../lorrigo/lorrigo.serviceability.js";
+import {
+  cancelLorrigoShipment,
+  createLorrigoShipment,
+  getLorrigoShipment,
+  trackLorrigoShipment,
+} from "../../../lorrigo/lorrigo.booking.js";
+import { LORRIGO_CAPABILITIES } from "../../capabilities.js";
 
 function notImplemented(capability: string): never {
   throw new AppError(501, `Lorrigo ${capability} is not implemented yet.`);
@@ -48,6 +59,7 @@ function extractPickupId(raw: unknown): string {
 export const lorrigoCourierProvider: CourierProvider = {
   id: "lorrigo",
   displayName: "Lorrigo",
+  capabilities: LORRIGO_CAPABILITIES,
 
   isConfigured(): boolean {
     return isLorrigoEnabledFlag() && isLorrigoConfigured();
@@ -65,7 +77,6 @@ export const lorrigoCourierProvider: CourierProvider = {
   },
 
   async getRates(input: ProviderRatesInput): Promise<ProviderCourierOption[]> {
-    // Lorrigo serviceable-couriers returns freight; reuse for rate discovery.
     return fetchLorrigoServiceableCouriers({
       fromPincode: input.fromPincode,
       toPincode: input.toPincode,
@@ -81,7 +92,6 @@ export const lorrigoCourierProvider: CourierProvider = {
 
   async createPickup(input: ProviderPickupInput): Promise<ProviderPickupResult> {
     if (input.existingPickupId?.trim()) {
-      // Phase 3: no update API in Postman docs — return existing id
       return { pickupId: input.existingPickupId.trim(), message: "Using existing Lorrigo pickup id" };
     }
 
@@ -105,16 +115,20 @@ export const lorrigoCourierProvider: CourierProvider = {
     return { pickupId, raw };
   },
 
-  createShipment(_input: ProviderCreateShipmentInput) {
-    return notImplemented("createShipment");
+  async createShipment(input: ProviderCreateShipmentInput): Promise<ProviderShipmentResult> {
+    return createLorrigoShipment(input);
   },
 
-  cancelShipment(_input: ProviderCancelInput) {
-    return notImplemented("cancelShipment");
+  async cancelShipment(input: ProviderCancelInput): Promise<ProviderCancelResult> {
+    return cancelLorrigoShipment(input);
   },
 
-  trackShipment(_input: ProviderTrackInput) {
-    return notImplemented("trackShipment");
+  async trackShipment(input: ProviderTrackInput): Promise<ProviderTrackingResult> {
+    return trackLorrigoShipment(input);
+  },
+
+  async getShipment(input: ProviderGetShipmentInput): Promise<ProviderShipmentResult> {
+    return getLorrigoShipment(input);
   },
 
   syncStatus() {

@@ -14,6 +14,7 @@ import { usePickupAddresses } from "@/hooks/useApiData";
 import * as orderService from "@/services/orderService";
 import * as pickupService from "@/services/pickupService";
 import { discoverRates, type DiscoveredCourier } from "@/services/courierDiscoveryService";
+import { providerSupports } from "@/lib/providerCapabilities";
 import type { PickupAddress } from "@/types/logistics";
 import { AddAddressModal } from "@/components/AddAddressModal";
 import { toast } from "sonner";
@@ -1138,20 +1139,20 @@ export default function AddOrder() {
                   const providerLabel = r.provider === "lorrigo" ? "Lorrigo" : "Velocity";
                   const total = Number(r.totalCharge ?? r.total_charge ?? r.freight ?? r.freight_charge ?? 0);
                   const freight = r.freight ?? r.freightCharge ?? r.freight_charge;
-                  const sel = selectedCarrierId === id && r.provider !== "lorrigo";
-                  const bookingSoon = r.provider === "lorrigo";
+                  const canBook = providerSupports(r.provider, "booking");
+                  const sel = selectedCarrierId === id && canBook;
                   return (
                     <button
                       key={`${r.provider}:${id}`}
                       type="button"
-                      disabled={bookingSoon}
+                      disabled={!canBook}
                       onClick={() => {
-                        if (!bookingSoon) setSelectedCarrierId(id);
+                        if (canBook) setSelectedCarrierId(id);
                       }}
                       className={cn(
                         "rounded-lg border p-4 text-left transition-all text-sm",
                         sel ? "border-primary bg-primary-light/50 ring-1 ring-primary/30" : "border-border hover:border-primary/40",
-                        bookingSoon && "opacity-60 cursor-not-allowed"
+                        !canBook && "opacity-60 cursor-not-allowed"
                       )}
                     >
                       <p className="font-semibold text-text-primary">{name}</p>
@@ -1161,8 +1162,8 @@ export default function AddOrder() {
                         <p className="text-[11px] text-text-muted mt-0.5">Freight ₹{Number(freight).toFixed(2)}</p>
                       )}
                       {r.tat && <p className="text-[11px] text-text-muted mt-1">Est. delivery: {r.tat}</p>}
-                      {bookingSoon && (
-                        <p className="text-[11px] text-amber-700 mt-1">Booking via Lorrigo coming soon</p>
+                      {!canBook && (
+                        <p className="text-[11px] text-amber-700 mt-1">Booking unavailable for this provider</p>
                       )}
                     </button>
                   );

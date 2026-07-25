@@ -196,6 +196,11 @@ export interface ProviderTrackInput {
   awb: string;
 }
 
+export interface ProviderGetShipmentInput {
+  providerOrderId?: string;
+  awb?: string;
+}
+
 export interface ProviderTrackingActivity {
   date: string;
   activity: string;

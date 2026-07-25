@@ -14,6 +14,19 @@ function stubProvider(id: "velocity" | "lorrigo", configured = true): CourierPro
   return {
     id,
     displayName: id,
+    capabilities: {
+      authentication: true,
+      serviceability: true,
+      rates: true,
+      booking: id === "velocity",
+      tracking: id === "velocity",
+      cancel: id === "velocity",
+      ndr: false,
+      returns: false,
+      pickupSync: true,
+      labels: id === "velocity",
+      webhooks: false,
+    },
     isConfigured: () => configured,
     authenticate: async () => undefined,
     serviceability: async () => [],
@@ -25,6 +38,7 @@ function stubProvider(id: "velocity" | "lorrigo", configured = true): CourierPro
     }),
     cancelShipment: async () => ({ success: true }),
     trackShipment: async () => ({ awb: "a", status: "x", activities: [] }),
+    getShipment: async () => ({ providerOrderId: "o", awb: "a" }),
     syncStatus: async () => ({}),
     syncNDR: async () => ({}),
   };

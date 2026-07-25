@@ -1,0 +1,150 @@
+/**
+ * Provider-agnostic shipment create (Lorrigo via orchestrator).
+ * Velocity single-order create remains on /api/velocity/forward/create.
+ */
+
+import type { Response } from "express";
+import mongoose from "mongoose";
+import type { AuthRequest } from "../../middleware/authMiddleware.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+import { AppError } from "../../middleware/errorMiddleware.js";
+import { Order, type IOrder } from "../../models/Order.js";
+import { bookLorrigoShipment } from "./bookShipment.js";
+import {
+  getCourierProvider,
+  listCourierProviders,
+  resolveCourierProviderId,
+} from "./providerRegistry.js";
+import { getStaticProviderCapabilities, providerSupports } from "./capabilities.js";
+import { getLorrigoBookingMetrics } from "../lorrigo/lorrigo.bookingMetrics.js";
+
+function assertBookingOrderAccess(
+  user: NonNullable<AuthRequest["user"]>,
+  order: IOrder
+): void {
+  if (user.role === "admin") return;
+  const uid = String(user._id);
+  const owned =
+    String(order.createdBy) === uid ||
+    String(order.ownerUserId ?? "") === uid ||
+    String(order.dropshipperId ?? "") === uid;
+  if (!owned) throw new AppError(403, "Forbidden");
+}
+
+export const listProviders = asyncHandler(async (_req: AuthRequest, res: Response) => {
+  const registered = listCourierProviders();
+  res.json({
+    success: true,
+    data: registered.map((p) => ({
+      id: p.id,
+      displayName: p.displayName,
+      configured: p.isConfigured(),
+      capabilities: p.capabilities,
+    })),
+  });
+});
+
+export const createShipment = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const body = req.body as Record<string, unknown>;
+  const orderId = String(body.orderId ?? "").trim();
+  const warehouseId = String(body.warehouseId ?? body.pickupAddressId ?? "").trim();
+  const carrierId = String(body.carrier_id ?? body.courierId ?? "").trim();
+  const courierName = String(body.courier_name ?? body.courierName ?? "").trim();
+  const provider = resolveCourierProviderId(String(body.provider ?? body.courierProvider ?? ""));
+
+  if (!orderId) throw new AppError(400, "orderId is required");
+  if (!warehouseId || !mongoose.isValidObjectId(warehouseId)) {
+    throw new AppError(400, "warehouseId (pickup address id) is required");
+  }
+
+  if (provider === "velocity") {
+    throw new AppError(
+      400,
+      "Velocity shipments must be created via POST /api/velocity/forward/create (unchanged Velocity booking path)."
+    );
+  }
+
+  const caps = getStaticProviderCapabilities(provider);
+  if (!providerSupports(caps, "booking")) {
+    throw new AppError(501, `${provider} booking is not available`);
+  }
+
+  const order = await Order.findOne({ orderId });
+  if (!order) throw new AppError(404, "Order not found");
+  assertBookingOrderAccess(req.user, order);
+
+  const weight = Number(body.weight ?? order.weight);
+  const length = Number(body.length ?? order.length ?? 10);
+  const width = Number(body.width ?? order.width ?? order.breadth ?? 10);
+  const height = Number(body.height ?? order.height ?? 10);
+
+  const booking = await bookLorrigoShipment({
+    order,
+    provider: "lorrigo",
+    pickupAddressId: warehouseId,
+    courierId: carrierId,
+    courierName: courierName || undefined,
+    weightKg: weight,
+    lengthCm: length,
+    widthCm: width,
+    heightCm: height,
+    skipServiceability: body.skip_serviceability === true,
+    userId: req.user._id,
+  });
+
+  res.json({
+    success: true,
+    data: {
+      order_id: booking.providerOrderId,
+      shipment_id: booking.providerShipmentId,
+      awb_code: booking.awb,
+      carrier_name: booking.courierName,
+      carrier_id: booking.courierId,
+      label_url: booking.labelUrl,
+      shipping_charges: booking.freightCharge,
+      status: booking.status,
+      provider: "lorrigo",
+    },
+    orderId: order.orderId,
+  });
+});
+
+export const bookingMetrics = asyncHandler(async (_req: AuthRequest, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      lorrigo: getLorrigoBookingMetrics(),
+    },
+  });
+});
+
+export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const body = req.body as Record<string, unknown>;
+  const orderId = String(body.orderId ?? "").trim();
+  if (!orderId) throw new AppError(400, "orderId is required");
+
+  const order = await Order.findOne({ orderId });
+  if (!order) throw new AppError(404, "Order not found");
+  assertBookingOrderAccess(req.user, order);
+
+  const providerId = resolveCourierProviderId(order.courierProvider);
+  const provider = getCourierProvider(providerId);
+  if (!providerSupports(provider.capabilities, "cancel")) {
+    throw new AppError(501, `${provider.displayName} cancel is not available`);
+  }
+
+  const providerOrderId =
+    providerId === "lorrigo"
+      ? String(order.lorrigoOrderId ?? "").trim()
+      : String(order.velocityOrderId ?? "").trim();
+
+  const result = await provider.cancelShipment({
+    providerOrderId: providerOrderId || undefined,
+    awbs: order.awb ? [order.awb] : undefined,
+    reason: String(body.reason ?? "customer_request"),
+  });
+
+  res.json({ success: result.success, message: result.message, data: result });
+});
