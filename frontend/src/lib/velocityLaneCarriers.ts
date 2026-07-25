@@ -1,26 +1,29 @@
-import { checkServiceability, getRates } from "@/services/velocityService";
+import { discoverRates, discoverServiceability } from "@/services/courierDiscoveryService";
 
 export type VelocityLaneCarrier = {
   carrier_id: string;
   carrier_name: string;
+  provider?: "velocity" | "lorrigo";
 };
 
 function pushCarrier(
   items: VelocityLaneCarrier[],
   seen: Set<string>,
   carrierId: unknown,
-  carrierName: unknown
+  carrierName: unknown,
+  provider?: string
 ) {
   const id = carrierId != null ? String(carrierId).trim() : "";
   const name = String(carrierName ?? id).trim();
   if (!id || !name) return;
-  const key = `${id}::${name}`.toLowerCase();
+  const prov = provider === "lorrigo" ? "lorrigo" : "velocity";
+  const key = `${prov}::${id}::${name}`.toLowerCase();
   if (seen.has(key)) return;
   seen.add(key);
-  items.push({ carrier_id: id, carrier_name: name });
+  items.push({ carrier_id: id, carrier_name: name, provider: prov });
 }
 
-/** Load all Velocity courier services for a lane (rates + serviceability), with full carrier names. */
+/** Load couriers for a lane from configured discovery providers (rates + serviceability). */
 export async function fetchVelocityLaneCarriers(params: {
   fromPin: string;
   toPin: string;
@@ -33,7 +36,7 @@ export async function fetchVelocityLaneCarriers(params: {
   const payment_mode = params.payment_mode ?? "prepaid";
 
   const [ratesRes, svcRes] = await Promise.all([
-    getRates({
+    discoverRates({
       from: fromPin,
       to: toPin,
       weight: 0.5,
@@ -43,22 +46,34 @@ export async function fetchVelocityLaneCarriers(params: {
       payment_mode,
       shipment_type: "forward",
       ...(payment_mode === "cod" ? { cod_value: 500 } : {}),
-    }).catch(() => ({ data: [] as { carrier_id: string | number; carrier_name: string }[] })),
-    checkServiceability({
+    }).catch(() => ({ data: [] as { courierId?: string; carrier_id?: string | number; courierName?: string; carrier_name?: string; provider?: string }[] })),
+    discoverServiceability({
       from: fromPin,
       to: toPin,
       payment_mode,
       shipment_type: "forward",
-    }).catch(() => ({ data: [] as { carrier_id: string | number; carrier_name: string }[] })),
+    }).catch(() => ({ data: [] as { courierId?: string; carrier_id?: string | number; courierName?: string; carrier_name?: string; provider?: string }[] })),
   ]);
 
   const seen = new Set<string>();
   const items: VelocityLaneCarrier[] = [];
   for (const row of ratesRes.data ?? []) {
-    pushCarrier(items, seen, row.carrier_id, row.carrier_name);
+    pushCarrier(
+      items,
+      seen,
+      row.courierId ?? row.carrier_id,
+      row.courierName ?? row.carrier_name,
+      row.provider
+    );
   }
   for (const row of svcRes.data ?? []) {
-    pushCarrier(items, seen, row.carrier_id, row.carrier_name);
+    pushCarrier(
+      items,
+      seen,
+      row.courierId ?? row.carrier_id,
+      row.courierName ?? row.carrier_name,
+      row.provider
+    );
   }
   return items;
 }

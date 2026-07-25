@@ -597,15 +597,11 @@ export function CourierPriorityConfigModal({
                     <div key={`${c.carrier_id}-${c.carrier_name}`} className="relative">
 
                       <CourierCard
-
                         carrierId={c.carrier_id}
-
                         carrierName={c.carrier_name}
-
+                        provider={c.provider}
                         compact
-
                         onClick={() => add(c)}
-
                       />
 
                       <Button

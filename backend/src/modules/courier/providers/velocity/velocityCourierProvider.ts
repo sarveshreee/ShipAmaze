@@ -27,34 +27,56 @@ import { syncActiveShipmentStatuses } from "../../../velocity/velocity.statusSyn
 import { syncNdrFromVelocity } from "../../../velocity/velocity.ndrSync.js";
 import type { VelocityForwardOrderRequest } from "../../../velocity/velocity.types.js";
 
+import { finalizeCourierOption, parseEstimatedDays } from "../../normalizeCourierOption.js";
+
 function mapServiceability(
   rows: Awaited<ReturnType<typeof velocityService.checkServiceability>>["data"]
 ): ProviderCourierOption[] {
-  return (rows ?? []).map((c) => ({
-    courierId: String(c.carrier_id),
-    courierName: c.carrier_name,
-    provider: "velocity" as const,
-    zone: c.zone,
-    cod: c.cod,
-    tat: c.tat,
-    minWeight: c.min_weight,
-  }));
+  const out: ProviderCourierOption[] = [];
+  for (const c of rows ?? []) {
+    const finalized = finalizeCourierOption({
+      courierId: String(c.carrier_id),
+      courierName: c.carrier_name,
+      provider: "velocity",
+      serviceable: true,
+      zone: c.zone,
+      cod: c.cod,
+      codSupported: c.cod,
+      tat: c.tat,
+      estimatedDays: parseEstimatedDays(c.tat),
+      minWeight: c.min_weight,
+      pickupAvailable: true,
+      metadata: { source: "velocity", kind: "serviceability" },
+    });
+    if (finalized) out.push(finalized);
+  }
+  return out;
 }
 
 function mapRates(
   rows: Awaited<ReturnType<typeof velocityService.getRates>>["data"]
 ): ProviderCourierOption[] {
-  return (rows ?? []).map((r) => ({
-    courierId: String(r.carrier_id),
-    courierName: r.carrier_name,
-    provider: "velocity" as const,
-    zone: r.zone,
-    tat: r.tat,
-    freightCharge: r.freight_charge,
-    codCharge: r.cod_charge,
-    rtoCharge: r.rto_charge,
-    totalCharge: r.total_charge,
-  }));
+  const out: ProviderCourierOption[] = [];
+  for (const r of rows ?? []) {
+    const finalized = finalizeCourierOption({
+      courierId: String(r.carrier_id),
+      courierName: r.carrier_name,
+      provider: "velocity",
+      serviceable: true,
+      zone: r.zone,
+      tat: r.tat,
+      estimatedDays: parseEstimatedDays(r.tat),
+      freight: r.freight_charge,
+      freightCharge: r.freight_charge,
+      codCharge: r.cod_charge,
+      rtoCharge: r.rto_charge,
+      totalCharge: r.total_charge,
+      pickupAvailable: true,
+      metadata: { source: "velocity", kind: "rates" },
+    });
+    if (finalized) out.push(finalized);
+  }
+  return out;
 }
 
 export const velocityCourierProvider: CourierProvider = {

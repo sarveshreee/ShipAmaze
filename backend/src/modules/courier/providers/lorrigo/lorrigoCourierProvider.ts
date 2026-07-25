@@ -2,12 +2,14 @@
  * Lorrigo CourierProvider adapter.
  * Phase 2: authentication
  * Phase 3: createPickup
+ * Phase 4: serviceability / getRates (discovery — no booking)
  * Other capabilities throw until later phases.
  */
 
 import type { CourierProvider } from "../../CourierProvider.js";
 import type {
   ProviderCancelInput,
+  ProviderCourierOption,
   ProviderCreateShipmentInput,
   ProviderPickupInput,
   ProviderPickupResult,
@@ -22,6 +24,7 @@ import {
   lorrigoPost,
 } from "../../../lorrigo/lorrigo.client.js";
 import { isLorrigoConfigured, isLorrigoEnabledFlag } from "../../../lorrigo/lorrigo.config.js";
+import { fetchLorrigoServiceableCouriers } from "../../../lorrigo/lorrigo.serviceability.js";
 
 function notImplemented(capability: string): never {
   throw new AppError(501, `Lorrigo ${capability} is not implemented yet.`);
@@ -57,12 +60,23 @@ export const lorrigoCourierProvider: CourierProvider = {
     await ensureLorrigoAuth();
   },
 
-  serviceability(_input: ProviderServiceabilityInput) {
-    return notImplemented("serviceability");
+  async serviceability(input: ProviderServiceabilityInput): Promise<ProviderCourierOption[]> {
+    return fetchLorrigoServiceableCouriers(input);
   },
 
-  getRates(_input: ProviderRatesInput) {
-    return notImplemented("getRates");
+  async getRates(input: ProviderRatesInput): Promise<ProviderCourierOption[]> {
+    // Lorrigo serviceable-couriers returns freight; reuse for rate discovery.
+    return fetchLorrigoServiceableCouriers({
+      fromPincode: input.fromPincode,
+      toPincode: input.toPincode,
+      paymentMode: input.paymentMode,
+      shipmentType: input.shipmentType,
+      weightKg: input.weightKg,
+      lengthCm: input.lengthCm,
+      widthCm: input.widthCm,
+      heightCm: input.heightCm,
+      collectableAmount: input.codValue,
+    });
   },
 
   async createPickup(input: ProviderPickupInput): Promise<ProviderPickupResult> {

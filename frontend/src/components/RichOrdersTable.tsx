@@ -11,7 +11,7 @@ import { EditSkuModal } from "@/components/EditSkuModal";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import { cn } from "@/lib/utils";
 
-import { getRates, type VelocityRate } from "@/services/velocityService";
+import { discoverRates, type DiscoveredCourier } from "@/services/courierDiscoveryService";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { isOrderReadyToShip } from "@/lib/orderTabFilters";
 import { toast } from "sonner";
@@ -872,7 +872,7 @@ export function RichOrdersTable({
   const [shipmentModalOrder, setShipmentModalOrder] = useState<Order | null>(null);
   const [shipmentItemsMissing, setShipmentItemsMissing] = useState(false);
   const [selectedCourierId, setSelectedCourierId] = useState("");
-  const [velocityCouriers, setVelocityCouriers] = useState<VelocityRate[]>([]);
+  const [velocityCouriers, setVelocityCouriers] = useState<DiscoveredCourier[]>([]);
   const [couriersLoading, setCouriersLoading] = useState(false);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [shipmentSubmitting, setShipmentSubmitting] = useState(false);
@@ -909,7 +909,7 @@ export function RichOrdersTable({
     if (pin.length !== 6 || fromPin.length !== 6) return;
     let cancelled = false;
     setCouriersLoading(true);
-    void getRates({
+    void discoverRates({
       from: fromPin,
       to: pin,
       weight,
@@ -2630,11 +2630,18 @@ export function RichOrdersTable({
                     {c.name} (manual)
                   </option>
                 ))}
-                {velocityCouriers.map((r) => (
-                  <option key={String(r.carrier_id)} value={String(r.carrier_id)}>
-                    {r.carrier_name} — ₹{Number(r.total_charge ?? r.freight_charge ?? 0).toFixed(0)}
-                  </option>
-                ))}
+                {velocityCouriers.map((r) => {
+                  const id = String(r.courierId || r.carrier_id);
+                  const name = String(r.courierName || r.carrier_name || id);
+                  const providerLabel = r.provider === "lorrigo" ? "Lorrigo" : "Velocity";
+                  const charge = Number(r.totalCharge ?? r.total_charge ?? r.freight ?? r.freight_charge ?? 0);
+                  return (
+                    <option key={`${r.provider}:${id}`} value={id} disabled={r.provider === "lorrigo"}>
+                      {name} ({providerLabel}) — ₹{charge.toFixed(0)}
+                      {r.provider === "lorrigo" ? " — booking soon" : ""}
+                    </option>
+                  );
+                })}
               </select>
               <p className="text-[11px] text-text-muted mt-1">
                 {couriersLoading ? (showProviderBrand ? "Loading Velocity couriers…" : "Loading couriers…") : "Choose Auto or pick a specific courier for this shipment."}

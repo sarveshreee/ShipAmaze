@@ -16,7 +16,10 @@ import { usePickupAddresses } from "@/hooks/useApiData";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { ProcessSelectedPayload } from "@/services/orderService";
-import { checkServiceability, type VelocityCarrier } from "@/services/velocityService";
+import {
+  discoverServiceability,
+  type DiscoveredCourier,
+} from "@/services/courierDiscoveryService";
 import { CourierCard } from "@/components/CourierCard";
 import { CourierPriorityConfigModal } from "@/components/CourierPriorityConfigModal";
 import { cn } from "@/lib/utils";
@@ -85,12 +88,13 @@ export function ProcessSelectedModal({
   const [courierMode, setCourierMode] = useState<CourierSelectionMode>("priority");
   const [selectedCarrierId, setSelectedCarrierId] = useState("");
   const [selectedCarrierName, setSelectedCarrierName] = useState("");
+  const [selectedCarrierProvider, setSelectedCarrierProvider] = useState<string>("velocity");
   const [weight, setWeight] = useState("");
   const [dimL, setDimL] = useState("");
   const [dimW, setDimW] = useState("");
   const [dimH, setDimH] = useState("");
   const [weightPreset, setWeightPreset] = useState("other");
-  const [serviceableCouriers, setServiceableCouriers] = useState<VelocityCarrier[]>([]);
+  const [serviceableCouriers, setServiceableCouriers] = useState<DiscoveredCourier[]>([]);
   const [serviceableLoading, setServiceableLoading] = useState(false);
   const [priorityConfigOpen, setPriorityConfigOpen] = useState(false);
 
@@ -102,6 +106,7 @@ export function ProcessSelectedModal({
       setCourierMode("priority");
       setSelectedCarrierId("");
       setSelectedCarrierName("");
+      setSelectedCarrierProvider("velocity");
       setWeight("");
       setDimL("");
       setDimW("");
@@ -176,7 +181,7 @@ export function ProcessSelectedModal({
     }
     let cancelled = false;
     setServiceableLoading(true);
-    void checkServiceability({
+    void discoverServiceability({
       from: pickupPincode,
       to: destPincode,
       payment_mode: referencePayment,
@@ -185,14 +190,19 @@ export function ProcessSelectedModal({
       .then((res) => {
         if (cancelled) return;
         const rows = (res.data ?? []).filter(
-          (c) => c.carrier_id != null && String(c.carrier_id).trim() !== ""
+          (c) => String(c.courierId || c.carrier_id || "").trim() !== ""
         );
         setServiceableCouriers(rows);
         if (courierMode === "courier" && selectedCarrierId) {
-          const stillValid = rows.some((c) => String(c.carrier_id) === selectedCarrierId);
+          const stillValid = rows.some(
+            (c) =>
+              String(c.courierId || c.carrier_id) === selectedCarrierId &&
+              (c.provider || "velocity") === selectedCarrierProvider
+          );
           if (!stillValid) {
             setSelectedCarrierId("");
             setSelectedCarrierName("");
+            setSelectedCarrierProvider("velocity");
           }
         }
       })
@@ -216,6 +226,7 @@ export function ProcessSelectedModal({
     fixedCourierFromFilter,
     courierMode,
     selectedCarrierId,
+    selectedCarrierProvider,
   ]);
 
   const displayCouriers = useMemo(() => {
@@ -224,12 +235,14 @@ export function ProcessSelectedModal({
         {
           carrier_id: fixedCourierFromFilter.carrierId ?? fixedCourierFromFilter.courierName,
           carrier_name: fixedCourierFromFilter.courierName,
+          provider: "velocity" as const,
         },
       ];
     }
     return serviceableCouriers.map((c) => ({
-      carrier_id: String(c.carrier_id),
-      carrier_name: String(c.carrier_name ?? c.carrier_id),
+      carrier_id: String(c.courierId || c.carrier_id),
+      carrier_name: String(c.courierName || c.carrier_name || c.courierId || c.carrier_id),
+      provider: (c.provider || "velocity") as "velocity" | "lorrigo",
     }));
   }, [serviceableCouriers, fixedCourierFromFilter]);
 
@@ -257,9 +270,10 @@ export function ProcessSelectedModal({
     }
   };
 
-  const selectCourier = (carrierId: string, carrierName: string) => {
+  const selectCourier = (carrierId: string, carrierName: string, provider?: string) => {
     setSelectedCarrierId(carrierId);
     setSelectedCarrierName(carrierName);
+    setSelectedCarrierProvider(provider || "velocity");
   };
 
   const handleSubmit = async () => {
@@ -297,6 +311,10 @@ export function ProcessSelectedModal({
     if (mode === "courier") {
       if (!selectedCarrierId.trim() || !selectedCarrierName.trim()) {
         toast.error("Select a courier to book with");
+        return;
+      }
+      if (selectedCarrierProvider === "lorrigo") {
+        toast.error("Lorrigo booking is not available yet. Choose a Velocity courier or Priority mode.");
         return;
       }
     }
@@ -461,7 +479,7 @@ export function ProcessSelectedModal({
 
                     {!serviceableLoading && displayCouriers.length === 0 && hasPickupPin && hasDestPin && (
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
-                        No Velocity couriers are serviceable for this pickup and destination pincode.
+                        No serviceable couriers for this pickup and destination pincode.
                       </p>
                     )}
 
@@ -469,11 +487,15 @@ export function ProcessSelectedModal({
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-3">
                         {displayCouriers.map((c) => (
                           <CourierCard
-                            key={c.carrier_id}
+                            key={`${c.provider}:${c.carrier_id}`}
                             carrierId={c.carrier_id}
                             carrierName={c.carrier_name}
-                            selected={selectedCarrierId === c.carrier_id}
-                            onClick={() => selectCourier(c.carrier_id, c.carrier_name)}
+                            provider={c.provider}
+                            selected={
+                              selectedCarrierId === c.carrier_id &&
+                              selectedCarrierProvider === c.provider
+                            }
+                            onClick={() => selectCourier(c.carrier_id, c.carrier_name, c.provider)}
                           />
                         ))}
                       </div>

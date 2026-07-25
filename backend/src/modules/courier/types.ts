@@ -33,19 +33,70 @@ export interface ProviderRatesInput {
   qcApplicable?: boolean;
 }
 
-/** Normalized courier option for UI / priority selection. */
+/** Normalized courier option for UI / priority selection (all providers). */
 export interface ProviderCourierOption {
   courierId: string;
   courierName: string;
   provider: CourierProviderId;
+  /** Always true for options returned from a successful serviceability query. */
+  serviceable: boolean;
+  estimatedDays?: number;
+  freight?: number;
+  codSupported?: boolean;
+  pickupAvailable?: boolean;
+  priorityScore?: number;
+  metadata?: Record<string, unknown>;
+  /** Legacy aliases kept for Velocity UI compatibility. */
   zone?: string;
+  /** @deprecated prefer codSupported */
   cod?: boolean;
   tat?: string;
+  /** @deprecated prefer freight */
   freightCharge?: number;
   codCharge?: number;
   rtoCharge?: number;
   totalCharge?: number;
   minWeight?: number;
+}
+
+/** Discovery mode — which providers to query for serviceability / rates. */
+export type CourierDiscoveryMode = "velocity" | "lorrigo" | "both";
+
+export interface ProviderDiscoveryInput {
+  fromPincode: string;
+  toPincode: string;
+  paymentMode: ProviderPaymentMode;
+  shipmentType?: ProviderShipmentType;
+  weightKg?: number;
+  lengthCm?: number;
+  widthCm?: number;
+  heightCm?: number;
+  collectableAmount?: number;
+  codValue?: number;
+  qcApplicable?: boolean;
+}
+
+export interface ProviderDiscoveryProviderResult {
+  provider: CourierProviderId;
+  ok: boolean;
+  cacheHit: boolean;
+  latencyMs: number;
+  courierCount: number;
+  error?: string;
+  timedOut?: boolean;
+}
+
+export interface ProviderDiscoveryResult {
+  couriers: ProviderCourierOption[];
+  providers: ProviderDiscoveryProviderResult[];
+  metrics: {
+    totalLatencyMs: number;
+    cacheHits: number;
+    cacheMisses: number;
+    providerFailures: number;
+    providerTimeouts: number;
+    courierCount: number;
+  };
 }
 
 export interface ProviderPickupInput {

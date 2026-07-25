@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { resolveCourierBrand } from "@/lib/courierLogos";
 import { Check } from "lucide-react";
+import { providerDisplayName } from "@/services/courierDiscoveryService";
 
 type Props = {
   carrierId: string;
   carrierName: string;
+  /** velocity | lorrigo — shown as a small label under the name */
+  provider?: string;
   selected?: boolean;
   onClick?: () => void;
   disabled?: boolean;
@@ -15,6 +18,7 @@ type Props = {
 export function CourierCard({
   carrierId,
   carrierName,
+  provider,
   selected = false,
   onClick,
   disabled = false,
@@ -82,6 +86,16 @@ export function CourierCard({
       >
         {carrierName}
       </span>
+      {provider ? (
+        <span
+          className={cn(
+            "mt-1 text-text-muted uppercase tracking-wide",
+            compact ? "text-[9px]" : "text-[10px]"
+          )}
+        >
+          {providerDisplayName(provider)}
+        </span>
+      ) : null}
     </button>
   );
 }

@@ -28,6 +28,7 @@ import * as productImageController from "./controllers/productImageController.js
 import * as shopifyController from "./controllers/shopifyController.js";
 import velocityRouter from "./modules/velocity/velocity.routes.js";
 import lorrigoRouter from "./modules/lorrigo/lorrigo.routes.js";
+import courierDiscoveryRouter from "./modules/courier/discovery.routes.js";
 import { registerCourierProviders } from "./modules/courier/index.js";
 import * as debugController from "./controllers/debugController.js";
 import * as walletController from "./controllers/walletController.js";
@@ -778,6 +779,9 @@ export function createApp() {
 
   // Lorrigo — Phase 2: admin status/health only (no booking routes)
   api.use("/lorrigo", lorrigoRouter);
+
+  // Multi-provider serviceability / rates discovery (Velocity + Lorrigo)
+  api.use("/courier", courierDiscoveryRouter);
 
   app.use("/api", apiTimingLogger, api);
   // Backward compatibility for older clients still using /api/v1/*.

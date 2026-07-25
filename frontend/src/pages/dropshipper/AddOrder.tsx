@@ -13,7 +13,7 @@ import { usePincodeValidation } from "@/hooks/usePincodeValidation";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import * as orderService from "@/services/orderService";
 import * as pickupService from "@/services/pickupService";
-import { getRates, type VelocityRate } from "@/services/velocityService";
+import { discoverRates, type DiscoveredCourier } from "@/services/courierDiscoveryService";
 import type { PickupAddress } from "@/types/logistics";
 import { AddAddressModal } from "@/components/AddAddressModal";
 import { toast } from "sonner";
@@ -116,7 +116,7 @@ export default function AddOrder() {
   }, [products]);
 
   // Step 5 — courier rates (optional); blank carrier_id = auto assign
-  const [velocityRates, setVelocityRates] = useState<VelocityRate[]>([]);
+  const [velocityRates, setVelocityRates] = useState<DiscoveredCourier[]>([]);
   const [ratesLoading, setRatesLoading] = useState(false);
   /** Empty string = auto-assign by Velocity */
   const [selectedCarrierId, setSelectedCarrierId] = useState("");
@@ -286,7 +286,7 @@ export default function AddOrder() {
       setRatesLoading(true);
       try {
         const payMode = shipment.paymentType === "COD" ? "cod" : "prepaid";
-        const res = await getRates({
+        const res = await discoverRates({
           from,
           to,
           weight: totalW,
@@ -455,7 +455,9 @@ export default function AddOrder() {
     const courierName =
       selectedCarrierId === ""
         ? "Auto assign"
-        : velocityRates.find((r) => String(r.carrier_id) === selectedCarrierId)?.carrier_name || "Auto assign";
+        : velocityRates.find((r) => String(r.courierId || r.carrier_id) === selectedCarrierId)?.courierName ||
+          velocityRates.find((r) => String(r.courierId || r.carrier_id) === selectedCarrierId)?.carrier_name ||
+          "Auto assign";
 
     const totalWeight = packageDetails.reduce((sum, pd) => sum + (Number(pd.weight) || 0), 0);
     const firstPackage = packageDetails[0] || { length: "", width: "", height: "" };
@@ -1131,27 +1133,37 @@ export default function AddOrder() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {velocityRates.map((r) => {
-                  const id = String(r.carrier_id);
-                  const sel = selectedCarrierId === id;
+                  const id = String(r.courierId || r.carrier_id);
+                  const name = String(r.courierName || r.carrier_name || id);
+                  const providerLabel = r.provider === "lorrigo" ? "Lorrigo" : "Velocity";
+                  const total = Number(r.totalCharge ?? r.total_charge ?? r.freight ?? r.freight_charge ?? 0);
+                  const freight = r.freight ?? r.freightCharge ?? r.freight_charge;
+                  const sel = selectedCarrierId === id && r.provider !== "lorrigo";
+                  const bookingSoon = r.provider === "lorrigo";
                   return (
                     <button
-                      key={id}
+                      key={`${r.provider}:${id}`}
                       type="button"
-                      onClick={() => setSelectedCarrierId(id)}
+                      disabled={bookingSoon}
+                      onClick={() => {
+                        if (!bookingSoon) setSelectedCarrierId(id);
+                      }}
                       className={cn(
                         "rounded-lg border p-4 text-left transition-all text-sm",
-                        sel ? "border-primary bg-primary-light/50 ring-1 ring-primary/30" : "border-border hover:border-primary/40"
+                        sel ? "border-primary bg-primary-light/50 ring-1 ring-primary/30" : "border-border hover:border-primary/40",
+                        bookingSoon && "opacity-60 cursor-not-allowed"
                       )}
                     >
-                      <p className="font-semibold text-text-primary">{r.carrier_name}</p>
-                      <p className="text-xs text-text-muted mt-1">Total: ₹{Number(r.total_charge).toFixed(2)}</p>
-                      {(r.freight_charge !== undefined || r.cod_charge !== undefined) && (
-                        <p className="text-[11px] text-text-muted mt-0.5">
-                          {r.freight_charge !== undefined ? `Freight ₹${Number(r.freight_charge).toFixed(2)}` : ""}
-                          {r.cod_charge !== undefined ? ` · COD ₹${Number(r.cod_charge).toFixed(2)}` : ""}
-                        </p>
+                      <p className="font-semibold text-text-primary">{name}</p>
+                      <p className="text-[11px] text-text-muted uppercase tracking-wide mt-0.5">{providerLabel}</p>
+                      <p className="text-xs text-text-muted mt-1">Total: ₹{total.toFixed(2)}</p>
+                      {freight !== undefined && (
+                        <p className="text-[11px] text-text-muted mt-0.5">Freight ₹{Number(freight).toFixed(2)}</p>
                       )}
                       {r.tat && <p className="text-[11px] text-text-muted mt-1">Est. delivery: {r.tat}</p>}
+                      {bookingSoon && (
+                        <p className="text-[11px] text-amber-700 mt-1">Booking via Lorrigo coming soon</p>
+                      )}
                     </button>
                   );
                 })}

@@ -13,4 +13,6 @@ export {
   registerCourierProviders,
   resetCourierProviderRegistrationForTests,
 } from "./registerProviders.js";
+export { discoverServiceability, discoverRates } from "./discoverCouriers.js";
+export { discoveryConfig, resolveDiscoveryProviderIds } from "./discoveryConfig.js";
 export type * from "./types.js";
