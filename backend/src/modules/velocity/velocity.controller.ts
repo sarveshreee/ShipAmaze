@@ -26,8 +26,7 @@ import {
   syncPickupToVelocity,
   syncVendorWarehouseToVelocity,
 } from "./velocity.warehouseSync.js";
-import { syncActiveShipmentStatuses } from "./velocity.statusSync.js";
-import { syncNdrFromVelocity } from "./velocity.ndrSync.js";
+import { getCourierProvider } from "../courier/index.js";
 import { syncVelocityFailureRemarkByAwb } from "./velocityRemarkSync.js";
 import { devLog } from "../../utils/devLog.js";
 import type {
@@ -1246,7 +1245,7 @@ export const syncShipmentStatuses = asyncHandler(async (req: AuthRequest, res: R
   if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
 
   const batchSize = Math.min(200, Math.max(1, Number((req.body as Record<string, unknown>).batchSize ?? 100)));
-  const syncResult = await syncActiveShipmentStatuses(batchSize);
+  const syncResult = await getCourierProvider("velocity").syncStatus({ batchSize });
   res.json({ success: true, ...syncResult });
 });
 
@@ -1254,7 +1253,7 @@ export const syncNdrOrders = asyncHandler(async (req: AuthRequest, res: Response
   if (!req.user) throw new AppError(401, "Unauthorized");
 
   const daysBack = Math.min(365, Math.max(7, Number((req.body as Record<string, unknown>).daysBack ?? 120)));
-  const syncResult = await syncNdrFromVelocity({ daysBack });
+  const syncResult = await getCourierProvider("velocity").syncNDR({ daysBack });
   res.json({ success: true, ...syncResult });
 });
 

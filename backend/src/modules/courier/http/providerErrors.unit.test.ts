@@ -1,0 +1,38 @@
+import { describe, it, expect } from "vitest";
+import { AppError } from "../../../middleware/errorMiddleware.js";
+import {
+  buildProviderAppError,
+  isRetryableProviderError,
+  isRetryableProviderHttpStatus,
+  mapProviderHttpStatusToAppStatus,
+} from "./providerErrors.js";
+
+describe("providerErrors", () => {
+  it("maps provider HTTP statuses consistently", () => {
+    expect(mapProviderHttpStatusToAppStatus(400)).toBe(400);
+    expect(mapProviderHttpStatusToAppStatus(401)).toBe(502);
+    expect(mapProviderHttpStatusToAppStatus(422)).toBe(422);
+    expect(mapProviderHttpStatusToAppStatus(429)).toBe(429);
+    expect(mapProviderHttpStatusToAppStatus(500)).toBe(502);
+  });
+
+  it("identifies retryable statuses and AppErrors", () => {
+    expect(isRetryableProviderHttpStatus(429)).toBe(true);
+    expect(isRetryableProviderHttpStatus(400)).toBe(false);
+    expect(isRetryableProviderError(new AppError(504, "timeout"))).toBe(true);
+    expect(isRetryableProviderError(new AppError(400, "bad"))).toBe(false);
+  });
+
+  it("builds provider AppError with sanitized public message", () => {
+    const err = buildProviderAppError({
+      provider: "velocity",
+      providerStatus: 422,
+      data: { message: "Invalid pincode" },
+      requestId: "req-1",
+    });
+    expect(err.statusCode).toBe(422);
+    expect(err.message).toBe("Invalid pincode");
+    expect(err.provider).toBe("velocity");
+    expect(err.requestId).toBe("req-1");
+  });
+});

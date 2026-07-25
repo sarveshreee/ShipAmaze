@@ -9,11 +9,11 @@ import { devLog } from "./utils/devLog.js";
 import { ShopifyStoreConnection } from "./models/ShopifyStoreConnection.js";
 import { performShopifyOrderSyncForUser } from "./services/shopifySyncRunner.js";
 import { Courier } from "./models/Courier.js";
-import { syncActiveShipmentStatuses } from "./modules/velocity/velocity.statusSync.js";
 import { syncFailureRemarksBatch } from "./modules/velocity/velocityRemarkSync.js";
-import { syncNdrFromVelocity } from "./modules/velocity/velocity.ndrSync.js";
+import { registerCourierProviders, getCourierProvider } from "./modules/courier/index.js";
 
 validateEnv();
+registerCourierProviders();
 
 const PORT = Number(process.env.PORT) || 5000;
 const MONGODB_URI = process.env.MONGODB_URI!.trim();
@@ -108,12 +108,14 @@ async function main() {
   // regardless of the VELOCITY_ENABLED flag so dev/staging environments sync correctly too.
   const velocityBgSync = setInterval(async () => {
     try {
-      if (!isVelocityConfigured()) return;
-      const r = await syncActiveShipmentStatuses(150);
+      const velocity = getCourierProvider("velocity");
+      if (!velocity.isConfigured()) return;
+      const r = await velocity.syncStatus({ batchSize: 150 });
+      const errorDetails = Array.isArray(r.errorDetails) ? r.errorDetails : [];
       // Always-on so failed syncs are visible in production logs
       console.info(
         `[velocity:bg-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}` +
-          (r.errorDetails?.length ? ` errorDetails=${JSON.stringify(r.errorDetails)}` : "")
+          (errorDetails.length ? ` errorDetails=${JSON.stringify(errorDetails)}` : "")
       );
     } catch (e: unknown) {
       console.error("[velocity:bg-sync] error", e instanceof Error ? e.message : e);
@@ -125,16 +127,19 @@ async function main() {
   if (isVelocityConfigured()) {
     setTimeout(async () => {
       try {
-        const r = await syncActiveShipmentStatuses(150);
+        const velocity = getCourierProvider("velocity");
+        const r = await velocity.syncStatus({ batchSize: 150 });
+        const errorDetails = Array.isArray(r.errorDetails) ? r.errorDetails : [];
         console.info(
           `[velocity:startup-sync] processed=${r.processed} updated=${r.updated} errors=${r.errors} skipped=${r.skipped}` +
-            (r.errorDetails?.length ? ` errorDetails=${JSON.stringify(r.errorDetails)}` : "")
+            (errorDetails.length ? ` errorDetails=${JSON.stringify(errorDetails)}` : "")
         );
       } catch (e: unknown) {
         console.error("[velocity:startup-sync] error", e instanceof Error ? e.message : e);
       }
       try {
-        const ndr = await syncNdrFromVelocity({ daysBack: 120 });
+        const velocity = getCourierProvider("velocity");
+        const ndr = await velocity.syncNDR({ daysBack: 120 });
         devLog.info(
           `[velocity:ndr-startup-sync] fetched=${ndr.fetched} upserted=${ndr.upserted} closed=${ndr.closed} errors=${ndr.errors}`
         );
@@ -147,8 +152,9 @@ async function main() {
   // Background NDR sync — runs every 10 minutes alongside status sync.
   const velocityNdrSync = setInterval(async () => {
     try {
-      if (!isVelocityConfigured()) return;
-      const ndr = await syncNdrFromVelocity({ daysBack: 120 });
+      const velocity = getCourierProvider("velocity");
+      if (!velocity.isConfigured()) return;
+      const ndr = await velocity.syncNDR({ daysBack: 120 });
       devLog.info(
         `[velocity:ndr-bg-sync] fetched=${ndr.fetched} upserted=${ndr.upserted} closed=${ndr.closed} errors=${ndr.errors}`
       );

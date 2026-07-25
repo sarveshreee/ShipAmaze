@@ -263,47 +263,8 @@ export function buildVelocityWarehouseProviderPayload(
   return body;
 }
 
-function maskPhoneForLog(raw: string): string {
-  const d = raw.replace(/\D/g, "");
-  if (d.length < 4) return "******";
-  return `${"*".repeat(Math.max(0, d.length - 4))}${d.slice(-4)}`;
-}
-
-function maskEmailForLog(raw: string): string {
-  const [local, domain] = raw.split("@");
-  if (!domain) return "***";
-  const l = local.length <= 2 ? "*" : `${local.slice(0, 1)}***${local.slice(-1)}`;
-  return `${l}@${domain}`;
-}
-
 /** Deep-copy and mask PII suitable for stdout logs (no passwords / tokens). */
-export function sanitizeForVelocityLog(payload: unknown): unknown {
-  if (payload === null || typeof payload !== "object") return payload;
-  if (Array.isArray(payload)) return payload.map(sanitizeForVelocityLog);
-
-  const o = payload as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(o)) {
-    const v = o[key];
-    const kl = key.toLowerCase();
-
-    if (kl.includes("phone") || kl.includes("mobile") || kl === "contact_phone") {
-      out[key] = typeof v === "string" ? maskPhoneForLog(v) : v;
-      continue;
-    }
-    if (kl.includes("email")) {
-      out[key] = typeof v === "string" ? maskEmailForLog(v) : v;
-      continue;
-    }
-    if (kl.includes("authorization") || kl.includes("password") || kl.includes("token")) {
-      out[key] = "***MASKED***";
-      continue;
-    }
-
-    out[key] = typeof v === "object" ? sanitizeForVelocityLog(v) : v;
-  }
-  return out;
-}
+export { sanitizeForProviderLog as sanitizeForVelocityLog } from "../courier/http/sanitizeForProviderLog.js";
 
 /** Normalise Velocity success envelope → { data } for our API consumers. */
 export function normalizeRatesResponse(raw: Record<string, unknown>): VelocityRatesResponse {

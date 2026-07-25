@@ -27,6 +27,7 @@ import * as productDetailController from "./controllers/productDetailController.
 import * as productImageController from "./controllers/productImageController.js";
 import * as shopifyController from "./controllers/shopifyController.js";
 import velocityRouter from "./modules/velocity/velocity.routes.js";
+import { registerCourierProviders } from "./modules/courier/index.js";
 import * as debugController from "./controllers/debugController.js";
 import * as walletController from "./controllers/walletController.js";
 import * as notificationController from "./controllers/notificationController.js";
@@ -122,6 +123,7 @@ function migrationRequestLogger(req: express.Request, res: express.Response, nex
 }
 
 export function createApp() {
+  registerCourierProviders();
   const app = express();
   const isProd = process.env.NODE_ENV === "production";
   const corsAllowed = parseCorsOrigins();

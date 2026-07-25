@@ -1,22 +1,25 @@
 /**
- * Centralized Velocity / shipping error helpers for consistent API responses.
- * Never include credentials or raw provider tokens in messages.
+ * Velocity error helpers — thin re-exports of shared courier error utilities
+ * so existing Velocity imports keep working without duplication.
  */
 
 import { AppError } from "../../middleware/errorMiddleware.js";
+import {
+  isRetryableProviderHttpStatus,
+  isTransientNetworkMessage as sharedIsTransientNetworkMessage,
+  providerPublicMessage,
+} from "../courier/http/providerErrors.js";
 
 export function isRetryableVelocityHttpStatus(status: number): boolean {
-  return status === 429 || status === 502 || status === 503 || status === 504;
+  return isRetryableProviderHttpStatus(status);
 }
 
 export function isTransientNetworkMessage(msg: string): boolean {
-  const m = msg.toLowerCase();
-  return m.includes("network error") || m.includes("abort") || m.includes("fetch failed") || m.includes("timeout");
+  return sharedIsTransientNetworkMessage(msg);
 }
 
 /** User-safe message for logs and optional client `code` field. */
 export function velocityPublicMessage(err: unknown): string {
   if (err instanceof AppError) return err.message;
-  if (err instanceof Error) return err.message;
-  return "Shipping provider request failed";
+  return providerPublicMessage(err, "Shipping provider request failed");
 }
