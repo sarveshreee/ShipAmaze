@@ -18,6 +18,7 @@ import type {
   ProviderRatesInput,
   ProviderServiceabilityInput,
   ProviderShipmentResult,
+  ProviderSyncResult,
   ProviderTrackInput,
   ProviderTrackingResult,
 } from "../../types.js";
@@ -36,6 +37,7 @@ import {
   trackLorrigoShipment,
 } from "../../../lorrigo/lorrigo.booking.js";
 import { LORRIGO_CAPABILITIES } from "../../capabilities.js";
+import { syncLorrigoActiveShipmentStatuses } from "../../../lorrigo/lorrigo.statusSync.js";
 
 function notImplemented(capability: string): never {
   throw new AppError(501, `Lorrigo ${capability} is not implemented yet.`);
@@ -131,8 +133,17 @@ export const lorrigoCourierProvider: CourierProvider = {
     return getLorrigoShipment(input);
   },
 
-  syncStatus() {
-    return notImplemented("syncStatus");
+  async syncStatus(opts?: { batchSize?: number }): Promise<ProviderSyncResult> {
+    const r = await syncLorrigoActiveShipmentStatuses(opts?.batchSize);
+    return {
+      scanned: r.processed,
+      updated: r.updated,
+      errors: r.errors,
+      skipped: r.skipped,
+      statusChanges: r.statusChanges,
+      errorDetails: r.errorDetails,
+      message: "lorrigo status sync",
+    };
   },
 
   syncNDR() {

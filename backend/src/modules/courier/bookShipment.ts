@@ -24,6 +24,8 @@ import {
   recordDuplicateBookingAttempt,
 } from "../lorrigo/lorrigo.bookingMetrics.js";
 import { discoverServiceability } from "./discoverCouriers.js";
+import { appendProviderEvent } from "./providerEvents.js";
+import { CURRENT_BOOKING_VERSION, ensureCorrelationId } from "./correlation.js";
 
 export type BookShipmentInput = {
   order: IOrder;
@@ -196,8 +198,12 @@ function applyShipmentToOrder(
   order: IOrder,
   result: ProviderShipmentResult,
   input: BookShipmentInput,
-  pickupLean: Record<string, unknown>
+  pickupLean: Record<string, unknown>,
+  opts?: { correlationId?: string; durationMs?: number }
 ): void {
+  const correlationId = opts?.correlationId ?? ensureCorrelationId(order);
+  order.correlationId = correlationId;
+  order.bookingVersion = order.bookingVersion ?? CURRENT_BOOKING_VERSION;
   order.courierProvider = "lorrigo";
   order.awb = result.awb;
   order.trackingId = result.awb;
@@ -238,6 +244,20 @@ function applyShipmentToOrder(
     appendHistory(order, "pending_pickup", "Booked via Lorrigo", input.userId);
     order.status = "pending_pickup";
   }
+
+  appendProviderEvent(order, {
+    provider: "lorrigo",
+    type: "BOOKING_RESPONSE",
+    status: "SUCCESS",
+    durationMs: opts?.durationMs,
+    correlationId,
+    message: `AWB ${result.awb}`,
+    metadata: {
+      providerOrderId: result.providerOrderId,
+      providerShipmentId: result.providerShipmentId,
+      bookingVersion: order.bookingVersion,
+    },
+  });
 }
 
 /**
@@ -254,7 +274,20 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
 
   const started = Date.now();
   const { lorrigoPickupId, pickupLean } = await validateLorrigoBooking(input);
+  const correlationId = ensureCorrelationId(input.order);
+  input.order.bookingVersion = CURRENT_BOOKING_VERSION;
   recordBookingAttempt(0);
+
+  appendProviderEvent(input.order, {
+    provider: "lorrigo",
+    type: "BOOKING_REQUEST",
+    status: "PENDING",
+    correlationId,
+    metadata: { courierId: input.courierId, pickupAddressId: input.pickupAddressId },
+  });
+  console.info(
+    `[lorrigo] booking correlationId=${correlationId} orderId=${input.order.orderId} bookingVersion=${CURRENT_BOOKING_VERSION}`
+  );
 
   // Idempotency token: persist intent before provider call when we already have a provider order id.
   if (String(input.order.lorrigoOrderId ?? "").trim() && !String(input.order.awb || "").trim()) {
@@ -265,7 +298,10 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
         awb: String(input.order.awb || "") || undefined,
       });
       if (existing.awb) {
-        applyShipmentToOrder(input.order, existing, input, pickupLean);
+        applyShipmentToOrder(input.order, existing, input, pickupLean, {
+          correlationId,
+          durationMs: Date.now() - started,
+        });
         await input.order.save();
         recordBookingSuccess(Date.now() - started);
         return {
@@ -342,6 +378,19 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
       }
     } else {
       recordBookingFailure(Date.now() - started);
+      appendProviderEvent(input.order, {
+        provider: "lorrigo",
+        type: "BOOKING_FAILED",
+        status: "FAILED",
+        durationMs: Date.now() - started,
+        correlationId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      try {
+        await input.order.save();
+      } catch {
+        /* best effort */
+      }
       throw err;
     }
   }
@@ -350,14 +399,25 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
   input.order.lorrigoOrderId = result.providerOrderId || input.order.lorrigoOrderId;
   input.order.courierProvider = "lorrigo";
 
-  applyShipmentToOrder(input.order, result, input, pickupLean);
+  applyShipmentToOrder(input.order, result, input, pickupLean, {
+    correlationId,
+    durationMs: Date.now() - started,
+  });
 
   try {
     await input.order.save();
   } catch (saveErr) {
     input.order.bookingReconciliationRequired = true;
+    appendProviderEvent(input.order, {
+      provider: "lorrigo",
+      type: "RECONCILIATION",
+      status: "FAILED",
+      correlationId,
+      message: "Mongo save failed after provider booking success",
+      metadata: { awb: result.awb, providerOrderId: result.providerOrderId },
+    });
     console.error(
-      `[CRITICAL] Lorrigo booking succeeded but Mongo save failed orderId=${input.order.orderId} ` +
+      `[CRITICAL] Lorrigo booking succeeded but Mongo save failed correlationId=${correlationId} orderId=${input.order.orderId} ` +
         `awb=${result.awb} providerOrderId=${result.providerOrderId} error=${String(saveErr)}`
     );
     try {
@@ -371,17 +431,20 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
             lorrigoOrderId: result.providerOrderId,
             lorrigoShipmentId: result.providerShipmentId,
             courierProvider: "lorrigo",
+            correlationId,
+            bookingVersion: CURRENT_BOOKING_VERSION,
             labelUrl: result.labelUrl,
             bookingReconciliationRequired: true,
             bookedAt: new Date(),
             courierCompanyId: result.courierId ?? input.courierId,
             courierName: result.courierName ?? input.courierName,
+            providerEvents: input.order.providerEvents,
           },
         }
       );
     } catch (updateErr) {
       console.error(
-        `[CRITICAL] Lorrigo reconciliation update also failed orderId=${input.order.orderId} awb=${result.awb} error=${String(updateErr)}`
+        `[CRITICAL] Lorrigo reconciliation update also failed correlationId=${correlationId} orderId=${input.order.orderId} awb=${result.awb} error=${String(updateErr)}`
       );
     }
     recordBookingFailure(Date.now() - started);

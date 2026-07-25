@@ -18,6 +18,7 @@ import { performShopifyOrderSyncForUser } from "./services/shopifySyncRunner.js"
 import { Courier } from "./models/Courier.js";
 import { syncFailureRemarksBatch } from "./modules/velocity/velocityRemarkSync.js";
 import { registerCourierProviders, getCourierProvider } from "./modules/courier/index.js";
+import { getLorrigoStatusSyncIntervalMs } from "./modules/lorrigo/lorrigo.statusSync.js";
 
 validateEnv();
 registerCourierProviders();
@@ -136,6 +137,38 @@ async function main() {
     }
   }, 5 * 60 * 1000);
   velocityBgSync.unref();
+
+  // Lorrigo status sync — separate loop; does not affect Velocity booking/sync.
+  const lorrigoSyncIntervalMs = getLorrigoStatusSyncIntervalMs();
+  const lorrigoBgSync = setInterval(async () => {
+    try {
+      if (!isLorrigoEnabledFlag() || !isLorrigoConfigured()) return;
+      const lorrigo = getCourierProvider("lorrigo");
+      if (!lorrigo.isConfigured()) return;
+      const r = await lorrigo.syncStatus({ batchSize: 100 });
+      console.info(
+        `[lorrigo:bg-sync] scanned=${r.scanned ?? 0} updated=${r.updated ?? 0} errors=${r.errors ?? 0}` +
+          (r.statusChanges != null ? ` statusChanges=${r.statusChanges}` : "")
+      );
+    } catch (e: unknown) {
+      console.error("[lorrigo:bg-sync] error", e instanceof Error ? e.message : e);
+    }
+  }, lorrigoSyncIntervalMs);
+  lorrigoBgSync.unref();
+
+  if (isLorrigoEnabledFlag() && isLorrigoConfigured()) {
+    setTimeout(async () => {
+      try {
+        const lorrigo = getCourierProvider("lorrigo");
+        const r = await lorrigo.syncStatus({ batchSize: 100 });
+        console.info(
+          `[lorrigo:startup-sync] scanned=${r.scanned ?? 0} updated=${r.updated ?? 0} errors=${r.errors ?? 0}`
+        );
+      } catch (e: unknown) {
+        console.error("[lorrigo:startup-sync] error", e instanceof Error ? e.message : e);
+      }
+    }, 45_000).unref();
+  }
 
   // Run an initial sync 30 seconds after startup so statuses are fresh on first page load.
   if (isVelocityConfigured()) {

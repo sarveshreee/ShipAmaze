@@ -7,6 +7,10 @@ import { Pickup } from "../../models/Pickup.js";
 import { LORRIGO_API_VERSION, probeLorrigoAuth } from "./lorrigo.client.js";
 import { isLorrigoConfigured, isLorrigoEnabledFlag, lorrigoConfig } from "./lorrigo.config.js";
 import { syncPickupToLorrigo } from "./lorrigo.pickupSync.js";
+import { getLorrigoStatusSyncHealth } from "./lorrigo.statusSyncMetrics.js";
+import { getLorrigoStatusSyncIntervalMs } from "./lorrigo.statusSync.js";
+import { Order } from "../../models/Order.js";
+import { TERMINAL_ORDER_STATUS_VALUES } from "../courier/statusNormalize.js";
 
 /**
  * GET /api/lorrigo/status
@@ -18,6 +22,20 @@ export const getLorrigoStatus = asyncHandler(async (req: AuthRequest, res: Respo
 
   const probe = await probeLorrigoAuth();
   const m = probe.metrics;
+  const syncHealth = getLorrigoStatusSyncHealth();
+
+  let activeShipments = syncHealth.activeShipments;
+  try {
+    activeShipments = await Order.countDocuments({
+      courierProvider: "lorrigo",
+      awb: { $exists: true, $nin: ["", null] },
+      shipmentCreated: true,
+      isJunk: { $ne: true },
+      status: { $nin: TERMINAL_ORDER_STATUS_VALUES },
+    });
+  } catch {
+    /* keep metric snapshot */
+  }
 
   res.json({
     success: true,
@@ -26,7 +44,7 @@ export const getLorrigoStatus = asyncHandler(async (req: AuthRequest, res: Respo
     enabled: probe.enabled,
     configured: probe.configured,
     authenticated: probe.authenticated,
-    healthy: probe.healthy,
+    healthy: probe.healthy && syncHealth.consecutiveFailures < 5,
     baseUrl: lorrigoConfig.baseUrl,
     apiVersion: m.apiVersion || LORRIGO_API_VERSION,
     lastAuthAt: m.lastAuthAt,
@@ -39,6 +57,17 @@ export const getLorrigoStatus = asyncHandler(async (req: AuthRequest, res: Respo
     uptimeSeconds: m.uptimeSeconds,
     durationMs: probe.durationMs,
     message: probe.message,
+    sync: {
+      activeShipments,
+      lastPollAt: syncHealth.lastPollAt,
+      lastSuccessfulSyncAt: syncHealth.lastSuccessfulSyncAt,
+      consecutiveFailures: syncHealth.consecutiveFailures,
+      lastSyncLatencyMs: syncHealth.lastSyncLatencyMs,
+      lastProviderLatencyMs: syncHealth.lastProviderLatencyMs,
+      statusChanges: syncHealth.statusChanges,
+      pollFailures: syncHealth.pollFailures,
+      pollIntervalMs: getLorrigoStatusSyncIntervalMs(),
+    },
     // Never include password, token, Authorization, or cookies
   });
 });

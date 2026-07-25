@@ -137,6 +137,16 @@ export async function syncActiveShipmentStatuses(
       { velocityShipmentId: { $exists: true, $nin: ["", null] } },
       { shipmentId: { $exists: true, $nin: ["", null] } },
     ],
+    // Exclude Lorrigo-booked orders (they use the Lorrigo status sync loop).
+    $and: [
+      {
+        $or: [
+          { courierProvider: { $exists: false } },
+          { courierProvider: null },
+          { courierProvider: "velocity" },
+        ],
+      },
+    ],
     isJunk: { $ne: true },
     // Drive off main `status` so we still poll when shipmentStatus already shows a
     // terminal Velocity raw value but the website status has not caught up yet.

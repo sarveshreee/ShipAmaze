@@ -126,3 +126,14 @@ Backward compatible: existing Velocity orders and APIs keep working with no chan
 3. **Do not delete data:** optional fields (`lorrigoPickupId`, `lorrigoOrderId`, etc.) remain; they are ignored when the flag is off.
 
 4. **Velocity unaffected:** `/api/velocity/*` and Process Selected without `provider=lorrigo` continue as before.
+
+## Observability (Phase 6)
+
+| Field | Purpose |
+|-------|---------|
+| `correlationId` | One id from booking → tracking → cancel → logs |
+| `bookingVersion` | Payload schema version at book time (currently `1`) |
+| `providerEvents[]` | Append-only timeline (`BOOKING_REQUEST`, `BOOKING_RESPONSE`, `STATUS_CHANGE`, …) |
+| `lastProviderStatusSyncedAt` | Fair-rotation cursor for Lorrigo polls |
+
+Lorrigo status polling: `LORRIGO_STATUS_SYNC_INTERVAL_MS` (default 5 minutes). Health: `GET /api/lorrigo/status` → `sync.activeShipments`, `lastPollAt`, `consecutiveFailures`, etc.

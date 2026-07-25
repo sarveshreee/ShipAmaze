@@ -14,6 +14,18 @@ export interface IOrderStatusEvent {
   note?: string;
 }
 
+/** Append-only provider integration timeline (booking, tracking, cancel, …). */
+export interface IProviderEvent {
+  provider: "velocity" | "lorrigo";
+  type: string;
+  timestamp: Date;
+  status?: "SUCCESS" | "FAILED" | "SKIPPED" | "PENDING";
+  durationMs?: number;
+  message?: string;
+  correlationId?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface IOrder extends Document {
   orderId: string;
   customer: string;
@@ -84,6 +96,14 @@ export interface IOrder extends Document {
   /** Set when provider booking succeeded but local persistence failed. */
   bookingReconciliationRequired?: boolean;
   bookedAt?: Date;
+  /** Correlation id spanning booking → tracking → cancel → NDR → logs. */
+  correlationId?: string;
+  /** Booking payload schema version at time of book. */
+  bookingVersion?: number;
+  /** Append-only provider event timeline. */
+  providerEvents?: IProviderEvent[];
+  /** Last successful/attempted multi-provider status poll (Lorrigo + future). */
+  lastProviderStatusSyncedAt?: Date;
   // Velocity Shipping fields (all optional – never break existing data)
   velocityOrderId?: string;
   velocityShipmentId?: string;
@@ -160,6 +180,20 @@ const statusHistorySchema = new Schema<IOrderStatusEvent>(
   { _id: false }
 );
 
+const providerEventSchema = new Schema<IProviderEvent>(
+  {
+    provider: { type: String, enum: ["velocity", "lorrigo"], required: true },
+    type: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now },
+    status: { type: String, enum: ["SUCCESS", "FAILED", "SKIPPED", "PENDING"] },
+    durationMs: { type: Number },
+    message: { type: String },
+    correlationId: { type: String },
+    metadata: { type: Schema.Types.Mixed },
+  },
+  { _id: false }
+);
+
 const remarkHistorySchema = new Schema(
   {
     reason: { type: String, required: true },
@@ -220,6 +254,10 @@ const orderSchema = new Schema<IOrder>(
     providerBookingRaw: { type: Schema.Types.Mixed },
     bookingReconciliationRequired: { type: Boolean, default: false, index: true },
     bookedAt: { type: Date },
+    correlationId: { type: String, index: true, sparse: true },
+    bookingVersion: { type: Number },
+    providerEvents: { type: [providerEventSchema], default: undefined },
+    lastProviderStatusSyncedAt: { type: Date, index: true },
     // Velocity Shipping
     velocityOrderId: { type: String, sparse: true },
     velocityShipmentId: { type: String, sparse: true },

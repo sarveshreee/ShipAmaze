@@ -23,4 +23,10 @@ export {
   providerSupports,
 } from "./capabilities.js";
 export type { CourierProviderCapabilities } from "./capabilities.js";
+export { appendProviderEvent } from "./providerEvents.js";
+export { ensureCorrelationId, CURRENT_BOOKING_VERSION } from "./correlation.js";
+export {
+  mapLorrigoStatusToProviderCanonical,
+  providerCanonicalToOrderStatus,
+} from "./statusNormalize.js";
 export type * from "./types.js";
