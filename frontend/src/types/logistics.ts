@@ -267,6 +267,11 @@ export interface PickupAddress {
   velocityLinked?: boolean;
   /** Velocity sync / link status from integration when available */
   velocityStatus?: string;
+  /** Lorrigo pickup-address id after successful sync */
+  lorrigoPickupId?: string;
+  lorrigoSyncStatus?: "SUCCESS" | "FAILED" | "SKIPPED";
+  lorrigoLastSyncAt?: string;
+  lorrigoSyncError?: string;
   /** Set when this pickup was auto-synced from a vendor Warehouse document */
   sourceWarehouseId?: string;
   /** Role of the actor who caused this pickup to be created */

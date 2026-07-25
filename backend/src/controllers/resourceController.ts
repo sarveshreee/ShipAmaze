@@ -56,6 +56,7 @@ import {
   syncPickupToVelocity,
   syncVendorWarehouseToVelocity,
 } from "../modules/velocity/velocity.warehouseSync.js";
+import { syncPickupToLorrigo } from "../modules/lorrigo/lorrigo.pickupSync.js";
 import {
   submitNdrActionToVelocity,
   type VelocityNdrAction,
@@ -1237,6 +1238,10 @@ function mapPickupDoc(a: {
   isActive?: boolean;
   deletedAt?: Date;
   velocityWarehouseId?: string;
+  lorrigoPickupId?: string;
+  lorrigoSyncStatus?: "SUCCESS" | "FAILED" | "SKIPPED";
+  lorrigoLastSyncAt?: Date | string;
+  lorrigoSyncError?: string;
   sourceWarehouseId?: unknown;
   createdByRole?: string;
   vendorId?: unknown;
@@ -1265,6 +1270,18 @@ function mapPickupDoc(a: {
     velocityWarehouseId:
       typeof a.velocityWarehouseId === "string" && a.velocityWarehouseId.trim()
         ? a.velocityWarehouseId.trim()
+        : undefined,
+    lorrigoPickupId:
+      typeof a.lorrigoPickupId === "string" && a.lorrigoPickupId.trim()
+        ? a.lorrigoPickupId.trim()
+        : undefined,
+    lorrigoSyncStatus: a.lorrigoSyncStatus,
+    lorrigoLastSyncAt: a.lorrigoLastSyncAt
+      ? new Date(a.lorrigoLastSyncAt).toISOString()
+      : undefined,
+    lorrigoSyncError:
+      typeof a.lorrigoSyncError === "string" && a.lorrigoSyncError.trim()
+        ? a.lorrigoSyncError.trim()
         : undefined,
     sourceWarehouseId: a.sourceWarehouseId ? String(a.sourceWarehouseId) : undefined,
     createdByRole: a.createdByRole ?? undefined,
@@ -1408,13 +1425,27 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     linked: false as const,
     error: e instanceof Error ? e.message : String(e),
   }));
-  // If linked, refresh velocityWarehouseId on the doc for the response
-  const mappedDoc = doc.toObject();
-  if (velocitySync.linked) {
-    mappedDoc.velocityWarehouseId = velocitySync.warehouse_id;
+
+  // Auto-sync to Lorrigo when enabled (non-fatal — never roll back local pickup)
+  console.info(`[lorrigo] local pickup created pickupId=${String(doc._id)}`);
+  const lorrigoSync = await syncPickupToLorrigo(doc._id).catch((e) => ({
+    synced: false as const,
+    error: e instanceof Error ? e.message : String(e),
+  }));
+
+  // Re-read latest provider fields from DB for the response
+  const fresh = await Pickup.findById(doc._id).lean();
+  const responseDoc = fresh ?? doc.toObject();
+  if (!fresh && velocitySync.linked) {
+    (responseDoc as { velocityWarehouseId?: string }).velocityWarehouseId = velocitySync.warehouse_id;
   }
 
-  res.status(201).json({ success: true, data: mapPickupDoc(mappedDoc), velocitySync });
+  res.status(201).json({
+    success: true,
+    data: mapPickupDoc(responseDoc),
+    velocitySync,
+    lorrigoSync,
+  });
 });
 
 /**

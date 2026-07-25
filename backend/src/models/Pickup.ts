@@ -25,6 +25,13 @@ export interface IPickup extends Document {
   addressFingerprint?: string;
   /** Velocity dashboard warehouse code after linkOnly (e.g. WHZBRR). */
   velocityWarehouseId?: string;
+  /** Lorrigo pickup-address id after successful sync. */
+  lorrigoPickupId?: string;
+  /** Lorrigo sync outcome — optional; unset when sync was never attempted. */
+  lorrigoSyncStatus?: "SUCCESS" | "FAILED" | "SKIPPED";
+  lorrigoLastSyncAt?: Date;
+  /** Sanitized provider error when last sync failed. */
+  lorrigoSyncError?: string;
   /** Set when this pickup was auto-synced from a vendor/dropshipper Warehouse document. */
   sourceWarehouseId?: Types.ObjectId;
   /** Role of the actor who caused this pickup to be created. */
@@ -55,6 +62,10 @@ const pickupSchema = new Schema<IPickup>(
     deletedAt: { type: Date },
     addressFingerprint: { type: String, index: true },
     velocityWarehouseId: { type: String },
+    lorrigoPickupId: { type: String, sparse: true, index: true },
+    lorrigoSyncStatus: { type: String, enum: ["SUCCESS", "FAILED", "SKIPPED"] },
+    lorrigoLastSyncAt: { type: Date },
+    lorrigoSyncError: { type: String },
     sourceWarehouseId: { type: Schema.Types.ObjectId, ref: "Warehouse", index: true },
     createdByRole: { type: String, enum: ["admin", "vendor", "dropshipper"] },
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor", index: true },

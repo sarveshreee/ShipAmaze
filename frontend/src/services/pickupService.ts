@@ -59,7 +59,27 @@ export type PickupSaveResponse = {
     reason?: string;
     error?: string;
   };
+  lorrigoSync?: {
+    synced?: boolean;
+    pickupId?: string;
+    alreadySynced?: boolean;
+    skipped?: boolean;
+    reason?: string;
+    error?: string;
+    durationMs?: number;
+  };
 };
+
+export async function retryLorrigoPickupSync(pickupId: string) {
+  return apiClient.post<{
+    success: boolean;
+    lorrigoSync?: PickupSaveResponse["lorrigoSync"];
+    data?: Pick<
+      PickupAddress,
+      "id" | "lorrigoPickupId" | "lorrigoSyncStatus" | "lorrigoLastSyncAt" | "lorrigoSyncError"
+    >;
+  }>(`/lorrigo/pickups/${encodeURIComponent(pickupId)}/sync`, {});
+}
 
 export async function createPickupAddress(body: PickupAddressPayload): Promise<PickupSaveResponse> {
   const raw = await apiClient.post<unknown>(BASE, body);

@@ -1,9 +1,12 @@
 import type { Response } from "express";
+import mongoose from "mongoose";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { AppError } from "../../middleware/errorMiddleware.js";
 import type { AuthRequest } from "../../middleware/authMiddleware.js";
+import { Pickup } from "../../models/Pickup.js";
 import { LORRIGO_API_VERSION, probeLorrigoAuth } from "./lorrigo.client.js";
 import { isLorrigoConfigured, isLorrigoEnabledFlag, lorrigoConfig } from "./lorrigo.config.js";
+import { syncPickupToLorrigo } from "./lorrigo.pickupSync.js";
 
 /**
  * GET /api/lorrigo/status
@@ -53,5 +56,47 @@ export const getLorrigoHealth = asyncHandler(async (req: AuthRequest, res: Respo
     enabled,
     configured: isLorrigoConfigured(),
     apiVersion: LORRIGO_API_VERSION,
+  });
+});
+
+/**
+ * POST /api/lorrigo/pickups/:id/sync
+ * Retry Lorrigo pickup sync only — never recreates the local pickup.
+ */
+export const retryPickupSync = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+
+  const pickupId = String(req.params.id ?? "").trim();
+  if (!pickupId || !mongoose.isValidObjectId(pickupId)) {
+    throw new AppError(400, "Invalid pickup id");
+  }
+
+  const pickup = await Pickup.findById(pickupId);
+  if (!pickup || pickup.deletedAt) throw new AppError(404, "Pickup not found");
+
+  const role = req.user.role;
+  if (role !== "admin") {
+    const ownerOk = String(pickup.userId) === String(req.user._id);
+    if (!ownerOk) throw new AppError(403, "Forbidden");
+  }
+
+  console.info(`[lorrigo] pickup sync retry requested pickupId=${pickupId} by=${role}`);
+  const result = await syncPickupToLorrigo(pickupId, { force: true });
+  const fresh = await Pickup.findById(pickupId).lean();
+
+  res.json({
+    success: true,
+    lorrigoSync: result,
+    data: fresh
+      ? {
+          id: String(fresh._id),
+          lorrigoPickupId: fresh.lorrigoPickupId,
+          lorrigoSyncStatus: fresh.lorrigoSyncStatus,
+          lorrigoLastSyncAt: fresh.lorrigoLastSyncAt
+            ? new Date(fresh.lorrigoLastSyncAt).toISOString()
+            : undefined,
+          lorrigoSyncError: fresh.lorrigoSyncError,
+        }
+      : undefined,
   });
 });

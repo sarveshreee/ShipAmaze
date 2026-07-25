@@ -36,6 +36,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
+import { LorrigoPickupSyncCard } from "@/components/LorrigoPickupSyncCard";
 import { VelocityWarehouseLinkStatusBadge } from "@/components/VelocityWarehouseLinkStatusBadge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { getVelocityWarehouseLinkStatus, normalizeVelocityWarehouseCode } from "@/lib/velocityWarehouseLink";
@@ -189,6 +190,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
       }
 
       const vSync = resp?.velocitySync;
+      const lSync = resp?.lorrigoSync;
       if (vSync?.linked && vSync.warehouse_id) {
         toast.success(`Address saved — Velocity warehouse linked: ${vSync.warehouse_id}`);
       } else if (vSync?.skipped) {
@@ -198,6 +200,11 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
         toast.warning(`Velocity sync failed: ${vSync.error}. Use the link card to retry.`);
       } else {
         toast.success(editingId ? "Address updated" : "Address saved");
+      }
+      if (lSync?.synced && lSync.pickupId) {
+        toast.success(`Lorrigo pickup synced: ${lSync.pickupId}`);
+      } else if (lSync?.error) {
+        toast.warning(`Lorrigo sync failed: ${lSync.error}. Use Retry Sync on the card.`);
       }
 
       notifyPickupRefetch();
@@ -357,6 +364,14 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
                   await refetch();
                 }}
                 forbiddenHint="pickup"
+              />
+
+              <LorrigoPickupSyncCard
+                pickup={a}
+                onUpdated={async () => {
+                  notifyPickupRefetch();
+                  await refetch();
+                }}
               />
 
               <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-border">
