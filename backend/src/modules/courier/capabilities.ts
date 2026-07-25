@@ -40,7 +40,7 @@ export const LORRIGO_CAPABILITIES: CourierProviderCapabilities = {
   booking: true,
   tracking: true,
   cancel: true,
-  ndr: false,
+  ndr: true,
   returns: false,
   pickupSync: true,
   labels: true, // store URL when Lorrigo returns one; may be null

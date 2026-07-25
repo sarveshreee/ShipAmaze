@@ -533,6 +533,12 @@ export type NdrRow = {
   orderId?: string;
   carrier?: string;
   velocityStatus?: string;
+  courierProvider?: "velocity" | "lorrigo";
+  providerStatus?: string;
+  customerRemarks?: string;
+  actionRequired?: boolean;
+  recommendedAction?: string;
+  supportedActions?: Array<"reattempt" | "return" | "fake-attempt">;
   amount?: number;
   actionStatus?: string;
   actionMessage?: string;
@@ -542,24 +548,44 @@ export type NdrRow = {
 export function useNdrOrders() {
   const queryFn = useCallback(async () => {
     const rows = (await ndrService.listNdr()) as unknown as Record<string, unknown>[];
-    return rows.map((n) => ({
-      awb: String(n.awb ?? ""),
-      customer: String(n.customer ?? ""),
-      seller: String(n.seller ?? ""),
-      reason: String(n.reason ?? ""),
-      attempts: Number(n.attempts ?? 1),
-      lastUpdate: String(n.lastUpdate ?? ""),
-      status: String(n.status ?? "Active"),
-      phone: String(n.phone ?? ""),
-      nextAction: String(n.nextAction ?? ""),
-      orderId: String(n.orderId ?? ""),
-      carrier: String(n.carrier ?? ""),
-      velocityStatus: String(n.velocityStatus ?? ""),
-      amount: n.amount != null ? Number(n.amount) : undefined,
-      actionStatus: String(n.actionStatus ?? ""),
-      actionMessage: String(n.actionMessage ?? ""),
-      lastActionAt: String(n.lastActionAt ?? ""),
-    }));
+    return rows.map((n) => {
+      const provider = n.courierProvider === "lorrigo" ? "lorrigo" : "velocity";
+      const supportedRaw = Array.isArray(n.supportedActions) ? n.supportedActions : [];
+      const supportedActions = supportedRaw
+        .map((a) => String(a))
+        .filter((a): a is "reattempt" | "return" | "fake-attempt" =>
+          a === "reattempt" || a === "return" || a === "fake-attempt"
+        );
+      return {
+        awb: String(n.awb ?? ""),
+        customer: String(n.customer ?? ""),
+        seller: String(n.seller ?? ""),
+        reason: String(n.reason ?? ""),
+        attempts: Number(n.attempts ?? 1),
+        lastUpdate: String(n.lastUpdate ?? ""),
+        status: String(n.status ?? "Active"),
+        phone: String(n.phone ?? ""),
+        nextAction: String(n.nextAction ?? ""),
+        orderId: String(n.orderId ?? ""),
+        carrier: String(n.carrier ?? ""),
+        velocityStatus: String(n.velocityStatus ?? ""),
+        courierProvider: provider as "velocity" | "lorrigo",
+        providerStatus: String(n.providerStatus ?? ""),
+        customerRemarks: String(n.customerRemarks ?? ""),
+        actionRequired: n.actionRequired !== false,
+        recommendedAction: String(n.recommendedAction ?? ""),
+        supportedActions:
+          supportedActions.length > 0
+            ? supportedActions
+            : provider === "lorrigo"
+              ? (["reattempt", "return", "fake-attempt"] as Array<"reattempt" | "return" | "fake-attempt">)
+              : (["reattempt", "return"] as Array<"reattempt" | "return" | "fake-attempt">),
+        amount: n.amount != null ? Number(n.amount) : undefined,
+        actionStatus: String(n.actionStatus ?? ""),
+        actionMessage: String(n.actionMessage ?? ""),
+        lastActionAt: String(n.lastActionAt ?? ""),
+      };
+    });
   }, []);
   return useApiQuery<NdrRow>("ndr_orders", queryFn);
 }

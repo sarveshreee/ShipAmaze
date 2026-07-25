@@ -57,10 +57,14 @@ import {
   syncVendorWarehouseToVelocity,
 } from "../modules/velocity/velocity.warehouseSync.js";
 import { syncPickupToLorrigo } from "../modules/lorrigo/lorrigo.pickupSync.js";
+import { getCourierProvider } from "../modules/courier/providerRegistry.js";
 import {
-  submitNdrActionToVelocity,
-  type VelocityNdrAction,
-} from "../modules/velocity/velocity.service.js";
+  normalizeProviderNdrAction,
+  resolveNdrProviderId,
+  supportedNdrActions,
+} from "../modules/courier/ndrActions.js";
+import { appendProviderEvent } from "../modules/courier/providerEvents.js";
+import { ensureCorrelationId } from "../modules/courier/correlation.js";
 import {
   deleteProductImages,
   deleteRemovedProductImages,
@@ -992,24 +996,33 @@ export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
   }
   const rows = await NDR.find(q).sort({ updatedAt: -1, createdAt: -1 }).lean();
   res.json(
-    rows.map((n) => ({
-      awb: n.awb,
-      customer: n.customer,
-      seller: n.seller,
-      reason: n.reason,
-      attempts: n.attempts,
-      lastUpdate: n.lastUpdate,
-      status: n.status,
-      phone: n.phone,
-      nextAction: n.nextAction,
-      orderId: n.orderId ?? "",
-      carrier: n.carrier ?? "",
-      velocityStatus: n.velocityStatus ?? "",
-      amount: n.amount,
-      actionStatus: n.actionStatus ?? "",
-      actionMessage: n.actionMessage ?? "",
-      lastActionAt: n.lastActionAt,
-    }))
+    rows.map((n) => {
+      const courierProvider = resolveNdrProviderId(n.courierProvider);
+      return {
+        awb: n.awb,
+        customer: n.customer,
+        seller: n.seller,
+        reason: n.reason,
+        attempts: n.attempts,
+        lastUpdate: n.lastUpdate,
+        status: n.status,
+        phone: n.phone,
+        nextAction: n.nextAction,
+        orderId: n.orderId ?? "",
+        carrier: n.carrier ?? "",
+        velocityStatus: n.velocityStatus ?? "",
+        courierProvider,
+        providerStatus: n.providerStatus ?? n.velocityStatus ?? "",
+        customerRemarks: n.customerRemarks ?? "",
+        actionRequired: n.actionRequired !== false,
+        recommendedAction: n.recommendedAction ?? "",
+        supportedActions: supportedNdrActions(courierProvider),
+        amount: n.amount,
+        actionStatus: n.actionStatus ?? "",
+        actionMessage: n.actionMessage ?? "",
+        lastActionAt: n.lastActionAt,
+      };
+    })
   );
 });
 
@@ -1035,15 +1048,6 @@ function formatNdrActionDate(value = new Date()): string {
   return value.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
 }
 
-function normalizeNdrAction(input: unknown): VelocityNdrAction {
-  const action = String(input ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
-  if (["reattempt", "re_attempt", "reattempt_delivery", "re_attempt_delivery"].includes(action)) {
-    return "reattempt";
-  }
-  if (["rto", "force_rto", "return_to_origin"].includes(action)) return "rto";
-  throw new AppError(400, "action must be reattempt or rto");
-}
-
 async function findOrderForNdrAction(req: AuthRequest, awb: string) {
   const baseLookup = { $or: [{ awb }, { trackingId: awb }] };
   if (req.user?.role === "admin") {
@@ -1059,7 +1063,6 @@ export const submitNdrAction = asyncHandler(async (req: AuthRequest, res: Respon
   const awb = String(req.params.awb ?? "").trim();
   if (!awb) throw new AppError(400, "AWB is required");
 
-  const action = normalizeNdrAction((req.body as Record<string, unknown>).action);
   const remarks = String((req.body as Record<string, unknown>).remarks ?? "").trim();
 
   const ndr = await NDR.findOne({ awb });
@@ -1068,11 +1071,23 @@ export const submitNdrAction = asyncHandler(async (req: AuthRequest, res: Respon
   const order = await findOrderForNdrAction(req, awb);
   if (req.user.role !== "admin" && !order) throw new AppError(403, "Forbidden");
 
-  const provider = await submitNdrActionToVelocity({
+  const providerId = resolveNdrProviderId(order?.courierProvider ?? ndr.courierProvider);
+  const courier = getCourierProvider(providerId);
+  if (!courier.supportsNDR()) {
+    throw new AppError(501, `${courier.displayName} does not support NDR actions`);
+  }
+
+  const action = normalizeProviderNdrAction(
+    (req.body as Record<string, unknown>).action,
+    providerId
+  );
+
+  const provider = await courier.performNDRAction({
     awb,
     action,
     phone: ndr.phone || order?.phone,
     remarks,
+    nextAttemptDate: String((req.body as Record<string, unknown>).nextAttemptDate ?? "").trim() || undefined,
   });
 
   const now = new Date();
@@ -1080,16 +1095,27 @@ export const submitNdrAction = asyncHandler(async (req: AuthRequest, res: Respon
     typeof provider.message === "string" && provider.message.trim()
       ? provider.message.trim()
       : action === "reattempt"
-        ? "Re-attempt request submitted to Velocity"
-        : "RTO request submitted to Velocity";
+        ? `Re-attempt request submitted to ${courier.displayName}`
+        : action === "fake-attempt"
+          ? `Fake-attempt submitted to ${courier.displayName}`
+          : `Return request submitted to ${courier.displayName}`;
 
-  const nextAction = action === "reattempt" ? "Re-attempt" : "Force RTO";
+  const nextAction =
+    action === "reattempt" ? "Re-attempt" : action === "fake-attempt" ? "Fake Attempt" : "Force RTO";
   const nextStatus = "Initiated";
-  const velocityStatus = action === "reattempt" ? "reattempt_delivery" : "rto_initiated";
+  const providerStatus =
+    provider.providerStatus ??
+    (action === "reattempt"
+      ? "reattempt_delivery"
+      : action === "fake-attempt"
+        ? "fake-attempt"
+        : "rto_initiated");
 
   ndr.status = nextStatus;
   ndr.nextAction = nextAction;
-  ndr.velocityStatus = velocityStatus;
+  ndr.courierProvider = providerId;
+  ndr.velocityStatus = providerStatus;
+  ndr.providerStatus = providerStatus;
   ndr.actionStatus = "provider_synced";
   ndr.actionMessage = providerMessage;
   ndr.lastActionAt = now;
@@ -1102,13 +1128,37 @@ export const submitNdrAction = asyncHandler(async (req: AuthRequest, res: Respon
   await ndr.save();
 
   if (order) {
+    const correlationId = ensureCorrelationId(order);
+    appendProviderEvent(order, {
+      provider: providerId,
+      type: "NDR_ACTION",
+      status: "SUCCESS",
+      correlationId,
+      message: providerMessage,
+      metadata: { awb, action },
+    });
+    if (action === "return") {
+      appendProviderEvent(order, {
+        provider: providerId,
+        type: "NDR_RESOLVED",
+        status: "SUCCESS",
+        correlationId,
+        message: "NDR resolved via return/RTO",
+        metadata: { awb, action },
+      });
+    }
     const prev = order.statusHistory ?? [];
     order.statusHistory = [
       ...prev,
-      { status: action === "reattempt" ? "ndr" : "rto", at: now, updatedBy: req.user._id, note: `velocity_ndr_${action}` },
+      {
+        status: action === "return" ? "rto" : "ndr",
+        at: now,
+        updatedBy: req.user._id,
+        note: `${providerId}_ndr_${action}`,
+      },
     ].slice(-50);
-    order.status = action === "reattempt" ? "ndr" : "rto";
-    order.shipmentStatus = velocityStatus;
+    order.status = action === "return" ? "rto" : "ndr";
+    order.shipmentStatus = providerStatus;
     await order.save();
   }
 

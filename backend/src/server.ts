@@ -19,6 +19,7 @@ import { Courier } from "./models/Courier.js";
 import { syncFailureRemarksBatch } from "./modules/velocity/velocityRemarkSync.js";
 import { registerCourierProviders, getCourierProvider } from "./modules/courier/index.js";
 import { getLorrigoStatusSyncIntervalMs } from "./modules/lorrigo/lorrigo.statusSync.js";
+import { getLorrigoNdrSyncIntervalMs } from "./modules/lorrigo/lorrigo.ndrSync.js";
 
 validateEnv();
 registerCourierProviders();
@@ -196,11 +197,11 @@ async function main() {
     }, 30_000).unref();
   }
 
-  // Background NDR sync — runs every 10 minutes alongside status sync.
+  // Background NDR sync — Velocity every 10 minutes; Lorrigo on its own interval.
   const velocityNdrSync = setInterval(async () => {
     try {
       const velocity = getCourierProvider("velocity");
-      if (!velocity.isConfigured()) return;
+      if (!velocity.isConfigured() || !velocity.supportsNDR()) return;
       const ndr = await velocity.syncNDR({ daysBack: 120 });
       devLog.info(
         `[velocity:ndr-bg-sync] fetched=${ndr.fetched} upserted=${ndr.upserted} closed=${ndr.closed} errors=${ndr.errors}`
@@ -210,6 +211,38 @@ async function main() {
     }
   }, 10 * 60 * 1000);
   velocityNdrSync.unref();
+
+  const lorrigoNdrIntervalMs = getLorrigoNdrSyncIntervalMs();
+  const lorrigoNdrSync = setInterval(async () => {
+    try {
+      if (!isLorrigoEnabledFlag() || !isLorrigoConfigured()) return;
+      const lorrigo = getCourierProvider("lorrigo");
+      if (!lorrigo.isConfigured() || !lorrigo.supportsNDR()) return;
+      const ndr = await lorrigo.syncNDR({ daysBack: 30 });
+      console.info(
+        `[lorrigo:ndr-bg-sync] fetched=${ndr.fetched ?? 0} upserted=${ndr.upserted ?? 0} ` +
+          `dupes=${ndr.duplicatesSuppressed ?? 0} errors=${ndr.errors ?? 0}`
+      );
+    } catch (e: unknown) {
+      console.error("[lorrigo:ndr-bg-sync] error", e instanceof Error ? e.message : e);
+    }
+  }, lorrigoNdrIntervalMs);
+  lorrigoNdrSync.unref();
+
+  if (isLorrigoEnabledFlag() && isLorrigoConfigured()) {
+    setTimeout(async () => {
+      try {
+        const lorrigo = getCourierProvider("lorrigo");
+        if (!lorrigo.supportsNDR()) return;
+        const ndr = await lorrigo.syncNDR({ daysBack: 30 });
+        console.info(
+          `[lorrigo:ndr-startup-sync] fetched=${ndr.fetched ?? 0} upserted=${ndr.upserted ?? 0} errors=${ndr.errors ?? 0}`
+        );
+      } catch (e: unknown) {
+        console.error("[lorrigo:ndr-startup-sync] error", e instanceof Error ? e.message : e);
+      }
+    }, 50_000).unref();
+  }
 
   // Velocity failure remark sync — keeps order Remarks populated from courier reasons
   const velocityRemarkSync = setInterval(async () => {

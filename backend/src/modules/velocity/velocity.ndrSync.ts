@@ -163,6 +163,8 @@ export async function upsertNdrFromVelocityShipment(
     orderId: order?.orderId ?? String(ordAttrs?.display_id ?? ordAttrs?.external_id ?? ""),
     carrier,
     velocityStatus,
+    courierProvider: "velocity",
+    providerStatus: velocityStatus,
     amount,
   };
 

@@ -22,6 +22,8 @@ router.post(
 router.post("/rates", requireRoles("admin", "vendor", "dropshipper"), dc.rates);
 router.get("/discovery-metrics", requireRoles("admin"), dc.discoveryMetrics);
 router.get("/booking-metrics", requireRoles("admin"), bc.bookingMetrics);
+router.get("/ndr-metrics", requireRoles("admin"), bc.ndrMetrics);
+router.post("/sync-ndr", requireRoles("admin", "vendor", "dropshipper"), bc.syncNdr);
 router.post("/shipments", requireRoles("admin", "vendor", "dropshipper"), bc.createShipment);
 router.post("/shipments/cancel", requireRoles("admin", "vendor", "dropshipper"), bc.cancelShipment);
 

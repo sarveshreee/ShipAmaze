@@ -12,11 +12,13 @@ import { Order, type IOrder } from "../../models/Order.js";
 import { bookLorrigoShipment } from "./bookShipment.js";
 import {
   getCourierProvider,
+  listConfiguredCourierProviders,
   listCourierProviders,
   resolveCourierProviderId,
 } from "./providerRegistry.js";
 import { getStaticProviderCapabilities, providerSupports } from "./capabilities.js";
 import { getLorrigoBookingMetrics } from "../lorrigo/lorrigo.bookingMetrics.js";
+import { getLorrigoNdrMetrics } from "../lorrigo/lorrigo.ndrMetrics.js";
 
 function assertBookingOrderAccess(
   user: NonNullable<AuthRequest["user"]>,
@@ -115,6 +117,55 @@ export const bookingMetrics = asyncHandler(async (_req: AuthRequest, res: Respon
     success: true,
     data: {
       lorrigo: getLorrigoBookingMetrics(),
+    },
+  });
+});
+
+/** Sync NDR from all configured providers that support NDR (controllers stay provider-agnostic). */
+export const syncNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const daysBackRaw = Number(body.daysBack);
+  const daysBack = Number.isFinite(daysBackRaw) && daysBackRaw > 0 ? daysBackRaw : 120;
+
+  const providers = listConfiguredCourierProviders().filter((p) => p.supportsNDR());
+  const results: Record<string, unknown> = {};
+  let upserted = 0;
+  let fetched = 0;
+  let errors = 0;
+  let duplicatesSuppressed = 0;
+
+  for (const p of providers) {
+    try {
+      const r = await p.syncNDR({ daysBack });
+      results[p.id] = r;
+      fetched += Number(r.fetched ?? 0);
+      upserted += Number(r.upserted ?? 0);
+      errors += Number(r.errors ?? 0);
+      duplicatesSuppressed += Number(r.duplicatesSuppressed ?? 0);
+    } catch (err) {
+      errors += 1;
+      results[p.id] = {
+        errors: 1,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  res.json({
+    success: true,
+    fetched,
+    upserted,
+    errors,
+    duplicatesSuppressed,
+    providers: results,
+  });
+});
+
+export const ndrMetrics = asyncHandler(async (_req: AuthRequest, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      lorrigo: getLorrigoNdrMetrics(),
     },
   });
 });

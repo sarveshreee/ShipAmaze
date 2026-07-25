@@ -226,3 +226,46 @@ export interface ProviderSyncResult {
   message?: string;
   [key: string]: unknown;
 }
+
+/** Normalized NDR row shared across providers. */
+export type ProviderNdrActionType = "reattempt" | "return" | "fake-attempt";
+
+export interface ProviderNdrRecord {
+  provider: CourierProviderId;
+  awb: string;
+  reason: string;
+  actionRequired: boolean;
+  recommendedAction?: string;
+  providerStatus?: string;
+  customerRemarks?: string;
+  customerName?: string;
+  phone?: string;
+  orderId?: string;
+  carrier?: string;
+  amount?: number;
+  attempts?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderFetchNdrInput {
+  daysBack?: number;
+  page?: number;
+  limit?: number;
+}
+
+export interface ProviderNdrActionInput {
+  awb: string;
+  action: ProviderNdrActionType;
+  remarks?: string;
+  phone?: string;
+  nextAttemptDate?: string;
+  /** Escape hatch for provider-specific fields. */
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderNdrActionResult {
+  success: boolean;
+  message?: string;
+  providerStatus?: string;
+  raw?: unknown;
+}

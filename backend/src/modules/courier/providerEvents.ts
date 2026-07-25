@@ -14,7 +14,10 @@ export type ProviderEventType =
   | "STATUS_CHANGE"
   | "CANCEL_REQUEST"
   | "CANCEL_RESPONSE"
-  | "RECONCILIATION";
+  | "RECONCILIATION"
+  | "NDR_RECEIVED"
+  | "NDR_ACTION"
+  | "NDR_RESOLVED";
 
 export type ProviderEventStatus = "SUCCESS" | "FAILED" | "SKIPPED" | "PENDING";
 

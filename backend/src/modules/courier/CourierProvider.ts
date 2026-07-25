@@ -4,7 +4,11 @@ import type {
   ProviderCancelInput,
   ProviderCancelResult,
   ProviderCreateShipmentInput,
+  ProviderFetchNdrInput,
   ProviderGetShipmentInput,
+  ProviderNdrActionInput,
+  ProviderNdrActionResult,
+  ProviderNdrRecord,
   ProviderPickupInput,
   ProviderPickupResult,
   ProviderCourierOption,
@@ -50,6 +54,15 @@ export interface CourierProvider {
 
   /** Background poll of active shipments → order status updates. */
   syncStatus(opts?: { batchSize?: number }): Promise<ProviderSyncResult>;
+
+  /** Whether this provider supports NDR fetch/actions (prefer over id checks). */
+  supportsNDR(): boolean;
+
+  /** Fetch open NDR rows from the provider (normalized). */
+  fetchNDR(input?: ProviderFetchNdrInput): Promise<ProviderNdrRecord[]>;
+
+  /** Submit an NDR action (reattempt / return / fake-attempt). */
+  performNDRAction(input: ProviderNdrActionInput): Promise<ProviderNdrActionResult>;
 
   /** Background / on-demand NDR sync into ShipAmaze NDR collection. */
   syncNDR(opts?: { daysBack?: number }): Promise<ProviderSyncResult>;

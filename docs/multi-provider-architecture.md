@@ -54,6 +54,9 @@ classDiagram
     +trackShipment()
     +getShipment()
     +syncStatus()
+    +supportsNDR()
+    +fetchNDR()
+    +performNDRAction()
     +syncNDR()
   }
 

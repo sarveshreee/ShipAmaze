@@ -12,7 +12,11 @@ import type {
   ProviderCancelResult,
   ProviderCourierOption,
   ProviderCreateShipmentInput,
+  ProviderFetchNdrInput,
   ProviderGetShipmentInput,
+  ProviderNdrActionInput,
+  ProviderNdrActionResult,
+  ProviderNdrRecord,
   ProviderPickupInput,
   ProviderPickupResult,
   ProviderRatesInput,
@@ -38,6 +42,8 @@ import {
 } from "../../../lorrigo/lorrigo.booking.js";
 import { LORRIGO_CAPABILITIES } from "../../capabilities.js";
 import { syncLorrigoActiveShipmentStatuses } from "../../../lorrigo/lorrigo.statusSync.js";
+import { fetchLorrigoNdr, performLorrigoNdrAction } from "../../../lorrigo/lorrigo.ndr.js";
+import { syncNdrFromLorrigo } from "../../../lorrigo/lorrigo.ndrSync.js";
 
 function notImplemented(capability: string): never {
   throw new AppError(501, `Lorrigo ${capability} is not implemented yet.`);
@@ -146,8 +152,30 @@ export const lorrigoCourierProvider: CourierProvider = {
     };
   },
 
-  syncNDR() {
-    return notImplemented("syncNDR");
+  supportsNDR(): boolean {
+    return this.capabilities.ndr === true;
+  },
+
+  async fetchNDR(input?: ProviderFetchNdrInput): Promise<ProviderNdrRecord[]> {
+    return fetchLorrigoNdr(input);
+  },
+
+  async performNDRAction(input: ProviderNdrActionInput): Promise<ProviderNdrActionResult> {
+    return performLorrigoNdrAction(input);
+  },
+
+  async syncNDR(opts?: { daysBack?: number }): Promise<ProviderSyncResult> {
+    const r = await syncNdrFromLorrigo({ daysBack: opts?.daysBack });
+    return {
+      fetched: r.fetched,
+      upserted: r.upserted,
+      ordersUpdated: r.ordersUpdated,
+      closed: r.closed,
+      errors: r.errors,
+      duplicatesSuppressed: r.duplicatesSuppressed,
+      errorDetails: r.errorDetails,
+      message: "lorrigo ndr sync",
+    };
   },
 };
 

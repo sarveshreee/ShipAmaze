@@ -63,6 +63,9 @@ function makeProvider(track: CourierProvider["trackShipment"]): CourierProvider 
     trackShipment: track,
     getShipment: async () => ({ providerOrderId: "o", awb: "a" }),
     syncStatus: async () => ({}),
+    supportsNDR: () => false,
+    fetchNDR: async () => [],
+    performNDRAction: async () => ({ success: false }),
     syncNDR: async () => ({}),
   };
 }

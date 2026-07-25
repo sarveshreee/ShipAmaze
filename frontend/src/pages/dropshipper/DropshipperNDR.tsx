@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { downloadCSV } from "@/lib/exportUtils";
 import * as ndrService from "@/services/ndrService";
-import { syncNdrFromVelocity } from "@/services/velocityService";
 import {
   Dialog,
   DialogContent,
@@ -49,9 +48,9 @@ export default function DropshipperNDR() {
   const runSync = useCallback(async (silent = false) => {
     setSyncing(true);
     try {
-      const result = await syncNdrFromVelocity(120);
+      const result = await ndrService.syncNdrFromProviders(120);
       if (!silent) {
-        toast.success(`Synced ${result.upserted} NDR order(s) from Velocity`);
+        toast.success(`Synced ${result.upserted} NDR order(s)`);
       }
       await refetch();
     } catch (err: unknown) {
@@ -86,11 +85,11 @@ export default function DropshipperNDR() {
         action: "reattempt",
         remarks: "Re-attempt requested from ShipAmaze NDR Management",
       });
-      toast.success("Re-attempt submitted to Velocity.");
+      toast.success("Re-attempt submitted.");
       setReAttemptOpen(false);
       await refetch();
     } catch (err: unknown) {
-      toast.error(`Velocity action failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(`NDR action failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setActionAwb(null);
     }
@@ -102,14 +101,14 @@ export default function DropshipperNDR() {
     setActionAwb(awb);
     try {
       await ndrService.submitNdrAction(awb, {
-        action: "rto",
+        action: "return",
         remarks: "RTO requested from ShipAmaze NDR Management",
       });
-      toast.success("RTO request submitted to Velocity.");
+      toast.success("RTO request submitted.");
       setForceRtoOpen(false);
       await refetch();
     } catch (err: unknown) {
-      toast.error(`Velocity action failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(`NDR action failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setActionAwb(null);
     }
@@ -182,6 +181,7 @@ export default function DropshipperNDR() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-mono text-xs text-primary">{n.awb}</span>
                     {n.carrier ? <span className="text-[10px] text-text-muted">{n.carrier}</span> : null}
+                    <span className="text-[10px] capitalize text-text-muted">{n.courierProvider ?? "velocity"}</span>
                     <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", reasonColors[n.reason] || "bg-surface-2 text-text-secondary")}>{n.reason}</span>
                   </div>
                   <p className="font-medium text-text-primary">{n.customer}</p>

@@ -59,6 +59,9 @@ function stub(
     trackShipment: async () => ({ awb: "a", status: "x", activities: [] }),
     getShipment: async () => ({ providerOrderId: "o", awb: "a" }),
     syncStatus: async () => ({}),
+    supportsNDR: () => false,
+    fetchNDR: async () => [],
+    performNDRAction: async () => ({ success: false }),
     syncNDR: async () => ({}),
   };
 }

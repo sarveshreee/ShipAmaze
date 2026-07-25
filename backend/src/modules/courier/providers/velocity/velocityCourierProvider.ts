@@ -9,7 +9,11 @@ import type {
   ProviderCancelResult,
   ProviderCourierOption,
   ProviderCreateShipmentInput,
+  ProviderFetchNdrInput,
   ProviderGetShipmentInput,
+  ProviderNdrActionInput,
+  ProviderNdrActionResult,
+  ProviderNdrRecord,
   ProviderPickupInput,
   ProviderPickupResult,
   ProviderRatesInput,
@@ -252,6 +256,34 @@ export const velocityCourierProvider: CourierProvider = {
   async syncStatus(opts?: { batchSize?: number }): Promise<ProviderSyncResult> {
     const r = await syncActiveShipmentStatuses(opts?.batchSize);
     return { ...r };
+  },
+
+  supportsNDR(): boolean {
+    return this.capabilities.ndr === true;
+  },
+
+  async fetchNDR(_input?: ProviderFetchNdrInput): Promise<ProviderNdrRecord[]> {
+    // Velocity continues to sync via syncNDR into Mongo; fetch is used by Lorrigo/UI adapters.
+    return [];
+  },
+
+  async performNDRAction(input: ProviderNdrActionInput): Promise<ProviderNdrActionResult> {
+    if (input.action === "fake-attempt") {
+      throw new AppError(400, "Velocity does not support fake-attempt NDR actions");
+    }
+    const action = input.action === "return" ? "rto" : "reattempt";
+    const res = await velocityService.submitNdrActionToVelocity({
+      awb: input.awb,
+      action,
+      phone: input.phone,
+      remarks: input.remarks,
+    });
+    return {
+      success: true,
+      message: typeof res.message === "string" ? res.message : undefined,
+      providerStatus: action === "rto" ? "rto_initiated" : "reattempt_delivery",
+      raw: res,
+    };
   },
 
   async syncNDR(opts?: { daysBack?: number }): Promise<ProviderSyncResult> {

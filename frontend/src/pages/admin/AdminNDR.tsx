@@ -8,7 +8,6 @@ import { AlertTriangle, Download, Phone, RefreshCw, RotateCcw, Search, Send } fr
 import { toast } from "sonner";
 import { downloadCSV } from "@/lib/exportUtils";
 import * as ndrService from "@/services/ndrService";
-import { syncNdrFromVelocity } from "@/services/velocityService";
 import { Input } from "@/components/ui/input";
 
 const ndrTabs = ["Active", "Initiated", "Closed"] as const;
@@ -38,10 +37,10 @@ export default function AdminNDR() {
   const runSync = useCallback(async (silent = false) => {
     setSyncing(true);
     try {
-      const result = await syncNdrFromVelocity(120);
+      const result = await ndrService.syncNdrFromProviders(120);
       if (!silent) {
         toast.success(
-          `Synced ${result.upserted} NDR order${result.upserted === 1 ? "" : "s"} from Velocity` +
+          `Synced ${result.upserted} NDR order${result.upserted === 1 ? "" : "s"}` +
             (result.errors > 0 ? ` (${result.errors} errors)` : "")
         );
       }
@@ -49,7 +48,7 @@ export default function AdminNDR() {
       return result;
     } catch (err: unknown) {
       if (!silent) {
-        toast.error(`Velocity sync failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+        toast.error(`NDR sync failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
       return null;
     } finally {
@@ -57,7 +56,7 @@ export default function AdminNDR() {
     }
   }, [refetch]);
 
-  // Auto-sync from Velocity when page loads so NDR tab matches Velocity panel
+  // Auto-sync from configured providers when the page loads
   useEffect(() => {
     if (autoSynced || isLoading) return;
     setAutoSynced(true);
@@ -72,21 +71,26 @@ export default function AdminNDR() {
       .some((v) => String(v ?? "").toLowerCase().includes(q));
   });
 
-  const handleAction = async (awb: string, action: "reattempt" | "rto") => {
+  const handleAction = async (awb: string, action: ndrService.NdrAction) => {
     setActionAwb(awb);
     try {
-      await ndrService.submitNdrAction(awb, {
-        action,
-        remarks: action === "reattempt" ? "Re-attempt requested from ShipAmaze NDR Management" : "RTO requested from ShipAmaze NDR Management",
-      });
+      const remarks =
+        action === "reattempt"
+          ? "Re-attempt requested from ShipAmaze NDR Management"
+          : action === "fake-attempt"
+            ? "Fake attempt reported from ShipAmaze NDR Management"
+            : "RTO requested from ShipAmaze NDR Management";
+      await ndrService.submitNdrAction(awb, { action, remarks });
       toast.success(
         action === "reattempt"
-          ? `Re-attempt submitted to Velocity for ${awb}`
-          : `RTO request submitted to Velocity for ${awb}`
+          ? `Re-attempt submitted for ${awb}`
+          : action === "fake-attempt"
+            ? `Fake-attempt submitted for ${awb}`
+            : `RTO request submitted for ${awb}`
       );
       await refetch();
     } catch (err: unknown) {
-      toast.error(`Velocity action failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      toast.error(`NDR action failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setActionAwb(null);
     }
@@ -128,7 +132,7 @@ export default function AdminNDR() {
               onClick={() => void runSync(false)}
             >
               <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-              {syncing ? "Syncing…" : "Sync from Velocity"}
+              {syncing ? "Syncing…" : "Sync NDR"}
             </Button>
             <Button onClick={handleExport} variant="outline" className="gap-2">
               <Download className="h-4 w-4" />
@@ -144,8 +148,8 @@ export default function AdminNDR() {
             {ndrOrders.filter((n) => n.status === "Active").length} active NDR cases need action
           </p>
           <p className="text-sm text-text-secondary">
-            Orders sync from Velocity every 10 minutes. Use &quot;Sync from Velocity&quot; for immediate refresh.
-            Re-attempt or force RTO after checking customer reachability and delivery reason.
+            NDR syncs from configured courier providers on a background schedule. Use &quot;Sync NDR&quot; for an immediate refresh.
+            Only actions supported by each provider are shown.
           </p>
         </div>
       </div>
@@ -185,10 +189,10 @@ export default function AdminNDR() {
           title="No NDR orders"
           description={
             tab === "Active" && ndrOrders.length === 0
-              ? "No NDR orders synced yet. Click Sync from Velocity to pull NDR-raised shipments."
+              ? "No NDR orders synced yet. Click Sync NDR to pull open NDR shipments."
               : `No ${tab.toLowerCase()} NDR orders found`
           }
-          actionLabel={ndrOrders.length === 0 ? "Sync from Velocity" : undefined}
+          actionLabel={ndrOrders.length === 0 ? "Sync NDR" : undefined}
           onAction={ndrOrders.length === 0 ? () => void runSync(false) : undefined}
         />
       ) : (
@@ -223,9 +227,12 @@ export default function AdminNDR() {
                   </td>
                   <td className="p-3 text-text-secondary">
                     <p>{n.carrier || "Not synced"}</p>
+                    <p className="mt-0.5 text-[11px] capitalize text-text-muted">
+                      {n.courierProvider ?? "velocity"}
+                    </p>
                     {n.actionStatus ? (
                       <p className="mt-1 text-[11px] text-success">
-                        {n.actionStatus === "provider_synced" ? "Velocity synced" : n.actionStatus}
+                        {n.actionStatus === "provider_synced" ? "Provider synced" : n.actionStatus}
                       </p>
                     ) : null}
                   </td>
@@ -255,26 +262,41 @@ export default function AdminNDR() {
                           <Phone className="h-3 w-3" />
                           Call
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs h-7 gap-1"
-                          disabled={actionAwb === n.awb}
-                          onClick={() => handleAction(n.awb, "reattempt")}
-                        >
-                          <Send className="h-3 w-3" />
-                          {actionAwb === n.awb ? "Sending..." : "Re-attempt"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs h-7 text-danger gap-1"
-                          disabled={actionAwb === n.awb}
-                          onClick={() => handleAction(n.awb, "rto")}
-                        >
-                          <RotateCcw className="h-3 w-3" />
-                          {actionAwb === n.awb ? "Sending..." : "Force RTO"}
-                        </Button>
+                        {(n.supportedActions ?? ["reattempt", "return"]).includes("reattempt") ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs h-7 gap-1"
+                            disabled={actionAwb === n.awb}
+                            onClick={() => handleAction(n.awb, "reattempt")}
+                          >
+                            <Send className="h-3 w-3" />
+                            {actionAwb === n.awb ? "Sending..." : "Re-attempt"}
+                          </Button>
+                        ) : null}
+                        {(n.supportedActions ?? []).includes("fake-attempt") ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs h-7 gap-1"
+                            disabled={actionAwb === n.awb}
+                            onClick={() => handleAction(n.awb, "fake-attempt")}
+                          >
+                            {actionAwb === n.awb ? "Sending..." : "Fake Attempt"}
+                          </Button>
+                        ) : null}
+                        {(n.supportedActions ?? ["reattempt", "return"]).includes("return") ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs h-7 text-danger gap-1"
+                            disabled={actionAwb === n.awb}
+                            onClick={() => handleAction(n.awb, "return")}
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            {actionAwb === n.awb ? "Sending..." : "Force RTO"}
+                          </Button>
+                        ) : null}
                       </>
                     ) : (
                       <span
