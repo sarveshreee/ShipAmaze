@@ -1,7 +1,8 @@
 import mongoose from "mongoose";
 import type { IUser } from "../models/User.js";
 import { Vendor } from "../models/Vendor.js";
-import { vendorOwnedPickupIds } from "./pickupVendor.js";
+import { pickupsLinkedToVendor, vendorOwnedPickupIds } from "./pickupVendor.js";
+import { parseYmdEnd, parseYmdStart } from "./dateOnly.js";
 
 /** Role-scoped base filter (before junk/view/tab). */
 export async function buildOrderVisibilityQuery(user: IUser): Promise<Record<string, unknown>> {
@@ -437,18 +438,8 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
   const dropshipperId = clip(String(q.dropshipperId ?? ""), 40) || undefined;
   const vendorId = clip(String(q.vendorId ?? ""), 40) || undefined;
 
-  let dateFrom: Date | undefined;
-  let dateTo: Date | undefined;
-  const rawFrom = q.dateFrom ?? q.fromDate;
-  const rawTo = q.dateTo ?? q.toDate;
-  if (rawFrom) {
-    const d = new Date(String(rawFrom));
-    if (!Number.isNaN(d.getTime())) dateFrom = d;
-  }
-  if (rawTo) {
-    const d = new Date(String(rawTo));
-    if (!Number.isNaN(d.getTime())) dateTo = d;
-  }
+  const dateFrom = parseYmdStart(q.dateFrom ?? q.fromDate);
+  const dateTo = parseYmdEnd(q.dateTo ?? q.toDate);
 
   return {
     page,
@@ -526,8 +517,11 @@ export function buildSearchQuery(search: string): Record<string, unknown> {
 
 /**
  * All list filters except visibility, junk/view, and tab — used for main list and tabCounts.
+ * Async so admin vendor filter can match pickup ownership / createdBy (not only vendorId).
  */
-export function buildOrderListFiltersQuery(pq: ParsedOrderListQuery): Record<string, unknown> | undefined {
+export async function buildOrderListFiltersQuery(
+  pq: ParsedOrderListQuery
+): Promise<Record<string, unknown> | undefined> {
   const parts: Record<string, unknown>[] = [];
 
   if (pq.search) parts.push(buildSearchQuery(pq.search));
@@ -552,11 +546,7 @@ export function buildOrderListFiltersQuery(pq: ParsedOrderListQuery): Record<str
   if (pq.dateFrom || pq.dateTo) {
     const range: Record<string, unknown> = {};
     if (pq.dateFrom) range.$gte = pq.dateFrom;
-    if (pq.dateTo) {
-      const end = new Date(pq.dateTo);
-      end.setHours(23, 59, 59, 999);
-      range.$lte = end;
-    }
+    if (pq.dateTo) range.$lte = pq.dateTo;
     parts.push({ createdAt: range });
   }
   if (pq.customerCity) {
@@ -622,7 +612,40 @@ export function buildOrderListFiltersQuery(pq: ParsedOrderListQuery): Record<str
     parts.push({ $or: [{ ownerUserId: id }, { createdBy: id }, { dropshipperId: id }] });
   }
   if (pq.vendorId && mongoose.Types.ObjectId.isValid(pq.vendorId)) {
-    parts.push({ vendorId: new mongoose.Types.ObjectId(pq.vendorId) });
+    const vendorOid = new mongoose.Types.ObjectId(pq.vendorId);
+    const vendor = await Vendor.findById(vendorOid).select("_id userId name").lean();
+    if (vendor) {
+      const linked = await pickupsLinkedToVendor(
+        vendorOid,
+        vendor.userId as mongoose.Types.ObjectId
+      );
+      const or: Record<string, unknown>[] = [
+        { vendorId: vendorOid },
+        { createdBy: vendor.userId },
+        { ownerUserId: vendor.userId },
+      ];
+      if (linked.ids.length > 0) {
+        or.push({ pickupAddressId: { $in: linked.ids } });
+      }
+      // Match embedded pickup snapshots (common when vendorId was never set on the order).
+      const names = [
+        ...new Set(
+          [String(vendor.name ?? "").trim(), ...linked.labels]
+            .map((n) => n.trim())
+            .filter(Boolean)
+        ),
+      ];
+      for (const name of names) {
+        const rx = new RegExp(`^${escapeRegex(name)}$`, "i");
+        or.push({ "pickupAddress.label": rx });
+        or.push({ "pickupAddress.warehouseName": rx });
+        or.push({ "pickupAddress.pickupName": rx });
+        or.push({ pickupAddress: rx });
+      }
+      parts.push({ $or: or });
+    } else {
+      parts.push({ vendorId: vendorOid });
+    }
   }
 
   if (parts.length === 0) return undefined;
