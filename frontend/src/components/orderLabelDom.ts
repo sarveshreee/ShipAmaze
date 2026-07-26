@@ -923,7 +923,8 @@ export function openPrintWindowForLabelNodes(
       background: #fff !important;
     }
     @media print {
-      html, body { background: #fff !important; color: #000 !important; width: ${page.width}; height: ${page.minHeight}; min-height: ${page.minHeight}; max-height: ${page.minHeight}; overflow: hidden; }
+      /* Do NOT clamp html/body to a single page height — that collapses bulk print to 1 page. */
+      html, body { background: #fff !important; color: #000 !important; width: ${page.width}; height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important; }
       .shipamaze-label-frame { border: 2.5px solid #000 !important; }
     }
     @media screen {
@@ -935,17 +936,44 @@ export function openPrintWindowForLabelNodes(
   const winW = px.w + 60;
   const winH = Math.min(px.h + 120, 900);
   const w = window.open("", "_blank", `width=${winW},height=${winH}`);
-  if (!w) return;
-  w.document.open();
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${styles}</style></head><body></body></html>`);
-  w.document.close();
-  for (const node of nodes) {
-    w.document.body.appendChild(w.document.importNode(node, true));
+  if (!w) {
+    throw new Error("Popup blocked — please allow popups for this site");
   }
-  w.setTimeout(() => {
-    w.focus();
-    w.print();
-  }, 250);
+  w.document.open();
+  w.document.write(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${styles}</style></head><body><p style="font-family:system-ui,sans-serif;padding:24px;color:#333">Preparing ${nodes.length} invoice(s)…</p></body></html>`
+  );
+  w.document.close();
+
+  // Build off the critical path: append in one fragment, then print after images settle.
+  const frag = w.document.createDocumentFragment();
+  for (const node of nodes) {
+    frag.appendChild(w.document.importNode(node, true));
+  }
+  w.document.body.replaceChildren(frag);
+
+  const imgs = Array.from(w.document.images);
+  const waitMs = Math.min(2_500, 200 + nodes.length * 8);
+  const ready = imgs.length
+    ? Promise.all(
+        imgs.map(
+          (img) =>
+            img.complete
+              ? Promise.resolve()
+              : new Promise<void>((resolve) => {
+                  img.addEventListener("load", () => resolve(), { once: true });
+                  img.addEventListener("error", () => resolve(), { once: true });
+                })
+        )
+      )
+    : Promise.resolve();
+
+  void ready.then(() => {
+    w.setTimeout(() => {
+      w.focus();
+      w.print();
+    }, waitMs);
+  });
 }
 
 function escapeHtml(s: string): string {

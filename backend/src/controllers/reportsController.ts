@@ -279,22 +279,14 @@ export const exportCsv = asyncHandler(async (req: AuthRequest, res: Response) =>
     const invFilter = { ...invoiceScope(req) };
     const status = String(req.query.status ?? "").trim();
     if (status) invFilter.status = status;
-    const dateFrom = String(req.query.dateFrom ?? "").trim();
-    const dateTo = String(req.query.dateTo ?? "").trim();
+    const { parseYmdEnd, parseYmdStart } = await import("../utils/dateOnly.js");
+    const dateFrom = parseYmdStart(req.query.dateFrom);
+    const dateTo = parseYmdEnd(req.query.dateTo);
     if (dateFrom || dateTo) {
       const range: Record<string, Date> = {};
-      if (dateFrom) {
-        const d = new Date(dateFrom);
-        if (!Number.isNaN(d.getTime())) range.$gte = d;
-      }
-      if (dateTo) {
-        const d = new Date(dateTo);
-        if (!Number.isNaN(d.getTime())) {
-          d.setHours(23, 59, 59, 999);
-          range.$lte = d;
-        }
-      }
-      if (Object.keys(range).length) (invFilter as Record<string, unknown>).createdAt = range;
+      if (dateFrom) range.$gte = dateFrom;
+      if (dateTo) range.$lte = dateTo;
+      (invFilter as Record<string, unknown>).createdAt = range;
     }
 
     res.write(

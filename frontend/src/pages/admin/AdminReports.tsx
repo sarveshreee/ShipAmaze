@@ -43,6 +43,13 @@ import { ApiError } from "@/lib/apiClient";
 
 type TabKey = "overview" | "courier" | "zone" | "orders";
 
+function formatLocalYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function presetToDates(preset: string): { dateFrom?: string; dateTo?: string } {
   const end = new Date();
   end.setHours(23, 59, 59, 999);
@@ -55,8 +62,8 @@ function presetToDates(preset: string): { dateFrom?: string; dateTo?: string } {
     start.setMonth(0, 1);
   } else return {};
   return {
-    dateFrom: start.toISOString().slice(0, 10),
-    dateTo: end.toISOString().slice(0, 10),
+    dateFrom: formatLocalYmd(start),
+    dateTo: formatLocalYmd(end),
   };
 }
 

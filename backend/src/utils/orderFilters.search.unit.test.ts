@@ -19,7 +19,7 @@ describe("buildSearchQuery", () => {
 });
 
 describe("parseOrderListQuery date aliases", () => {
-  it("accepts fromDate and toDate as dateFrom/dateTo", () => {
+  it("accepts fromDate and toDate as dateFrom/dateTo", async () => {
     const pq = parseOrderListQuery({
       page: "1",
       fromDate: "2025-01-01",
@@ -27,7 +27,7 @@ describe("parseOrderListQuery date aliases", () => {
     });
     expect(pq.dateFrom).toBeInstanceOf(Date);
     expect(pq.dateTo).toBeInstanceOf(Date);
-    const fq = buildOrderListFiltersQuery(pq);
+    const fq = await buildOrderListFiltersQuery(pq);
     expect(fq).toBeDefined();
     expect(fq).toEqual(
       expect.objectContaining({
@@ -37,5 +37,9 @@ describe("parseOrderListQuery date aliases", () => {
         }),
       })
     );
+    const end = (fq as { createdAt: { $lte: Date } }).createdAt.$lte;
+    const start = (fq as { createdAt: { $gte: Date } }).createdAt.$gte;
+    // Full IST day span should be just under 24h
+    expect(end.getTime() - start.getTime()).toBeGreaterThan(23 * 60 * 60 * 1000);
   });
 });

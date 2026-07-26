@@ -1,7 +1,6 @@
 import mongoose from "mongoose";
 import type { IUser } from "../models/User.js";
 import { User } from "../models/User.js";
-import { Vendor } from "../models/Vendor.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import {
   buildOrderVisibilityQuery,
@@ -28,9 +27,7 @@ export async function resolveReportScopeFilter(user: IUser, scopeUserIdRaw: stri
   const target = await User.findById(scopeUserId).lean();
   if (!target) throw new AppError(404, "User not found");
   if (target.role === "vendor") {
-    const v = await Vendor.findOne({ userId: target._id });
-    if (!v) return { _id: { $exists: false } };
-    return { vendorId: v._id };
+    return await buildOrderVisibilityQuery(target as unknown as IUser);
   }
   if (target.role === "dropshipper") {
     const uid = target._id as mongoose.Types.ObjectId;
@@ -57,7 +54,7 @@ export async function buildReportOrdersQuery(
     if (tq) q = mergeQueries(q, tq);
   }
 
-  const listFilters = buildOrderListFiltersQuery(pq);
+  const listFilters = await buildOrderListFiltersQuery(pq);
   if (listFilters) q = mergeQueries(q, listFilters);
 
   const shipmentsOnly = String(query.shipmentsOnly ?? "").toLowerCase();

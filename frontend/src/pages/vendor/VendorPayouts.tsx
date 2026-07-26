@@ -16,36 +16,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useCodRemittances, useWalletSummary } from "@/hooks/useApiData";
+import { useCodRemittances, useGstRecords, useWalletSummary } from "@/hooks/useApiData";
 import { usePermissions } from "@/hooks/usePermissions";
+import { downloadCSV } from "@/lib/exportUtils";
 import type { CODRemittance } from "@/types/logistics";
 import type { UserRole } from "@/services/authService";
-
-// ============= Types & Mock Data (GST — vendor demo until API exists) =============
-
-interface GSTRecord {
-  orderId: string;
-  date: string;
-  customer: string;
-  amount: number;
-  gstPct: number;
-  gstAmount: number;
-  taxableValue: number;
-  total: number;
-  payment: "COD" | "Prepaid";
-  status: "Pending" | "Processed" | "Settled";
-}
-
-const vendorGstRecords: GSTRecord[] = [
-  { orderId: "ORD-10421", date: "18-Apr", customer: "Ravi Kumar", amount: 1499, gstPct: 18, gstAmount: 228.66, taxableValue: 1270.34, total: 1499, payment: "Prepaid", status: "Settled" },
-  { orderId: "ORD-10422", date: "18-Apr", customer: "Priya Singh", amount: 2899, gstPct: 18, gstAmount: 442.22, taxableValue: 2456.78, total: 2899, payment: "COD", status: "Processed" },
-  { orderId: "ORD-10423", date: "19-Apr", customer: "Amit Patel", amount: 799, gstPct: 12, gstAmount: 85.61, taxableValue: 713.39, total: 799, payment: "Prepaid", status: "Settled" },
-  { orderId: "ORD-10424", date: "19-Apr", customer: "Sneha Iyer", amount: 3499, gstPct: 18, gstAmount: 533.74, taxableValue: 2965.26, total: 3499, payment: "COD", status: "Pending" },
-  { orderId: "ORD-10425", date: "20-Apr", customer: "Vikram Rao", amount: 1199, gstPct: 18, gstAmount: 182.90, taxableValue: 1016.10, total: 1199, payment: "Prepaid", status: "Settled" },
-  { orderId: "ORD-10426", date: "20-Apr", customer: "Neha Sharma", amount: 2299, gstPct: 18, gstAmount: 350.69, taxableValue: 1948.31, total: 2299, payment: "COD", status: "Processed" },
-  { orderId: "ORD-10427", date: "21-Apr", customer: "Karan Mehta", amount: 999, gstPct: 5, gstAmount: 47.57, taxableValue: 951.43, total: 999, payment: "Prepaid", status: "Settled" },
-  { orderId: "ORD-10428", date: "21-Apr", customer: "Anjali Verma", amount: 4299, gstPct: 18, gstAmount: 655.78, taxableValue: 3643.22, total: 4299, payment: "COD", status: "Pending" },
-];
+import type { GstRecord } from "@/services/walletService";
 
 const fmtINR = (n: number) =>
   `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -75,12 +51,11 @@ function isPending(status: CODRemittance["status"]): boolean {
   return status === "Pending" || status === "Processing" || status === "On Hold";
 }
 
-// ============= Component =============
-
 export default function VendorPayouts() {
   const { role } = useAuth();
   const { canViewGST, canViewRemittance } = usePermissions();
   const { data: remittances = [], isLoading: remLoading, isError: remError, refetch: refetchRem } = useCodRemittances();
+  const { data: gstRecords = [], isLoading: gstLoading, isError: gstError, refetch: refetchGst } = useGstRecords();
   const { data: wallet, isLoading: walletLoading, error: walletError, refetch: refetchWallet } = useWalletSummary();
 
   const [search, setSearch] = useState("");
@@ -89,7 +64,6 @@ export default function VendorPayouts() {
   const [remStatusFilter, setRemStatusFilter] = useState<string>("all");
 
   const panelLabel = roleLabel(role);
-  const gstRecords = role === "vendor" ? vendorGstRecords : [];
 
   const codStats = useMemo(() => {
     const pendingRows = remittances.filter((r) => isPending(r.status));
@@ -98,7 +72,7 @@ export default function VendorPayouts() {
 
     return {
       nextCodOn: nextPending?.settleDate ? formatDate(nextPending.settleDate) : "—",
-      nextCodAmount: wallet?.pendingCod ?? nextPending?.netPayable ?? 0,
+      nextCodAmount: wallet?.pendingCod ?? upcomingTotal,
       upcomingCod: upcomingTotal,
     };
   }, [remittances, wallet?.pendingCod]);
@@ -153,6 +127,45 @@ export default function VendorPayouts() {
   const handleRefresh = () => {
     void refetchRem();
     void refetchWallet();
+    void refetchGst();
+  };
+
+  const exportGst = () => {
+    downloadCSV(
+      "gst_export",
+      ["Order ID", "Date", "Customer", "Amount", "GST %", "GST Amount", "Taxable", "Total", "Payment", "Status"],
+      filteredGst.map((r) => [
+        r.orderId,
+        r.date,
+        r.customer,
+        r.amount,
+        r.gstPct,
+        r.gstAmount,
+        r.taxableValue,
+        r.total,
+        r.payment,
+        r.status,
+      ])
+    );
+    toast.success(`Exported ${filteredGst.length} GST records`);
+  };
+
+  const exportRemittances = () => {
+    downloadCSV(
+      "payout_statement",
+      ["Remittance ID", "Settlement Date", "Orders", "COD Amount", "Deductions", "Net Payable", "Status", "UTR"],
+      filteredRemittances.map((r) => [
+        r.id,
+        r.settleDate,
+        r.ordersCount,
+        r.codAmount,
+        r.deductions,
+        r.netPayable,
+        r.status,
+        r.utr ?? "",
+      ])
+    );
+    toast.success(`Exported ${filteredRemittances.length} payout rows`);
   };
 
   return (
@@ -167,7 +180,6 @@ export default function VendorPayouts() {
         }
       />
 
-      {/* COD Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {walletLoading || remLoading ? (
           Array.from({ length: 3 }).map((_, i) => (
@@ -239,14 +251,12 @@ export default function VendorPayouts() {
         )}
       </div>
 
-      {/* Tabs */}
       <Tabs defaultValue={defaultTab} className="w-full">
         <TabsList className={cn("grid w-full max-w-md", showGstTab && showRemTab ? "grid-cols-2" : "grid-cols-1")}>
           {showGstTab && <TabsTrigger value="gst">GST Data</TabsTrigger>}
           {showRemTab && <TabsTrigger value="remittance">Remittance</TabsTrigger>}
         </TabsList>
 
-        {/* GST Tab */}
         {showGstTab && (
           <TabsContent value="gst" className="mt-4">
             <Card className="border-border">
@@ -279,82 +289,102 @@ export default function VendorPayouts() {
                       <SelectItem value="prepaid">Prepaid</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 gap-1.5"
-                    onClick={() => { toast.success("GST report download started"); }}
-                  >
+                  <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={exportGst} disabled={filteredGst.length === 0}>
                     <Download className="h-4 w-4" /> Export
                   </Button>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Order ID</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                        <TableHead className="text-right">GST %</TableHead>
-                        <TableHead className="text-right">GST Amount</TableHead>
-                        <TableHead className="text-right">Taxable</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
-                        <TableHead>Payment</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredGst.length === 0 ? (
+                {gstLoading ? (
+                  <div className="flex items-center justify-center gap-2 p-12 text-text-muted">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Loading GST records…
+                  </div>
+                ) : gstError ? (
+                  <div className="flex flex-col items-center justify-center gap-3 p-12 text-center">
+                    <AlertCircle className="h-8 w-8 text-danger" />
+                    <p className="text-sm text-text-secondary">Could not load GST data.</p>
+                    <Button variant="outline" size="sm" onClick={() => void refetchGst()}>
+                      Try again
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell colSpan={11} className="text-center text-sm text-text-muted py-8">
-                            {role === "dropshipper"
-                              ? "No GST records yet. GST data will appear here once orders are settled."
-                              : "No GST records match your filters."}
-                          </TableCell>
+                          <TableHead>Order ID</TableHead>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead className="text-right">GST %</TableHead>
+                          <TableHead className="text-right">GST Amount</TableHead>
+                          <TableHead className="text-right">Taxable</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                          <TableHead>Payment</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Action</TableHead>
                         </TableRow>
-                      ) : (
-                        filteredGst.map((r) => (
-                          <TableRow key={r.orderId}>
-                            <TableCell className="font-mono text-xs text-primary">{r.orderId}</TableCell>
-                            <TableCell className="text-text-secondary">{r.date}</TableCell>
-                            <TableCell>{r.customer}</TableCell>
-                            <TableCell className="text-right">{fmtINR(r.amount)}</TableCell>
-                            <TableCell className="text-right">{r.gstPct}%</TableCell>
-                            <TableCell className="text-right">{fmtINR(r.gstAmount)}</TableCell>
-                            <TableCell className="text-right">{fmtINR(r.taxableValue)}</TableCell>
-                            <TableCell className="text-right font-medium">{fmtINR(r.total)}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className={cn(
-                                r.payment === "COD" ? "border-warning/40 text-warning-dark bg-warning-light/40" : "border-primary/40 text-primary bg-primary-light/40"
-                              )}>{r.payment}</Badge>
-                            </TableCell>
-                            <TableCell><GstStatusBadge status={r.status} /></TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <Button variant="ghost" size="icon" className="h-7 w-7" title="View" onClick={() => toast.info(`Viewing ${r.orderId}`)}>
-                                  <Eye className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="icon" className="h-7 w-7" title="Download invoice" onClick={() => toast.success(`Invoice for ${r.orderId} downloaded`)}>
-                                  <FileText className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredGst.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={11} className="text-center text-sm text-text-muted py-8">
+                              {gstRecords.length === 0
+                                ? "No GST records yet. GST is calculated from your orders once they exist."
+                                : "No GST records match your filters."}
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
+                        ) : (
+                          filteredGst.map((r) => (
+                            <TableRow key={r.orderId}>
+                              <TableCell className="font-mono text-xs text-primary">{r.orderId}</TableCell>
+                              <TableCell className="text-text-secondary">{formatDate(r.date)}</TableCell>
+                              <TableCell>{r.customer}</TableCell>
+                              <TableCell className="text-right">{fmtINR(r.amount)}</TableCell>
+                              <TableCell className="text-right">{r.gstPct}%</TableCell>
+                              <TableCell className="text-right">{fmtINR(r.gstAmount)}</TableCell>
+                              <TableCell className="text-right">{fmtINR(r.taxableValue)}</TableCell>
+                              <TableCell className="text-right font-medium">{fmtINR(r.total)}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={cn(
+                                  r.payment === "COD" ? "border-warning/40 text-warning-dark bg-warning-light/40" : "border-primary/40 text-primary bg-primary-light/40"
+                                )}>{r.payment}</Badge>
+                              </TableCell>
+                              <TableCell><GstStatusBadge status={r.status} /></TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" title="View" onClick={() => toast.info(`${r.orderId}: ${fmtINR(r.total)} · GST ${r.gstPct}%`)}>
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    title="Download row"
+                                    onClick={() => {
+                                      downloadCSV(`gst_${r.orderId}`, ["Order ID", "Date", "Customer", "Amount", "GST %", "GST Amount", "Taxable", "Total", "Payment", "Status"], [[
+                                        r.orderId, r.date, r.customer, r.amount, r.gstPct, r.gstAmount, r.taxableValue, r.total, r.payment, r.status,
+                                      ]]);
+                                      toast.success(`Downloaded ${r.orderId}`);
+                                    }}
+                                  >
+                                    <FileText className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
         )}
 
-        {/* Remittance Tab */}
         {showRemTab && (
           <TabsContent value="remittance" className="mt-4 space-y-4">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -384,7 +414,7 @@ export default function VendorPayouts() {
                       <SelectItem value="on hold">On Hold</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => toast.success("Statement download started")}>
+                  <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={exportRemittances} disabled={filteredRemittances.length === 0}>
                     <Download className="h-4 w-4" /> Download Statement
                   </Button>
                 </div>
@@ -406,7 +436,7 @@ export default function VendorPayouts() {
                 ) : filteredRemittances.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border m-4 p-8 text-center text-text-muted">
                     {remittances.length === 0
-                      ? "No payouts yet. COD remittances will appear here after orders are delivered and settled."
+                      ? "No payouts yet. COD remittances appear after delivered COD orders are synced."
                       : "No payouts match your filters."}
                   </div>
                 ) : (
@@ -441,7 +471,18 @@ export default function VendorPayouts() {
                                 <Button variant="ghost" size="icon" className="h-7 w-7" title="View details" onClick={() => toast.info(`Payout ${r.id}: ${r.status} — ${fmtINR(r.netPayable)}`)}>
                                   <Eye className="h-3.5 w-3.5" />
                                 </Button>
-                                <Button variant="ghost" size="icon" className="h-7 w-7" title="Download statement" onClick={() => toast.success(`Statement for ${r.id} downloaded`)}>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  title="Download statement"
+                                  onClick={() => {
+                                    downloadCSV(`payout_${r.id}`, ["Remittance ID", "Settlement Date", "Orders", "COD Amount", "Deductions", "Net Payable", "Status", "UTR"], [[
+                                      r.id, r.settleDate, r.ordersCount, r.codAmount, r.deductions, r.netPayable, r.status, r.utr ?? "",
+                                    ]]);
+                                    toast.success(`Downloaded ${r.id}`);
+                                  }}
+                                >
                                   <FileText className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
@@ -461,7 +502,7 @@ export default function VendorPayouts() {
   );
 }
 
-function GstStatusBadge({ status }: { status: GSTRecord["status"] }) {
+function GstStatusBadge({ status }: { status: GstRecord["status"] }) {
   const map = {
     Pending: "bg-warning-light/60 text-warning-dark border-warning/40",
     Processed: "bg-primary-light/60 text-primary-dark border-primary/40",

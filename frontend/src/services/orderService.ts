@@ -1,4 +1,4 @@
-import { apiClient } from "@/lib/apiClient";
+import { apiClient, downloadAuthenticatedFile } from "@/lib/apiClient";
 import type { Order } from "@/types/logistics";
 import type { PublicTrackingOrder } from "@/types/publicTracking";
 
@@ -89,6 +89,41 @@ export async function listOrders(params: ListOrdersParams = {}): Promise<OrdersL
     return apiClient.get<Order[]>(`/orders${qs}`);
   }
   return apiClient.get<OrdersListMeta>(`/orders${qs}`);
+}
+
+/** Full order rows for selected IDs (bulk labels/invoices across pages). */
+export async function getOrdersByIds(orderIds: string[]): Promise<Order[]> {
+  const ids = [...new Set(orderIds.map((id) => String(id).trim()).filter(Boolean))];
+  if (ids.length === 0) return [];
+  const res = await apiClient.post<{ orders: Order[] }>("/orders/by-ids", { orderIds: ids });
+  return res.orders ?? [];
+}
+
+/** IDs matching list filters (for select-all / bulk process up to 1000). */
+export async function listOrderIds(params: ListOrdersParams & { limit?: number } = {}) {
+  const qs = buildQueryString(params);
+  const sp = new URLSearchParams(qs.startsWith("?") ? qs.slice(1) : qs);
+  if (params.limit != null) sp.set("limit", String(params.limit));
+  const s = sp.toString();
+  return apiClient.get<{ ids: string[]; total: number; capped: boolean; limit: number }>(
+    `/orders/ids${s ? `?${s}` : ""}`
+  );
+}
+
+/** Download CSV for all orders matching filters (not limited to current page). */
+export async function exportOrdersCsv(params: ListOrdersParams = {}) {
+  const qs = buildQueryString({ ...params, counts: false });
+  const fallback = `shipamaze-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+  await downloadAuthenticatedFile(`/orders/export.csv${qs}`, fallback);
+}
+
+/** Download CSV for specific order IDs. */
+export async function exportOrdersCsvByIds(orderIds: string[]) {
+  const fallback = `shipamaze-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+  await downloadAuthenticatedFile("/orders/export.csv", fallback, {
+    method: "POST",
+    json: { orderIds },
+  });
 }
 
 export async function getOrder(orderId: string) {

@@ -45,6 +45,9 @@ import { Manifest } from "../models/Manifest.js";
 import { Pickup } from "../models/Pickup.js";
 import { CodRemittance } from "../models/CodRemittance.js";
 import { Product } from "../models/Product.js";
+import { syncCodRemittancesFromOrders } from "../services/codRemittanceSync.js";
+import { listGstRecordsForUser } from "../services/gstRecords.js";
+import { parseYmdEnd, parseYmdStart } from "../utils/dateOnly.js";
 import { ProductRequest } from "../models/ProductRequest.js";
 import { assertProductPermission, PRODUCT_PERMISSIONS } from "../utils/productPermissions.js";
 import { TabPermission } from "../models/TabPermission.js";
@@ -710,6 +713,15 @@ export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) =>
     }
   }
 
+  try {
+    const adminScoped = String((req.query as { userId?: string }).userId ?? "").trim();
+    const syncScope =
+      req.user.role === "admin" ? (adminScoped ? uid : undefined) : uid;
+    await syncCodRemittancesFromOrders(syncScope);
+  } catch (err) {
+    devLog.warn("cod_remittance_sync_failed", { error: err instanceof Error ? err.message : String(err) });
+  }
+
   let w = await Wallet.findOne({ userId: uid });
   if (!w) {
     w = await Wallet.create({ userId: uid, balance: 0, currency: "INR" });
@@ -724,10 +736,10 @@ export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) =>
       {
         $match: {
           userId: uid,
-          status: { $in: ["Pending", "Processing"] },
+          status: { $in: ["Pending", "Processing", "On Hold"] },
         },
       },
-      { $group: { _id: null, total: { $sum: "$codAmount" } } },
+      { $group: { _id: null, total: { $sum: "$netPayable" } } },
     ]),
     Transaction.aggregate<{ total?: number }>([
       {
@@ -895,8 +907,15 @@ export const listCodRemittances = asyncHandler(async (req: AuthRequest, res: Res
   if (!req.user) throw new AppError(401, "Unauthorized");
   const raw = req.query as Record<string, unknown>;
   const page = Math.max(1, parseInt(String(raw.page ?? "1"), 10) || 1);
-  const pageSize = Math.min(100, Math.max(1, parseInt(String(raw.pageSize ?? "50"), 10) || 50));
+  const pageSize = Math.min(200, Math.max(1, parseInt(String(raw.pageSize ?? "50"), 10) || 50));
   const skip = (page - 1) * pageSize;
+
+  // Lazy-sync remittance rows from delivered COD orders so payout UI has real data.
+  try {
+    await syncCodRemittancesFromOrders(req.user.role === "admin" ? undefined : req.user._id);
+  } catch (err) {
+    devLog.warn("cod_remittance_sync_failed", { error: err instanceof Error ? err.message : String(err) });
+  }
 
   const q: Record<string, unknown> = req.user.role === "admin" ? {} : { userId: req.user._id };
   const status = String(raw.status ?? "").trim();
@@ -925,6 +944,15 @@ export const listCodRemittances = asyncHandler(async (req: AuthRequest, res: Res
   });
 });
 
+export const listGstRecords = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const raw = req.query as Record<string, unknown>;
+  const search = String(raw.search ?? raw.q ?? "").trim() || undefined;
+  const limit = Math.min(5_000, Math.max(1, parseInt(String(raw.limit ?? "500"), 10) || 500));
+  const items = await listGstRecordsForUser(req.user, { search, limit });
+  res.json({ items, total: items.length });
+});
+
 export const listInvoices = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   const raw = req.query as Record<string, unknown>;
@@ -935,22 +963,13 @@ export const listInvoices = asyncHandler(async (req: AuthRequest, res: Response)
   const q: Record<string, unknown> = req.user.role === "admin" ? {} : { userId: req.user._id };
   const status = String(raw.status ?? "").trim();
   if (status) q.status = status;
-  const dateFrom = String(raw.dateFrom ?? "").trim();
-  const dateTo = String(raw.dateTo ?? "").trim();
+  const dateFrom = parseYmdStart(raw.dateFrom);
+  const dateTo = parseYmdEnd(raw.dateTo);
   if (dateFrom || dateTo) {
     const range: Record<string, Date> = {};
-    if (dateFrom) {
-      const d = new Date(dateFrom);
-      if (!Number.isNaN(d.getTime())) range.$gte = d;
-    }
-    if (dateTo) {
-      const d = new Date(dateTo);
-      if (!Number.isNaN(d.getTime())) {
-        d.setHours(23, 59, 59, 999);
-        range.$lte = d;
-      }
-    }
-    if (Object.keys(range).length) q.createdAt = range;
+    if (dateFrom) range.$gte = dateFrom;
+    if (dateTo) range.$lte = dateTo;
+    q.createdAt = range;
   }
 
   const [rows, total] = await Promise.all([

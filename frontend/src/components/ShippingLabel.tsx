@@ -13,8 +13,8 @@ import { toast } from "sonner";
 import { getStoredToken } from "@/lib/apiClient";
 import * as labelInvoiceSettingsService from "@/services/labelInvoiceSettingsService";
 
-const BULK_FETCH_TIMEOUT_MS = 120_000;
-const MAX_STYLED_BULK_LABELS = 50;
+const BULK_FETCH_TIMEOUT_MS = 300_000;
+const MAX_STYLED_BULK_LABELS = 1000;
 
 function getApiBase(): string {
   const u = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
@@ -232,11 +232,12 @@ export async function printBulkInvoices(orders: Order[], settings?: LabelInvoice
   if (orders.length > MAX_STYLED_BULK_LABELS) {
     throw new Error(`Print at most ${MAX_STYLED_BULK_LABELS} invoices at a time.`);
   }
+  if (!orders.length) return;
+  // Fast path: HTML print window (seconds), not html2canvas PDF (minutes + tab crash).
   const { base, logos } = await resolveSettingsForOrders(orders, settings);
   const nodes = orders.map((o) =>
     createOrderLabelElement(o, settingsForOrder(base, o, logos), { documentTitle: "Invoice" })
   );
-  // Fast path for viewing/printing; use PDF blob path only when merging with courier PDFs elsewhere.
   openPrintWindowForLabelNodes(nodes, base, "Bulk invoices");
 }
 

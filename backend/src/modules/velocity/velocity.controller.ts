@@ -1928,7 +1928,7 @@ export const getBulkLabelPdf = asyncHandler(async (req: AuthRequest, res: Respon
   }
   const ids = [...new Set(raw.map((x) => String(x).trim()).filter(Boolean))];
   if (ids.length === 0) throw new AppError(400, "orderIds must not be empty");
-  if (ids.length > 100) throw new AppError(400, "Maximum 100 labels per bulk request");
+  if (ids.length > 1000) throw new AppError(400, "Maximum 1000 labels per bulk request");
 
   const orderQuery =
     req.user.role === "admin"

@@ -744,6 +744,9 @@ interface Props {
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
   onSelectAll: (ids: string[]) => void;
+  /** Select up to 1,000 orders matching current filters (all pages). */
+  onSelectAllMatching?: () => void;
+  totalMatching?: number;
   onClearSelection: () => void;
   onMarkJunk: (id: string) => void;
   onMarkReship?: (id: string) => void;
@@ -800,6 +803,8 @@ export function RichOrdersTable({
   selected,
   onToggleSelect,
   onSelectAll,
+  onSelectAllMatching,
+  totalMatching,
   onClearSelection,
   onMarkJunk,
   onMarkReship,
@@ -1040,11 +1045,13 @@ export function RichOrdersTable({
     // Order Details filter
     if (orderDetailsFilter.dateFrom) {
       const orderDate = orderTimestampForTab(o, activeTab).date;
-      if (orderDate < new Date(orderDetailsFilter.dateFrom)) return false;
+      const from = new Date(`${orderDetailsFilter.dateFrom}T00:00:00`);
+      if (orderDate < from) return false;
     }
     if (orderDetailsFilter.dateTo) {
       const orderDate = orderTimestampForTab(o, activeTab).date;
-      if (orderDate > new Date(orderDetailsFilter.dateTo)) return false;
+      const to = new Date(`${orderDetailsFilter.dateTo}T23:59:59.999`);
+      if (orderDate > to) return false;
     }
     if (orderDetailsFilter.paymentType) {
       if (o.payment !== orderDetailsFilter.paymentType) return false;
@@ -1224,11 +1231,24 @@ export function RichOrdersTable({
     <div className="rounded-lg bg-card border border-border">
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 border-b border-primary/20 bg-gradient-to-r from-primary/[0.08] via-card to-secondary/[0.06] px-4 py-2.5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-text-primary">
             <span className="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-primary px-2 text-xs font-bold text-white shadow-sm">
               {selected.size}
             </span>
             order{selected.size === 1 ? "" : "s"} selected
+            {onSelectAllMatching &&
+              typeof totalMatching === "number" &&
+              totalMatching > filteredOrders.length &&
+              selected.size < Math.min(totalMatching, 1000) && (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-primary hover:underline"
+                  onClick={() => onSelectAllMatching()}
+                >
+                  Select all {Math.min(totalMatching, 1000)} matching
+                  {totalMatching > 1000 ? " (max 1,000)" : ""}
+                </button>
+              )}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {showBulkMoveToReady && onBulkMoveToReady && (
@@ -1310,16 +1330,23 @@ export function RichOrdersTable({
                   variant="outline"
                   className="h-9 gap-1.5 text-xs font-semibold border-primary/30 hover:bg-primary/10 hover:border-primary/50"
                   onClick={() => {
-                    const picked = orders.filter((o) => selected.has(o.id));
-                    if (!picked.length) return;
-                    const toastId = toast.loading(`Preparing ${picked.length} label(s)…`);
-                    void printBulkLabels(picked)
-                      .then(() => {
+                    const ids = [...selected];
+                    if (!ids.length) return;
+                    const toastId = toast.loading(`Preparing ${ids.length} label(s)…`);
+                    void (async () => {
+                      try {
+                        const onPage = orders.filter((o) => selected.has(o.id));
+                        const picked =
+                          onPage.length === ids.length
+                            ? onPage
+                            : await orderService.getOrdersByIds(ids);
+                        if (!picked.length) throw new Error("No orders found for selection");
+                        await printBulkLabels(picked);
                         toast.success(`Opened ${picked.length} label(s)`, { id: toastId });
-                      })
-                      .catch((err: unknown) => {
+                      } catch (err: unknown) {
                         toast.error(err instanceof Error ? err.message : "Bulk label print failed", { id: toastId });
-                      });
+                      }
+                    })();
                   }}
                 >
                   <Printer className="h-3.5 w-3.5" /> Labels
@@ -1329,16 +1356,23 @@ export function RichOrdersTable({
                   variant="outline"
                   className="h-9 gap-1.5 text-xs font-semibold border-primary/30 hover:bg-primary/10 hover:border-primary/50"
                   onClick={() => {
-                    const picked = orders.filter((o) => selected.has(o.id));
-                    if (!picked.length) return;
-                    const toastId = toast.loading(`Preparing ${picked.length} invoice(s)…`);
-                    void printBulkInvoices(picked)
-                      .then(() => {
+                    const ids = [...selected];
+                    if (!ids.length) return;
+                    const toastId = toast.loading(`Preparing ${ids.length} invoice(s)…`);
+                    void (async () => {
+                      try {
+                        const onPage = orders.filter((o) => selected.has(o.id));
+                        const picked =
+                          onPage.length === ids.length
+                            ? onPage
+                            : await orderService.getOrdersByIds(ids);
+                        if (!picked.length) throw new Error("No orders found for selection");
+                        await printBulkInvoices(picked);
                         toast.success(`Opened ${picked.length} invoice(s)`, { id: toastId });
-                      })
-                      .catch((err: unknown) => {
+                      } catch (err: unknown) {
                         toast.error(err instanceof Error ? err.message : "Bulk invoice print failed", { id: toastId });
-                      });
+                      }
+                    })();
                   }}
                 >
                   <Printer className="h-3.5 w-3.5" /> Invoices

@@ -109,6 +109,35 @@ export async function listCodRemittances(params?: Record<string, string | undefi
   return apiClient.get<CodRemittanceListResponse>(`/wallet/cod-remittances${s ? `?${s}` : ""}`);
 }
 
+export type GstRecord = {
+  orderId: string;
+  date: string;
+  customer: string;
+  amount: number;
+  gstPct: number;
+  gstAmount: number;
+  taxableValue: number;
+  total: number;
+  payment: "COD" | "Prepaid";
+  status: "Pending" | "Processed" | "Settled";
+};
+
+export type GstRecordsResponse = {
+  items: GstRecord[];
+  total: number;
+};
+
+export async function listGstRecords(params?: Record<string, string | undefined>) {
+  const q = new URLSearchParams();
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== "") q.set(k, v);
+    }
+  }
+  const s = q.toString();
+  return apiClient.get<GstRecordsResponse>(`/wallet/gst-records${s ? `?${s}` : ""}`);
+}
+
 export type AdminWalletRow = {
   userId: string;
   name: string;
