@@ -3,6 +3,7 @@ import type { IUser } from "../models/User.js";
 import { Vendor } from "../models/Vendor.js";
 import { pickupsLinkedToVendor, vendorOwnedPickupIds } from "./pickupVendor.js";
 import { parseYmdEnd, parseYmdStart } from "./dateOnly.js";
+import { scanLookupClauses } from "./barcodeScanPriority.js";
 
 /** Role-scoped base filter (before junk/view/tab). */
 export async function buildOrderVisibilityQuery(user: IUser): Promise<Record<string, unknown>> {
@@ -481,12 +482,15 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Case-insensitive partial match across order id, tracking, customer, line items, etc. */
+/** Case-insensitive partial match across order id, tracking, customer, line items, etc.
+ * Scanner / barcode lookups prioritize AWB → tracking → order ID exact matches first.
+ */
 export function buildSearchQuery(search: string): Record<string, unknown> {
   const trimmed = search.trim();
   const esc = escapeRegex(trimmed);
   const rx = new RegExp(esc, "i");
   const or: Record<string, unknown>[] = [
+    ...scanLookupClauses(trimmed),
     { orderId: rx },
     { customer: rx },
     { phone: rx },
