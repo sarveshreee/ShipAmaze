@@ -99,6 +99,7 @@ export async function syncLorrigoActiveShipmentStatuses(
       note: string
     ) => {
       const current = normalizeOrderStatus(order.status);
+      const alreadyReship = String(order.status ?? "").toLowerCase().replace(/-/g, "_") === "reship";
       order.shipmentCreated = false;
       order.awb = "";
       order.trackingId = undefined;
@@ -109,7 +110,8 @@ export async function syncLorrigoActiveShipmentStatuses(
       order.trackingUrl = undefined;
       order.trackingActivities = undefined;
       order.bookingInProgress = false;
-      if (current !== "reship") {
+      // `reship` is a stored workflow status (normalizeOrderStatus maps it to ready_to_ship).
+      if (!alreadyReship) {
         appendStatusHistory(order, "reship", note);
         order.status = "reship";
         result.statusChanges += 1;

@@ -250,7 +250,8 @@ export async function fetchLorrigoServiceableCouriers(
     const activeFlag = pickBool(row, ["is_active", "isActive", "active"]);
     if (activeFlag === false) return false;
     const reversed = pickBool(row, ["is_reversed_courier", "isReversedCourier"]) === true;
-    if (wantReturn) return reversed || activeFlag !== false;
+    // Inactive already excluded above; for returns include reverse + remaining active couriers.
+    if (wantReturn) return true;
     return !reversed;
   });
 

@@ -324,8 +324,8 @@ export function createOrderLabelElement(
   const collectable = orderCollectableTotal(order);
   const courierName = String(order.courierName || order.courier || "—").toUpperCase();
 
-  // Fixed page size. Sections size to content; leftover space is shared *between*
-  // sections (no stretch/overlap that clips text).
+  // Fixed page size. Sections stack flush (no flex gap — gap caused bottom NOTE clipping).
+  // Outer padding keeps the black frame from clipping on thermal print / PDF download.
   const host = el("div", {
     className: "shipamaze-order-label",
     style: {
@@ -334,7 +334,7 @@ export function createOrderLabelElement(
       height: `${px.h}px`,
       minHeight: `${px.h}px`,
       maxHeight: `${px.h}px`,
-      padding: "2mm",
+      padding: "3mm",
       background: "#ffffff",
       color: "#000000",
       fontFamily: "Arial, Helvetica, sans-serif",
@@ -358,7 +358,6 @@ export function createOrderLabelElement(
       display: "flex",
       flexDirection: "column",
       justifyContent: "flex-start",
-      gap: "2mm",
       overflow: "hidden",
       background: "#ffffff",
     },
@@ -424,8 +423,8 @@ export function createOrderLabelElement(
     const img = document.createElement("img");
     img.src = settings.logoUrl!.trim();
     img.alt = "Logo";
-    img.style.maxHeight = "58px";
-    img.style.maxWidth = "32mm";
+    img.style.maxHeight = "52px";
+    img.style.maxWidth = "30mm";
     img.style.width = "auto";
     img.style.height = "auto";
     img.style.objectFit = "contain";
@@ -594,7 +593,7 @@ export function createOrderLabelElement(
     borderBottom: "1px solid #000",
     padding: "0",
     display: "grid",
-    gridTemplateColumns: "1fr 26mm",
+    gridTemplateColumns: "1fr 24mm",
     alignItems: "center",
     flex: "0 0 auto",
   });
@@ -621,7 +620,7 @@ export function createOrderLabelElement(
     alignItems: "center",
     justifyContent: "center",
     textAlign: "center",
-    padding: "1.5mm",
+    padding: "1.2mm",
   });
   const orderQrPayload =
     visibleOrderNumber !== "—"
@@ -632,8 +631,8 @@ export function createOrderLabelElement(
     const qimg = document.createElement("img");
     qimg.src = qrSrc;
     qimg.alt = "Order ID QR";
-    qimg.style.width = "20mm";
-    qimg.style.height = "20mm";
+    qimg.style.width = "18mm";
+    qimg.style.height = "18mm";
     qimg.style.objectFit = "contain";
     qimg.style.imageRendering = "pixelated";
     qimg.style.display = "block";
@@ -641,27 +640,36 @@ export function createOrderLabelElement(
   }
   qrBox.appendChild(
     el("div", {
-      style: { fontWeight: "800", fontSize: "6.5px", marginTop: "0.8mm", wordBreak: "break-all", lineHeight: "1.15" },
+      style: { fontWeight: "800", fontSize: "6.5px", marginTop: "0.6mm", wordBreak: "break-all", lineHeight: "1.15" },
       text: `Order Id: ${dash(visibleOrderNumber)}`,
     })
   );
   totals.appendChild(qrBox);
   frame.appendChild(totals);
 
-  // ── Courier + AWB barcode (compact — no empty stretch) ────────────
+  // ── Courier + AWB barcode (absorbs leftover space; shrinks before NOTE) ─
   const footer = boxedCell({
     border: "none",
     borderBottom: "1px solid #000",
-    padding: "1.8mm 2.5mm",
+    padding: "1.2mm 2.5mm",
     display: "flex",
     flexDirection: "column",
     alignItems: "stretch",
-    gap: "1mm",
-    flex: "0 0 auto",
+    justifyContent: "center",
+    gap: "0.6mm",
+    flex: "1 1 auto",
+    minHeight: "0",
+    overflow: "hidden",
   });
   footer.appendChild(
     el("div", {
-      style: { fontWeight: "800", fontSize: "10px", textAlign: "center", letterSpacing: "0.2px" },
+      style: {
+        fontWeight: "800",
+        fontSize: "10px",
+        textAlign: "center",
+        letterSpacing: "0.2px",
+        flex: "0 0 auto",
+      },
       text: `${courierName}${awbVal !== "—" ? ` — ${awbVal}` : ""}`,
     })
   );
@@ -675,35 +683,48 @@ export function createOrderLabelElement(
         overflow: "hidden",
         boxSizing: "border-box",
         background: "#ffffff",
+        flex: "1 1 auto",
+        minHeight: "8mm",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
       },
     });
     const src = barcodePngDataUrl(awbVal, {
-      height: 88,
+      height: 72,
       moduleWidth: 3,
       margin: 10,
       displayValue: false,
     });
     if (src) {
-      attachFittedBarcode(barcodePad, src, { maxWidth: "100%", height: "12mm", align: "center" });
+      attachFittedBarcode(barcodePad, src, { maxWidth: "100%", height: "10mm", align: "center" });
     }
     footer.appendChild(barcodePad);
     footer.appendChild(
       el("div", {
-        style: { textAlign: "center", fontWeight: "800", fontSize: "10px", fontFamily: "monospace", letterSpacing: "0.8px" },
+        style: {
+          textAlign: "center",
+          fontWeight: "800",
+          fontSize: "10px",
+          fontFamily: "monospace",
+          letterSpacing: "0.8px",
+          flex: "0 0 auto",
+        },
         text: awbVal,
       })
     );
   }
   frame.appendChild(footer);
 
-  // ── NOTE (last) ───────────────────────────────────────────────────
+  // ── NOTE (pinned last — must stay fully visible on 4×6 download/print) ─
   const noteBox = boxedCell({
     border: "none",
-    padding: "1.8mm 2.5mm",
+    padding: "1.4mm 2.5mm",
     fontSize: "7px",
     fontWeight: "600",
-    lineHeight: "1.3",
+    lineHeight: "1.25",
     flex: "0 0 auto",
+    flexShrink: "0",
   });
   noteBox.appendChild(el("span", { style: { fontWeight: "900" }, text: "NOTE: " }));
   noteBox.appendChild(
@@ -933,9 +954,12 @@ export function openPrintWindowForLabelNodes(
       box-sizing: border-box !important;
       overflow: hidden !important;
       background: #fff !important;
-      padding: 2mm !important;
-      height: ${px.h}px !important;
-      max-height: ${px.h}px !important;
+      padding: 3mm !important;
+      width: ${page.width} !important;
+      max-width: ${page.width} !important;
+      height: ${page.minHeight} !important;
+      max-height: ${page.minHeight} !important;
+      min-height: ${page.minHeight} !important;
     }
     .shipamaze-order-label:last-child { page-break-after: auto; }
     .shipamaze-label-frame {
@@ -946,6 +970,9 @@ export function openPrintWindowForLabelNodes(
       max-height: 100% !important;
       overflow: hidden !important;
       background: #fff !important;
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 0 !important;
     }
     .shipamaze-order-label img {
       max-width: 100% !important;
@@ -1116,19 +1143,27 @@ export async function downloadOrderLabelPdf(
   documentTitle = "Label"
 ): Promise<void> {
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
-  const el = createOrderLabelElement(order, settings, { documentTitle });
-  el.style.position = "fixed";
-  el.style.left = "0";
-  el.style.top = "0";
-  el.style.zIndex = "0";
-  el.style.pointerEvents = "none";
-  document.body.appendChild(el);
+  const labelEl = createOrderLabelElement(order, settings, { documentTitle });
+  const px = labelPixelBox(settings.labelSize);
+  labelEl.style.position = "fixed";
+  labelEl.style.left = "-99999px";
+  labelEl.style.top = "0";
+  labelEl.style.zIndex = "0";
+  labelEl.style.pointerEvents = "none";
+  labelEl.style.width = `${px.w}px`;
+  labelEl.style.height = `${px.h}px`;
+  labelEl.style.minHeight = `${px.h}px`;
+  labelEl.style.maxHeight = `${px.h}px`;
+  labelEl.style.overflow = "hidden";
+  document.body.appendChild(labelEl);
   try {
-    const canvas = await html2canvas(el, {
+    const canvas = await html2canvas(labelEl, {
       scale: 2,
       useCORS: true,
       backgroundColor: "#ffffff",
       logging: false,
+      width: px.w,
+      height: px.h,
     });
     const mm = labelPdfDimensionsMm(settings.labelSize);
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: [mm.w, mm.h] });
@@ -1136,7 +1171,7 @@ export async function downloadOrderLabelPdf(
     pdf.addImage(img, "PNG", 0, 0, mm.w, mm.h, undefined, "FAST");
     pdf.save(filename);
   } finally {
-    document.body.removeChild(el);
+    document.body.removeChild(labelEl);
   }
 }
 
