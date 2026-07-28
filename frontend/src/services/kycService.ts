@@ -47,7 +47,7 @@ export async function getMyKyc() {
 }
 
 export async function saveKycDraft(body: Record<string, unknown>) {
-  return apiClient.put<{ ok: boolean }>("/account/kyc", body);
+  return apiClient.put<KycProfileResponse>("/account/kyc", body);
 }
 
 export async function submitKyc(body: Record<string, unknown>) {

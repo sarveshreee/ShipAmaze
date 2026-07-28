@@ -180,7 +180,8 @@ export function createApp() {
       void shopifyController.handleWebhook(req, res).catch(next);
     }
   );
-  const jsonLimit = process.env.JSON_BODY_LIMIT?.trim() || (isProd ? "10mb" : "10mb");
+  // KYC drafts store base64 image docs in JSON; 10mb was too small for multi-doc submits.
+  const jsonLimit = process.env.JSON_BODY_LIMIT?.trim() || "25mb";
   app.use(express.json({ limit: jsonLimit }));
 
   /** Optimized product WebP assets — long-lived browser cache. */
@@ -249,6 +250,25 @@ export function createApp() {
   );
 
   api.get("/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.listOrders);
+  api.get("/orders/ids", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.listOrderIds);
+  api.post(
+    "/orders/by-ids",
+    authMiddleware,
+    requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW),
+    orderController.getOrdersByIds
+  );
+  api.get(
+    "/orders/export.csv",
+    authMiddleware,
+    requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW),
+    orderController.exportOrdersCsv
+  );
+  api.post(
+    "/orders/export.csv",
+    authMiddleware,
+    requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW),
+    orderController.exportOrdersCsv
+  );
   api.get("/orders/:orderId", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.getOrderById);
   api.post("/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_CREATE), orderController.createOrder);
   api.post("/orders/bulk", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_CREATE), orderController.createOrdersBulk);
@@ -647,6 +667,7 @@ export function createApp() {
   api.post("/wallet/deduct", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminDeductWallet);
   api.get("/wallet/transactions", authMiddleware, resourceController.listTransactions);
   api.get("/wallet/cod-remittances", authMiddleware, resourceController.listCodRemittances);
+  api.get("/wallet/gst-records", authMiddleware, resourceController.listGstRecords);
 
   api.get("/admin/wallets", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminListWallets);
   api.patch("/admin/wallets/:userId/adjust", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminAdjustWalletHandler);

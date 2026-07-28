@@ -10,6 +10,7 @@ import {
   legacyStatusToKyc,
   type KycStatus,
   type IKycProfile,
+  type IKycDocuments,
 } from "../models/KycProfile.js";
 import { Dropshipper } from "../models/Dropshipper.js";
 import { Vendor } from "../models/Vendor.js";
@@ -18,8 +19,17 @@ import { ACTIVITY_ACTIONS, recordUserActivity } from "../services/userActivitySe
 import { assertOwnerAdmin } from "../utils/staffPermissions.js";
 import { createInAppNotification } from "../services/inAppNotifications.js";
 import { devLog } from "../utils/devLog.js";
+import {
+  assertValidKycDocumentPayload,
+  buildKycLegacyData,
+  mergeKycDocumentsForSubmit,
+  resolveKycDocuments,
+  settingsLinkForRole,
+} from "../utils/kycHelpers.js";
 
 const TERMS_VERSION = "2026-06-01";
+const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/;
+const GST_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/;
 
 const docSchema = z.object({
   pan: z.string().optional(),
@@ -60,6 +70,13 @@ const kycDraftSchema = z.object({
   termsAccepted: z.boolean().optional(),
 });
 
+function assertKycAccountRole(req: AuthRequest) {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "dropshipper" && req.user.role !== "vendor") {
+    throw new AppError(403, "KYC is only available for dropshipper and vendor accounts");
+  }
+}
+
 function mapKycResponse(k: IKycProfile | null | undefined) {
   if (!k) {
     return {
@@ -82,6 +99,9 @@ function mapKycResponse(k: IKycProfile | null | undefined) {
     reg: k.documents?.reg ?? legacyDocs.reg,
     auth_id: k.documents?.auth_id ?? legacyDocs.auth_id,
   };
+  const cleanedDocs = Object.fromEntries(
+    Object.entries(docs).filter(([, v]) => typeof v === "string" && v.trim())
+  ) as Record<string, string>;
   return {
     status: kycStatusToLegacy(k.status),
     kycStatus: k.status,
@@ -96,8 +116,8 @@ function mapKycResponse(k: IKycProfile | null | undefined) {
     authorized_person_name: k.authorizedPersonName ?? (k.data?.authorized_person_name as string) ?? "",
     authorized_person_pan: k.authorizedPersonPan ?? (k.data?.authorized_person_pan as string) ?? "",
     address: k.address ?? (k.data?.address as string) ?? "",
-    uploaded_docs: docs,
-    documents: docs,
+    uploaded_docs: cleanedDocs,
+    documents: cleanedDocs,
     rejectionRemark: k.rejectionRemark ?? "",
     termsAcceptedAt: k.termsAcceptedAt,
     reviewedAt: k.reviewedAt,
@@ -136,10 +156,10 @@ function parseDraft(body: z.infer<typeof kycDraftSchema>) {
     businessName: String(body.businessName ?? body.business_name ?? "").trim(),
     fullName: String(body.fullName ?? body.full_name ?? "").trim(),
     dob: String(body.dob ?? "").trim(),
-    gstNumber: String(body.gstNumber ?? body.gst_number ?? "").trim(),
+    gstNumber: String(body.gstNumber ?? body.gst_number ?? "").trim().toUpperCase(),
     panNumber: String(body.panNumber ?? body.pan_number ?? "").trim().toUpperCase(),
     aadhaarNumber: String(body.aadhaarNumber ?? body.aadhaar_number ?? "").replace(/\s/g, ""),
-    cinNumber: String(body.cinNumber ?? body.cin_number ?? "").trim(),
+    cinNumber: String(body.cinNumber ?? body.cin_number ?? "").trim().toUpperCase(),
     authorizedPersonName: String(body.authorizedPersonName ?? body.authorized_person_name ?? "").trim(),
     authorizedPersonPan: String(body.authorizedPersonPan ?? body.authorized_person_pan ?? "").trim().toUpperCase(),
     address: String(body.address ?? "").trim(),
@@ -152,7 +172,8 @@ function parseDraft(body: z.infer<typeof kycDraftSchema>) {
       cin: docs.cin,
       reg: docs.reg,
       auth_id: docs.auth_id,
-    },
+    } as IKycDocuments,
+    bodyHasDocs: body.documents != null || body.uploaded_docs != null,
     termsAccepted: body.termsAccepted === true,
   };
 }
@@ -162,24 +183,56 @@ function assertEditable(status: KycStatus) {
   if (status === "approved") throw new AppError(400, "KYC is already approved");
 }
 
+function validateSubmitFields(parsed: ReturnType<typeof parseDraft>) {
+  const errs: string[] = [];
+  if (parsed.accountType === "individual") {
+    if (!parsed.fullName) errs.push("Full name");
+    if (!parsed.dob) errs.push("Date of birth");
+    if (!parsed.panNumber || !PAN_RE.test(parsed.panNumber)) errs.push("Valid PAN");
+    if (!parsed.aadhaarNumber || parsed.aadhaarNumber.length !== 12) errs.push("Valid Aadhaar");
+    if (!parsed.documents.pan) errs.push("PAN document");
+    const aadhaarFront = parsed.documents.aadhaarFront || parsed.documents.aadhaar;
+    if (!aadhaarFront) errs.push("Aadhaar front document");
+    if (!parsed.documents.aadhaarBack) errs.push("Aadhaar back document");
+  } else {
+    if (!parsed.businessName) errs.push("Business name");
+    if (!parsed.panNumber || !PAN_RE.test(parsed.panNumber)) errs.push("Valid PAN");
+    if (!parsed.gstNumber || !GST_RE.test(parsed.gstNumber)) errs.push("Valid GST number");
+    if (!parsed.cinNumber) errs.push("CIN / Registration number");
+    if (!parsed.authorizedPersonName) errs.push("Authorized person name");
+    if (!parsed.authorizedPersonPan || !PAN_RE.test(parsed.authorizedPersonPan)) {
+      errs.push("Valid authorized person PAN");
+    }
+    if (!parsed.documents.pan) errs.push("PAN document");
+    if (!parsed.documents.gst) errs.push("GST certificate document");
+    if (!parsed.documents.cin) errs.push("CIN document");
+  }
+  if (!parsed.address) errs.push("Address");
+  return errs;
+}
+
 export const getMyKyc = asyncHandler(async (req: AuthRequest, res: Response) => {
-  if (!req.user) throw new AppError(401, "Unauthorized");
-  const k = await KycProfile.findOne({ userId: req.user._id });
+  assertKycAccountRole(req);
+  const k = await KycProfile.findOne({ userId: req.user!._id });
   res.json(mapKycResponse(k));
 });
 
 export const saveMyKycDraft = asyncHandler(async (req: AuthRequest, res: Response) => {
-  if (!req.user) throw new AppError(401, "Unauthorized");
+  assertKycAccountRole(req);
   const body = kycDraftSchema.parse(req.body);
   const parsed = parseDraft(body);
 
-  let k = await KycProfile.findOne({ userId: req.user._id });
+  let k = await KycProfile.findOne({ userId: req.user!._id });
   const currentStatus = k?.status ?? "pending_kyc";
   assertEditable(currentStatus);
 
+  const documents = resolveKycDocuments(parsed.bodyHasDocs, k?.documents, parsed.documents);
+  const docErr = assertValidKycDocumentPayload(documents);
+  if (docErr) throw new AppError(400, docErr);
+
   const nextStatus: KycStatus = currentStatus === "rejected" ? "pending_kyc" : currentStatus;
   const update: Partial<IKycProfile> = {
-    userId: req.user._id,
+    userId: req.user!._id,
     accountType: parsed.accountType,
     businessName: parsed.businessName,
     fullName: parsed.fullName,
@@ -191,25 +244,26 @@ export const saveMyKycDraft = asyncHandler(async (req: AuthRequest, res: Respons
     authorizedPersonName: parsed.authorizedPersonName,
     authorizedPersonPan: parsed.authorizedPersonPan,
     address: parsed.address,
-    documents: parsed.documents,
+    documents,
     status: nextStatus,
-    data: { ...((k?.data as Record<string, unknown>) ?? {}), ...req.body },
+    data: buildKycLegacyData(k?.data as Record<string, unknown> | undefined, req.body as Record<string, unknown>),
   };
   if (parsed.termsAccepted && !k?.termsAcceptedAt) {
     update.termsAcceptedAt = new Date();
     update.termsVersion = TERMS_VERSION;
   }
 
-  k = await KycProfile.findOneAndUpdate({ userId: req.user._id }, update, { upsert: true, new: true });
+  k = await KycProfile.findOneAndUpdate({ userId: req.user!._id }, update, { upsert: true, new: true });
+  devLog.info(`[kyc:draft] user=${req.user!._id} status=${k?.status} docs=${Object.keys(documents).length}`);
   res.json(mapKycResponse(k));
 });
 
 export const submitMyKyc = asyncHandler(async (req: AuthRequest, res: Response) => {
-  if (!req.user) throw new AppError(401, "Unauthorized");
+  assertKycAccountRole(req);
   const body = kycDraftSchema.parse(req.body);
   const parsed = parseDraft(body);
 
-  const k = await KycProfile.findOne({ userId: req.user._id });
+  const k = await KycProfile.findOne({ userId: req.user!._id });
   const currentStatus = k?.status ?? "pending_kyc";
   assertEditable(currentStatus);
 
@@ -217,32 +271,20 @@ export const submitMyKyc = asyncHandler(async (req: AuthRequest, res: Response) 
     throw new AppError(400, "You must accept Terms & Conditions before submitting KYC");
   }
 
-  const errs: string[] = [];
-  if (parsed.accountType === "individual") {
-    if (!parsed.fullName) errs.push("Full name");
-    if (!parsed.dob) errs.push("Date of birth");
-    if (!parsed.panNumber || !/^[A-Z]{5}\d{4}[A-Z]$/.test(parsed.panNumber)) errs.push("Valid PAN");
-    if (!parsed.aadhaarNumber || parsed.aadhaarNumber.length !== 12) errs.push("Valid Aadhaar");
-    if (!parsed.documents.pan) errs.push("PAN document");
-    const aadhaarFront = parsed.documents.aadhaarFront || parsed.documents.aadhaar;
-    if (!aadhaarFront) errs.push("Aadhaar front document");
-    if (!parsed.documents.aadhaarBack) errs.push("Aadhaar back document");
-  } else {
-    if (!parsed.businessName) errs.push("Business name");
-    if (!parsed.panNumber) errs.push("PAN number");
-    if (!parsed.gstNumber) errs.push("GST number");
-    if (!parsed.cinNumber) errs.push("CIN / Registration number");
-    if (!parsed.documents.pan) errs.push("PAN document");
-    if (!parsed.documents.gst) errs.push("GST certificate document");
-    if (!parsed.documents.cin) errs.push("CIN document");
-  }
-  if (!parsed.address) errs.push("Address");
+  // Overlay payload docs onto previously saved draft docs (survives partial payloads).
+  const documents = mergeKycDocumentsForSubmit(k?.documents, parsed.documents);
+  parsed.documents = documents;
+
+  const errs = validateSubmitFields(parsed);
   if (errs.length) throw new AppError(400, `Missing or invalid: ${errs.join(", ")}`);
 
+  const docErr = assertValidKycDocumentPayload(documents);
+  if (docErr) throw new AppError(400, docErr);
+
   const updated = await KycProfile.findOneAndUpdate(
-    { userId: req.user._id },
+    { userId: req.user!._id },
     {
-      userId: req.user._id,
+      userId: req.user!._id,
       accountType: parsed.accountType,
       businessName: parsed.businessName,
       fullName: parsed.fullName,
@@ -254,21 +296,37 @@ export const submitMyKyc = asyncHandler(async (req: AuthRequest, res: Response) 
       authorizedPersonName: parsed.authorizedPersonName,
       authorizedPersonPan: parsed.authorizedPersonPan,
       address: parsed.address,
-      documents: parsed.documents,
+      documents,
       status: "pending_approval",
       rejectionRemark: "",
       ...(parsed.termsAccepted ? { termsAcceptedAt: new Date(), termsVersion: TERMS_VERSION } : {}),
-      data: { ...(k?.data ?? {}), ...req.body, status: "pending" },
+      data: {
+        ...buildKycLegacyData(k?.data as Record<string, unknown> | undefined, req.body as Record<string, unknown>),
+        status: "pending",
+      },
     },
     { upsert: true, new: true }
   );
 
-  await Dropshipper.findOneAndUpdate(
-    { userId: req.user._id },
-    { kycVerified: false, accessType: "RESTRICTED" },
-    { upsert: true }
-  );
+  if (req.user!.role === "dropshipper") {
+    await Dropshipper.findOneAndUpdate(
+      { userId: req.user!._id },
+      { kycVerified: false, accessType: "RESTRICTED" },
+      { upsert: true }
+    );
+  }
 
+  if (req.user) {
+    recordUserActivity({
+      user: req.user,
+      module: "kyc",
+      action: ACTIVITY_ACTIONS.KYC_SUBMITTED,
+      req,
+      metadata: { accountType: parsed.accountType },
+    });
+  }
+
+  devLog.info(`[kyc:submit] user=${req.user!._id} role=${req.user!.role} docs=${Object.keys(documents).length}`);
   res.json(mapKycResponse(updated));
 });
 
@@ -365,15 +423,20 @@ export const approveKyc = asyncHandler(async (req: AuthRequest, res: Response) =
   k.reviewedBy = req.user!._id;
   k.reviewedAt = new Date();
   k.data = { ...(k.data ?? {}), status: "verified" };
+  // Ensure legacy blob never keeps duplicated binary docs
+  if (k.data && typeof k.data === "object") {
+    delete (k.data as Record<string, unknown>).uploaded_docs;
+    delete (k.data as Record<string, unknown>).documents;
+  }
   await k.save();
 
   const approvedUser = await User.findById(userId).select("role").lean();
   if (approvedUser?.role === "vendor") {
     await Vendor.findOneAndUpdate({ userId }, { status: "Active" });
-  } else {
+  } else if (approvedUser?.role === "dropshipper") {
     await Dropshipper.findOneAndUpdate(
       { userId },
-      { kycVerified: true, accessType: "FULL", status: "Active" },
+      { kycVerified: true, accessType: "FULL" },
       { upsert: true }
     );
   }
@@ -384,7 +447,7 @@ export const approveKyc = asyncHandler(async (req: AuthRequest, res: Response) =
     "kyc_update",
     "KYC approved",
     "Your KYC has been approved. Your account is now active.",
-    { link: "/dropshipper/settings" }
+    { link: settingsLinkForRole(approvedUser?.role) }
   );
 
   if (req.user) {
@@ -397,6 +460,7 @@ export const approveKyc = asyncHandler(async (req: AuthRequest, res: Response) =
     });
   }
 
+  devLog.info(`[kyc:approve] userId=${userId} by=${req.user!._id}`);
   res.json({ ok: true, ...mapKycResponse(k) });
 });
 
@@ -416,22 +480,30 @@ export const rejectKyc = asyncHandler(async (req: AuthRequest, res: Response) =>
   k.reviewedBy = req.user!._id;
   k.reviewedAt = new Date();
   k.data = { ...(k.data ?? {}), status: "rejected" };
+  if (k.data && typeof k.data === "object") {
+    delete (k.data as Record<string, unknown>).uploaded_docs;
+    delete (k.data as Record<string, unknown>).documents;
+  }
   await k.save();
 
-  await Dropshipper.findOneAndUpdate(
-    { userId },
-    { kycVerified: false, accessType: "RESTRICTED" },
-    { upsert: true }
-  );
+  const rejectedUser = await User.findById(userId).select("role").lean();
+  if (rejectedUser?.role === "dropshipper") {
+    await Dropshipper.findOneAndUpdate(
+      { userId },
+      { kycVerified: false, accessType: "RESTRICTED" },
+      { upsert: true }
+    );
+  }
 
   await createInAppNotification(
     new mongoose.Types.ObjectId(userId),
     "kyc_update",
     "KYC rejected",
     remark,
-    { link: "/dropshipper/settings" }
+    { link: settingsLinkForRole(rejectedUser?.role) }
   );
 
+  devLog.info(`[kyc:reject] userId=${userId} by=${req.user!._id}`);
   res.json({ ok: true, ...mapKycResponse(k) });
 });
 

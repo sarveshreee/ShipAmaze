@@ -31,6 +31,57 @@ interface KycProfile {
   authorized_person_pan?: string;
   address?: string;
   uploaded_docs?: Record<string, string>;
+  rejectionRemark?: string;
+}
+
+const KYC_MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+function cleanKycDocs(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(
+      ([, v]) => typeof v === "string" && v.trim().length > 0
+    )
+  ) as Record<string, string>;
+}
+
+function openKycDocument(raw: string, label: string) {
+  const url = String(raw ?? "").trim();
+  if (!url) return;
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  let src = url;
+  if (!src.startsWith("data:") && /^[A-Za-z0-9+/=\s]+$/.test(src) && src.length > 100) {
+    const compact = src.replace(/\s/g, "");
+    const mime = compact.startsWith("JVBER") ? "application/pdf" : "image/jpeg";
+    src = `data:${mime};base64,${compact}`;
+  }
+  if (!src.startsWith("data:")) {
+    toast.error("Unable to preview this document");
+    return;
+  }
+  try {
+    const [meta, b64] = src.split(",", 2);
+    const mime = meta.match(/data:([^;]+)/)?.[1] ?? "image/jpeg";
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    const win = window.open(blobUrl, "_blank", "noopener,noreferrer");
+    if (!win) {
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.target = "_blank";
+      a.rel = "noreferrer";
+      a.download = label.replace(/\s+/g, "_");
+      a.click();
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  } catch {
+    toast.error("Failed to open document");
+  }
 }
 
 function StatusPill({ status }: { status: KycStatus }) {
@@ -53,12 +104,17 @@ function FileUploadField({ label, value, onChange }: { label: string; value?: st
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 5 * 1024 * 1024) { toast.error("File too large (max 5MB)"); return; }
-    if (!/\.(jpg|jpeg|png|webp)$/i.test(f.name)) { toast.error("Only JPG/PNG/WEBP images allowed"); return; }
+    if (f.size > KYC_MAX_FILE_BYTES) { toast.error("File too large (max 2MB)"); return; }
+    if (!/\.(jpg|jpeg|png|webp)$/i.test(f.name) && !f.type.startsWith("image/")) {
+      toast.error("Only JPG/PNG/WEBP images allowed");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => { onChange(String(reader.result ?? "")); toast.success(`${f.name} uploaded`); };
+    reader.onerror = () => toast.error("Failed to read file");
     reader.readAsDataURL(f);
   };
+  const canView = !!value && (value.startsWith("data:") || /^https?:\/\//i.test(value) || value.length > 100);
   return (
     <div>
       <Label className="mb-1.5 block">{label}</Label>
@@ -66,10 +122,12 @@ function FileUploadField({ label, value, onChange }: { label: string; value?: st
         <div className="flex items-center justify-between gap-2 rounded-lg border border-success/30 bg-success-light px-3 py-2.5">
           <div className="flex items-center gap-2 min-w-0">
             <FileCheck className="h-4 w-4 text-success-dark shrink-0" />
-            {value.startsWith("data:") ? (
-              <a href={value} target="_blank" rel="noreferrer" className="text-sm text-success-dark truncate">View uploaded file</a>
+            {canView ? (
+              <button type="button" onClick={() => openKycDocument(value, label)} className="text-sm text-success-dark truncate hover:underline text-left">
+                View uploaded file
+              </button>
             ) : (
-              <span className="text-sm text-success-dark truncate">{value}</span>
+              <span className="text-sm text-success-dark truncate">Document uploaded</span>
             )}
           </div>
           <button type="button" onClick={() => onChange(undefined)} className="text-danger hover:text-danger-dark shrink-0">
@@ -79,7 +137,7 @@ function FileUploadField({ label, value, onChange }: { label: string; value?: st
       ) : (
         <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-surface-2/50 px-3 py-2.5 text-sm text-text-muted hover:bg-surface-2 hover:border-primary/40 transition-colors">
           <Upload className="h-4 w-4" />
-          Click to upload (JPG, PNG, WEBP)
+          Click to upload (JPG/PNG/WEBP, max 2MB)
           <input type="file" accept=".jpg,.jpeg,.png,.webp,image/*" onChange={handleFile} className="hidden" />
         </label>
       )}
@@ -101,20 +159,45 @@ function KycPendingBanner() {
   );
 }
 
+function KycRejectedBanner({ remark }: { remark?: string }) {
+  return (
+    <div className="rounded-xl border border-danger/30 bg-danger-light/50 px-4 py-3 flex items-start gap-3">
+      <AlertCircle className="h-5 w-5 text-danger-dark shrink-0 mt-0.5" />
+      <div>
+        <p className="font-medium text-text-primary text-sm">KYC rejected — please update and resubmit</p>
+        <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+          {remark?.trim() || "Your KYC was rejected. Fix the issues below and submit again."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function mapApiKyc(data: Record<string, unknown>): KycProfile {
+  return {
+    ...(data as unknown as KycProfile),
+    account_type: (data.account_type as AccountType) || "individual",
+    status: (data.status as KycStatus) || "draft",
+    uploaded_docs: cleanKycDocs(data.uploaded_docs ?? data.documents),
+    rejectionRemark: String(data.rejectionRemark ?? ""),
+  };
+}
+
 function KycTab({ userId }: { userId: string | null }) {
   const [profile, setProfile] = useState<KycProfile>({ account_type: "individual", status: "draft", uploaded_docs: {} });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
       if (!userId) { setLoading(false); return; }
       try {
         const data = (await dropshipperService.getKyc()) as Record<string, unknown>;
-        if (data && Object.keys(data).length) {
-          setProfile({ ...(data as unknown as KycProfile), uploaded_docs: (data.uploaded_docs as Record<string, string>) || {} });
-        }
-      } catch { /* empty */ } finally { setLoading(false); }
+        if (data && Object.keys(data).length) setProfile(mapApiKyc(data));
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Failed to load KYC");
+      } finally { setLoading(false); }
     })();
   }, [userId]);
 
@@ -128,10 +211,19 @@ function KycTab({ userId }: { userId: string | null }) {
   };
 
   const saveDraft = async () => {
+    if (!userId) { toast.error("Not signed in"); return; }
+    setSaving(true);
     try {
-      await dropshipperService.saveKyc({ ...profile, status: profile.status === "verified" ? "verified" : "draft" } as unknown as Record<string, unknown>);
+      const saved = await dropshipperService.saveKyc({
+        ...profile,
+        uploaded_docs: profile.uploaded_docs,
+        documents: profile.uploaded_docs,
+        status: profile.status === "verified" ? "verified" : "draft",
+      } as unknown as Record<string, unknown>) as Record<string, unknown>;
+      if (saved && typeof saved === "object") setProfile(mapApiKyc(saved));
       toast.success("Draft saved");
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSaving(false); }
   };
 
   const submit = async () => {
@@ -147,11 +239,13 @@ function KycTab({ userId }: { userId: string | null }) {
       if (!docs.aadhaarBack) errs.push("Aadhaar back upload");
     } else {
       if (!profile.business_name) errs.push("Business name");
-      if (!profile.pan_number) errs.push("PAN number");
+      if (!profile.pan_number || !/^[A-Z]{5}\d{4}[A-Z]$/.test(profile.pan_number)) errs.push("Valid PAN");
       if (!profile.gst_number) errs.push("GST number");
       if (!profile.cin_number) errs.push("CIN / Registration number");
       if (!profile.authorized_person_name) errs.push("Authorized person name");
-      if (!profile.authorized_person_pan) errs.push("Authorized person PAN");
+      if (!profile.authorized_person_pan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(profile.authorized_person_pan)) {
+        errs.push("Valid authorized person PAN");
+      }
       const docs = profile.uploaded_docs ?? {};
       if (!docs.pan) errs.push("PAN card upload");
       if (!docs.gst) errs.push("GST certificate upload");
@@ -161,8 +255,14 @@ function KycTab({ userId }: { userId: string | null }) {
     if (errs.length) { toast.error(`Missing: ${errs.join(", ")}`); return; }
     setSubmitting(true);
     try {
-      await dropshipperService.submitKyc({ ...profile, uploaded_docs: profile.uploaded_docs, documents: profile.uploaded_docs, termsAccepted: true } as unknown as Record<string, unknown>);
-      setProfile(p => ({ ...p, status: "pending" as KycStatus }));
+      const saved = await dropshipperService.submitKyc({
+        ...profile,
+        uploaded_docs: profile.uploaded_docs,
+        documents: profile.uploaded_docs,
+        termsAccepted: true,
+      } as unknown as Record<string, unknown>) as Record<string, unknown>;
+      if (saved && typeof saved === "object") setProfile(mapApiKyc(saved));
+      else setProfile(p => ({ ...p, status: "pending" as KycStatus, rejectionRemark: "" }));
       toast.success("Submitted for admin approval");
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Submit failed"); }
     finally { setSubmitting(false); }
@@ -190,6 +290,7 @@ function KycTab({ userId }: { userId: string | null }) {
         </div>
 
         {profile.status === "pending" && <KycPendingBanner />}
+        {profile.status === "rejected" && <KycRejectedBanner remark={profile.rejectionRemark} />}
 
         <div>
           <Label className="mb-2 block">Account Type</Label>
@@ -256,8 +357,10 @@ function KycTab({ userId }: { userId: string | null }) {
                 : "By submitting you agree to our verification policy."}
           </p>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => void saveDraft()} disabled={isLocked || submitting}>Save draft</Button>
-            <Button onClick={() => void submit()} disabled={isLocked || submitting} className="bg-primary text-primary-foreground hover:bg-primary-dark min-w-[180px]">
+            <Button variant="outline" onClick={() => void saveDraft()} disabled={isLocked || submitting || saving}>
+              {saving ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Saving…</> : "Save draft"}
+            </Button>
+            <Button onClick={() => void submit()} disabled={isLocked || submitting || saving} className="bg-primary text-primary-foreground hover:bg-primary-dark min-w-[180px]">
               {submitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -265,6 +368,8 @@ function KycTab({ userId }: { userId: string | null }) {
                 </>
               ) : profile.status === "pending" ? (
                 "Awaiting approval"
+              ) : profile.status === "rejected" ? (
+                "Resubmit for verification"
               ) : (
                 "Submit for verification"
               )}

@@ -274,16 +274,35 @@ export default function AdminKyc() {
 
                   const openDoc = (url: string, label: string) => {
                     const src = normalizeDocUrl(url);
-                    const win = window.open("", "_blank");
-                    if (!win) return;
-                    const isPdf = src.startsWith("data:application/pdf") || /\.pdf($|\?)/i.test(src);
-                    win.document.write(
-                      `<!DOCTYPE html><html><head><title>${label}</title>` +
-                      `<style>*{box-sizing:border-box}body{margin:0;background:#111;min-height:100vh;display:flex;justify-content:center;align-items:flex-start;padding:16px;}` +
-                      `img,iframe{max-width:100%;width:100%;height:auto;min-height:90vh;background:#fff;border:0;object-fit:contain;}</style></head>` +
-                      `<body>${isPdf ? `<iframe src="${src}" title="${label}"></iframe>` : `<img src="${src}" alt="${label}" />`}</body></html>`
-                    );
-                    win.document.close();
+                    if (!src) return;
+                    if (/^https?:\/\//i.test(src)) {
+                      window.open(src, "_blank", "noopener,noreferrer");
+                      return;
+                    }
+                    if (!src.startsWith("data:")) {
+                      toast.error("Unable to preview this document");
+                      return;
+                    }
+                    try {
+                      const [meta, b64] = src.split(",", 2);
+                      const mime = meta.match(/data:([^;]+)/)?.[1] ?? "image/jpeg";
+                      const binary = atob(b64);
+                      const bytes = new Uint8Array(binary.length);
+                      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                      const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+                      const win = window.open(blobUrl, "_blank", "noopener,noreferrer");
+                      if (!win) {
+                        const a = document.createElement("a");
+                        a.href = blobUrl;
+                        a.target = "_blank";
+                        a.rel = "noreferrer";
+                        a.download = label.replace(/\s+/g, "_");
+                        a.click();
+                      }
+                      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+                    } catch {
+                      toast.error("Failed to open document");
+                    }
                   };
 
                   const entries = Object.entries(allDocs).filter(([, v]) => !!v);
