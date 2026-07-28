@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { useNdrOrders, useOrdersQuery } from "@/hooks/useApiData";
+import { useNdrOrders } from "@/hooks/useApiData";
 import {
   Package,
   CheckCircle2,
@@ -17,63 +17,115 @@ import {
   AlertTriangle,
   X,
   ArrowRight,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useNavigate, Link } from "react-router-dom";
-const dayName = (offset: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() - (6 - offset));
-  return d.toLocaleDateString("en-IN", { weekday: "short" });
+import { apiClient, ApiError } from "@/lib/apiClient";
+import { toast } from "sonner";
+
+type DashboardSummary = {
+  totalOrders: number;
+  deliveredCount: number;
+  inTransit: number;
+  pending: number;
+  totalOrderValue: number;
+  codPendingAmount: number;
+  deliveryRatePct: number;
+  rtoPct: number;
+  ndrPct: number;
+  ordersThisWeek: Array<{ date: string; total: number }>;
+  recentOrders: Array<{ id: string; customer: string; status: string; date: string }>;
 };
+
+function dayLabel(ymd: string) {
+  const d = new Date(`${ymd}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString("en-IN", { weekday: "short" });
+}
 
 export default function DropshipperDashboard() {
   const navigate = useNavigate();
-  const { data: orders = [], total, tabCounts, isLoading: ordersLoading } = useOrdersQuery({
-    page: 1,
-    pageSize: 100,
-    counts: true,
-  });
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { data: ndrRows = [], isLoading: ndrLoading } = useNdrOrders();
   const activeNDR = useMemo(() => ndrRows.filter((n) => n.status === "Active").length, [ndrRows]);
-  const [showNDRBanner, setShowNDRBanner] = useState(activeNDR > 0);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
-  const stats = useMemo(() => {
-    const visibleTotal = total || orders.length;
-    const delivered = tabCounts?.delivered ?? orders.filter((o) => o.status === "delivered").length;
-    const inTransit = tabCounts
-      ? (tabCounts["in-transit"] ?? 0) + (tabCounts["out-for-delivery"] ?? 0)
-      : orders.filter((o) => o.status === "in-transit" || o.status === "out-for-delivery").length;
-    const pending = tabCounts
-      ? (tabCounts.channel ?? 0) + (tabCounts.manual ?? 0) + (tabCounts["ready-to-ship"] ?? 0) + (tabCounts["pending-pickup"] ?? 0)
-      : orders.filter((o) => o.status === "pending" || o.status === "ready-to-ship" || o.status === "not-picked").length;
-    const amountSum = orders.reduce((s, o) => s + (o.amount || 0), 0);
-    const codPending = orders.filter((o) => o.payment === "COD" && o.status !== "delivered");
-    const codAmt = codPending.reduce((s, o) => s + o.amount, 0);
-    return { total: visibleTotal, delivered, inTransit, pending, amountSum, codAmt };
-  }, [orders, tabCounts, total]);
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiClient.get<DashboardSummary>("/dashboard/summary");
+      setSummary(data);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Failed to load dashboard";
+      setError(msg);
+      setSummary(null);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
 
   const weeklyOrders = useMemo(() => {
-    const counts = [0, 0, 0, 0, 0, 0, 0];
-    for (const o of orders) {
-      if (!o.date) continue;
-      const d = new Date(o.date);
-      if (Number.isNaN(d.getTime())) continue;
-      const diff = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
-      if (diff >= 0 && diff < 7) counts[6 - diff] += 1;
+    const rows = summary?.ordersThisWeek ?? [];
+    if (!rows.length) {
+      return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        return { day: d.toLocaleDateString("en-IN", { weekday: "short" }), orders: 0 };
+      });
     }
-    return counts.map((orders, i) => ({ day: dayName(i), orders }));
-  }, [orders]);
+    return rows.map((r) => ({ day: dayLabel(r.date), orders: r.total }));
+  }, [summary?.ordersThisWeek]);
 
-  if (ordersLoading || ndrLoading) {
+  if (loading || ndrLoading) {
     return <div className="animate-pulse p-8 text-text-muted">Loading…</div>;
   }
 
+  if (error && !summary) {
+    return (
+      <div className="animate-fade-in-up p-8 text-center space-y-3">
+        <p className="text-text-muted">{error}</p>
+        <Button variant="outline" className="gap-2" onClick={() => void load()}>
+          <RefreshCw className="h-4 w-4" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const stats = {
+    total: summary?.totalOrders ?? 0,
+    delivered: summary?.deliveredCount ?? 0,
+    inTransit: summary?.inTransit ?? 0,
+    pending: summary?.pending ?? 0,
+    amountSum: summary?.totalOrderValue ?? 0,
+    codAmt: summary?.codPendingAmount ?? 0,
+    delivery: Math.round(summary?.deliveryRatePct ?? 0),
+    rto: Math.round(summary?.rtoPct ?? 0),
+    ndr: Math.round(summary?.ndrPct ?? 0),
+  };
+
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="Dashboard" breadcrumb={["Dropshipper", "Dashboard"]} />
+      <PageHeader
+        title="Dashboard"
+        breadcrumb={["Dropshipper", "Dashboard"]}
+        actions={
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()}>
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </Button>
+        }
+      />
 
-      {showNDRBanner && activeNDR > 0 && (
+      {!bannerDismissed && activeNDR > 0 && (
         <div className="rounded-lg bg-warning-light border border-warning/30 p-4 mb-6 flex items-center gap-3 animate-fade-in">
           <AlertTriangle className="h-5 w-5 text-warning-dark shrink-0" />
           <div className="flex-1">
@@ -86,7 +138,7 @@ export default function DropshipperDashboard() {
             </Button>
           </Link>
           <button
-            onClick={() => setShowNDRBanner(false)}
+            onClick={() => setBannerDismissed(true)}
             className="text-warning-dark/60 hover:text-warning-dark shrink-0"
             type="button"
           >
@@ -142,12 +194,12 @@ export default function DropshipperDashboard() {
           </ResponsiveContainer>
         </div>
         <div className="rounded-lg bg-card shadow-card p-5">
-          <h3 className="font-semibold text-text-primary mb-4">Performance (approx.)</h3>
+          <h3 className="font-semibold text-text-primary mb-4">Performance</h3>
           <div className="grid grid-cols-3 gap-4">
             {[
-              { label: "Delivery Rate", value: stats.total ? Math.round((stats.delivered / stats.total) * 100) : 0, color: "text-success" },
-              { label: "RTO Rate", value: stats.total ? Math.round((orders.filter((o) => o.status === "rto").length / stats.total) * 100) : 0, color: "text-danger" },
-              { label: "NDR Rate", value: stats.total ? Math.round((orders.filter((o) => o.status === "ndr").length / stats.total) * 100) : 0, color: "text-warning" },
+              { label: "Delivery Rate", value: stats.delivery, color: "text-success" },
+              { label: "RTO Rate", value: stats.rto, color: "text-danger" },
+              { label: "NDR Rate", value: stats.ndr, color: "text-warning" },
             ].map((p) => (
               <div key={p.label} className="text-center">
                 <div className="relative inline-flex items-center justify-center w-20 h-20">
@@ -161,7 +213,7 @@ export default function DropshipperDashboard() {
                       strokeWidth="6"
                       stroke="currentColor"
                       className={p.color}
-                      strokeDasharray={`${p.value * 2.14} 214`}
+                      strokeDasharray={`${Math.min(100, p.value) * 2.14} 214`}
                       strokeLinecap="round"
                     />
                   </svg>
@@ -188,7 +240,7 @@ export default function DropshipperDashboard() {
             </tr>
           </thead>
           <tbody>
-            {orders.slice(0, 8).map((o) => (
+            {(summary?.recentOrders ?? []).slice(0, 8).map((o) => (
               <tr key={o.id} className="border-b border-border last:border-0 hover:bg-surface-2/30">
                 <td className="p-3 font-mono text-xs text-primary">{o.id}</td>
                 <td className="p-3 text-text-primary">{o.customer}</td>
@@ -198,6 +250,11 @@ export default function DropshipperDashboard() {
                 <td className="p-3 text-text-muted">{o.date}</td>
               </tr>
             ))}
+            {!summary?.recentOrders?.length && (
+              <tr>
+                <td colSpan={4} className="p-8 text-center text-text-muted">No orders yet</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

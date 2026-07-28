@@ -4,10 +4,11 @@ import { CheckCircle2, Clock, RotateCcw, AlertTriangle, Target, Download, FileTe
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useMemo, Component, type ErrorInfo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, Component, type ErrorInfo, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useOrders, useNdrOrders } from "@/hooks/useApiData";
 import type { Order } from "@/types/logistics";
+import { apiClient } from "@/lib/apiClient";
 
 const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -56,6 +57,42 @@ export default function AdminAnalytics() {
   const navigate = useNavigate();
   const { data: orders = [], isLoading: ordersLoading, isError: ordersErr, refetch: refetchOrders } = useOrders();
   const { data: ndrRows = [], isLoading: ndrLoading, isError: ndrErr, refetch: refetchNdr } = useNdrOrders();
+  const [summaryKpis, setSummaryKpis] = useState<{
+    deliveryRatePct: number;
+    rtoPct: number;
+    ndrPct: number;
+    ndrCount: number;
+    totalOrders: number;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiClient
+      .get<{
+        deliveryRatePct: number;
+        rtoPct: number;
+        ndrPct: number;
+        ndrCount: number;
+        totalOrders: number;
+      }>("/dashboard/summary")
+      .then((d) => {
+        if (!cancelled) {
+          setSummaryKpis({
+            deliveryRatePct: d.deliveryRatePct ?? 0,
+            rtoPct: d.rtoPct ?? 0,
+            ndrPct: d.ndrPct ?? 0,
+            ndrCount: d.ndrCount ?? 0,
+            totalOrders: d.totalOrders ?? 0,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSummaryKpis(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const ordersOverTime = useMemo(() => {
     const days = 7;
@@ -123,7 +160,8 @@ export default function AdminAnalytics() {
       const diffDays = Math.floor((today.getTime() - od.getTime()) / 86400000);
       if (diffDays < 0 || diffDays >= weeks * 7) continue;
       const w = Math.min(Math.floor(diffDays / 7), weeks - 1);
-      const d = od.getDay();
+      // Convert Sunday=0..Saturday=6 → Monday=0..Sunday=6 to match dayLabels
+      const d = (od.getDay() + 6) % 7;
       const cell = data.find((c) => c.week === w && c.day === d);
       if (cell) cell.count += 1;
     }
@@ -191,22 +229,30 @@ export default function AdminAnalytics() {
   }, [ndrRows]);
 
   const kpis = useMemo(() => {
+    if (summaryKpis) {
+      return {
+        delivery: `${summaryKpis.deliveryRatePct}%`,
+        avgTime: "—",
+        rto: `${summaryKpis.rtoPct}%`,
+        ndr: `${summaryKpis.ndrPct}%`,
+        activeNdr: String(summaryKpis.ndrCount),
+      };
+    }
     const total = orders.length;
     const delivered = orders.filter((o: Order) => o.status === "delivered").length;
     const rto = orders.filter((o) => o.status === "rto").length;
     const rate = total ? ((delivered / total) * 100).toFixed(1) : "0";
     const rtoRate = total ? ((rto / total) * 100).toFixed(1) : "0";
-    const ndrCount = ndrRows.length;
+    const ndrCount = ndrRows.filter((n) => n.status === "Active").length;
     const ndrRate = total ? ((ndrCount / Math.max(total, 1)) * 100).toFixed(1) : "0";
-    const firstAttempt = total ? Math.min(99, Math.max(0, 100 - Number(ndrRate))).toFixed(1) : "0";
     return {
       delivery: `${rate}%`,
       avgTime: "—",
       rto: `${rtoRate}%`,
       ndr: `${ndrRate}%`,
-      firstAttempt: `${firstAttempt}%`,
+      activeNdr: String(ndrCount),
     };
-  }, [orders, ndrRows]);
+  }, [orders, ndrRows, summaryKpis]);
 
   if (ordersLoading || ndrLoading) {
     return <div className="animate-pulse p-8 text-text-muted">Loading analytics…</div>;
@@ -240,7 +286,7 @@ export default function AdminAnalytics() {
         <KPICard icon={Clock} label="Avg delivery time" value={kpis.avgTime} color="secondary" />
         <KPICard icon={RotateCcw} label="RTO rate" value={kpis.rto} color="danger" />
         <KPICard icon={AlertTriangle} label="NDR rate" value={kpis.ndr} color="warning" />
-        <KPICard icon={Target} label="First attempt" value={kpis.firstAttempt} color="primary" />
+        <KPICard icon={Target} label="Active NDR" value={kpis.activeNdr} color="primary" />
       </div>
 
       <div className="rounded-lg bg-card shadow-card p-5 mb-6">

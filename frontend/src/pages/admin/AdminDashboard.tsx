@@ -28,13 +28,23 @@ type DashboardSummary = {
 function useDashboardSummary() {
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
     apiClient.get<DashboardSummary>("/dashboard/summary")
-      .then(setData)
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
-  }, []);
-  return { data, loading };
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => {
+        if (cancelled) return;
+        setData(null);
+        setError(e instanceof Error ? e.message : "Failed to load dashboard");
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [reloadKey]);
+  return { data, loading, error, reload: () => setReloadKey((k) => k + 1) };
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -66,7 +76,7 @@ const CHART = {
 };
 
 export default function AdminDashboard() {
-  const { data: summary, loading: isLoading } = useDashboardSummary();
+  const { data: summary, loading: isLoading, error, reload } = useDashboardSummary();
   const total = summary?.totalOrders ?? 0;
   const delivered = summary?.deliveredCount ?? 0;
   const rtoPct = summary?.rtoPct ?? 0;
@@ -89,7 +99,14 @@ export default function AdminDashboard() {
     <div className="animate-fade-in-up">
       <PageHeader title="Dashboard" breadcrumb={["Admin", "Dashboard"]} />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+      {error && (
+        <div className="mb-4 rounded-lg border border-danger/30 bg-danger-light/40 px-4 py-3 text-sm text-danger-dark flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button type="button" className="underline font-medium" onClick={() => reload()}>Retry</button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-4 mb-6">
         <KPICard icon={Package} label="Total Orders" value={isLoading ? "…" : String(total)} color="primary" />
         <KPICard icon={CheckCircle2} label="Delivered" value={isLoading ? "…" : String(delivered)} color="success" />
         <KPICard icon={RotateCcw} label="RTO %" value={isLoading ? "…" : `${rtoPct}%`} color="danger" />

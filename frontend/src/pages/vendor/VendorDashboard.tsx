@@ -1,61 +1,98 @@
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { useOrdersQuery } from "@/hooks/useApiData";
-import { Package, Clock, Truck, CheckCircle2, ScanLine, Printer, FileDown, FileText } from "lucide-react";
+import { Package, Clock, Truck, CheckCircle2, ScanLine, Printer, FileDown, FileText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Order } from "@/types/logistics";
+import { useNavigate } from "react-router-dom";
+import { apiClient, ApiError } from "@/lib/apiClient";
+import { toast } from "sonner";
 
-const today = () => new Date().toISOString().slice(0, 10);
+type DashboardSummary = {
+  toProcess: number;
+  pickupsPending: number;
+  inTransit: number;
+  deliveredToday: number;
+  recentOrders: Array<{
+    id: string;
+    customer: string;
+    status: string;
+    courier: string;
+    awb: string;
+    weight: string;
+    date: string;
+  }>;
+  today?: string;
+};
 
 export default function VendorDashboard() {
-  const { data: orders = [], tabCounts, isLoading } = useOrdersQuery({
-    page: 1,
-    pageSize: 15,
-    counts: true,
-  });
+  const navigate = useNavigate();
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const toProcess = useMemo(
-    () => tabCounts
-      ? (tabCounts.manual ?? 0) + (tabCounts.channel ?? 0) + (tabCounts["ready-to-ship"] ?? 0)
-      : orders.filter((o) => o.status === "pending" || o.status === "ready-to-ship" || o.status === "on-process").length,
-    [orders, tabCounts]
-  );
-  const pickupsPending = tabCounts?.["pending-pickup"] ?? orders.filter((o) => String(o.status) === "pending-pickup").length;
-  const inTransit = useMemo(
-    () => tabCounts
-      ? (tabCounts["in-transit"] ?? 0) + (tabCounts["out-for-delivery"] ?? 0)
-      : orders.filter((o) => o.status === "in-transit" || o.status === "out-for-delivery").length,
-    [orders, tabCounts]
-  );
-  const deliveredToday = useMemo(
-    () => orders.filter((o) => o.status === "delivered" && o.date && o.date.startsWith(today())).length,
-    [orders]
-  );
-  const vendorOrders: Order[] = useMemo(() => orders.slice(0, 15), [orders]);
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiClient.get<DashboardSummary>("/dashboard/summary");
+      setSummary(data);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Failed to load dashboard";
+      setError(msg);
+      setSummary(null);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  if (isLoading) {
+  useEffect(() => {
+    void load();
+  }, []);
+
+  if (loading) {
     return <div className="animate-pulse p-8 text-text-muted">Loading…</div>;
   }
 
+  if (error && !summary) {
+    return (
+      <div className="animate-fade-in-up p-8 text-center space-y-3">
+        <p className="text-text-muted">{error}</p>
+        <Button variant="outline" className="gap-2" onClick={() => void load()}>
+          <RefreshCw className="h-4 w-4" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const vendorOrders = summary?.recentOrders ?? [];
+
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="Dashboard" breadcrumb={["Vendor", "Dashboard"]} />
+      <PageHeader
+        title="Dashboard"
+        breadcrumb={["Vendor", "Dashboard"]}
+        actions={
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()}>
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </Button>
+        }
+      />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <KPICard icon={Package} label="Orders to Process" value={String(toProcess)} color="primary" />
-        <KPICard icon={Clock} label="Pickups Pending" value={String(pickupsPending)} color="warning" />
-        <KPICard icon={Truck} label="In Transit" value={String(inTransit)} color="secondary" />
-        <KPICard icon={CheckCircle2} label="Delivered Today" value={String(deliveredToday)} color="success" />
+        <KPICard icon={Package} label="Orders to Process" value={String(summary?.toProcess ?? 0)} color="primary" />
+        <KPICard icon={Clock} label="Pickups Pending" value={String(summary?.pickupsPending ?? 0)} color="warning" />
+        <KPICard icon={Truck} label="In Transit" value={String(summary?.inTransit ?? 0)} color="secondary" />
+        <KPICard icon={CheckCircle2} label="Delivered Today" value={String(summary?.deliveredToday ?? 0)} color="success" />
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
-          { icon: ScanLine, label: "Scan & Process" },
-          { icon: Printer, label: "Print Labels" },
-          { icon: FileDown, label: "Download Manifest" },
-          { icon: FileText, label: "GST Invoice" },
+          { icon: ScanLine, label: "Scan & Process", path: "/vendor/orders" },
+          { icon: Printer, label: "Print Labels", path: "/vendor/orders" },
+          { icon: FileDown, label: "Download Manifest", path: "/vendor/orders" },
+          { icon: FileText, label: "GST Invoice", path: "/vendor/orders" },
         ].map((a) => (
-          <Button key={a.label} variant="outline" className="h-20 flex-col gap-2">
+          <Button key={a.label} variant="outline" className="h-20 flex-col gap-2" onClick={() => navigate(a.path)}>
             <a.icon className="h-5 w-5 text-primary" />
             {a.label}
           </Button>
@@ -63,7 +100,7 @@ export default function VendorDashboard() {
       </div>
       <div className="rounded-lg bg-card shadow-card overflow-x-auto">
         <div className="p-4 border-b border-border">
-          <h3 className="font-semibold text-text-primary">Today&apos;s Orders</h3>
+          <h3 className="font-semibold text-text-primary">Recent Orders</h3>
         </div>
         <table className="w-full text-sm">
           <thead>
@@ -82,22 +119,27 @@ export default function VendorDashboard() {
               <tr key={o.id} className="border-b border-border last:border-0 hover:bg-surface-2/30">
                 <td className="p-3 font-mono text-xs text-primary">{o.id}</td>
                 <td className="p-3 text-text-primary">{o.customer}</td>
-                <td className="p-3 text-text-secondary">{o.weight}</td>
-                <td className="p-3 text-text-secondary">{o.courier}</td>
-                <td className="p-3 font-mono text-xs text-text-muted">{o.awb}</td>
+                <td className="p-3 text-text-secondary">{o.weight || "—"}</td>
+                <td className="p-3 text-text-secondary">{o.courier || "—"}</td>
+                <td className="p-3 font-mono text-xs text-text-muted">{o.awb || "—"}</td>
                 <td className="p-3">
                   <StatusBadge status={o.status} />
                 </td>
                 <td className="p-3 flex gap-1">
-                  <Button size="sm" variant="outline" className="text-xs h-7">
-                    Mark Picked
+                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => navigate("/vendor/orders")}>
+                    Open
                   </Button>
-                  <Button size="sm" variant="ghost" className="text-xs h-7">
+                  <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => navigate("/vendor/orders")}>
                     <Printer className="h-3 w-3" />
                   </Button>
                 </td>
               </tr>
             ))}
+            {!vendorOrders.length && (
+              <tr>
+                <td colSpan={7} className="p-8 text-center text-text-muted">No orders yet</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
