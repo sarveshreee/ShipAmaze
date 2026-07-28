@@ -38,6 +38,7 @@ import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
 import { OrderListAdvancedFilters } from "@/components/OrderListAdvancedFilters";
 import { Badge } from "@/components/ui/badge";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
+import { printShippingLabel } from "@/components/ShippingLabel";
 import * as userService from "@/services/userService";
 import * as vendorService from "@/services/vendorService";
 
@@ -1133,16 +1134,50 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               <OrderCardList
                 orders={filtered}
                 onViewOrder={openOrder}
+                onPrintOrder={(o) => {
+                  void printShippingLabel(o).catch((e: unknown) =>
+                    toast.error(e instanceof Error ? e.message : "Label failed")
+                  );
+                }}
                 selected={selected}
                 onToggleSelect={toggleSelect}
                 onSelectAllVisible={(ids) => setSelected(new Set(ids))}
                 onClearSelection={() => setSelected(new Set())}
               />
-              <p className="text-xs text-text-secondary px-1 py-2">
-                {total === 0
-                  ? "Showing 0 of 0 orders"
-                  : `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total} orders`}
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-2">
+                <p className="text-xs text-text-secondary">
+                  {total === 0
+                    ? "Showing 0 of 0 orders"
+                    : `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total} orders`}
+                </p>
+                {total > pageSize ? (
+                  <div className="flex items-center gap-1.5 shrink-0 rounded-lg border border-border/60 bg-card px-1.5 py-0.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2.5 text-xs"
+                      disabled={page <= 1 || loading}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    >
+                      Prev
+                    </Button>
+                    <span className="text-xs font-medium text-text-primary px-1 tabular-nums">
+                      {page} / {Math.max(1, Math.ceil(total / pageSize))}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2.5 text-xs"
+                      disabled={loading || page * pageSize >= total}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
             </div>
           )
         )
@@ -1157,6 +1192,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           page={page}
           pageSize={pageSize}
           totalCount={total}
+          onPageChange={setPage}
           onClearSelection={() => setSelected(new Set())}
           onMarkJunk={handleMarkJunk}
           onMarkReship={handleMarkReship}
@@ -1210,6 +1246,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         order={selectedOrder}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        fullscreen={isMobile}
         warehouses={linkedWarehouseOptions.map((w) => ({
           id: w.id,
           warehouseName: w.warehouseName,

@@ -695,6 +695,14 @@ export function useCodRemittances() {
   return useApiQuery<CODRemittance>("cod_remittances", queryFn);
 }
 
+export function useGstRecords() {
+  const queryFn = useCallback(async () => {
+    const r = await walletService.listGstRecords({ limit: "500" });
+    return r.items;
+  }, []);
+  return useApiQuery<walletService.GstRecord>("gst_records", queryFn);
+}
+
 export function usePickupAddresses(opts?: { scope?: "platform" }) {
   const scope = opts?.scope;
   const cacheKey = scope === "platform" ? "pickup_addresses_platform" : "pickup_addresses";

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildLorrigoServiceabilityPayload,
+  estimateFreightFromLorrigoPricing,
   extractLorrigoCourierRows,
   mapLorrigoCourierRow,
   normalizeLorrigoServiceabilityResponse,
@@ -74,6 +75,7 @@ describe("Lorrigo serviceability mapping", () => {
     expect(extractLorrigoCourierRows({ result: { couriers: [{ id: "1", name: "A" }] } })).toHaveLength(
       1
     );
+    expect(extractLorrigoCourierRows({ couriers: [{ id: "1", name: "A" }], total: 1 })).toHaveLength(1);
     const mapped = mapLorrigoCourierRow({
       courierId: "x",
       courierName: "X",
@@ -85,5 +87,31 @@ describe("Lorrigo serviceability mapping", () => {
         data: [{ courierId: "x", courierName: "X", serviceable: false }],
       })
     ).toHaveLength(0);
+  });
+
+  it("estimates freight from zone slab pricing (prefer Z_A)", () => {
+    const freight = estimateFreightFromLorrigoPricing(
+      {
+        weight_slab: 0.5,
+        increment_weight: 0.5,
+        zone_pricing: [
+          { zone: "Z_A", base_price: 57, increment_price: 57 },
+          { zone: "Z_E", base_price: 90, increment_price: 90 },
+        ],
+      },
+      0.5
+    );
+    expect(freight).toBe(57);
+
+    const heavier = estimateFreightFromLorrigoPricing(
+      {
+        weight_slab: 0.5,
+        increment_weight: 0.5,
+        zone_pricing: [{ zone: "Z_A", base_price: 57, increment_price: 57 }],
+      },
+      1.2
+    );
+    // 0.5 base + 2 slabs * 57
+    expect(heavier).toBe(57 + 2 * 57);
   });
 });

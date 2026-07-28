@@ -14,6 +14,8 @@ describe("statusNormalize", () => {
     expect(providerCanonicalToOrderStatus("RETURNED")).toBe("rto");
     expect(providerCanonicalToOrderStatus("FAILED")).toBe("ndr");
     expect(providerCanonicalToOrderStatus("LOST")).toBe("cancelled");
+    expect(mapLorrigoStatusToProviderCanonical("CANCELLED_ORDER")).toBe("CANCELLED");
+    expect(mapLorrigoStatusToProviderCanonical("cancelled_order")).toBe("CANCELLED");
   });
 
   it("suppresses regression from delivered", () => {

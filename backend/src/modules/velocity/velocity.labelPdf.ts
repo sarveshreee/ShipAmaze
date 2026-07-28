@@ -1,4 +1,5 @@
 import type { IOrder } from "../../models/Order.js";
+import { Order } from "../../models/Order.js";
 import { AppError } from "../../middleware/errorMiddleware.js";
 import * as velocityService from "./velocity.service.js";
 
@@ -30,15 +31,26 @@ function getShipmentAttrs(row: Record<string, unknown>): Record<string, unknown>
 
 export function extractLabelUrlFromShipmentRow(row: Record<string, unknown>): string {
   const attrs = getShipmentAttrs(row);
-  return String(
-    attrs.label_url ??
-      attrs.amazon_label_url ??
-      attrs.labelUrl ??
-      attrs.shipping_label_url ??
-      attrs.pdf_url ??
-      attrs.label ??
-      ""
-  ).trim();
+  const candidates = [
+    attrs.label_url,
+    attrs.amazon_label_url,
+    attrs.amazonLabelUrl,
+    attrs.labelUrl,
+    attrs.shipping_label_url,
+    attrs.shippingLabelUrl,
+    attrs.pdf_url,
+    attrs.pdfUrl,
+    attrs.label,
+    attrs.manifest_url,
+    attrs.manifestUrl,
+    attrs.document_url,
+    attrs.documentUrl,
+  ];
+  for (const c of candidates) {
+    const s = String(c ?? "").trim();
+    if (s.startsWith("http")) return s;
+  }
+  return "";
 }
 
 export function findShipmentRowForOrder(
@@ -142,7 +154,7 @@ async function normalizeLabelToPdf(buffer: Buffer, contentType: string): Promise
   throw new AppError(502, "Label URL did not return a PDF or image");
 }
 
-async function fetchLabelBytes(
+async function fetchLabelBytesOnce(
   url: string,
   timeoutMs: number
 ): Promise<{ buffer: Buffer; contentType: string } | null> {
@@ -165,6 +177,16 @@ async function fetchLabelBytes(
     return { buffer: raw, contentType: detected };
   }
   return null;
+}
+
+async function fetchLabelBytes(
+  url: string,
+  timeoutMs: number
+): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const first = await fetchLabelBytesOnce(url, timeoutMs).catch(() => null);
+  if (first) return first;
+  // Presigned S3 / CDN can flake once — single retry with a slightly longer budget.
+  return fetchLabelBytesOnce(url, Math.max(timeoutMs, 20_000)).catch(() => null);
 }
 
 function createRefreshCache(): VelocityRefreshCache {
@@ -229,7 +251,7 @@ export async function resolveOrderLabelPdf(
 ): Promise<ResolvedLabelPdf> {
   const persistCache = opts.persistCache !== false;
   const allowVelocityRefresh = opts.allowVelocityRefresh !== false;
-  const fetchTimeoutMs = opts.fetchTimeoutMs ?? 12_000;
+  const fetchTimeoutMs = opts.fetchTimeoutMs ?? 20_000;
   const cache = opts.velocityRefreshCache;
 
   const cachedPdf = String(order.labelPdfBase64 ?? "").trim();
@@ -276,7 +298,7 @@ export async function resolveOrderLabelPdf(
 
     throw new AppError(
       502,
-      `Label PDF unavailable for order ${order.orderId}. The courier URL may have expired — recreate the shipment or refresh tracking.`
+      `Amazon/Velocity label expired for order ${order.orderId} and was not cached at booking. Open the label once in Velocity (or re-process a new shipment) so ShipAmaze can store the official PDF.`
     );
   }
 
@@ -286,20 +308,82 @@ export async function resolveOrderLabelPdf(
     order.labelPdfBase64 = normalized.buffer.toString("base64");
     order.labelPdfContentType = normalized.contentType;
     order.labelPdfCachedAt = new Date();
-    await order.save().catch(() => undefined);
+    try {
+      await order.save();
+    } catch (err) {
+      // Booking flow often saves the same doc concurrently — reload and persist cache.
+      const fresh = await Order.findById(order._id).exec().catch(() => null);
+      if (fresh) {
+        fresh.labelPdfBase64 = normalized.buffer.toString("base64");
+        fresh.labelPdfContentType = normalized.contentType;
+        fresh.labelPdfCachedAt = new Date();
+        if (labelUrl && !String(fresh.labelUrl || "").trim()) fresh.labelUrl = labelUrl;
+        await fresh.save().catch((e: unknown) => {
+          console.warn(
+            "[velocity:label-pdf] cache save failed",
+            order.orderId,
+            e instanceof Error ? e.message : e
+          );
+        });
+      } else {
+        console.warn(
+          "[velocity:label-pdf] cache save failed",
+          order.orderId,
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
   }
 
   return { ...normalized, source: "courier" };
 }
 
-/** Download and cache courier PDF while presigned label_url is still valid. */
+/**
+ * Download + persist courier PDF while the Velocity/S3 label_url is still valid.
+ * Retries with backoff — Amazon labels are often not immediately readable on S3.
+ */
+export async function cacheLabelPdfNow(
+  order: IOrder,
+  opts?: { maxAttempts?: number; initialDelayMs?: number }
+): Promise<boolean> {
+  const labelUrl = String(order.labelUrl || order.manifestUrl || "").trim();
+  if (!labelUrl) return false;
+  if (String(order.labelPdfBase64 ?? "").trim()) return true;
+
+  const maxAttempts = opts?.maxAttempts ?? 4;
+  let delayMs = opts?.initialDelayMs ?? 1500;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const fresh = (await Order.findById(order._id).exec()) ?? order;
+      if (String(fresh.labelPdfBase64 ?? "").trim()) return true;
+      if (!String(fresh.labelUrl || "").trim() && labelUrl) fresh.labelUrl = labelUrl;
+
+      await resolveOrderLabelPdf(fresh, {
+        allowVelocityRefresh: attempt > 1,
+        persistCache: true,
+        fetchTimeoutMs: 25_000,
+      });
+      if (String(fresh.labelPdfBase64 ?? "").trim()) return true;
+    } catch (err) {
+      console.warn(
+        `[velocity:label-pdf] cache attempt ${attempt}/${maxAttempts} failed for ${order.orderId}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      delayMs = Math.min(delayMs * 2, 12_000);
+    }
+  }
+  return false;
+}
+
+/** Fire-and-forget wrapper used at booking sites (still retries in background). */
 export function scheduleLabelPdfCache(order: IOrder): void {
   if (!String(order.labelUrl || "").trim()) return;
   if (String(order.labelPdfBase64 ?? "").trim()) return;
-  void resolveOrderLabelPdf(order, {
-    allowVelocityRefresh: false,
-    persistCache: true,
-  }).catch(() => undefined);
+  void cacheLabelPdfNow(order).catch(() => undefined);
 }
 
 export function createVelocityRefreshCache(): VelocityRefreshCache {

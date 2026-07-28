@@ -59,6 +59,8 @@ interface OrderDetailDrawerProps {
   onOrderUpdated?: () => void;
   /** Vendor/admin warehouses — used when order.velocityWarehouseId is not set yet. */
   warehouses?: OrderDetailWarehouseOption[];
+  /** Full-screen sheet (mobile “Full details”) instead of narrow side drawer. */
+  fullscreen?: boolean;
 }
 
 const statusToStep: Record<string, number> = {
@@ -131,6 +133,7 @@ export function OrderDetailDrawer({
   onClose,
   onOrderUpdated,
   warehouses = [],
+  fullscreen = false,
 }: OrderDetailDrawerProps) {
   const { role } = useAuth();
   const isAdmin = role === "admin";
@@ -475,7 +478,14 @@ export function OrderDetailDrawer({
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent side="right" className="w-full sm:max-w-[480px] overflow-y-auto p-0">
+      <SheetContent
+        side={fullscreen ? "bottom" : "right"}
+        className={
+          fullscreen
+            ? "h-[100dvh] max-h-[100dvh] w-full sm:max-w-none inset-x-0 bottom-0 rounded-none overflow-y-auto p-0"
+            : "w-full sm:max-w-[480px] overflow-y-auto p-0"
+        }
+      >
         <SheetHeader className="p-5 pb-3 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-light">
@@ -1019,7 +1029,11 @@ export function OrderDetailDrawer({
                 <Button
                   variant="outline"
                   className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30"
-                  onClick={() => printShippingLabel(order, labelSettings)}
+                  onClick={() => {
+                    void printShippingLabel(order, labelSettings).catch((e: unknown) =>
+                      toast.error(e instanceof Error ? e.message : "Failed to open label")
+                    );
+                  }}
                 >
                   <Printer className="h-4 w-4" /> Print Label
                 </Button>

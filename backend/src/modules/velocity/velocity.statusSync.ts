@@ -200,10 +200,36 @@ export async function syncActiveShipmentStatuses(
       }
 
       // internalStatus is the hyphenated value from mapVelocityStatus (e.g. "in-transit")
-      const internalStatus = mapVelocityStatus(trackResult.status);
+      let internalStatus = mapVelocityStatus(trackResult.status);
       // internalCanonical is the DB-canonical form (e.g. "in_transit") used by tab queries
-      const internalCanonical = normalizeOrderStatus(internalStatus);
+      let internalCanonical = normalizeOrderStatus(internalStatus);
       const currentStatus = String(lean.status ?? "");
+      const currentCanonical = normalizeOrderStatus(currentStatus);
+
+      // If courier returned an unmapped string that collapses to draft, but the parcel
+      // already has pickup evidence or is past booking, treat as in-transit so tabs move.
+      if (
+        internalCanonical === "draft" &&
+        trackResult.status &&
+        (trackResult.pickup_date ||
+          currentCanonical === "pickup_scheduled" ||
+          currentCanonical === "picked_up" ||
+          currentCanonical === "ready_to_ship")
+      ) {
+        internalStatus = "in-transit";
+        internalCanonical = "in_transit";
+      }
+
+      // Courier confirmed pickup but still returns a booking-like status — advance tab.
+      if (
+        trackResult.pickup_date &&
+        (internalCanonical === "pickup_scheduled" ||
+          internalCanonical === "ready_to_ship" ||
+          internalCanonical === "draft")
+      ) {
+        internalStatus = "in-transit";
+        internalCanonical = "in_transit";
+      }
 
       const doc = docById.get(String(lean._id));
       if (!doc) {
@@ -289,12 +315,11 @@ export async function syncActiveShipmentStatuses(
       }
 
       // Advance the main `status` to canonical form so tab queries match.
-      // Compare stored value against internalCanonical so we don't keep re-writing
-      // e.g. "in_transit" when mapVelocityStatus returns "in-transit".
+      // Always compare ranks on canonical forms (never raw "Dispatched" etc.).
       if (
         internalStatus &&
-        shouldApplyInternalStatusUpdate(currentStatus, internalStatus) &&
-        normalizeOrderStatus(doc.status) !== internalCanonical
+        shouldApplyInternalStatusUpdate(currentStatus, internalCanonical) &&
+        currentCanonical !== internalCanonical
       ) {
         appendHistoryEntry(doc, internalCanonical, "velocity_bg_sync");
         doc.status = internalCanonical;

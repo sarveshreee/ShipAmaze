@@ -17,6 +17,7 @@ import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { isOrderReadyToShip } from "@/lib/orderTabFilters";
 import { toast } from "sonner";
 import { printBulkInvoices, printBulkLabels, printShippingLabel } from "@/components/ShippingLabel";
+import { shouldUseVelocityCourierPdf } from "@/lib/labelPrintUtils";
 import * as orderService from "@/services/orderService";
 import { updatePickupAddress } from "@/services/pickupService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -752,6 +753,8 @@ interface Props {
   page?: number;
   pageSize?: number;
   totalCount?: number;
+  /** Change page from the sticky footer Prev/Next controls. */
+  onPageChange?: (page: number) => void;
   onClearSelection: () => void;
   onMarkJunk: (id: string) => void;
   onMarkReship?: (id: string) => void;
@@ -814,6 +817,7 @@ export function RichOrdersTable({
   page = 1,
   pageSize = 50,
   totalCount,
+  onPageChange,
   onClearSelection,
   onMarkJunk,
   onMarkReship,
@@ -1351,7 +1355,12 @@ export function RichOrdersTable({
                             : await orderService.getOrdersByIds(ids);
                         if (!picked.length) throw new Error("No orders found for selection");
                         await printBulkLabels(picked);
-                        toast.success(`Opened ${picked.length} label(s)`, { id: toastId });
+                        toast.success(
+                          picked.every((o) => shouldUseVelocityCourierPdf(o))
+                            ? `Downloaded ${picked.length} Amazon label(s)`
+                            : `Opened ${picked.length} label(s)`,
+                          { id: toastId }
+                        );
                       } catch (err: unknown) {
                         toast.error(err instanceof Error ? err.message : "Bulk label print failed", { id: toastId });
                       }
@@ -1377,7 +1386,12 @@ export function RichOrdersTable({
                             : await orderService.getOrdersByIds(ids);
                         if (!picked.length) throw new Error("No orders found for selection");
                         await printBulkInvoices(picked);
-                        toast.success(`Opened ${picked.length} invoice(s)`, { id: toastId });
+                        toast.success(
+                          picked.every((o) => shouldUseVelocityCourierPdf(o))
+                            ? `Downloaded ${picked.length} Amazon label(s)`
+                            : `Opened ${picked.length} invoice(s)`,
+                          { id: toastId }
+                        );
                       } catch (err: unknown) {
                         toast.error(err instanceof Error ? err.message : "Bulk invoice print failed", { id: toastId });
                       }
@@ -2387,7 +2401,21 @@ export function RichOrdersTable({
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-secondary hover:bg-secondary-light"
-                            onClick={() => { printShippingLabel(o); toast.success("Printing label..."); }}>
+                            onClick={() => {
+                              const toastId = toast.loading(
+                                shouldUseVelocityCourierPdf(o) ? "Downloading Amazon label…" : "Preparing label…"
+                              );
+                              void printShippingLabel(o)
+                                .then(() =>
+                                  toast.success(
+                                    shouldUseVelocityCourierPdf(o) ? "Amazon label downloaded" : "Label opened",
+                                    { id: toastId }
+                                  )
+                                )
+                                .catch((err: unknown) =>
+                                  toast.error(err instanceof Error ? err.message : "Label failed", { id: toastId })
+                                );
+                            }}>
                             <Printer className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -2451,14 +2479,43 @@ export function RichOrdersTable({
       <div
         className="fixed bottom-0 z-30 border-t border-border/60 bg-card/90 backdrop-blur-sm left-0 right-0 pb-[env(safe-area-inset-bottom,0px)] max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:left-[var(--sidebar-width,4.5rem)] transition-[left] duration-300"
       >
-        <div className="px-4 py-2.5 text-sm text-text-secondary">
-          {(() => {
-            const z = typeof totalCount === "number" ? totalCount : filteredOrders.length;
-            if (z === 0) return "Showing 0 of 0 orders";
-            const start = (page - 1) * pageSize + 1;
-            const end = Math.min(page * pageSize, z);
-            return `Showing ${start}–${end} of ${z} orders`;
-          })()}
+        <div className="px-4 py-2.5 text-sm text-text-secondary flex flex-wrap items-center justify-between gap-2">
+          <span>
+            {(() => {
+              const z = typeof totalCount === "number" ? totalCount : filteredOrders.length;
+              if (z === 0) return "Showing 0 of 0 orders";
+              const start = (page - 1) * pageSize + 1;
+              const end = Math.min(page * pageSize, z);
+              return `Showing ${start}–${end} of ${z} orders`;
+            })()}
+          </span>
+          {onPageChange && typeof totalCount === "number" && totalCount > pageSize ? (
+            <div className="flex items-center gap-1.5 shrink-0 rounded-lg border border-border/60 bg-card px-1.5 py-0.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2.5 text-xs"
+                disabled={page <= 1 || loading}
+                onClick={() => onPageChange(Math.max(1, page - 1))}
+              >
+                Prev
+              </Button>
+              <span className="text-xs font-medium text-text-primary px-1 tabular-nums">
+                {page} / {Math.max(1, Math.ceil(totalCount / pageSize))}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2.5 text-xs"
+                disabled={loading || page * pageSize >= totalCount}
+                onClick={() => onPageChange(page + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
 

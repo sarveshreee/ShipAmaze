@@ -23,13 +23,19 @@ export type LorrigoPickupSyncResult =
 function extractLorrigoPickupId(raw: unknown): string {
   if (!raw || typeof raw !== "object") return "";
   const o = raw as Record<string, unknown>;
+  const hub = o.hub as Record<string, unknown> | undefined;
+  const data = o.data as Record<string, unknown> | undefined;
   const candidates = [
     o.id,
     o._id,
     o.pickupAddressId,
     o.pickup_address_id,
-    (o.data as Record<string, unknown> | undefined)?.id,
-    (o.data as Record<string, unknown> | undefined)?._id,
+    hub?.id,
+    hub?._id,
+    hub?.code,
+    data?.id,
+    data?._id,
+    (data?.hub as Record<string, unknown> | undefined)?.id,
     (o.pickupAddress as Record<string, unknown> | undefined)?.id,
     (o.result as Record<string, unknown> | undefined)?.id,
   ];
@@ -38,6 +44,19 @@ function extractLorrigoPickupId(raw: unknown): string {
     if (typeof c === "number" && Number.isFinite(c)) return String(c);
   }
   return "";
+}
+
+/**
+ * Lorrigo validates:
+ * - address must contain `/` or `-`
+ * - rtoAddress (≥5 chars) and rtoPincode (6 digits) are required
+ * When ShipAmaze has no separate RTO address, reuse the pickup address.
+ */
+export function ensureLorrigoAddressShape(address: string): string {
+  const trimmed = address.trim();
+  if (!trimmed) return "Address -";
+  if (/[/-]/.test(trimmed)) return trimmed;
+  return `${trimmed} -`;
 }
 
 export function pickupToLorrigoPickupPayload(
@@ -56,17 +75,27 @@ export function pickupToLorrigoPickupPayload(
   fallbackEmail: string
 ) {
   const email = (pickup.email ?? "").trim() || fallbackEmail.trim();
+  const pincode = String(pickup.pincode ?? "").replace(/\D/g, "").slice(0, 6);
+  const line1 = pickup.addressLine1.trim();
+  const line2 = (pickup.addressLine2 ?? "").trim();
+  const city = pickup.city.trim();
+  // RTO address must be ≥5 chars; pad short lines with city before shape check.
+  const baseAddress = line1.length >= 5 ? line1 : `${line1} ${city}`.trim();
+  const address = ensureLorrigoAddressShape(baseAddress);
   return {
     facilityName: pickup.label.trim() || "Pickup",
     contactPersonName: pickup.contactName.trim() || pickup.label.trim() || "Contact",
     email,
-    pincode: String(pickup.pincode ?? "").replace(/\D/g, "").slice(0, 6),
-    address: pickup.addressLine1.trim(),
-    address2: (pickup.addressLine2 ?? "").trim(),
+    pincode,
+    address,
+    address2: line2,
     phone: String(pickup.phone ?? "").replace(/\D/g, "").slice(-10),
-    city: pickup.city.trim(),
+    city,
     state: pickup.state.trim(),
     country: (pickup.country ?? "India").trim() || "India",
+    // Required by Lorrigo create pickup-address (default RTO = pickup)
+    rtoAddress: address,
+    rtoPincode: pincode,
   };
 }
 

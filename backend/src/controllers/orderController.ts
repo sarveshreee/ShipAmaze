@@ -18,7 +18,9 @@ import {
   mergeQueries,
   parseOrderListQuery,
   buildOrderListFiltersQuery,
+  type ParsedOrderListQuery,
 } from "../utils/orderFilters.js";
+import { csvRow, exportFilename } from "../utils/reportQuery.js";
 import type { IOrder } from "../models/Order.js";
 import { createInAppNotification } from "../services/inAppNotifications.js";
 import { orderWalletUserId } from "../services/walletLedger.js";
@@ -27,7 +29,6 @@ import { resolveVendorIdFromPickup } from "../utils/pickupVendor.js";
 import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
 import { devLog } from "../utils/devLog.js";
 import { ACTIVITY_ACTIONS, recordUserActivity } from "../services/userActivityService.js";
-import * as velocityService from "../modules/velocity/velocity.service.js";
 import {
   firstItemArrayFromOrderDoc,
   normalizeLineItem,
@@ -58,7 +59,9 @@ import { syncPickupToVelocity } from "../modules/velocity/velocity.warehouseSync
 import { velocityConfig } from "../modules/velocity/velocity.config.js";
 import { mapWithConcurrency } from "../modules/velocity/velocity.labelPdf.js";
 
-const PROCESS_SELECTED_MAX_ORDERS = 100;
+const PROCESS_SELECTED_MAX_ORDERS = 1000;
+const ORDER_IDS_MAX = 1000;
+const ORDER_EXPORT_MAX_ROWS = 50_000;
 /** Higher concurrency — each order is mostly waiting on Velocity I/O. */
 const PROCESS_SELECTED_CONCURRENCY = 10;
 
@@ -393,6 +396,55 @@ function sumItemsAmount(items: unknown[]): number {
   return Math.round(t * 100) / 100;
 }
 
+async function buildOrdersListMongoQuery(
+  user: NonNullable<AuthRequest["user"]>,
+  queryParams: Record<string, unknown>
+): Promise<{ query: Record<string, unknown>; pq: ParsedOrderListQuery; view: string }> {
+  const view = String(queryParams.view ?? "").toLowerCase();
+  const pq = parseOrderListQuery(queryParams);
+  const visibility = await buildOrderVisibilityQuery(user);
+
+  let query: Record<string, unknown> = { ...visibility };
+  if (view === "junk") {
+    query = mergeQueries(query, { isJunk: true });
+  } else if (String(pq.tab ?? "").toLowerCase() !== "all") {
+    query = mergeQueries(query, { isJunk: { $ne: true } });
+  }
+
+  if (view !== "junk" && pq.tab) {
+    const tq = buildTabQuery(pq.tab);
+    if (tq) query = mergeQueries(query, tq);
+  }
+
+  const listFilters = await buildOrderListFiltersQuery(pq);
+  if (listFilters) query = mergeQueries(query, listFilters);
+  return { query, pq, view };
+}
+
+function firstNonEmpty(...values: unknown[]): string {
+  for (const v of values) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return "";
+}
+
+function orderLineItems(o: Record<string, unknown>): Array<Record<string, unknown>> {
+  for (const key of ["products", "orderItems", "items", "shopifyLineItems"]) {
+    const v = o[key];
+    if (Array.isArray(v) && v.length > 0) return v as Array<Record<string, unknown>>;
+  }
+  return [];
+}
+
+function joinProductField(items: Array<Record<string, unknown>>, keys: string[]): string {
+  return items
+    .map((it) => firstNonEmpty(...keys.map((k) => it[k])))
+    .filter(Boolean)
+    .join(" | ");
+}
+
 export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
@@ -407,24 +459,12 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
     return;
   }
 
-  const view = String(req.query.view ?? "").toLowerCase();
-  const pq = parseOrderListQuery(req.query as Record<string, unknown>);
+  const { query, pq } = await buildOrdersListMongoQuery(
+    req.user,
+    req.query as Record<string, unknown>
+  );
   const visibility = await buildOrderVisibilityQuery(req.user);
-
-  let query: Record<string, unknown> = { ...visibility };
-  if (view === "junk") {
-    query = mergeQueries(query, { isJunk: true });
-  } else if (String(pq.tab ?? "").toLowerCase() !== "all") {
-    query = mergeQueries(query, { isJunk: { $ne: true } });
-  }
-
-  if (view !== "junk" && pq.tab) {
-    const tq = buildTabQuery(pq.tab);
-    if (tq) query = mergeQueries(query, tq);
-  }
-
-  const listFilters = buildOrderListFiltersQuery(pq);
-  if (listFilters) query = mergeQueries(query, listFilters);
+  const listFilters = await buildOrderListFiltersQuery(pq);
 
   let tabCounts: Record<string, number> | undefined;
   if (pq.counts) {
@@ -477,6 +517,179 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
     pageSize: pq.pageSize,
     ...(tabCounts ? { tabCounts } : {}),
   });
+});
+
+/** Fetch full order rows by orderId list (for bulk print across pages). */
+export const getOrdersByIds = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const raw = (req.body as { orderIds?: unknown }).orderIds;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new AppError(400, "orderIds must be a non-empty array");
+  }
+  const ids = [...new Set(raw.map((x) => String(x).trim()).filter(Boolean))];
+  if (ids.length === 0) throw new AppError(400, "orderIds must not be empty");
+  if (ids.length > ORDER_IDS_MAX) {
+    throw new AppError(400, `Maximum ${ORDER_IDS_MAX} orders per request`);
+  }
+  const visibility = await buildOrderVisibilityQuery(req.user);
+  const rows = await Order.find(mergeQueries(visibility, { orderId: { $in: ids } })).lean();
+  const byId = new Map(rows.map((o) => [String(o.orderId), o]));
+  // Preserve request order; skip missing ids silently
+  const ordered = ids.map((id) => byId.get(id)).filter(Boolean);
+  res.json({ orders: ordered.map((o) => mapOrder(o!)), total: ordered.length });
+});
+
+/** Order IDs matching the same filters as the list (capped for bulk select / process). */
+export const listOrderIds = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const { query } = await buildOrdersListMongoQuery(req.user, req.query as Record<string, unknown>);
+  const limit = Math.min(
+    ORDER_IDS_MAX,
+    Math.max(1, parseInt(String((req.query as { limit?: string }).limit ?? ORDER_IDS_MAX), 10) || ORDER_IDS_MAX)
+  );
+  const total = await Order.countDocuments(query);
+  const rows = await Order.find(query).sort({ createdAt: -1 }).select("orderId").limit(limit).lean();
+  res.json({
+    ids: rows.map((r) => String(r.orderId)),
+    total,
+    capped: total > limit,
+    limit,
+  });
+});
+
+/** Stream all matching orders as CSV (not limited to the UI page size). */
+export const exportOrdersCsv = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+
+  const bodyIds = Array.isArray((req.body as { orderIds?: unknown })?.orderIds)
+    ? (req.body as { orderIds: unknown[] }).orderIds.map((x) => String(x).trim()).filter(Boolean)
+    : [];
+
+  let query: Record<string, unknown>;
+  if (bodyIds.length > 0) {
+    const visibility = await buildOrderVisibilityQuery(req.user);
+    query = mergeQueries(visibility, { orderId: { $in: [...new Set(bodyIds)].slice(0, ORDER_EXPORT_MAX_ROWS) } });
+  } else {
+    ({ query } = await buildOrdersListMongoQuery(req.user, req.query as Record<string, unknown>));
+  }
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${exportFilename("orders")}"`);
+  res.write(
+    csvRow([
+      "Order Account",
+      "OrderId",
+      "Channel Order Number",
+      "Channel Order Date",
+      "WayBill Number",
+      "Pre Generated WayBill",
+      "Order Date",
+      "Ref.Invoice #",
+      "Mode",
+      "Express",
+      "Pickup Warehouse",
+      "Consignee Name",
+      "Consignee Contact",
+      "Alternate Number",
+      "Address",
+      "City",
+      "State",
+      "Pincode",
+      "Product Name",
+      "SKU",
+      "Product Qty",
+      "Product Value",
+      "Order Amount",
+      "Extra Charges",
+      "Total Amount",
+      "COD Amount",
+      "Dimensions",
+      "Weight",
+      "Fulfilled By",
+      "Status",
+      "Added On",
+      "Delivered Date",
+      "RTS Date",
+      "Client Order ID",
+    ])
+  );
+
+  let count = 0;
+  let truncated = false;
+  const cursor = Order.find(query).sort({ createdAt: -1 }).lean().cursor();
+  for await (const o of cursor) {
+    if (count >= ORDER_EXPORT_MAX_ROWS) {
+      truncated = true;
+      break;
+    }
+    const row = o as unknown as Record<string, unknown>;
+    const items = orderLineItems(row);
+    const pickup =
+      row.pickupAddress && typeof row.pickupAddress === "object"
+        ? (row.pickupAddress as Record<string, unknown>)
+        : null;
+    const totalAmount = Number(row.amount ?? 0) || 0;
+    const shipping = Number(row.shippingCharges ?? 0) || 0;
+    const codCharges = Number(row.codCharges ?? 0) || 0;
+    const extraCharges = shipping + codCharges;
+    const payment = String(row.payment ?? "");
+    const codAmount = payment.toUpperCase() === "COD" ? totalAmount : codCharges || "";
+    const dims = firstNonEmpty(
+      row.dimensions,
+      [row.length, row.breadth ?? row.width, row.height].filter((x) => x != null && String(x) !== "").join("x")
+    );
+    const productValue = items.reduce((sum, it) => {
+      const price = Number(it.price ?? it.productPrice ?? it.value ?? 0) || 0;
+      return sum + price;
+    }, 0);
+
+    res.write(
+      csvRow([
+        firstNonEmpty(row.shopifyShopDomain, row.externalSource),
+        firstNonEmpty(row.externalOrderName, row.orderId),
+        firstNonEmpty(row.externalOrderName, row.shopifyOrderNumericId),
+        firstNonEmpty(row.lastShopifySyncAt, row.date),
+        firstNonEmpty(row.awb, row.trackingId),
+        firstNonEmpty(row.trackingId),
+        firstNonEmpty(row.date),
+        firstNonEmpty(row.shopifyOrderNumericId),
+        payment,
+        "",
+        firstNonEmpty(
+          typeof row.pickupAddress === "string" ? row.pickupAddress : "",
+          pickup?.label,
+          pickup?.warehouseName,
+          pickup?.pickupName
+        ),
+        firstNonEmpty(row.customer),
+        firstNonEmpty(row.customerPhone, row.phone),
+        "",
+        firstNonEmpty(row.shippingAddress1, row.address),
+        firstNonEmpty(row.shippingCity, row.city),
+        firstNonEmpty(row.shippingState, row.state),
+        firstNonEmpty(row.shippingPincode, row.pincode),
+        joinProductField(items, ["productName", "name", "title"]),
+        joinProductField(items, ["sku", "productCode"]),
+        joinProductField(items, ["qty", "quantity"]),
+        productValue || joinProductField(items, ["price", "productPrice", "value"]),
+        totalAmount,
+        extraCharges || "",
+        totalAmount + extraCharges,
+        codAmount,
+        dims,
+        firstNonEmpty(row.weight),
+        firstNonEmpty(row.courierName, row.courier),
+        firstNonEmpty(row.shopifyFulfillmentStatus, row.shipmentStatus, row.status),
+        firstNonEmpty(row.createdAt, row.movedToReadyAt, row.updatedAt, row.date),
+        firstNonEmpty(row.edd),
+        "",
+        firstNonEmpty(row.externalOrderName, row.shopifyOrderNumericId, row.orderId),
+      ])
+    );
+    count += 1;
+  }
+  if (truncated) res.write(csvRow(["__truncated__", `Export limited to ${ORDER_EXPORT_MAX_ROWS} rows`]));
+  res.end();
 });
 
 export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -726,6 +939,7 @@ export const createOrdersBulk = asyncHandler(async (req: AuthRequest, res: Respo
       pickupAddress: body.pickupAddress as string | undefined,
       createdBy: req.user._id,
       ownerUserId: req.user._id,
+      dropshipperId: req.user.role === "dropshipper" ? req.user._id : undefined,
       vendorId: vendor?._id,
       channel: String(body.channel ?? "Manual"),
     });
@@ -1246,14 +1460,13 @@ export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Respon
   if (!order) throw new AppError(404, "Order not found");
   await assertOrderAccess(req.user, order);
 
-  const awb = String(order.awb ?? "").trim();
-  if (awb) {
-    try {
-      await velocityService.cancelShipment({ awbs: [awb] });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      devLog.warn(`[orders:reship] Velocity cancel failed for ${order.orderId} awb=${awb}: ${msg}`);
-    }
+  // Cancel on the order's courier provider (Velocity or Lorrigo). Soft-fail so local reship still proceeds.
+  const { cancelProviderShipmentForOrder } = await import("../modules/courier/cancelProviderShipment.js");
+  const cancelResult = await cancelProviderShipmentForOrder(order, { reason: "customer_request" });
+  if (cancelResult.attempted && !cancelResult.success) {
+    devLog.warn(
+      `[orders:reship] ${cancelResult.provider} cancel failed for ${order.orderId}: ${cancelResult.message ?? "unknown"}`
+    );
   }
 
   order.isJunk = false;
@@ -1262,12 +1475,20 @@ export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Respon
   clearOrderShipmentForRebook(order);
   order.status = "reship";
   order.shipmentStatus = "reship";
-  appendStatusHistory(order, "reship", req.user._id);
+  appendStatusHistory(
+    order,
+    "reship",
+    req.user._id,
+    cancelResult.attempted
+      ? `Moved to reship after ${cancelResult.provider} cancel${cancelResult.success ? "" : " (provider cancel failed)"}`
+      : "Moved to reship"
+  );
   await order.save();
 
   res.json({
     success: true,
     message: "Order moved to reship",
+    providerCancel: cancelResult,
   });
 });
 
@@ -1365,6 +1586,8 @@ function clearOrderShipmentForRebook(order: InstanceType<typeof Order>): void {
   order.velocityOrderId = undefined;
   order.velocityShipmentId = undefined;
   order.velocityReturnId = undefined;
+  order.lorrigoOrderId = undefined;
+  order.lorrigoShipmentId = undefined;
   order.labelUrl = undefined;
   order.manifestUrl = undefined;
   order.courierCompanyId = undefined;
@@ -1374,6 +1597,7 @@ function clearOrderShipmentForRebook(order: InstanceType<typeof Order>): void {
   order.rtoCharges = undefined;
   order.trackingUrl = undefined;
   order.trackingActivities = undefined;
+  order.bookingInProgress = false;
 }
 
 function restoreOrderFromJunkForProcess(order: InstanceType<typeof Order>): void {
@@ -1472,6 +1696,68 @@ function applyProcessSelectedPrep(o: OrderDoc, prep: ProcessSelectedPrep, userId
   (o as unknown as { shipmentMode?: string }).shipmentMode = prep.shipmentMode;
 }
 
+function isMongooseVersionError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const name = String((err as { name?: string }).name ?? "");
+  const msg = String((err as { message?: string }).message ?? "");
+  return name === "VersionError" || /No matching document found for id/i.test(msg);
+}
+
+/**
+ * Persist Process Selected prep fields before provider booking.
+ * Retries once on optimistic-concurrency conflicts (Shopify sync / claim races).
+ */
+async function persistProcessSelectedPrep(
+  o: OrderDoc,
+  prep: ProcessSelectedPrep,
+  userId: Types.ObjectId
+): Promise<OrderDoc> {
+  applyProcessSelectedPrep(o, prep, userId);
+  try {
+    await o.save();
+    return o;
+  } catch (err) {
+    if (!isMongooseVersionError(err)) throw err;
+    const fresh = await Order.findById(o._id);
+    if (!fresh) throw err;
+    applyProcessSelectedPrep(fresh, prep, userId);
+    await fresh.save();
+    return fresh;
+  }
+}
+
+/** Save after booking when the in-memory doc may be stale vs claim/provider writes. */
+async function saveOrderAfterBooking(o: OrderDoc): Promise<void> {
+  try {
+    await o.save();
+  } catch (err) {
+    if (!isMongooseVersionError(err)) throw err;
+    const fresh = await Order.findById(o._id);
+    if (!fresh) throw err;
+    // Booking helpers already persisted AWB + courier status. Only merge history —
+    // never force status/shipmentStatus back to pending_pickup (that trapped orders
+    // on the Pending Pickup tab after the courier had already moved on).
+    const incomingHistory = Array.isArray(o.statusHistory) ? o.statusHistory : [];
+    const existingHistory = Array.isArray(fresh.statusHistory) ? fresh.statusHistory : [];
+    if (incomingHistory.length > existingHistory.length) {
+      fresh.statusHistory = incomingHistory.slice(-50);
+      fresh.markModified("statusHistory");
+      await fresh.save();
+    }
+  }
+}
+
+function noteProcessSelectedBooked(o: OrderDoc, userId: Types.ObjectId) {
+  const canonical = normalizeOrderStatus(o.status);
+  // Keep history aligned with the real post-booking status (usually pickup_scheduled).
+  appendStatusHistory(
+    o,
+    canonical === "draft" ? "pickup_scheduled" : canonical,
+    userId,
+    "Processed via Process Selected (Velocity priority)"
+  );
+}
+
 type ProcessSelectedOrderResult =
   | { outcome: "updated"; orderId: string; awb: string; carrier: string }
   | { outcome: "skipped"; orderId: string; reason: string }
@@ -1507,7 +1793,16 @@ async function processOneSelectedOrder(
     };
   }
 
-  applyProcessSelectedPrep(o, prep, req.user._id);
+  // Persist prep before booking — Lorrigo claim bumps __v and would otherwise break a later o.save().
+  try {
+    o = await persistProcessSelectedPrep(o, prep, req.user._id);
+  } catch (err: unknown) {
+    return {
+      outcome: "failed",
+      orderId: o.orderId,
+      error: formatErrorMessage(err, "Failed to prepare order for booking"),
+    };
+  }
 
   const bookingBase: Record<string, unknown> = {
     orderId: o.orderId,
@@ -1556,8 +1851,8 @@ async function processOneSelectedOrder(
           // Carrier already verified via shared serviceability list — skip second Velocity call.
           skip_serviceability: true,
         });
-        appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
-        await o.save();
+        noteProcessSelectedBooked(o, req.user._id);
+        await saveOrderAfterBooking(o);
         return {
           outcome: "updated",
           orderId: o.orderId,
@@ -1567,9 +1862,9 @@ async function processOneSelectedOrder(
       } catch (err: unknown) {
         // If Velocity already created a shipment, never try another courier.
         if (o.shipmentCreated || String(o.awb || "").trim()) {
-          appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
+          noteProcessSelectedBooked(o, req.user._id);
           try {
-            await o.save();
+            await saveOrderAfterBooking(o);
           } catch {
             /* already saved in book helper */
           }
@@ -1590,9 +1885,9 @@ async function processOneSelectedOrder(
     // or the preferred courier failed before any Velocity shipment was created.
     for (const candidate of priorities) {
       if (o.shipmentCreated || String(o.awb || "").trim()) {
-        appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
+        noteProcessSelectedBooked(o, req.user._id);
         try {
-          await o.save();
+          await saveOrderAfterBooking(o);
         } catch {
           /* already saved */
         }
@@ -1621,8 +1916,8 @@ async function processOneSelectedOrder(
       }
       try {
         const booking = await bookForwardShipmentForOrder(req, o, bookingBody);
-        appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
-        await o.save();
+        noteProcessSelectedBooked(o, req.user._id);
+        await saveOrderAfterBooking(o);
         return {
           outcome: "updated",
           orderId: o.orderId,
@@ -1631,9 +1926,9 @@ async function processOneSelectedOrder(
         };
       } catch (err: unknown) {
         if (o.shipmentCreated || String(o.awb || "").trim()) {
-          appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity priority)");
+          noteProcessSelectedBooked(o, req.user._id);
           try {
-            await o.save();
+            await saveOrderAfterBooking(o);
           } catch {
             /* already saved */
           }
@@ -1687,8 +1982,7 @@ async function processOneSelectedOrder(
         skipServiceability: true,
         userId: req.user._id,
       });
-      appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Lorrigo)");
-      await o.save();
+      // bookLorrigoShipment already claims, sets pending_pickup, and saves — do not o.save() again.
       return {
         outcome: "updated",
         orderId: o.orderId,
@@ -1706,8 +2000,8 @@ async function processOneSelectedOrder(
 
   try {
     const booking = await bookForwardShipmentForOrder(req, o, bookingBody);
-    appendStatusHistory(o, "pending_pickup", req.user._id, "Processed via Process Selected (Velocity)");
-    await o.save();
+    noteProcessSelectedBooked(o, req.user._id);
+    await saveOrderAfterBooking(o);
     return {
       outcome: "updated",
       orderId: o.orderId,

@@ -240,11 +240,16 @@ export function ProcessSelectedModal({
         },
       ];
     }
-    return serviceableCouriers.map((c) => ({
-      carrier_id: String(c.courierId || c.carrier_id),
-      carrier_name: String(c.courierName || c.carrier_name || c.courierId || c.carrier_id),
-      provider: (c.provider || "velocity") as "velocity" | "lorrigo",
-    }));
+    return serviceableCouriers.map((c) => {
+      const priceRaw = c.totalCharge ?? c.total_charge ?? c.freight ?? c.freightCharge ?? c.freight_charge;
+      const price = typeof priceRaw === "number" && Number.isFinite(priceRaw) ? priceRaw : null;
+      return {
+        carrier_id: String(c.courierId || c.carrier_id),
+        carrier_name: String(c.courierName || c.carrier_name || c.courierId || c.carrier_id),
+        provider: (c.provider || "velocity") as "velocity" | "lorrigo",
+        price,
+      };
+    });
   }, [serviceableCouriers, fixedCourierFromFilter]);
 
   const validationMessages = useMemo(() => {
@@ -493,6 +498,7 @@ export function ProcessSelectedModal({
                             carrierId={c.carrier_id}
                             carrierName={c.carrier_name}
                             provider={c.provider}
+                            price={"price" in c ? c.price : null}
                             selected={
                               selectedCarrierId === c.carrier_id &&
                               selectedCarrierProvider === c.provider

@@ -132,6 +132,29 @@ export function buildLorrigoOneClickPayload(input: ProviderCreateShipmentInput):
   };
 }
 
+/** Lorrigo Mongo/cuid ids look like `cm…`; avoid storing merchant order numbers as providerOrderId. */
+function looksLikeLorrigoInternalId(raw: string): boolean {
+  const s = raw.trim();
+  if (!s) return false;
+  if (/^c[a-z0-9]{20,}$/i.test(s)) return true;
+  if (/^ls\d+/i.test(s)) return true;
+  return s.length >= 20 && /[a-z]/i.test(s) && /\d/.test(s);
+}
+
+function pickLorrigoProviderOrderId(data: Record<string, unknown>, raw: unknown): string | undefined {
+  const candidates = [
+    pickString(data, ["id", "_id", "lorrigoOrderId", "lorrigo_order_id"]),
+    pickString(asRecord(data.order) ?? {}, ["id", "_id"]),
+    pickString(data, ["orderId", "order_id"]),
+    deepFindString(raw, ["lorrigoOrderId", "lorrigo_order_id"]),
+    deepFindString(raw, ["id"]),
+    deepFindString(raw, ["orderId", "order_id"]),
+  ].filter((x): x is string => Boolean(x?.trim()));
+
+  const preferred = candidates.find(looksLikeLorrigoInternalId);
+  return preferred ?? candidates[0];
+}
+
 export function parseLorrigoShipmentResult(raw: unknown): ProviderShipmentResult {
   const root = asRecord(raw) ?? {};
   const data = asRecord(root.data) ?? asRecord(root.result) ?? root;
@@ -139,9 +162,7 @@ export function parseLorrigoShipmentResult(raw: unknown): ProviderShipmentResult
   const awb =
     pickString(data, ["awb", "awbNumber", "awb_code", "awbCode", "trackingId", "tracking_id"]) ??
     deepFindString(raw, ["awb", "awbNumber", "awb_code", "awbCode"]);
-  const providerOrderId =
-    pickString(data, ["orderId", "order_id", "id", "_id", "lorrigoOrderId"]) ??
-    deepFindString(raw, ["orderId", "order_id"]);
+  const providerOrderId = pickLorrigoProviderOrderId(data, raw);
   const providerShipmentId =
     pickString(data, ["shipmentId", "shipment_id", "shipmentID"]) ??
     deepFindString(raw, ["shipmentId", "shipment_id"]);
@@ -195,20 +216,67 @@ export async function createLorrigoShipment(
 }
 
 export async function cancelLorrigoShipment(input: ProviderCancelInput): Promise<ProviderCancelResult> {
-  const orderId = String(input.providerOrderId ?? "").trim();
-  if (!orderId) {
-    throw new AppError(400, "Lorrigo cancel requires providerOrderId");
-  }
-  const reason = String(input.reason ?? "customer_request").trim() || "customer_request";
-  const raw = await lorrigoPost<unknown>(`/v2/shipments/${encodeURIComponent(orderId)}/cancel`, {
-    reason,
-    cancelType: "order",
-  });
-  return {
-    success: true,
-    message: pickString(asRecord(raw) ?? {}, ["message"]) ?? "Cancelled",
-    raw: sanitizeForProviderLog(raw),
+  const candidates: string[] = [];
+  const push = (v?: string) => {
+    const s = String(v ?? "").trim();
+    if (s && !candidates.includes(s)) candidates.push(s);
   };
+  push(input.providerOrderId);
+
+  const awb = String(input.awbs?.[0] ?? "").trim();
+  if (awb) {
+    try {
+      const tracked = await trackLorrigoShipment({ awb });
+      push(tracked.providerOrderId);
+      // Tracking payloads sometimes nest the real Lorrigo order id under raw.data
+      const root = asRecord(tracked.raw) ?? {};
+      const data = asRecord(root.data) ?? root;
+      push(pickLorrigoProviderOrderId(data, tracked.raw));
+      push(awb);
+    } catch {
+      push(awb);
+    }
+  }
+
+  if (!candidates.length) {
+    throw new AppError(400, "Lorrigo cancel requires providerOrderId (or a trackable AWB)");
+  }
+
+  const reason = String(input.reason ?? "customer_request").trim() || "customer_request";
+  const cancelTypes = ["order", "shipment"] as const;
+  let lastErr: unknown;
+
+  for (const orderId of candidates) {
+    for (const cancelType of cancelTypes) {
+      try {
+        const raw = await lorrigoPost<unknown>(
+          `/v2/shipments/${encodeURIComponent(orderId)}/cancel`,
+          { reason, cancelType }
+        );
+        console.info(
+          `[lorrigo] cancel success id=${orderId} cancelType=${cancelType} awb=${awb || "-"}`
+        );
+        return {
+          success: true,
+          message: pickString(asRecord(raw) ?? {}, ["message"]) ?? "Cancelled",
+          raw: sanitizeForProviderLog(raw),
+        };
+      } catch (err) {
+        lastErr = err;
+        console.warn(
+          `[lorrigo] cancel attempt failed id=${orderId} cancelType=${cancelType}: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      }
+    }
+  }
+
+  if (lastErr instanceof AppError) throw lastErr;
+  throw new AppError(
+    502,
+    lastErr instanceof Error ? lastErr.message : "Lorrigo cancel failed for all id/cancelType attempts"
+  );
 }
 
 export async function trackLorrigoShipment(input: ProviderTrackInput): Promise<ProviderTrackingResult> {

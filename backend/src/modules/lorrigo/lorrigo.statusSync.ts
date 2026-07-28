@@ -93,6 +93,51 @@ export async function syncLorrigoActiveShipmentStatuses(
     const correlationId = ensureCorrelationId(order);
     const trackStarted = Date.now();
 
+    const moveCancelledToReship = async (
+      rawShipmentStatus: string,
+      providerLatency: number,
+      note: string
+    ) => {
+      const current = normalizeOrderStatus(order.status);
+      order.shipmentCreated = false;
+      order.awb = "";
+      order.trackingId = undefined;
+      order.shipmentId = undefined;
+      order.lorrigoOrderId = undefined;
+      order.lorrigoShipmentId = undefined;
+      order.labelUrl = undefined;
+      order.trackingUrl = undefined;
+      order.trackingActivities = undefined;
+      order.bookingInProgress = false;
+      if (current !== "reship") {
+        appendStatusHistory(order, "reship", note);
+        order.status = "reship";
+        result.statusChanges += 1;
+      }
+      order.shipmentStatus = "reship";
+      order.lastProviderStatusSyncedAt = new Date();
+      appendProviderEvent(order, {
+        provider: "lorrigo",
+        type: "STATUS_CHANGE",
+        status: "SUCCESS",
+        durationMs: providerLatency,
+        correlationId,
+        message: `${current} → reship (Lorrigo cancelled)`,
+        metadata: { providerCanonical: "CANCELLED", rawStatus: rawShipmentStatus },
+      });
+      await order.save();
+      result.updated += 1;
+      console.info(
+        `[lorrigo:status-sync] moved cancelled Lorrigo order to reship orderId=${order.orderId}`
+      );
+    };
+
+    // Heal stuck rows where shipmentStatus is already CANCELLED_ORDER but Order.status lagged.
+    if (mapLorrigoStatusToProviderCanonical(order.shipmentStatus) === "CANCELLED") {
+      await moveCancelledToReship(String(order.shipmentStatus ?? "CANCELLED"), 0, "lorrigo_cancelled_to_reship");
+      continue;
+    }
+
     try {
       const tracked = await provider.trackShipment({ awb });
       const providerLatency = Date.now() - trackStarted;
@@ -119,7 +164,7 @@ export async function syncLorrigoActiveShipmentStatuses(
       const providerCanonical = mapLorrigoStatusToProviderCanonical(rawStatus);
       const nextStatus = providerCanonicalToOrderStatus(providerCanonical);
       const current = normalizeOrderStatus(order.status);
-      const sameStatus = current === nextStatus;
+      const rawShipmentStatus = String(rawStatus);
 
       // Always refresh activities when provided (replace snapshot).
       if (Array.isArray(tracked.activities) && tracked.activities.length > 0) {
@@ -130,7 +175,14 @@ export async function syncLorrigoActiveShipmentStatuses(
         }));
       }
 
-      const rawShipmentStatus = String(rawStatus);
+      // Match Velocity: external cancel → Reship (clear AWB so the order can be rebooked).
+      if (providerCanonical === "CANCELLED") {
+        await moveCancelledToReship(rawShipmentStatus, providerLatency, "lorrigo_cancelled_to_reship");
+        continue;
+      }
+
+      const sameStatus = current === nextStatus;
+
       if (order.shipmentStatus !== rawShipmentStatus) {
         order.shipmentStatus = rawShipmentStatus;
       }

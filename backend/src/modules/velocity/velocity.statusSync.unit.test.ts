@@ -11,6 +11,9 @@ describe("velocity status sync mapping consistency", () => {
       ["Delivered", "delivered"],
       ["Booked", "pickup_scheduled"],
       ["ndr_raised", "ndr"],
+      ["Dispatched", "in_transit"],
+      ["Connected", "in_transit"],
+      ["Bagged", "in_transit"],
     ] as const;
 
     for (const [raw, canonical] of cases) {

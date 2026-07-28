@@ -22,6 +22,8 @@ export type AdminUserRow = {
   emailVerified: boolean;
   createdAt?: string;
   updatedAt?: string;
+  /** Last admin-set password when available (null if user changed it themselves / never set by admin). */
+  password?: string | null;
 };
 
 export type AdminUserDetail = AdminUserRow & {
@@ -80,7 +82,7 @@ export function adminPatchUser(id: string, body: PatchAdminUserBody) {
 }
 
 export function adminResetUserPassword(id: string, newPassword: string) {
-  return apiClient.post<{ ok: boolean; message: string }>(
+  return apiClient.post<{ ok: boolean; message: string; password?: string }>(
     `/admin/users/${encodeURIComponent(id)}/reset-password`,
     { newPassword }
   );

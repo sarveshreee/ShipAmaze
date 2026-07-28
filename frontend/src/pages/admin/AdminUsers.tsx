@@ -17,6 +17,7 @@ import {
   Users,
   Eye,
   EyeOff,
+  Copy,
 } from "lucide-react";
 import {
   Sheet,
@@ -48,6 +49,23 @@ function statusBadge(status: string) {
   return <Badge variant="secondary">Inactive</Badge>;
 }
 
+function CredentialCell({
+  value,
+  reveal,
+}: {
+  value: string | null | undefined;
+  reveal: boolean;
+}) {
+  if (!value) {
+    return <span className="text-text-muted text-xs">Reset to view</span>;
+  }
+  return (
+    <span className="font-mono text-xs tabular-nums">
+      {reveal ? value : "••••••••"}
+    </span>
+  );
+}
+
 export default function AdminUsers() {
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
@@ -67,6 +85,8 @@ export default function AdminUsers() {
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [revealPasswords, setRevealPasswords] = useState(false);
+  const [revealDetailPassword, setRevealDetailPassword] = useState(false);
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
@@ -103,6 +123,7 @@ export default function AdminUsers() {
     if (!detailId) {
       setDetail(null);
       setNewPassword("");
+      setRevealDetailPassword(false);
       return;
     }
     void (async () => {
@@ -168,6 +189,10 @@ export default function AdminUsers() {
       await userService.adminResetUserPassword(detailId, newPassword);
       toast.success("Password reset successfully");
       setNewPassword("");
+      const r = await userService.adminGetUser(detailId);
+      setDetail(r.user);
+      setRevealDetailPassword(true);
+      await load();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Password reset failed");
     } finally {
@@ -249,6 +274,16 @@ export default function AdminUsers() {
         <Button variant="outline" size="icon" onClick={() => void load()} disabled={loading}>
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => setRevealPasswords((v) => !v)}
+        >
+          {revealPasswords ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          {revealPasswords ? "Hide passwords" : "Show passwords"}
+        </Button>
       </div>
 
       {error && (
@@ -276,6 +311,8 @@ export default function AdminUsers() {
                 <tr className="border-b border-border bg-muted/40 text-left text-text-muted">
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Email</th>
+                  <th className="px-4 py-3 font-medium">Password</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell">Phone</th>
                   <th className="px-4 py-3 font-medium hidden md:table-cell">Role</th>
                   <th className="px-4 py-3 font-medium hidden lg:table-cell">Company</th>
                   <th className="px-4 py-3 font-medium">Status</th>
@@ -291,6 +328,25 @@ export default function AdminUsers() {
                   >
                     <td className="px-4 py-3 font-medium text-text-primary">{u.name}</td>
                     <td className="px-4 py-3 text-text-secondary">{u.email}</td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1.5">
+                        <CredentialCell value={u.password} reveal={revealPasswords} />
+                        {u.password ? (
+                          <button
+                            type="button"
+                            className="text-text-muted hover:text-text-primary"
+                            title="Copy password"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(u.password!);
+                              toast.success("Password copied");
+                            }}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell text-text-muted">{u.phone || "—"}</td>
                     <td className="px-4 py-3 hidden md:table-cell">
                       <Badge variant="outline">{ROLE_LABELS[u.role] ?? u.role}</Badge>
                     </td>
@@ -344,6 +400,57 @@ export default function AdminUsers() {
               </div>
 
               <div className="grid gap-3 text-sm">
+                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                  <p className="text-sm font-medium">Login credentials</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-text-muted">Email: </span>
+                      <span className="font-mono text-xs">{detail.email}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-text-muted hover:text-text-primary"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(detail.email);
+                        toast.success("Email copied");
+                      }}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-text-muted">Password: </span>
+                      <CredentialCell value={detail.password} reveal={revealDetailPassword} />
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        className="text-text-muted hover:text-text-primary"
+                        onClick={() => setRevealDetailPassword((v) => !v)}
+                      >
+                        {revealDetailPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                      {detail.password ? (
+                        <button
+                          type="button"
+                          className="text-text-muted hover:text-text-primary"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(detail.password!);
+                            toast.success("Password copied");
+                          }}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  {!detail.password ? (
+                    <p className="text-xs text-text-muted">
+                      No recoverable password on file. Use Reset password below to set one you can view.
+                    </p>
+                  ) : null}
+                </div>
                 {detail.phone && (
                   <div>
                     <span className="text-text-muted">Phone: </span>

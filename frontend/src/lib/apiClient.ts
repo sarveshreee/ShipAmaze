@@ -159,13 +159,22 @@ export const apiClient = {
 };
 
 /** Authenticated download (CSV, etc.). Uses filename from Content-Disposition when present. */
-export async function downloadAuthenticatedFile(path: string, fallbackName: string): Promise<void> {
+export async function downloadAuthenticatedFile(
+  path: string,
+  fallbackName: string,
+  init?: { method?: "GET" | "POST"; json?: unknown }
+): Promise<void> {
   const url = `${baseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
   const token = getStoredToken();
   const headers: Record<string, string> = { Accept: "text/csv, */*" };
   if (token && shouldAttachAuthToken(path)) headers.Authorization = `Bearer ${token}`;
+  if (init?.json !== undefined) headers["Content-Type"] = "application/json";
 
-  const res = await fetch(url, { headers });
+  const res = await fetch(url, {
+    method: init?.method ?? "GET",
+    headers,
+    body: init?.json !== undefined ? JSON.stringify(init.json) : undefined,
+  });
   if (res.status === 401 && token) {
     setStoredToken(null);
     window.dispatchEvent(new CustomEvent("shipamaze:unauthorized"));

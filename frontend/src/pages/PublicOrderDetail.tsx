@@ -417,16 +417,24 @@ export default function PublicOrderDetail() {
     try {
       const awb = String(order.awb || "").trim();
       if (awb && awb !== "—" && awb !== "N/A" && getStoredToken()) {
-        await velocityService.cancelShipment({ awbs: [awb], orderId: order.id });
+        // Provider-aware cancel (Velocity / Lorrigo) + local Reship
+        await orderService.moveOrderToReship(order.id);
+        setOrder((prev) =>
+          prev ? { ...prev, status: "reship" as Order["status"], shipmentStatus: "reship", awb: "" } : prev
+        );
+        notifyOrdersListRefresh(order.id, "reship");
+        toast.success("Shipment cancelled — order moved to Reship.");
       } else if (getStoredToken()) {
         await orderService.updateOrderStatus(order.id, "cancelled");
+        setOrder((prev) =>
+          prev ? { ...prev, status: "cancelled" as Order["status"], shipmentStatus: "cancelled" } : prev
+        );
+        notifyOrdersListRefresh(order.id, "cancelled");
+        toast.success("Order cancelled successfully.");
       } else {
         throw new Error("Sign in to cancel this order");
       }
-      setOrder((prev) => (prev ? { ...prev, status: "cancelled" as Order["status"], shipmentStatus: "cancelled" } : prev));
-      notifyOrdersListRefresh(order.id, "cancelled");
       setCancelOpen(false);
-      toast.success("Order cancelled successfully.");
       if (window.opener) {
         window.close();
       }

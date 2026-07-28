@@ -32,3 +32,32 @@ export async function vendorOwnedPickupIds(vendorUserId: Types.ObjectId): Promis
     .lean();
   return rows.map((r) => r._id as Types.ObjectId);
 }
+
+/**
+ * Pickups linked to a Vendor — by owner userId OR Pickup.vendorId.
+ * Also returns labels for matching order snapshot pickup names.
+ */
+export async function pickupsLinkedToVendor(
+  vendorId: Types.ObjectId,
+  vendorUserId: Types.ObjectId
+): Promise<{ ids: Types.ObjectId[]; labels: string[] }> {
+  const rows = await Pickup.find({
+    $and: [
+      { ...PICKUP_NOT_DELETED },
+      { $or: [{ userId: vendorUserId }, { vendorId }] },
+    ],
+  })
+    .select("_id label")
+    .lean();
+  const labels = [
+    ...new Set(
+      rows
+        .map((r) => String(r.label ?? "").trim())
+        .filter((l) => l.length > 0)
+    ),
+  ];
+  return {
+    ids: rows.map((r) => r._id as Types.ObjectId),
+    labels,
+  };
+}

@@ -13,8 +13,8 @@ import { toast } from "sonner";
 import { getStoredToken } from "@/lib/apiClient";
 import * as labelInvoiceSettingsService from "@/services/labelInvoiceSettingsService";
 
-const BULK_FETCH_TIMEOUT_MS = 120_000;
-const MAX_STYLED_BULK_LABELS = 50;
+const BULK_FETCH_TIMEOUT_MS = 300_000;
+const MAX_STYLED_BULK_LABELS = 1000;
 
 function getApiBase(): string {
   const u = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
@@ -26,6 +26,18 @@ function getApiBase(): string {
   return "";
 }
 
+function downloadPdfFile(blob: Blob, filename: string): void {
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+}
+
 function openPdfBlob(blob: Blob, existingTab?: Window | null): void {
   const blobUrl = URL.createObjectURL(blob);
   if (existingTab && !existingTab.closed) {
@@ -34,21 +46,12 @@ function openPdfBlob(blob: Blob, existingTab?: Window | null): void {
     const tab = window.open(blobUrl, "_blank");
     if (!tab) {
       URL.revokeObjectURL(blobUrl);
-      throw new Error("Popup blocked — please allow popups for this site");
+      // Fall back to direct download when popups are blocked.
+      downloadPdfFile(blob, `labels-${Date.now()}.pdf`);
+      return;
     }
   }
   setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
-}
-
-function openPreparingTab(count: number): Window | null {
-  const tab = window.open("", "_blank");
-  if (!tab) return null;
-  tab.document.open();
-  tab.document.write(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Labels</title></head><body style="font-family:system-ui,sans-serif;padding:32px;color:#333"><h2>Preparing ${count} label(s)…</h2><p>Please wait — do not close this tab.</p></body></html>`
-  );
-  tab.document.close();
-  return tab;
 }
 
 function summarizeBulkLabelError(message: string): string {
@@ -132,7 +135,8 @@ async function fetchCourierLabelPdfBlob(order: Order): Promise<Blob> {
 }
 
 async function openCourierLabelPdf(order: Order): Promise<void> {
-  openPdfBlob(await fetchCourierLabelPdfBlob(order));
+  // Official Amazon/Velocity label — download the PDF file (no about:blank HTML window).
+  downloadPdfFile(await fetchCourierLabelPdfBlob(order), `amazon-label-${displayOrderNumber(order)}.pdf`);
 }
 
 /** Load global (or dropshipper-merged) settings, then apply per-order logos when present. */
@@ -167,22 +171,14 @@ function settingsForOrder(
   return { ...base, logoUrl: custom, showLogo: true };
 }
 
-export function printShippingLabel(order: Order, settings?: LabelInvoiceSettings) {
+export async function printShippingLabel(order: Order, settings?: LabelInvoiceSettings): Promise<void> {
   if (shouldUseVelocityCourierPdf(order)) {
-    openCourierLabelPdf(order).catch((e: unknown) => {
-      toast.error(e instanceof Error ? e.message : "Failed to open Amazon courier label");
-    });
+    await openCourierLabelPdf(order);
     return;
   }
-  void (async () => {
-    try {
-      const { base, logos } = await resolveSettingsForOrders([order], settings);
-      const s = settingsForOrder(base, order, logos);
-      openPrintWindowForLabel(order, s, `Shipping label · ${displayOrderNumber(order)}`);
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to open label");
-    }
-  })();
+  const { base, logos } = await resolveSettingsForOrders([order], settings);
+  const s = settingsForOrder(base, order, logos);
+  openPrintWindowForLabel(order, s, `Shipping label · ${displayOrderNumber(order)}`);
 }
 
 export async function printBulkLabels(orders: Order[], settings?: LabelInvoiceSettings): Promise<void> {
@@ -195,12 +191,12 @@ export async function printBulkLabels(orders: Order[], settings?: LabelInvoiceSe
     throw new Error(`Print at most ${MAX_STYLED_BULK_LABELS} styled labels at a time.`);
   }
 
-  const prepTab = openPreparingTab(orders.length);
   const pdfParts: Blob[] = [];
   let warnings: string | undefined;
 
   try {
     if (amazonOrders.length > 0) {
+      // Official Velocity Amazon PDFs — download as a file, never open an HTML print window.
       const amazonResult = await fetchBulkCourierLabelPdf(amazonOrders.map((o) => o.id));
       pdfParts.push(amazonResult.blob);
       warnings = amazonResult.warnings;
@@ -216,14 +212,19 @@ export async function printBulkLabels(orders: Order[], settings?: LabelInvoiceSe
     }
 
     const merged = await mergePdfBlobs(pdfParts);
-    openPdfBlob(merged, prepTab);
+    if (amazonOrders.length > 0 && styledOrders.length === 0) {
+      downloadPdfFile(merged, `amazon-labels-${amazonOrders.length}.pdf`);
+    } else if (amazonOrders.length > 0) {
+      downloadPdfFile(merged, `labels-${orders.length}.pdf`);
+    } else {
+      openPdfBlob(merged);
+    }
 
     if (warnings) {
       const short = warnings.length > 220 ? `${warnings.slice(0, 220)}…` : warnings;
       toast.warning(short);
     }
   } catch (err: unknown) {
-    if (prepTab && !prepTab.closed) prepTab.close();
     throw err instanceof Error ? err : new Error("Bulk label print failed");
   }
 }
@@ -232,11 +233,38 @@ export async function printBulkInvoices(orders: Order[], settings?: LabelInvoice
   if (orders.length > MAX_STYLED_BULK_LABELS) {
     throw new Error(`Print at most ${MAX_STYLED_BULK_LABELS} invoices at a time.`);
   }
+  if (!orders.length) return;
+
+  // Amazon Transportation → official Velocity courier PDF download (same design as Velocity panel).
+  const amazonOrders = orders.filter((o) => shouldUseVelocityCourierPdf(o));
+  const styledOrders = orders.filter((o) => !shouldUseVelocityCourierPdf(o));
+
+  if (amazonOrders.length > 0) {
+    try {
+      if (styledOrders.length === 0) {
+        const amazonResult = await fetchBulkCourierLabelPdf(amazonOrders.map((o) => o.id));
+        downloadPdfFile(amazonResult.blob, `amazon-labels-${amazonOrders.length}.pdf`);
+        if (amazonResult.warnings) {
+          const short =
+            amazonResult.warnings.length > 220
+              ? `${amazonResult.warnings.slice(0, 220)}…`
+              : amazonResult.warnings;
+          toast.warning(short);
+        }
+        return;
+      }
+      await printBulkLabels(orders, settings);
+      return;
+    } catch (err: unknown) {
+      throw err instanceof Error ? err : new Error("Bulk Amazon label download failed");
+    }
+  }
+
+  // Non-Amazon: HTML print window (seconds).
   const { base, logos } = await resolveSettingsForOrders(orders, settings);
   const nodes = orders.map((o) =>
     createOrderLabelElement(o, settingsForOrder(base, o, logos), { documentTitle: "Invoice" })
   );
-  // Fast path for viewing/printing; use PDF blob path only when merging with courier PDFs elsewhere.
   openPrintWindowForLabelNodes(nodes, base, "Bulk invoices");
 }
 

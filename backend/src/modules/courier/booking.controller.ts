@@ -197,5 +197,38 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
     reason: String(body.reason ?? "customer_request"),
   });
 
+  // After successful provider cancel, move local order to Reship (rebookable), like Velocity sync.
+  if (result.success) {
+    order.shipmentCreated = false;
+    order.awb = "";
+    order.trackingId = undefined;
+    order.shipmentId = undefined;
+    if (providerId === "lorrigo") {
+      order.lorrigoOrderId = undefined;
+      order.lorrigoShipmentId = undefined;
+    } else {
+      order.velocityOrderId = undefined;
+      order.velocityShipmentId = undefined;
+    }
+    order.labelUrl = undefined;
+    order.trackingUrl = undefined;
+    order.trackingActivities = undefined;
+    order.bookingInProgress = false;
+    order.status = "reship";
+    order.shipmentStatus = "reship";
+    const prev = order.statusHistory ?? [];
+    order.statusHistory = [
+      ...prev,
+      {
+        status: "reship",
+        at: new Date(),
+        updatedBy: req.user._id,
+        note: `${providerId}_cancel_to_reship`,
+      },
+    ].slice(-50);
+    if (typeof order.markModified === "function") order.markModified("statusHistory");
+    await order.save();
+  }
+
   res.json({ success: result.success, message: result.message, data: result });
 });

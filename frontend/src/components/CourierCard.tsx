@@ -9,6 +9,8 @@ type Props = {
   carrierName: string;
   /** velocity | lorrigo — shown as a small label under the name */
   provider?: string;
+  /** Optional display rate (INR). */
+  price?: number | null;
   selected?: boolean;
   onClick?: () => void;
   disabled?: boolean;
@@ -19,6 +21,7 @@ export function CourierCard({
   carrierId,
   carrierName,
   provider,
+  price,
   selected = false,
   onClick,
   disabled = false,
@@ -94,6 +97,16 @@ export function CourierCard({
           )}
         >
           {providerDisplayName(provider)}
+        </span>
+      ) : null}
+      {price != null && Number.isFinite(price) ? (
+        <span
+          className={cn(
+            "mt-1 font-semibold text-text-primary",
+            compact ? "text-[11px]" : "text-sm"
+          )}
+        >
+          ₹{Math.round(price)}
         </span>
       ) : null}
     </button>

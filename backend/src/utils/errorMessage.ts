@@ -48,12 +48,18 @@ export function extractProviderErrorMessage(data: unknown): string {
 
 export function formatErrorMessage(err: unknown, fallback = "Request failed"): string {
   if (err instanceof Error) {
-    const anyErr = err as Error & { providerError?: unknown };
+    const anyErr = err as Error & { providerError?: unknown; name?: string };
     if (anyErr.providerError != null) {
       const fromProvider = extractProviderErrorMessage(anyErr.providerError);
       if (fromProvider) return fromProvider;
     }
     const msg = err.message?.trim();
+    if (
+      anyErr.name === "VersionError" ||
+      (msg && /No matching document found for id/i.test(msg))
+    ) {
+      return "Order was updated by another process. Please retry Process Selected.";
+    }
     if (msg && msg !== "[object Object]") return msg;
   }
   const coerced = coerceMessageValue(err);

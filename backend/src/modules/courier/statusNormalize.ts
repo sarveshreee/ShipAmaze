@@ -91,6 +91,14 @@ const LORRIGO_RAW_TO_PROVIDER: Record<string, ProviderCanonicalStatus> = {
   ndr: "FAILED",
   cancelled: "CANCELLED",
   canceled: "CANCELLED",
+  cancellation: "CANCELLED",
+  cancelled_order: "CANCELLED",
+  canceled_order: "CANCELLED",
+  order_cancelled: "CANCELLED",
+  order_canceled: "CANCELLED",
+  shipment_cancelled: "CANCELLED",
+  shipment_canceled: "CANCELLED",
+  cancel: "CANCELLED",
   returned: "RETURNED",
   rto: "RETURNED",
   rto_delivered: "RETURNED",
@@ -99,7 +107,10 @@ const LORRIGO_RAW_TO_PROVIDER: Record<string, ProviderCanonicalStatus> = {
 
 export function mapLorrigoStatusToProviderCanonical(raw: unknown): ProviderCanonicalStatus {
   const k = key(raw);
-  return LORRIGO_RAW_TO_PROVIDER[k] ?? "IN_TRANSIT";
+  if (LORRIGO_RAW_TO_PROVIDER[k]) return LORRIGO_RAW_TO_PROVIDER[k];
+  // Lorrigo variants like CANCELLED_ORDER / ORDER_CANCELLED
+  if (k.includes("cancel")) return "CANCELLED";
+  return "IN_TRANSIT";
 }
 
 export function providerCanonicalToOrderStatus(

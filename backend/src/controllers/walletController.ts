@@ -140,22 +140,14 @@ export const adminListWalletTransactions = asyncHandler(async (req: AuthRequest,
   const status = String(q.status ?? "").trim();
   if (status === "completed" || status === "pending" || status === "failed") filter.status = status;
 
-  const from = String(q.dateFrom ?? "").trim();
-  const to = String(q.dateTo ?? "").trim();
+  const { parseYmdEnd, parseYmdStart } = await import("../utils/dateOnly.js");
+  const from = parseYmdStart(q.dateFrom);
+  const to = parseYmdEnd(q.dateTo);
   if (from || to) {
     const range: Record<string, unknown> = {};
-    if (from) {
-      const d = new Date(from);
-      if (!Number.isNaN(d.getTime())) range.$gte = d;
-    }
-    if (to) {
-      const d = new Date(to);
-      if (!Number.isNaN(d.getTime())) {
-        d.setHours(23, 59, 59, 999);
-        range.$lte = d;
-      }
-    }
-    if (Object.keys(range).length) filter.createdAt = range;
+    if (from) range.$gte = from;
+    if (to) range.$lte = to;
+    filter.createdAt = range;
   }
 
   const [rows, total] = await Promise.all([

@@ -141,4 +141,56 @@ describe("lorrigo status sync", () => {
       (order.providerEvents as { type: string }[]).some((e) => e.type === "TRACKING_FAILED")
     ).toBe(true);
   });
+
+  it("moves Lorrigo-cancelled shipments to reship and clears AWB", async () => {
+    const order = makeOrder({
+      status: "pending_pickup",
+      shipmentStatus: "PICKUP_SCHEDULED",
+      shipmentCreated: true,
+      lorrigoOrderId: "lo-1",
+      awb: "AWB-CANCEL",
+    });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => ({
+        awb: "AWB-CANCEL",
+        status: "Cancelled",
+        activities: [],
+      }))
+    );
+
+    const { syncLorrigoActiveShipmentStatuses } = await import("./lorrigo.statusSync.js");
+    const r = await syncLorrigoActiveShipmentStatuses(10);
+
+    expect(r.statusChanges).toBe(1);
+    expect(order.status).toBe("reship");
+    expect(order.shipmentStatus).toBe("reship");
+    expect(order.awb).toBe("");
+    expect(order.shipmentCreated).toBe(false);
+    expect(order.lorrigoOrderId).toBeUndefined();
+  });
+
+  it("heals CANCELLED_ORDER stuck under in_transit into reship", async () => {
+    const order = makeOrder({
+      status: "in_transit",
+      shipmentStatus: "CANCELLED_ORDER",
+      shipmentCreated: true,
+      lorrigoOrderId: "lo-stuck",
+      awb: "AWB-STUCK",
+    });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => {
+        throw new Error("should not track when already cancelled locally");
+      })
+    );
+
+    const { syncLorrigoActiveShipmentStatuses } = await import("./lorrigo.statusSync.js");
+    const r = await syncLorrigoActiveShipmentStatuses(10);
+
+    expect(r.statusChanges).toBe(1);
+    expect(order.status).toBe("reship");
+    expect(order.shipmentStatus).toBe("reship");
+    expect(order.awb).toBe("");
+  });
 });

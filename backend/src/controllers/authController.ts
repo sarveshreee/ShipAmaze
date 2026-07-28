@@ -341,6 +341,7 @@ export const changePassword = asyncHandler(async (req: AuthRequest, res: Respons
   const ok = await bcrypt.compare(body.currentPassword, req.user.passwordHash);
   if (!ok) throw new AppError(400, "Current password is incorrect");
   req.user.passwordHash = await bcrypt.hash(body.newPassword, 10);
+  req.user.adminPasswordEncrypted = undefined;
   await req.user.save();
   try {
     const { sendSecurityEmail } = await import("../services/email/emailService.js");
@@ -418,6 +419,7 @@ export const resetPasswordWithOtp = asyncHandler(async (req: Request, res: Respo
   }
 
   user.passwordHash = await bcrypt.hash(body.newPassword, 10);
+  user.adminPasswordEncrypted = undefined;
   await user.save();
   await PasswordResetOtp.deleteMany({ email });
   res.json({ ok: true });

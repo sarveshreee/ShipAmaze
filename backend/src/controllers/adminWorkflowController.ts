@@ -22,10 +22,21 @@ import { getFinalProductPrice, resolveOurCommission, resolveShippingCharge } fro
 import { assertProductPermission, PRODUCT_PERMISSIONS } from "../utils/productPermissions.js";
 import { devLog } from "../utils/devLog.js";
 import { buildProductListPipeline } from "../utils/productListPayload.js";
+import { decrypt, encrypt } from "../utils/crypto.js";
 
 function assertAdmin(req: AuthRequest): void {
   if (!req.user) throw new AppError(401, "Unauthorized");
   if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+}
+
+function decryptAdminPassword(encrypted: string | undefined | null): string | null {
+  const raw = String(encrypted ?? "").trim();
+  if (!raw) return null;
+  try {
+    return decrypt(raw);
+  } catch {
+    return null;
+  }
 }
 
 /** Minimal directory for ticket assignment (no sensitive vendor/dropshipper data). */
@@ -83,6 +94,7 @@ function mapAdminUserRow(u: {
   emailVerified?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
+  adminPasswordEncrypted?: string;
 }) {
   return {
     id: String(u._id),
@@ -96,6 +108,8 @@ function mapAdminUserRow(u: {
     emailVerified: u.emailVerified !== false,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
+    /** Last password set by admin create/reset (not available for self-registered users until reset). */
+    password: decryptAdminPassword(u.adminPasswordEncrypted),
   };
 }
 
@@ -146,6 +160,7 @@ export const adminCreateUser = asyncHandler(async (req: AuthRequest, res: Respon
     name: body.name.trim(),
     email,
     passwordHash,
+    adminPasswordEncrypted: encrypt(body.password),
     role: body.role,
     companyName: body.companyName?.trim() ?? "",
     phone: body.phone?.trim() ?? "",
@@ -163,7 +178,12 @@ export const adminCreateUser = asyncHandler(async (req: AuthRequest, res: Respon
     void sendWelcomeEmail(user.email, user.name, user.role);
   }
 
-  res.status(201).json({ user: mapAdminUserRow(user) });
+  res.status(201).json({
+    user: mapAdminUserRow({
+      ...user.toObject(),
+      adminPasswordEncrypted: user.adminPasswordEncrypted,
+    }),
+  });
 });
 
 /** Admin: list all users with search, role/status filters, pagination. */
@@ -192,7 +212,12 @@ export const adminListUsers = asyncHandler(async (req: AuthRequest, res: Respons
   }
 
   const [rows, total] = await Promise.all([
-    User.find(q).select("-passwordHash").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    User.find(q)
+      .select("-passwordHash +adminPasswordEncrypted")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
     User.countDocuments(q),
   ]);
 
@@ -209,7 +234,7 @@ export const adminGetUser = asyncHandler(async (req: AuthRequest, res: Response)
   assertAdmin(req);
   const id = req.params.id;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
-  const u = await User.findById(id).select("-passwordHash").lean();
+  const u = await User.findById(id).select("-passwordHash +adminPasswordEncrypted").lean();
   if (!u) throw new AppError(404, "User not found");
 
   let dropshipperMeta: { accessType: string; allowWarehouseAccess: boolean } | null = null;
@@ -270,9 +295,14 @@ export const adminResetUserPassword = asyncHandler(async (req: AuthRequest, res:
   if (!user) throw new AppError(404, "User not found");
 
   user.passwordHash = await bcrypt.hash(body.newPassword, 10);
+  user.adminPasswordEncrypted = encrypt(body.newPassword);
   await user.save();
 
-  res.json({ ok: true, message: "Password updated successfully" });
+  res.json({
+    ok: true,
+    message: "Password updated successfully",
+    password: body.newPassword,
+  });
 });
 
 function parsePagination(req: { query: Record<string, unknown> }) {

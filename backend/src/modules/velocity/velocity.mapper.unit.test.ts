@@ -45,4 +45,13 @@ describe("velocity status mapping", () => {
     expect(mapVelocityStatus("Booked")).toBe("pickup-scheduled");
     expect(mapVelocityStatus("Manifested")).toBe("pickup-scheduled");
   });
+
+  it("maps courier transit aliases that previously blocked tab upgrades", () => {
+    expect(mapVelocityStatus("Dispatched")).toBe("in-transit");
+    expect(mapVelocityStatus("Connected")).toBe("in-transit");
+    expect(mapVelocityStatus("Bagged")).toBe("in-transit");
+    expect(mapVelocityStatus("Reached Hub")).toBe("in-transit");
+    expect(shouldApplyInternalStatusUpdate("pickup_scheduled", "Dispatched")).toBe(true);
+    expect(shouldApplyInternalStatusUpdate("pickup_scheduled", mapVelocityStatus("Connected"))).toBe(true);
+  });
 });

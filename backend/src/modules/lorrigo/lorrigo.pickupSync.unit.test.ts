@@ -102,6 +102,26 @@ describe("lorrigo pickup sync", () => {
     expect(body.facilityName).toBe("Hub");
     expect(body.email).toBe("fallback@test.com");
     expect(body.pincode).toBe("395003");
+    // Lorrigo requires `/` or `-` in address + RTO fields
+    expect(body.address).toContain("-");
+    expect(body.rtoAddress).toBe(body.address);
+    expect(body.rtoPincode).toBe("395003");
+  });
+
+  it("keeps addresses that already contain / or -", () => {
+    const body = pickupToLorrigoPickupPayload(
+      {
+        label: "Hub",
+        contactName: "Sam",
+        phone: "9876543210",
+        addressLine1: "opp-matchiswala market",
+        city: "Surat",
+        state: "Gujarat",
+        pincode: "395003",
+      },
+      "fallback@test.com"
+    );
+    expect(body.address).toBe("opp-matchiswala market");
   });
 
   it("bypasses sync when LORRIGO_ENABLED=false", async () => {
@@ -114,12 +134,16 @@ describe("lorrigo pickup sync", () => {
     expect(lorrigoPost).not.toHaveBeenCalled();
   });
 
-  it("syncs successfully and stores provider id", async () => {
+  it("syncs successfully and stores provider id from hub.id", async () => {
     process.env.LORRIGO_ENABLED = "true";
     process.env.LORRIGO_EMAIL = "a@b.com";
     process.env.LORRIGO_PASSWORD = "x";
     const id = seedPickup();
-    vi.mocked(lorrigoPost).mockResolvedValue({ id: "lorrigo-pickup-1" });
+    vi.mocked(lorrigoPost).mockResolvedValue({
+      valid: true,
+      message: "Hub created successfully",
+      hub: { id: "lorrigo-pickup-1", code: "LS123" },
+    });
 
     const result = await syncPickupToLorrigo(id);
     expect(result).toMatchObject({ synced: true, pickupId: "lorrigo-pickup-1" });

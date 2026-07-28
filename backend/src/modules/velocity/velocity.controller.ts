@@ -55,7 +55,7 @@ import {
   type MergedForwardContext,
 } from "./velocity.warehouseMerge.js";
 import { resolveVelocityCarrierId, assertServiceableCarrierForOrder } from "./velocity.resolveCarrier.js";
-import { resolveOrderLabelPdf, mapWithConcurrency, createVelocityRefreshCache, scheduleLabelPdfCache } from "./velocity.labelPdf.js";
+import { resolveOrderLabelPdf, mapWithConcurrency, createVelocityRefreshCache, scheduleLabelPdfCache, cacheLabelPdfNow } from "./velocity.labelPdf.js";
 import { velocityConfig } from "./velocity.config.js";
 import { mirrorShopifyFulfillmentStatus, pushShopifyFulfillmentUpdate } from "../../services/shopifyFulfillmentMirror.js";
 
@@ -623,7 +623,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
       });
       localOrder!.shipmentStatus = later.status;
       localOrder!.assignedDateTime = new Date();
-      applyVelocityMappedOrderStatus(localOrder!, later.status, "pending-pickup", "velocity_assign_awb");
+      applyVelocityMappedOrderStatus(localOrder!, later.status, "pickup_scheduled", "velocity_assign_awb");
       localOrder!.shipmentCreated = true;
       if (later.awb_code) localOrder!.trackingId = later.awb_code;
       mirrorShopifyFulfillmentStatus(localOrder!);
@@ -754,7 +754,7 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
           });
           localOrder.shipmentStatus = later.status;
           localOrder.assignedDateTime = new Date();
-          applyVelocityMappedOrderStatus(localOrder, later.status, "pending-pickup", "velocity_forward_dup_retry");
+          applyVelocityMappedOrderStatus(localOrder, later.status, "pickup_scheduled", "velocity_forward_dup_retry");
           localOrder.shipmentCreated = true;
           if (later.awb_code) localOrder.trackingId = later.awb_code;
           mirrorShopifyFulfillmentStatus(localOrder);
@@ -818,7 +818,6 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     localOrder.courierCompanyId = result.carrier_id;
     localOrder.courierName = result.carrier_name;
     localOrder.labelUrl = result.label_url;
-    scheduleLabelPdfCache(localOrder);
     localOrder.manifestUrl = result.manifest_url;
     localOrder.rtoCharges = result.rto_charges;
     await applyBillableShippingToOrder(localOrder, {
@@ -828,11 +827,14 @@ export const createForwardShipment = asyncHandler(async (req: AuthRequest, res: 
     });
     localOrder.shipmentStatus = result.status;
     localOrder.assignedDateTime = new Date();
-    applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_forward_create");
+    applyVelocityMappedOrderStatus(localOrder, result.status, "pickup_scheduled", "velocity_forward_create");
     localOrder.shipmentCreated = true;
     if (result.awb_code) localOrder.trackingId = result.awb_code;
     mirrorShopifyFulfillmentStatus(localOrder);
     await localOrder.save();
+    if (result.label_url) {
+      await cacheLabelPdfNow(localOrder, { maxAttempts: 4, initialDelayMs: 800 }).catch(() => undefined);
+    }
     void pushShopifyFulfillmentUpdate(localOrder);
   }
 
@@ -949,7 +951,7 @@ export const createForwardShipmentLater = asyncHandler(async (req: AuthRequest, 
     });
     localOrder.shipmentStatus = result.status;
     localOrder.assignedDateTime = new Date();
-    applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_forward_awb_later");
+    applyVelocityMappedOrderStatus(localOrder, result.status, "pickup_scheduled", "velocity_forward_awb_later");
     mirrorShopifyFulfillmentStatus(localOrder);
     await localOrder.save();
     void pushShopifyFulfillmentUpdate(localOrder);
@@ -1878,9 +1880,9 @@ export async function bookForwardShipmentForOrder(
   localOrder.assignedDateTime = new Date();
   localOrder.shipmentCreated = true;
   if (result.awb_code) localOrder.trackingId = result.awb_code;
-  applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_process_selected");
+  applyVelocityMappedOrderStatus(localOrder, result.status, "pickup_scheduled", "velocity_process_selected");
   mirrorShopifyFulfillmentStatus(localOrder);
-  if (result.label_url) scheduleLabelPdfCache(localOrder);
+  // Cache after fields are set; await happens after save below.
 
   try {
     await applyBillableShippingToOrder(localOrder, {
@@ -1896,6 +1898,12 @@ export async function bookForwardShipmentForOrder(
   }
 
   await localOrder.save();
+  // Persist official Amazon/Velocity PDF while the S3 URL is still fresh (critical).
+  if (result.label_url) {
+    await cacheLabelPdfNow(localOrder, { maxAttempts: 4, initialDelayMs: 800 }).catch(() => undefined);
+  } else if (localOrder.labelUrl) {
+    scheduleLabelPdfCache(localOrder);
+  }
   void pushShopifyFulfillmentUpdate(localOrder);
 
   try {
@@ -1987,7 +1995,7 @@ export const getBulkLabelPdf = asyncHandler(async (req: AuthRequest, res: Respon
     try {
       const resolved = await resolveOrderLabelPdf(order, {
         allowVelocityRefresh,
-        fetchTimeoutMs: allowVelocityRefresh ? 15_000 : 10_000,
+        fetchTimeoutMs: allowVelocityRefresh ? 25_000 : 15_000,
         velocityRefreshCache: refreshCache,
       });
       return { ok: true as const, orderId: order.orderId, orderRef: order, ...resolved };

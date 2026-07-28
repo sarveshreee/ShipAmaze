@@ -4,7 +4,7 @@ import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { ExpandableText, ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
 import { EditSkuModal } from "@/components/EditSkuModal";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
-import { Package, MapPin, Truck, Eye, Printer, Tag } from "lucide-react";
+import { Package, MapPin, Truck, Eye, Printer, Tag, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 interface OrderCardListProps {
   orders: Order[];
   onViewOrder?: (order: Order) => void;
+  onPrintOrder?: (order: Order) => void;
   selected?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onSelectAllVisible?: (ids: string[]) => void;
@@ -34,6 +35,7 @@ function orderAddressLines(order: Order): string {
 export function OrderCardList({
   orders,
   onViewOrder,
+  onPrintOrder,
   selected,
   onToggleSelect,
   onSelectAllVisible,
@@ -180,11 +182,25 @@ export function OrderCardList({
                   <span className="text-text-muted shrink-0">·</span>
                   <span className="shrink-0">{order.weight}</span>
                 </div>
-                <div className="flex gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] gap-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewOrder?.(order);
+                    }}
+                  >
+                    <Maximize2 className="h-3 w-3" />
+                    Full details
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 text-text-muted"
+                    title="Open tracking page"
                     onClick={(e) => {
                       e.stopPropagation();
                       window.open(`/order-detail?id=${order.id}`, "_blank");
@@ -196,7 +212,11 @@ export function OrderCardList({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 text-text-muted"
-                    onClick={(e) => e.stopPropagation()}
+                    title="Print label"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPrintOrder?.(order);
+                    }}
                   >
                     <Printer className="h-3.5 w-3.5" />
                   </Button>

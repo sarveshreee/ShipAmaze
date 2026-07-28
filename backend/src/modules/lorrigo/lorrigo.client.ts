@@ -161,6 +161,22 @@ function getClient(): ProviderHttpClient {
         20,
         Math.max(1, parseInt(process.env.LORRIGO_MAX_CONCURRENT_REQUESTS || "6", 10) || 6)
       ),
+      mapErrorMessage: (rawMsg) => {
+        // Lorrigo often returns Zod issues as a JSON string in `message`.
+        const trimmed = String(rawMsg ?? "").trim();
+        if (trimmed.startsWith("[")) {
+          try {
+            const issues = JSON.parse(trimmed) as Array<{ message?: string }>;
+            const parts = issues
+              .map((i) => (typeof i?.message === "string" ? i.message.trim() : ""))
+              .filter(Boolean);
+            if (parts.length) return parts.slice(0, 3).join("; ");
+          } catch {
+            /* keep raw */
+          }
+        }
+        return trimmed;
+      },
       fetchToken: fetchNewToken,
       onTokenInvalidate: () => {
         lastRefreshAt = new Date();

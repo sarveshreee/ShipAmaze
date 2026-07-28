@@ -129,4 +129,16 @@ describe("order tab filters", () => {
     expect(orderMatchesTab(order, "in-transit")).toBe(true);
     expect(orderMatchesTab(order, "failed")).toBe(false);
   });
+
+  it("moves Dispatched/Connected courier statuses out of pending-pickup", () => {
+    for (const shipmentStatus of ["Dispatched", "Connected", "Bagged"]) {
+      const order = orderWith({
+        status: "pickup_scheduled",
+        shipmentStatus,
+        awb: "AWB123",
+      });
+      expect(orderMatchesTab(order, "pending-pickup")).toBe(false);
+      expect(orderMatchesTab(order, "in-transit")).toBe(true);
+    }
+  });
 });
