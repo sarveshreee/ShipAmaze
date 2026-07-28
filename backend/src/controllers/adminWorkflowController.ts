@@ -221,7 +221,7 @@ export const adminGetUser = asyncHandler(async (req: AuthRequest, res: Response)
         allowWarehouseAccess:
           typeof d.allowWarehouseAccess === "boolean"
             ? d.allowWarehouseAccess
-            : d.accessType !== "RESTRICTED",
+            : true,
       };
     }
   }
@@ -728,7 +728,7 @@ export const adminListDropshippers = asyncHandler(async (req: AuthRequest, res: 
         allowWarehouseAccess:
           typeof d.allowWarehouseAccess === "boolean"
             ? d.allowWarehouseAccess
-            : d.accessType !== "RESTRICTED",
+            : true,
         accountStatus: u?.status,
         totalOrders: d.totalOrders,
         activeOrders: d.activeOrders,
@@ -775,7 +775,7 @@ export const adminGetDropshipper = asyncHandler(async (req: AuthRequest, res: Re
     allowWarehouseAccess:
       typeof d.allowWarehouseAccess === "boolean"
         ? d.allowWarehouseAccess
-        : d.accessType !== "RESTRICTED",
+        : true,
     totalOrders: d.totalOrders,
     activeOrders: d.activeOrders,
     kycVerified: d.kycVerified,
