@@ -119,9 +119,7 @@ async function createRoleSideRecords(
   } else if (user.role === "dropshipper") {
     const accessType = opts?.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL";
     const allowWarehouseAccess =
-      typeof opts?.allowWarehouseAccess === "boolean"
-        ? opts.allowWarehouseAccess
-        : accessType !== "RESTRICTED";
+      typeof opts?.allowWarehouseAccess === "boolean" ? opts.allowWarehouseAccess : true;
     await Dropshipper.create({
       userId: user._id,
       totalOrders: 0,

@@ -105,12 +105,20 @@ const vendorNav: NavGroup[] = [
     { label: "Requested Product", icon: ClipboardList, path: "/vendor/requested-products", tabKey: "product-requests" },
   ]},
   { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders", tabKey: "orders" }] },
-  { title: "LOGISTICS", items: [{ label: "Warehouse", icon: Warehouse, path: "/vendor/warehouse", tabKey: "warehouse" }] },
+  { title: "LOGISTICS", items: [
+    { label: "Warehouse", icon: Warehouse, path: "/vendor/warehouse", tabKey: "warehouse" },
+    { label: "Pickup Addresses", icon: MapPin, path: "/vendor/pickup-addresses", tabKey: "addresses" },
+  ]},
   { title: "FINANCE", items: [
     { label: "Wallet", icon: Wallet, path: "/vendor/wallet", tabKey: "wallet" },
     { label: "Payouts", icon: IndianRupee, path: "/vendor/payouts", tabKey: "payouts" },
   ]},
-  { title: "SUPPORT", items: [{ label: "Support", icon: Headphones, path: "/vendor/support", tabKey: "support" }] },
+  { title: "ACCOUNT", items: [
+    { label: "Profile", icon: User, path: "/vendor/profile" },
+    { label: "Settings", icon: Settings, path: "/vendor/settings", tabKey: "settings" },
+    { label: "Change Password", icon: Shield, path: "/vendor/change-password" },
+    { label: "Support", icon: Headphones, path: "/vendor/support", tabKey: "support" },
+  ]},
 ];
 
 const dropshipperNav: NavGroup[] = [
@@ -144,6 +152,7 @@ const dropshipperNav: NavGroup[] = [
   ]},
   { title: "ACCOUNT", items: [
     { label: "Profile", icon: User, path: "/dropshipper/profile" },
+    { label: "Change Password", icon: Shield, path: "/dropshipper/change-password" },
     { label: "Support", icon: Headphones, path: "/dropshipper/support", tabKey: "support" },
     { label: "Track Shipment", icon: Truck, path: "/dropshipper/tracking", tabKey: "tracking" },
     { label: "Settings", icon: Settings, path: "/dropshipper/settings", tabKey: "settings" },

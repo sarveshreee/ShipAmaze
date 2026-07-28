@@ -60,6 +60,7 @@ const VendorSettings = lazy(() => import("@/pages/vendor/VendorSettings"));
 const VendorCatalogue = lazy(() => import("@/pages/vendor/VendorCatalogue"));
 const VendorPayouts = lazy(() => import("@/pages/vendor/VendorPayouts"));
 const VendorWarehouse = lazy(() => import("@/pages/vendor/VendorWarehouse"));
+const VendorPickupAddresses = lazy(() => import("@/pages/vendor/VendorPickupAddresses"));
 const VendorProducts = lazy(() => import("@/pages/vendor/VendorProducts"));
 const VendorSupport = lazy(() => import("@/pages/vendor/VendorSupport"));
 
@@ -231,6 +232,7 @@ function AppRoutes() {
       <Route path="/vendor/settings" element={<RoleProtectedRoute allow={["vendor"]}><VendorSettings /></RoleProtectedRoute>} />
       <Route path="/vendor/payouts" element={<RoleProtectedRoute allow={["vendor"]}><VendorPayouts /></RoleProtectedRoute>} />
       <Route path="/vendor/warehouse" element={<RoleProtectedRoute allow={["vendor"]}><VendorWarehouse /></RoleProtectedRoute>} />
+      <Route path="/vendor/pickup-addresses" element={<RoleProtectedRoute allow={["vendor"]}><VendorPickupAddresses /></RoleProtectedRoute>} />
       <Route path="/vendor/support" element={<RoleProtectedRoute allow={["vendor"]}><VendorSupport /></RoleProtectedRoute>} />
       <Route path="/vendor/profile" element={<RoleProtectedRoute allow={["vendor"]}><ProfilePage /></RoleProtectedRoute>} />
       <Route path="/vendor" element={<Navigate to="/vendor/dashboard" replace />} />

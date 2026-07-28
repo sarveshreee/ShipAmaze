@@ -71,7 +71,7 @@ async function toPublicUser(user: {
     const d = await Dropshipper.findOne({ userId: user._id }).select("accessType allowWarehouseAccess kycVerified").lean();
     dropshipperAccessType = d?.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL";
     allowWarehouseAccess =
-      typeof d?.allowWarehouseAccess === "boolean" ? d.allowWarehouseAccess : dropshipperAccessType !== "RESTRICTED";
+      typeof d?.allowWarehouseAccess === "boolean" ? d.allowWarehouseAccess : true;
   }
   let kycStatus: string | undefined;
   let kycVerified: boolean | undefined;
@@ -154,6 +154,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
       activeOrders: 0,
       kycVerified: false,
       accessType: "RESTRICTED",
+      allowWarehouseAccess: true,
       joinDate: new Date(),
     });
     await KycProfile.create({

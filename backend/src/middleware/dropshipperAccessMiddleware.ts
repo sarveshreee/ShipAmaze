@@ -14,7 +14,7 @@ export async function getDropshipperAccessState(userId: unknown): Promise<Dropsh
   const d = await Dropshipper.findOne({ userId }).select("accessType allowWarehouseAccess").lean();
   const accessType = d?.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL";
   const allowWarehouseAccess =
-    typeof d?.allowWarehouseAccess === "boolean" ? d.allowWarehouseAccess : accessType !== "RESTRICTED";
+    typeof d?.allowWarehouseAccess === "boolean" ? d.allowWarehouseAccess : true;
   return { accessType, allowWarehouseAccess };
 }
 
