@@ -745,6 +745,13 @@ interface Props {
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
   onSelectAll: (ids: string[]) => void;
+  /** Select up to 1,000 orders matching current filters (all pages). */
+  onSelectAllMatching?: () => void;
+  totalMatching?: number;
+  /** Pagination metadata for footer: Showing X–Y of Z */
+  page?: number;
+  pageSize?: number;
+  totalCount?: number;
   onClearSelection: () => void;
   onMarkJunk: (id: string) => void;
   onMarkReship?: (id: string) => void;
@@ -802,6 +809,11 @@ export function RichOrdersTable({
   selected,
   onToggleSelect,
   onSelectAll,
+  onSelectAllMatching,
+  totalMatching,
+  page = 1,
+  pageSize = 50,
+  totalCount,
   onClearSelection,
   onMarkJunk,
   onMarkReship,
@@ -1042,11 +1054,13 @@ export function RichOrdersTable({
     // Order Details filter
     if (orderDetailsFilter.dateFrom) {
       const orderDate = orderTimestampForTab(o, activeTab).date;
-      if (orderDate < new Date(orderDetailsFilter.dateFrom)) return false;
+      const from = new Date(`${orderDetailsFilter.dateFrom}T00:00:00`);
+      if (orderDate < from) return false;
     }
     if (orderDetailsFilter.dateTo) {
       const orderDate = orderTimestampForTab(o, activeTab).date;
-      if (orderDate > new Date(orderDetailsFilter.dateTo)) return false;
+      const to = new Date(`${orderDetailsFilter.dateTo}T23:59:59.999`);
+      if (orderDate > to) return false;
     }
     if (orderDetailsFilter.paymentType) {
       if (o.payment !== orderDetailsFilter.paymentType) return false;
@@ -1226,11 +1240,24 @@ export function RichOrdersTable({
     <div className="rounded-lg bg-card border border-border">
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 border-b border-primary/20 bg-gradient-to-r from-primary/[0.08] via-card to-secondary/[0.06] px-4 py-2.5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-text-primary">
             <span className="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-primary px-2 text-xs font-bold text-white shadow-sm">
               {selected.size}
             </span>
             order{selected.size === 1 ? "" : "s"} selected
+            {onSelectAllMatching &&
+              typeof totalMatching === "number" &&
+              totalMatching > filteredOrders.length &&
+              selected.size < Math.min(totalMatching, 1000) && (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-primary hover:underline"
+                  onClick={() => onSelectAllMatching()}
+                >
+                  Select all {Math.min(totalMatching, 1000)} matching
+                  {totalMatching > 1000 ? " (max 1,000)" : ""}
+                </button>
+              )}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {showBulkMoveToReady && onBulkMoveToReady && (
@@ -1312,16 +1339,23 @@ export function RichOrdersTable({
                   variant="outline"
                   className="h-9 gap-1.5 text-xs font-semibold border-primary/30 hover:bg-primary/10 hover:border-primary/50"
                   onClick={() => {
-                    const picked = orders.filter((o) => selected.has(o.id));
-                    if (!picked.length) return;
-                    const toastId = toast.loading(`Preparing ${picked.length} label(s)…`);
-                    void printBulkLabels(picked)
-                      .then(() => {
+                    const ids = [...selected];
+                    if (!ids.length) return;
+                    const toastId = toast.loading(`Preparing ${ids.length} label(s)…`);
+                    void (async () => {
+                      try {
+                        const onPage = orders.filter((o) => selected.has(o.id));
+                        const picked =
+                          onPage.length === ids.length
+                            ? onPage
+                            : await orderService.getOrdersByIds(ids);
+                        if (!picked.length) throw new Error("No orders found for selection");
+                        await printBulkLabels(picked);
                         toast.success(`Opened ${picked.length} label(s)`, { id: toastId });
-                      })
-                      .catch((err: unknown) => {
+                      } catch (err: unknown) {
                         toast.error(err instanceof Error ? err.message : "Bulk label print failed", { id: toastId });
-                      });
+                      }
+                    })();
                   }}
                 >
                   <Printer className="h-3.5 w-3.5" /> Labels
@@ -1331,16 +1365,23 @@ export function RichOrdersTable({
                   variant="outline"
                   className="h-9 gap-1.5 text-xs font-semibold border-primary/30 hover:bg-primary/10 hover:border-primary/50"
                   onClick={() => {
-                    const picked = orders.filter((o) => selected.has(o.id));
-                    if (!picked.length) return;
-                    const toastId = toast.loading(`Preparing ${picked.length} invoice(s)…`);
-                    void printBulkInvoices(picked)
-                      .then(() => {
+                    const ids = [...selected];
+                    if (!ids.length) return;
+                    const toastId = toast.loading(`Preparing ${ids.length} invoice(s)…`);
+                    void (async () => {
+                      try {
+                        const onPage = orders.filter((o) => selected.has(o.id));
+                        const picked =
+                          onPage.length === ids.length
+                            ? onPage
+                            : await orderService.getOrdersByIds(ids);
+                        if (!picked.length) throw new Error("No orders found for selection");
+                        await printBulkInvoices(picked);
                         toast.success(`Opened ${picked.length} invoice(s)`, { id: toastId });
-                      })
-                      .catch((err: unknown) => {
+                      } catch (err: unknown) {
                         toast.error(err instanceof Error ? err.message : "Bulk invoice print failed", { id: toastId });
-                      });
+                      }
+                    })();
                   }}
                 >
                   <Printer className="h-3.5 w-3.5" /> Invoices
@@ -1404,7 +1445,10 @@ export function RichOrdersTable({
             <tr className="border-b border-border bg-gradient-to-r from-primary/10 via-card to-secondary/10">
               <th className="p-3 text-left w-10">
                 <input type="checkbox" className="rounded border-border accent-primary"
-                  checked={selected.size === filteredOrders.length && filteredOrders.length > 0}
+                  checked={
+                    filteredOrders.length > 0 &&
+                    filteredOrders.every((o) => selected.has(o.id))
+                  }
                   onChange={e => e.target.checked ? onSelectAll(filteredOrders.map(o => o.id)) : onClearSelection()} />
               </th>
               {/* Order Details header with filter */}
@@ -2408,7 +2452,13 @@ export function RichOrdersTable({
         className="fixed bottom-0 z-30 border-t border-border/60 bg-card/90 backdrop-blur-sm left-0 right-0 pb-[env(safe-area-inset-bottom,0px)] max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:left-[var(--sidebar-width,4.5rem)] transition-[left] duration-300"
       >
         <div className="px-4 py-2.5 text-sm text-text-secondary">
-          Showing 1–{filteredOrders.length} of {filteredOrders.length} orders
+          {(() => {
+            const z = typeof totalCount === "number" ? totalCount : filteredOrders.length;
+            if (z === 0) return "Showing 0 of 0 orders";
+            const start = (page - 1) * pageSize + 1;
+            const end = Math.min(page * pageSize, z);
+            return `Showing ${start}–${end} of ${z} orders`;
+          })()}
         </div>
       </div>
 

@@ -40,19 +40,74 @@ type SkuBadgeProps = {
   compact?: boolean;
 };
 
-export function ProductNameText({ product, className, compact = false }: ProductNameTextProps) {
-  const name = displayName(product);
+type ExpandableTextProps = {
+  text: string;
+  className?: string;
+  clampLines?: 2 | 3;
+};
+
+/** Multi-line text with View more / Show less when content overflows the clamp. */
+export function ExpandableText({ text, className, clampLines = 3 }: ExpandableTextProps) {
+  const [expanded, setExpanded] = useState(false);
+  const value = String(text ?? "").trim();
+  if (!value) return null;
+  const longEnough = value.length > 80 || value.split(/\n/).length > clampLines;
   return (
-    <p
-      className={cn(
-        "font-medium text-text-primary leading-snug break-words",
-        compact ? "text-[11px] line-clamp-3" : "text-sm line-clamp-2",
-        className
+    <div className={cn("min-w-0", className)}>
+      <p
+        className={cn(
+          "text-xs text-text-muted leading-snug break-words whitespace-pre-line",
+          !expanded && (clampLines === 2 ? "line-clamp-2" : "line-clamp-3")
+        )}
+      >
+        {value}
+      </p>
+      {longEnough && (
+        <button
+          type="button"
+          className="mt-0.5 text-[11px] font-medium text-primary hover:underline"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+        >
+          {expanded ? "Show less" : "View more"}
+        </button>
       )}
-      title={name}
-    >
-      {name}
-    </p>
+    </div>
+  );
+}
+
+export function ProductNameText({ product, className, compact = false }: ProductNameTextProps) {
+  const [expanded, setExpanded] = useState(false);
+  const name = displayName(product);
+  const longEnough = name.length > 48;
+  return (
+    <div className="min-w-0">
+      <p
+        className={cn(
+          "font-medium text-text-primary leading-snug break-words",
+          compact ? "text-[11px]" : "text-sm",
+          !expanded && (compact ? "line-clamp-3" : "line-clamp-2"),
+          className
+        )}
+        title={name}
+      >
+        {name}
+      </p>
+      {longEnough && name !== "—" && (
+        <button
+          type="button"
+          className="mt-0.5 text-[10px] font-medium text-primary hover:underline"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+        >
+          {expanded ? "Show less" : "View more"}
+        </button>
+      )}
+    </div>
   );
 }
 

@@ -11,11 +11,10 @@ import type { Order } from "@/types/logistics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Search, Download, Package, SlidersHorizontal, X, RefreshCw, Loader2, Truck } from "lucide-react";
+import { Search, Download, Package, SlidersHorizontal, X, RefreshCw, Loader2, Truck, CheckSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
-import { downloadCSV } from "@/lib/exportUtils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -59,93 +58,6 @@ const tabs: { label: string; filter: string }[] = [
 /** Tabs where bulk process + courier serviceability filter apply. */
 const SERVICEABILITY_FILTER_TABS = new Set(["all", "channel", "manual", "ready-to-ship"]);
 
-const ORDER_EXPORT_HEADERS = [
-  "Order Account",
-  "OrderId",
-  "Channel Order Number",
-  "Channel Order Date",
-  "WayBill Number",
-  "Pre Generated WayBill",
-  "Order Date",
-  "Ref.Invoice #",
-  "Mode",
-  "Express",
-  "Pickup Warehouse",
-  "Consignee Name",
-  "Consignee Contact",
-  "Alternate Number",
-  "Address",
-  "City",
-  "State",
-  "Pincode",
-  "Product Name",
-  "SKU",
-  "Product Qty",
-  "Product Value",
-  "Order Amount",
-  "Extra Charges",
-  "Total Amount",
-  "COD Amount",
-  "Dimensions",
-  "Weight",
-  "Fulfilled By",
-  "Status",
-  "Added On",
-  "Delivered Date",
-  "RTS Date",
-  "Client Order ID",
-];
-
-function text(value: unknown): string {
-  return value == null ? "" : String(value);
-}
-
-function firstText(...values: unknown[]): string {
-  return text(values.find((value) => text(value).trim() !== ""));
-}
-
-function extra(order: Order, key: string): unknown {
-  return (order as unknown as Record<string, unknown>)[key];
-}
-
-function pickupObject(order: Order, pickupOptions: Array<Record<string, unknown>>) {
-  if (order.pickupAddress && typeof order.pickupAddress === "object") {
-    return order.pickupAddress as unknown as Record<string, unknown>;
-  }
-  const pickupId = firstText(order.pickupAddressId, extra(order, "pickupWarehouseId"));
-  return pickupOptions.find((pickup) => firstText(pickup.id, pickup._id) === pickupId) ?? null;
-}
-
-function orderProducts(order: Order): Array<Record<string, unknown>> {
-  const candidates = [
-    order.products,
-    order.items,
-    order.orderItems,
-    extra(order, "shopifyLineItems"),
-  ];
-  const found = candidates.find((value) => Array.isArray(value) && value.length > 0);
-  return Array.isArray(found) ? (found as Array<Record<string, unknown>>) : [];
-}
-
-function productValue(order: Order, keys: string[]): string {
-  return orderProducts(order)
-    .map((product) => firstText(...keys.map((key) => product[key])))
-    .filter(Boolean)
-    .join(" | ");
-}
-
-function numberValue(value: unknown): number {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function productTotal(order: Order, keys: string[]): number {
-  return orderProducts(order).reduce((total, product) => {
-    const value = keys.map((key) => product[key]).find((v) => numberValue(v) > 0);
-    return total + numberValue(value);
-  }, 0);
-}
-
 interface Props {
   breadcrumbPrefix: string;
   showActions?: boolean;
@@ -157,6 +69,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -167,6 +80,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [serviceabilityPickupId, setServiceabilityPickupId] = useState("");
   const [serviceabilityCourierId, setServiceabilityCourierId] = useState("");
+  const [exporting, setExporting] = useState(false);
   const isMobile = useIsMobile();
   const ordersTabsRef = useRef<HTMLDivElement>(null);
   const listView = activeTab === "junk" ? "junk" : undefined;
@@ -208,7 +122,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   useEffect(() => {
     setPage(1);
-  }, [activeTab, debouncedSearch, channelPayment, channelFulfillment, advancedFiltersKey, serviceabilityPickupId, serviceabilityCourierId]);
+  }, [activeTab, debouncedSearch, channelPayment, channelFulfillment, advancedFiltersKey, serviceabilityPickupId, serviceabilityCourierId, pageSize]);
 
   useEffect(() => {
     setSelected(new Set());
@@ -227,13 +141,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     isFetching,
     refetch,
     total,
-    pageSize,
     tabCounts,
     error: ordersError,
   } = useOrdersQuery({
     view: listView,
     page,
-    pageSize: 50,
+    pageSize,
     q: debouncedSearch || undefined,
     tab: listView === "junk" ? undefined : activeTab,
     ...advancedFilters,
@@ -382,7 +295,11 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         id: v.id,
         label: v.name || v.id,
       })));
-    }).catch(() => undefined);
+    }).catch((err) => {
+      if (!cancelled) {
+        toast.error(errorMessageFromUnknown(err) || "Failed to load dropshipper/vendor filter options");
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -529,7 +446,9 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   );
 
   const canProcessSelectedSelection = useMemo(() => {
-    if (selectedOrders.length === 0) return false;
+    if (selected.size === 0) return false;
+    // Off-page / select-all-matching: allow; backend validates each order.
+    if (selectedOrders.length === 0) return true;
     const isEligible = (o: Order) => {
       if (activeTab === "junk") {
         return Boolean((o as { isJunk?: boolean }).isJunk);
@@ -547,7 +466,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       return selectedOrders.every(isEligible);
     }
     return selectedOrders.every((o) => isEligible(o) && isOrderReadyToShip(o));
-  }, [selectedOrders, activeTab, RELAXED_PROCESS_TABS]);
+  }, [selected.size, selectedOrders, activeTab, RELAXED_PROCESS_TABS]);
 
   const [processSubmitting, setProcessSubmitting] = useState(false);
   const [processProgress, setProcessProgress] = useState<{ done: number; total: number } | null>(null);
@@ -583,12 +502,17 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const handleMarkReship = async (id: string) => {
     try {
       const order = orders.find((o) => o.id === id);
-      await orderService.moveOrderToReship(id);
-      toast.success(
-        order?.awb
-          ? "Order cancelled and moved to Reship"
-          : "Order moved to Reship"
-      );
+      const res = await orderService.moveOrderToReship(id);
+      const pc = res.providerCancel;
+      if (order?.awb && pc?.attempted && !pc.success) {
+        toast.warning(
+          `Moved to Reship, but ${pc.provider} cancel failed: ${pc.message || "unknown error"}`
+        );
+      } else {
+        toast.success(
+          order?.awb ? "Order cancelled on courier and moved to Reship" : "Order moved to Reship"
+        );
+      }
       await refetch({ includeCounts: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to move order to reship");
@@ -596,7 +520,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   };
 
   const handleBulkJunk = async () => {
-    const ids = selectedOrders.map((order) => order.id);
+    const ids = [...selected];
     if (!ids.length) return;
     try {
       const results = await Promise.allSettled(ids.map((id) => orderService.moveOrderToJunk(id)));
@@ -615,7 +539,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   };
 
   const handleBulkDeleteJunk = async () => {
-    const ids = selectedOrders.map((order) => order.id);
+    const ids = [...selected];
     if (!ids.length) return;
     try {
       const res = await orderService.bulkDeleteJunkOrders(ids);
@@ -628,7 +552,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   };
 
   const handleBulkMoveToReady = async () => {
-    const orderIds = selectedOrders.map((order) => order.id);
+    const orderIds = [...selected];
     if (!orderIds.length) return;
     try {
       await orderService.bulkMoveOrders(orderIds, "ready_to_ship");
@@ -677,60 +601,48 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     }
   };
 
-  const handleExport = () => {
-    const data = selected.size > 0 ? filtered.filter(o => selected.has(o.id)) : filtered;
-    const pickupOptions = [...pickupAddresses, ...platformPickups, ...vendorWarehouses] as unknown as Array<Record<string, unknown>>;
-    downloadCSV("orders_export", ORDER_EXPORT_HEADERS, data.map((o) => {
-      const pickup = pickupObject(o, pickupOptions);
-      const courier = firstText(o.courierName, o.courier, extra(o, "addedCourier"));
-      const totalAmount = Number(o.amount || 0);
-      const codAmount = o.payment === "COD" ? totalAmount : firstText(extra(o, "codAmount"), o.codCharges);
-      const extraCharges = numberValue(o.shippingCharges) + numberValue(o.codCharges);
-      const productPriceTotal = productTotal(o, ["price", "productPrice", "value", "productValue"]);
+  const exportFilterParams = useCallback((): orderService.ListOrdersParams => {
+    const listView = activeTab === "junk" ? "junk" as const : undefined;
+    return {
+      view: listView,
+      q: debouncedSearch || undefined,
+      tab: listView === "junk" ? undefined : activeTab,
+      ...advancedFilters,
+      payment: effectivePayment,
+      fulfillment: activeTab === "channel" ? channelFulfillment : undefined,
+      counts: false,
+    };
+  }, [activeTab, debouncedSearch, advancedFilters, effectivePayment, channelFulfillment]);
 
-      return [
-        firstText(o.shopifyShopDomain, o.externalSource, extra(o, "orderAccount")),
-        firstText(o.externalOrderName, o.id),
-        firstText(o.externalOrderName, o.shopifyOrderNumericId, extra(o, "channelOrderNumber")),
-        firstText(extra(o, "channelOrderDate"), o.lastShopifySyncAt, o.date),
-        firstText(o.awb, o.trackingId),
-        firstText(extra(o, "preGeneratedWaybill"), o.trackingId),
-        o.date,
-        firstText(o.shopifyOrderNumericId, extra(o, "invoiceNumber"), extra(o, "refInvoice")),
-        o.payment,
-        firstText(extra(o, "express"), extra(o, "serviceType")),
-        firstText(
-          typeof o.pickupAddress === "string" ? o.pickupAddress : "",
-          pickup?.label,
-          pickup?.warehouseName,
-          pickup?.pickupName
-        ),
-        o.customer,
-        firstText(o.customerPhone, o.phone),
-        firstText(extra(o, "customerNumber2"), extra(o, "phone2"), extra(o, "alternatePhone")),
-        firstText(o.shippingAddress1, o.address),
-        firstText(o.shippingCity, o.city),
-        firstText(o.shippingState, o.state),
-        firstText(o.shippingPincode, o.pincode),
-        productValue(o, ["productName", "name"]),
-        productValue(o, ["sku", "productCode"]),
-        productValue(o, ["qty", "quantity"]),
-        productPriceTotal || productValue(o, ["price", "productPrice", "value", "productValue"]),
-        totalAmount,
-        extraCharges || "",
-        totalAmount + extraCharges,
-        codAmount,
-        firstText(o.dimensions, [o.length, o.breadth ?? o.width, o.height].filter(Boolean).join("x")),
-        o.weight,
-        firstText(extra(o, "fulfilledBy"), courier),
-        firstText(o.shopifyFulfillmentStatus, o.shipmentStatus, o.status),
-        firstText(extra(o, "createdAt"), o.movedToReadyAt, o.updatedAt, o.date),
-        firstText(extra(o, "deliveryDate"), extra(o, "deliveredAt"), o.edd),
-        firstText(extra(o, "rtsDate"), extra(o, "rtsAt")),
-        firstText(extra(o, "clientOrderId"), o.externalOrderName, o.shopifyOrderNumericId),
-      ];
-    }));
-    toast.success(`Exported ${data.length} orders as CSV`);
+  const handleSelectAllMatching = useCallback(async () => {
+    try {
+      const res = await orderService.listOrderIds({ ...exportFilterParams(), limit: 1000 });
+      setSelected(new Set(res.ids));
+      if (res.capped) {
+        toast.warning(`Selected first ${res.ids.length} of ${res.total} matching orders (max 1,000 per bulk action)`);
+      } else {
+        toast.success(`Selected ${res.ids.length} order${res.ids.length === 1 ? "" : "s"}`);
+      }
+    } catch (err) {
+      toast.error(errorMessageFromUnknown(err) || "Failed to select matching orders");
+    }
+  }, [exportFilterParams]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      if (selected.size > 0) {
+        await orderService.exportOrdersCsvByIds([...selected]);
+        toast.success(`Exported ${selected.size} selected order${selected.size === 1 ? "" : "s"} as CSV`);
+      } else {
+        await orderService.exportOrdersCsv(exportFilterParams());
+        toast.success(total > 0 ? `Exported all ${total} matching orders as CSV` : "Export complete");
+      }
+    } catch (err) {
+      toast.error(errorMessageFromUnknown(err) || "Export failed");
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -756,7 +668,14 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               </Tooltip>
             )}
             {showActions && (
-              <Button onClick={handleExport} className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2 hidden sm:flex"><Download className="h-4 w-4" />Export CSV</Button>
+              <Button
+                onClick={() => void handleExport()}
+                disabled={exporting}
+                className="bg-primary text-primary-foreground hover:bg-primary-dark gap-2 hidden sm:flex"
+              >
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {exporting ? "Exporting…" : "Export CSV"}
+              </Button>
             )}
           </div>
         }
@@ -927,6 +846,24 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                   ? `${filtered.length} shown · ${total} total`
                   : `${total} total`}
               </span>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(v) => {
+                  setPageSize(Number(v));
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[100px] text-xs bg-card">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[50, 100, 250, 500, 1000].map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n} / page
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="flex items-center gap-1.5 shrink-0 rounded-lg border border-border/60 bg-card/80 px-1.5 py-1">
                 <Button
                   type="button"
@@ -1138,7 +1075,76 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               actionLabel="Clear filters"
               onAction={clearAllFilters}
             />
-          ) : <OrderCardList orders={filtered} onViewOrder={openOrder} />
+          ) : (
+            <div className="space-y-3 pb-16">
+              {selected.size > 0 && (
+                <div className="sticky top-0 z-20 rounded-lg border border-primary/20 bg-card/95 backdrop-blur px-3 py-2.5 space-y-2 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                    <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-primary px-2 text-xs text-white">
+                      {selected.size}
+                    </span>
+                    selected
+                    {total > filtered.length && selected.size < Math.min(total, 1000) && (
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-primary hover:underline"
+                        onClick={() => void handleSelectAllMatching()}
+                      >
+                        Select all {Math.min(total, 1000)} matching
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="ml-auto text-xs text-text-muted hover:text-text-primary"
+                      onClick={() => setSelected(new Set())}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {showProcessSelected && (
+                      <Button
+                        size="sm"
+                        className="h-8 gap-1.5 text-xs"
+                        disabled={!canProcessSelectedSelection}
+                        onClick={() => setProcessModalOpen(true)}
+                      >
+                        <CheckSquare className="h-3.5 w-3.5" /> Process
+                      </Button>
+                    )}
+                    {showBulkMoveToReady && (
+                      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void handleBulkMoveToReady()}>
+                        Ready to Ship
+                      </Button>
+                    )}
+                    {role !== "vendor" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs text-danger border-danger/40"
+                        onClick={() => void (activeTab === "junk" ? handleBulkDeleteJunk() : handleBulkJunk())}
+                      >
+                        {activeTab === "junk" ? "Delete" : "Junk"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+              <OrderCardList
+                orders={filtered}
+                onViewOrder={openOrder}
+                selected={selected}
+                onToggleSelect={toggleSelect}
+                onSelectAllVisible={(ids) => setSelected(new Set(ids))}
+                onClearSelection={() => setSelected(new Set())}
+              />
+              <p className="text-xs text-text-secondary px-1 py-2">
+                {total === 0
+                  ? "Showing 0 of 0 orders"
+                  : `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total} orders`}
+              </p>
+            </div>
+          )
         )
       ) : (
         <RichOrdersTable
@@ -1146,6 +1152,11 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           selected={selected}
           onToggleSelect={toggleSelect}
           onSelectAll={(ids) => setSelected(new Set(ids))}
+          onSelectAllMatching={() => void handleSelectAllMatching()}
+          totalMatching={total}
+          page={page}
+          pageSize={pageSize}
+          totalCount={total}
           onClearSelection={() => setSelected(new Set())}
           onMarkJunk={handleMarkJunk}
           onMarkReship={handleMarkReship}
