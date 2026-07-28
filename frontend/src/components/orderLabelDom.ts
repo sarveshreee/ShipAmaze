@@ -357,7 +357,8 @@ export function createOrderLabelElement(
       border: "2.5px solid #000000",
       display: "flex",
       flexDirection: "column",
-      justifyContent: "space-between",
+      justifyContent: "flex-start",
+      gap: "2mm",
       overflow: "hidden",
       background: "#ffffff",
     },
@@ -807,29 +808,59 @@ export function createAmazonTransportationLabelElement(order: Order): HTMLElemen
   orderMeta.appendChild(el("div", { text: `Ship Date: ${shipDateText}` }));
   frame.appendChild(orderMeta);
 
-  const qrRow = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "4mm", padding: "4mm 0", borderBottom: "1px solid #000" } });
-  [awb, visibleOrderNumber, st.phone, String(order.amount ?? "")].forEach((value) => {
-    const src = barcodePngDataUrl(value, { height: 64, moduleWidth: 3, displayValue: false, margin: 8 });
+  // Barcode priority for scanners: AWB → Tracking → Order ID (only these; no phone/amount barcodes).
+  const trackingVal = String(order.trackingId ?? "").trim();
+  const barcodeValues: Array<{ label: string; value: string }> = [];
+  if (awb && awb !== "—") barcodeValues.push({ label: "AWB", value: awb });
+  if (trackingVal && trackingVal !== awb) barcodeValues.push({ label: "Tracking", value: trackingVal });
+  if (visibleOrderNumber && visibleOrderNumber !== "—" && visibleOrderNumber !== awb && visibleOrderNumber !== trackingVal) {
+    barcodeValues.push({ label: "Order", value: visibleOrderNumber });
+  }
+  const qrRow = el("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: barcodeValues.length <= 1 ? "1fr" : `2fr ${"1fr ".repeat(Math.max(0, barcodeValues.length - 1)).trim()}`,
+      gap: "4mm",
+      padding: "4mm 0",
+      borderBottom: "1px solid #000",
+    },
+  });
+  barcodeValues.forEach((item, idx) => {
+    const isPrimary = idx === 0;
+    const src = barcodePngDataUrl(item.value, {
+      height: isPrimary ? 96 : 64,
+      moduleWidth: isPrimary ? 4 : 3,
+      displayValue: false,
+      margin: 8,
+    });
     const box = el("div", {
       style: {
-        border: "2px solid #000",
-        height: "18mm",
+        border: isPrimary ? "3px solid #000" : "2px solid #000",
+        height: isPrimary ? "24mm" : "18mm",
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",
         boxSizing: "border-box",
+        gap: "1mm",
       },
     });
     if (src) {
       attachBarcodeImage(box, src, {
         width: "100%",
         maxWidth: "100%",
-        maxHeight: "16mm",
-        transform: "rotate(90deg) scale(1.05)",
+        maxHeight: isPrimary ? "20mm" : "14mm",
+        transform: barcodeValues.length > 1 ? "rotate(90deg) scale(1.05)" : undefined,
         imageRendering: "pixelated",
       });
     }
+    box.appendChild(
+      el("div", {
+        style: { fontSize: "8px", fontWeight: "800", textAlign: "center" },
+        text: item.label,
+      })
+    );
     qrRow.appendChild(box);
   });
   frame.appendChild(qrRow);
@@ -923,7 +954,8 @@ export function openPrintWindowForLabelNodes(
       background: #fff !important;
     }
     @media print {
-      html, body { background: #fff !important; color: #000 !important; width: ${page.width}; height: ${page.minHeight}; min-height: ${page.minHeight}; max-height: ${page.minHeight}; overflow: hidden; }
+      /* Do NOT clamp html/body to a single page height — that collapses bulk print to 1 page. */
+      html, body { background: #fff !important; color: #000 !important; width: ${page.width}; height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important; }
       .shipamaze-label-frame { border: 2.5px solid #000 !important; }
     }
     @media screen {
@@ -935,17 +967,44 @@ export function openPrintWindowForLabelNodes(
   const winW = px.w + 60;
   const winH = Math.min(px.h + 120, 900);
   const w = window.open("", "_blank", `width=${winW},height=${winH}`);
-  if (!w) return;
-  w.document.open();
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${styles}</style></head><body></body></html>`);
-  w.document.close();
-  for (const node of nodes) {
-    w.document.body.appendChild(w.document.importNode(node, true));
+  if (!w) {
+    throw new Error("Popup blocked — please allow popups for this site");
   }
-  w.setTimeout(() => {
-    w.focus();
-    w.print();
-  }, 250);
+  w.document.open();
+  w.document.write(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${styles}</style></head><body><p style="font-family:system-ui,sans-serif;padding:24px;color:#333">Preparing ${nodes.length} invoice(s)…</p></body></html>`
+  );
+  w.document.close();
+
+  // Build off the critical path: append in one fragment, then print after images settle.
+  const frag = w.document.createDocumentFragment();
+  for (const node of nodes) {
+    frag.appendChild(w.document.importNode(node, true));
+  }
+  w.document.body.replaceChildren(frag);
+
+  const imgs = Array.from(w.document.images);
+  const waitMs = Math.min(2_500, 200 + nodes.length * 8);
+  const ready = imgs.length
+    ? Promise.all(
+        imgs.map(
+          (img) =>
+            img.complete
+              ? Promise.resolve()
+              : new Promise<void>((resolve) => {
+                  img.addEventListener("load", () => resolve(), { once: true });
+                  img.addEventListener("error", () => resolve(), { once: true });
+                })
+        )
+      )
+    : Promise.resolve();
+
+  void ready.then(() => {
+    w.setTimeout(() => {
+      w.focus();
+      w.print();
+    }, waitMs);
+  });
 }
 
 function escapeHtml(s: string): string {
@@ -967,7 +1026,7 @@ export async function renderLabelNodesToPdfBlob(
   const mm = labelPdfDimensionsMm(settings.labelSize);
   const px = labelPixelBox(settings.labelSize);
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: [mm.w, mm.h] });
-  const scale = 4;
+  const scale = 2;
   const captureLimit = 4;
 
   async function captureNode(node: HTMLElement, index: number): Promise<string> {
@@ -1012,7 +1071,7 @@ export async function renderLabelNodesToPdfBlob(
 
   for (let i = 0; i < images.length; i++) {
     if (i > 0) pdf.addPage([mm.w, mm.h]);
-    pdf.addImage(images[i]!, "PNG", 0, 0, mm.w, mm.h, undefined, "NONE");
+    pdf.addImage(images[i]!, "PNG", 0, 0, mm.w, mm.h, undefined, "FAST");
   }
 
   return pdf.output("blob");
@@ -1066,7 +1125,7 @@ export async function downloadOrderLabelPdf(
   document.body.appendChild(el);
   try {
     const canvas = await html2canvas(el, {
-      scale: 4,
+      scale: 2,
       useCORS: true,
       backgroundColor: "#ffffff",
       logging: false,
@@ -1074,7 +1133,7 @@ export async function downloadOrderLabelPdf(
     const mm = labelPdfDimensionsMm(settings.labelSize);
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: [mm.w, mm.h] });
     const img = canvas.toDataURL("image/png");
-    pdf.addImage(img, "PNG", 0, 0, mm.w, mm.h, undefined, "NONE");
+    pdf.addImage(img, "PNG", 0, 0, mm.w, mm.h, undefined, "FAST");
     pdf.save(filename);
   } finally {
     document.body.removeChild(el);

@@ -284,11 +284,19 @@ export function OrderDetailDrawer({
 
     const awbToCancel = order.awb;
     if (awbToCancel) {
-      if (!confirm(`Cancel order ${order.id}?`)) return;
+      if (!confirm(`Cancel shipment ${awbToCancel} and move order ${order.id} to Reship?`)) return;
       setUpdating(true);
       try {
-        await velocityService.cancelShipment({ awbs: [awbToCancel], orderId: order.id });
-        toast.success(`Shipment ${awbToCancel} cancellation requested`);
+        // Provider-aware: cancels on Velocity or Lorrigo, then moves local order to Reship.
+        const res = await orderService.moveOrderToReship(order.id);
+        const pc = res.providerCancel;
+        if (pc?.attempted && !pc.success) {
+          toast.warning(
+            `Moved to Reship, but ${pc.provider} cancel failed: ${pc.message || "unknown error"}`
+          );
+        } else {
+          toast.success("Shipment cancelled — order moved to Reship");
+        }
         onOrderUpdated?.();
         return;
       } catch (err: unknown) {
@@ -728,26 +736,32 @@ export function OrderDetailDrawer({
               </div>
             )}
 
-            {order.labelUrl && /^https?:\/\//i.test(String(order.labelUrl)) && (
+            {(order.awb || order.labelUrl) && (
               <div className="mt-3 flex gap-2">
-                <a href={order.labelUrl} download className="flex-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30"
-                  >
-                    <Download className="h-3.5 w-3.5" /> Download Label
-                  </Button>
-                </a>
-                <a href={order.labelUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" /> Open Label
-                  </Button>
-                </a>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30"
+                  onClick={() => {
+                    void downloadShippingLabelPdf(order, labelSettings).catch((e: unknown) =>
+                      toast.error(e instanceof Error ? e.message : "Label download failed")
+                    );
+                  }}
+                >
+                  <Download className="h-3.5 w-3.5" /> Download Label
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-2 h-9 text-text-secondary hover:text-primary hover:border-primary/30"
+                  onClick={() => {
+                    void printShippingLabel(order, labelSettings).catch((e: unknown) =>
+                      toast.error(e instanceof Error ? e.message : "Label print failed")
+                    );
+                  }}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" /> Print Label
+                </Button>
               </div>
             )}
             {order.manifestUrl && /^https?:\/\//i.test(String(order.manifestUrl)) && (

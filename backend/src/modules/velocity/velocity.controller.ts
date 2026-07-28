@@ -151,11 +151,31 @@ function applyVelocityMappedOrderStatus(
   order: IOrder,
   velocityRawStatus: string | undefined,
   fallback: string,
-  note: string
+  note: string,
+  opts?: { pickupDate?: string | null }
 ) {
-  const mappedRaw = mapVelocityStatus(velocityRawStatus) || fallback;
-  const mapped = normalizeOrderStatus(mappedRaw);
+  let mapped = normalizeOrderStatus(mapVelocityStatus(velocityRawStatus) || fallback);
   const current = normalizeOrderStatus(order.status);
+
+  // Unmapped courier strings collapse to draft — don't leave booked parcels stuck.
+  if (
+    mapped === "draft" &&
+    velocityRawStatus &&
+    (opts?.pickupDate ||
+      current === "pickup_scheduled" ||
+      current === "picked_up" ||
+      current === "ready_to_ship")
+  ) {
+    mapped = "in_transit";
+  }
+  // Pickup confirmed by courier but status still booking-like → in transit for tabs.
+  if (
+    opts?.pickupDate &&
+    (mapped === "pickup_scheduled" || mapped === "ready_to_ship" || mapped === "draft")
+  ) {
+    mapped = "in_transit";
+  }
+
   if (!shouldApplyInternalStatusUpdate(current, mapped)) return;
   if (order.status !== mapped) appendStatusHistoryEntry(order, mapped, note);
   order.status = mapped;
@@ -1037,11 +1057,7 @@ export const createReverseShipmentLater = asyncHandler(async (req: AuthRequest, 
     localOrder.labelUrl = result.label_url;
     scheduleLabelPdfCache(localOrder);
     localOrder.shipmentStatus = result.status;
-    const mapped = mapVelocityStatus(result.status);
-    if (mapped && shouldApplyInternalStatusUpdate(localOrder.status, mapped)) {
-      if (localOrder.status !== mapped) appendStatusHistoryEntry(localOrder, mapped, "velocity_reverse_awb");
-      localOrder.status = mapped;
-    }
+    applyVelocityMappedOrderStatus(localOrder, result.status, localOrder.status, "velocity_reverse_awb");
     await localOrder.save();
   }
 
@@ -1115,7 +1131,9 @@ export const trackShipment = asyncHandler(async (req: AuthRequest, res: Response
       await localOrder.save();
       void pushShopifyFulfillmentUpdate(localOrder);
     } else {
-      applyVelocityMappedOrderStatus(localOrder, result.status, localOrder.status, "velocity_track");
+      applyVelocityMappedOrderStatus(localOrder, result.status, localOrder.status, "velocity_track", {
+        pickupDate: result.pickup_date,
+      });
       localOrder.lastVelocityStatusSyncedAt = new Date();
       mirrorShopifyFulfillmentStatus(localOrder);
       await localOrder.save();
@@ -1180,7 +1198,9 @@ export const trackShipmentPublic = asyncHandler(async (req: Request, res: Respon
         await doc.save();
         void pushShopifyFulfillmentUpdate(doc);
       } else {
-        applyVelocityMappedOrderStatus(doc, result.status, doc.status, "velocity_public_track");
+        applyVelocityMappedOrderStatus(doc, result.status, doc.status, "velocity_public_track", {
+          pickupDate: result.pickup_date,
+        });
         doc.lastVelocityStatusSyncedAt = new Date();
         mirrorShopifyFulfillmentStatus(doc);
         await doc.save();
@@ -1860,6 +1880,7 @@ export async function bookForwardShipmentForOrder(
   if (result.awb_code) localOrder.trackingId = result.awb_code;
   applyVelocityMappedOrderStatus(localOrder, result.status, "pending-pickup", "velocity_process_selected");
   mirrorShopifyFulfillmentStatus(localOrder);
+  if (result.label_url) scheduleLabelPdfCache(localOrder);
 
   try {
     await applyBillableShippingToOrder(localOrder, {
@@ -1932,7 +1953,7 @@ export const getBulkLabelPdf = asyncHandler(async (req: AuthRequest, res: Respon
   }
   const ids = [...new Set(raw.map((x) => String(x).trim()).filter(Boolean))];
   if (ids.length === 0) throw new AppError(400, "orderIds must not be empty");
-  if (ids.length > 100) throw new AppError(400, "Maximum 100 labels per bulk request");
+  if (ids.length > 1000) throw new AppError(400, "Maximum 1000 labels per bulk request");
 
   const orderQuery =
     req.user.role === "admin"

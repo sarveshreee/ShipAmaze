@@ -107,15 +107,27 @@ async function fetchUrlWithTimeout(url: string, timeoutMs: number): Promise<Resp
   }
 }
 
-async function imageBufferToPdf(buffer: Buffer, contentType: string): Promise<Buffer> {
+/** Standard 4×6″ shipping label in PDF points (72 pt/inch). */
+const LABEL_PAGE_PT = { w: 4 * 72, h: 6 * 72 };
+
+/**
+ * Embed an image label into a fixed 4×6″ PDF page (contain-fit, centered).
+ * Using raw pixel dimensions as page size produced enormous PDFs for high-res courier images.
+ */
+export async function imageBufferToPdf(buffer: Buffer, contentType: string): Promise<Buffer> {
   const { PDFDocument } = await import("pdf-lib");
   const doc = await PDFDocument.create();
   const image =
     contentType.includes("png") || isPngBuffer(buffer)
       ? await doc.embedPng(buffer)
       : await doc.embedJpg(buffer);
-  const page = doc.addPage([image.width, image.height]);
-  page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+  const page = doc.addPage([LABEL_PAGE_PT.w, LABEL_PAGE_PT.h]);
+  const scale = Math.min(LABEL_PAGE_PT.w / image.width, LABEL_PAGE_PT.h / image.height);
+  const drawW = image.width * scale;
+  const drawH = image.height * scale;
+  const x = (LABEL_PAGE_PT.w - drawW) / 2;
+  const y = (LABEL_PAGE_PT.h - drawH) / 2;
+  page.drawImage(image, { x, y, width: drawW, height: drawH });
   return Buffer.from(await doc.save());
 }
 
