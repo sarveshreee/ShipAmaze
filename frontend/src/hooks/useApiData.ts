@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import * as orderService from "@/services/orderService";
 import type { OrdersListMeta, OrderListFilterValues } from "@/services/orderService";
 import * as manifestService from "@/services/manifestService";
@@ -23,10 +24,9 @@ import type {
   PincodeService,
 } from "@/types/logistics";
 import type { WalletSummary } from "@/services/walletService";
+import { queryKeys } from "@/lib/queryClient";
 
 type QueryStatus = "pending" | "success" | "error";
-
-const AUTO_REFETCH_INTERVAL_MS = 10 * 60 * 1000;
 
 interface SimpleQueryResult<T> {
   data: T[];
@@ -50,87 +50,57 @@ function toIsoDateString(value: unknown): string | undefined {
   return String(value);
 }
 
-function useApiQuery<T>(key: string, queryFn: () => Promise<T[]>): SimpleQueryResult<T> {
-  const [data, setData] = useState<T[]>([]);
-  const [error, setError] = useState<Error | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const result = await queryFn();
-      setData(Array.isArray(result) ? result : []);
-      setError(null);
-    } catch (err) {
-      setError(toError(err));
-      setData([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [queryFn]);
-
-  // Allow any part of the app to request a refetch for this query key
-  // (e.g. after syncing Shopify orders).
+/** Bridge custom window events → React Query invalidation (preserves existing callers). */
+function useInvalidateOnEvents(queryKey: QueryKey, eventNames: string[]) {
+  const qc = useQueryClient();
   useEffect(() => {
-    const eventName = `shipamaze:refetch:${key}`;
-    const isOrdersQuery = key.startsWith("orders:");
-    const fallbackOrdersEvent = "shipamaze:refetch:orders";
     const handler = () => {
-      void load();
+      void qc.invalidateQueries({ queryKey });
     };
-    window.addEventListener(eventName, handler);
-    if (isOrdersQuery) {
-      window.addEventListener(fallbackOrdersEvent, handler);
-    }
+    for (const name of eventNames) window.addEventListener(name, handler);
     return () => {
-      window.removeEventListener(eventName, handler);
-      if (isOrdersQuery) {
-        window.removeEventListener(fallbackOrdersEvent, handler);
-      }
+      for (const name of eventNames) window.removeEventListener(name, handler);
     };
-  }, [key, load]);
+  }, [qc, queryKey, eventNames]);
+}
 
-  useEffect(() => {
-    let isMounted = true;
-    void (async () => {
-      setIsLoading(true);
-      try {
-        const result = await queryFn();
-        if (!isMounted) return;
-        setData(Array.isArray(result) ? result : []);
-        setError(null);
-      } catch (err) {
-        if (!isMounted) return;
-        setError(toError(err));
-        setData([]);
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
-    })();
-    return () => {
-      isMounted = false;
-    };
-  }, [key, queryFn]);
+function useApiQuery<T>(
+  key: string,
+  queryKey: QueryKey,
+  queryFn: (signal: AbortSignal) => Promise<T[]>,
+  opts?: { enabled?: boolean; staleTime?: number }
+): SimpleQueryResult<T> {
+  const eventNames = useMemo(() => {
+    const names = [`shipamaze:refetch:${key}`];
+    if (key.startsWith("orders:")) names.push("shipamaze:refetch:orders");
+    return names;
+  }, [key]);
 
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, AUTO_REFETCH_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [load]);
+  useInvalidateOnEvents(queryKey, eventNames);
+
+  const q = useQuery({
+    queryKey,
+    queryFn: ({ signal }) => queryFn(signal),
+    enabled: opts?.enabled ?? true,
+    staleTime: opts?.staleTime,
+  });
+
+  const refetch = useCallback(async () => {
+    await q.refetch();
+  }, [q]);
 
   return useMemo(
     () => ({
-      data,
-      error,
-      isLoading,
-      isPending: isLoading,
-      isError: !!error,
-      isSuccess: !isLoading && !error,
-      status: isLoading ? "pending" : error ? "error" : "success",
-      refetch: load,
+      data: q.data ?? [],
+      error: q.error ? toError(q.error) : null,
+      isLoading: q.isLoading,
+      isPending: q.isPending || q.isLoading,
+      isError: q.isError,
+      isSuccess: q.isSuccess,
+      status: q.isPending || q.isLoading ? "pending" : q.isError ? "error" : "success",
+      refetch,
     }),
-    [data, error, isLoading, load]
+    [q.data, q.error, q.isLoading, q.isPending, q.isError, q.isSuccess, refetch]
   );
 }
 
@@ -226,12 +196,21 @@ function mapOrderRow(o: Record<string, unknown>): Order {
   };
 }
 
-export function useOrders(view?: "junk") {
-  const queryFn = useCallback(async () => {
-    const rows = await orderService.listOrders({ view, legacy: true });
-    return (rows as unknown as Record<string, unknown>[]).map(mapOrderRow);
-  }, [view]);
-  return useApiQuery<Order>(`orders:${view ?? "default"}`, queryFn);
+/** @deprecated Prefer useOrdersQuery. Only fetch when explicitly needed (e.g. search UI). */
+export function useOrders(view?: "junk", opts?: { enabled?: boolean }) {
+  const queryFn = useCallback(
+    async (_signal: AbortSignal) => {
+      const rows = await orderService.listOrders({ view, legacy: true });
+      return (rows as unknown as Record<string, unknown>[]).map(mapOrderRow);
+    },
+    [view]
+  );
+  return useApiQuery<Order>(
+    `orders:${view ?? "default"}`,
+    queryKeys.orders(view),
+    queryFn,
+    { enabled: opts?.enabled ?? true, staleTime: 2 * 60 * 1000 }
+  );
 }
 
 export interface UseOrdersQueryOptions extends OrderListFilterValues {
@@ -243,6 +222,7 @@ export interface UseOrdersQueryOptions extends OrderListFilterValues {
   payment?: string;
   fulfillment?: string;
   counts?: boolean;
+  enabled?: boolean;
 }
 
 function stableAdvKey(f: OrderListFilterValues): string {
@@ -274,6 +254,7 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
     payment,
     fulfillment,
     counts = true,
+    enabled = true,
     status,
     courier,
     source,
@@ -313,28 +294,27 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
     vendorId,
   };
 
-  const [data, setData] = useState<Order[]>([]);
-  const [total, setTotal] = useState(0);
-  const [tabCounts, setTabCounts] = useState<Record<string, number> | undefined>();
-  const [error, setError] = useState<Error | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const dataRef = useRef<Order[]>([]);
-  const includeCountsRef = useRef(counts);
+  const advKey = stableAdvKey(adv);
+  const listKey = `${view ?? "default"}:${page}:${pageSize}:${q ?? ""}:${tab ?? ""}:${payment ?? ""}:${fulfillment ?? ""}:${counts ? 1 : 0}:${advKey}`;
+  const queryKey = queryKeys.ordersList(listKey);
+  const qc = useQueryClient();
 
   useEffect(() => {
-    dataRef.current = data;
-  }, [data]);
+    const handler = () => {
+      void qc.invalidateQueries({ queryKey: ["orders"] });
+    };
+    window.addEventListener(`shipamaze:refetch:orders:v2:${listKey}`, handler);
+    window.addEventListener("shipamaze:refetch:orders", handler);
+    return () => {
+      window.removeEventListener(`shipamaze:refetch:orders:v2:${listKey}`, handler);
+      window.removeEventListener("shipamaze:refetch:orders", handler);
+    };
+  }, [qc, listKey]);
 
-  const advKey = stableAdvKey(adv);
-  const key = `orders:v2:${view ?? "default"}:${page}:${pageSize}:${q ?? ""}:${tab ?? ""}:${payment ?? ""}:${fulfillment ?? ""}:${counts ? 1 : 0}:${advKey}`;
-
-  const load = useCallback(async (override?: { includeCounts?: boolean }): Promise<Order[]> => {
-    const wantCounts = override?.includeCounts ?? includeCountsRef.current;
-    const hasData = dataRef.current.length > 0;
-    if (!hasData) setIsLoading(true);
-    setIsFetching(true);
-    try {
+  const qResult = useQuery({
+    queryKey,
+    enabled,
+    queryFn: async () => {
       const res = await orderService.listOrders({
         view,
         page,
@@ -343,181 +323,151 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
         tab: view === "junk" ? undefined : tab,
         payment,
         fulfillment,
-        counts: wantCounts,
+        counts,
         ...adv,
       });
       if (Array.isArray(res)) {
         const mapped = (res as unknown as Record<string, unknown>[]).map(mapOrderRow);
-        setData(mapped);
-        setTotal(mapped.length);
-        if (wantCounts) setTabCounts(undefined);
-        setError(null);
-        return mapped;
+        return { orders: mapped, total: mapped.length, tabCounts: undefined as Record<string, number> | undefined };
       }
       const meta = res as OrdersListMeta;
       const mapped = (meta.orders as unknown as Record<string, unknown>[]).map(mapOrderRow);
-      setData(mapped);
-      setTotal(meta.total);
-      if (wantCounts && meta.tabCounts) {
-        setTabCounts(meta.tabCounts);
+      return {
+        orders: mapped,
+        total: meta.total,
+        tabCounts: counts ? meta.tabCounts : undefined,
+      };
+    },
+  });
+
+  const refetch = useCallback(
+    async (override?: { includeCounts?: boolean }): Promise<Order[]> => {
+      if (override?.includeCounts != null && override.includeCounts !== counts) {
+        const res = await orderService.listOrders({
+          view,
+          page,
+          pageSize,
+          q,
+          tab: view === "junk" ? undefined : tab,
+          payment,
+          fulfillment,
+          counts: override.includeCounts,
+          ...adv,
+        });
+        if (Array.isArray(res)) {
+          const mapped = (res as unknown as Record<string, unknown>[]).map(mapOrderRow);
+          qc.setQueryData(queryKey, { orders: mapped, total: mapped.length, tabCounts: undefined });
+          return mapped;
+        }
+        const meta = res as OrdersListMeta;
+        const mapped = (meta.orders as unknown as Record<string, unknown>[]).map(mapOrderRow);
+        qc.setQueryData(queryKey, {
+          orders: mapped,
+          total: meta.total,
+          tabCounts: override.includeCounts ? meta.tabCounts : qResult.data?.tabCounts,
+        });
+        return mapped;
       }
-      setError(null);
-      return mapped;
-    } catch (err) {
-      const e = toError(err);
-      setError(e);
-      if (!hasData) {
-        setData([]);
-        setTotal(0);
-        if (wantCounts) setTabCounts(undefined);
-      }
-      return [];
-    } finally {
-      setIsLoading(false);
-      setIsFetching(false);
-    }
-  }, [
-    view,
-    page,
-    pageSize,
-    q,
-    tab,
-    payment,
-    fulfillment,
-    counts,
-    status,
-    courier,
-    source,
-    dateFrom,
-    dateTo,
-    customerCity,
-    customerState,
-    pickupCity,
-    pickupState,
-    productSku,
-    productName,
-    amountMin,
-    amountMax,
-    hasAwb,
-    shipmentCreated,
-    dropshipperId,
-    vendorId,
-  ]);
-
-  useEffect(() => {
-    includeCountsRef.current = counts;
-  }, [counts]);
-
-  useEffect(() => {
-    const eventName = `shipamaze:refetch:${key}`;
-    const fallbackOrdersEvent = "shipamaze:refetch:orders";
-    const handler = () => {
-      void load();
-    };
-    window.addEventListener(eventName, handler);
-    window.addEventListener(fallbackOrdersEvent, handler);
-    return () => {
-      window.removeEventListener(eventName, handler);
-      window.removeEventListener(fallbackOrdersEvent, handler);
-    };
-  }, [key, load]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, AUTO_REFETCH_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [load]);
+      const result = await qResult.refetch();
+      return result.data?.orders ?? [];
+    },
+    [adv, counts, page, pageSize, q, qResult, qc, queryKey, tab, fulfillment, payment, view]
+  );
 
   return useMemo(
     () => ({
-      data,
-      total,
+      data: qResult.data?.orders ?? [],
+      total: qResult.data?.total ?? 0,
       page,
       pageSize,
-      tabCounts,
-      error,
-      isLoading,
-      isFetching,
-      refetch: (opts?: { includeCounts?: boolean }) => load(opts),
+      tabCounts: qResult.data?.tabCounts,
+      error: qResult.error ? toError(qResult.error) : null,
+      isLoading: qResult.isLoading,
+      isFetching: qResult.isFetching,
+      refetch,
     }),
-    [data, total, page, pageSize, tabCounts, error, isLoading, isFetching, load]
+    [qResult.data, qResult.error, qResult.isLoading, qResult.isFetching, page, pageSize, refetch]
   );
 }
 
 export function useManifests() {
-  const queryFn = useCallback(async () => {
-    const rows = (await manifestService.listManifests()) as unknown as Record<string, unknown>[];
-    return rows.map((m) => ({
-      id: String(m.id ?? ""),
-      date: String(m.date ?? ""),
-      courier: (m.courier as Manifest["courier"]) || "Delhivery",
-      ordersCount: Number(m.ordersCount ?? 0),
-      totalWeight: String(m.totalWeight ?? ""),
-      pickupAddress: String(m.pickupAddress ?? ""),
-      status: (m.status as Manifest["status"]) || "Generated",
-      pickupTime: m.pickupTime as string | undefined,
-    }));
-  }, []);
-  return useApiQuery<Manifest>("manifests", queryFn);
+  return useApiQuery<Manifest>(
+    "manifests",
+    queryKeys.manifests,
+    async () => {
+      const rows = (await manifestService.listManifests()) as unknown as Record<string, unknown>[];
+      return rows.map((m) => ({
+        id: String(m.id ?? ""),
+        date: String(m.date ?? ""),
+        courier: (m.courier as Manifest["courier"]) || "Delhivery",
+        ordersCount: Number(m.ordersCount ?? 0),
+        totalWeight: String(m.totalWeight ?? ""),
+        pickupAddress: String(m.pickupAddress ?? ""),
+        status: (m.status as Manifest["status"]) || "Generated",
+        pickupTime: m.pickupTime as string | undefined,
+      }));
+    },
+    { staleTime: 2 * 60 * 1000 }
+  );
 }
 
 export function useInvoices() {
-  const queryFn = useCallback(async () => {
-    const r = await invoiceService.listInvoices({ page: "1", pageSize: "200" });
-    return r.items;
-  }, []);
-  return useApiQuery<Invoice>("invoices", queryFn);
+  return useApiQuery<Invoice>(
+    "invoices",
+    queryKeys.invoices,
+    async () => {
+      const r = await invoiceService.listInvoices({ page: "1", pageSize: "200" });
+      return r.items;
+    },
+    { staleTime: 2 * 60 * 1000 }
+  );
 }
 
 export function useWeightDisputes() {
-  const queryFn = useCallback(async () => weightDisputeService.listWeightDisputes(), []);
-  return useApiQuery<WeightDispute>("weight_disputes", queryFn);
+  return useApiQuery<WeightDispute>(
+    "weight_disputes",
+    queryKeys.weightDisputes,
+    async () => weightDisputeService.listWeightDisputes(),
+    { staleTime: 2 * 60 * 1000 }
+  );
 }
 
 export function useTransactions() {
-  const queryFn = useCallback(async () => {
-    const r = await walletService.listTransactions({ page: 1, pageSize: 100 });
-    return r.items;
-  }, []);
-  return useApiQuery<Transaction>("transactions", queryFn);
+  return useApiQuery<Transaction>(
+    "transactions",
+    queryKeys.transactions,
+    async () => {
+      const r = await walletService.listTransactions({ page: 1, pageSize: 100 });
+      return r.items;
+    },
+    { staleTime: 60 * 1000 }
+  );
 }
 
 /** Wallet summary for topbar and wallet page (refetch via `shipamaze:refetch:wallet`). */
-export function useWalletSummary() {
-  const [data, setData] = useState<WalletSummary | null>(null);
-  const [error, setError] = useState<Error | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const s = await walletService.getWalletSummary();
-      setData(s);
-      setError(null);
-    } catch (err) {
-      setError(toError(err));
-      setData(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+export function useWalletSummary(opts?: { enabled?: boolean }) {
+  const qc = useQueryClient();
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    const ev = () => void load();
+    const ev = () => void qc.invalidateQueries({ queryKey: queryKeys.wallet });
     window.addEventListener("shipamaze:refetch:wallet", ev);
     return () => window.removeEventListener("shipamaze:refetch:wallet", ev);
-  }, [load]);
+  }, [qc]);
 
-  return { data, error, isLoading, refetch: load };
+  const q = useQuery({
+    queryKey: queryKeys.wallet,
+    queryFn: () => walletService.getWalletSummary(),
+    enabled: opts?.enabled ?? true,
+    staleTime: 60 * 1000,
+  });
+
+  return {
+    data: (q.data as WalletSummary | undefined) ?? null,
+    error: q.error ? toError(q.error) : null,
+    isLoading: q.isLoading,
+    refetch: async () => {
+      await q.refetch();
+    },
+  };
 }
 
 export type NdrRow = {
@@ -545,68 +495,76 @@ export type NdrRow = {
   lastActionAt?: string;
 };
 
-export function useNdrOrders() {
-  const queryFn = useCallback(async () => {
-    const rows = (await ndrService.listNdr()) as unknown as Record<string, unknown>[];
-    return rows.map((n) => {
-      const provider = n.courierProvider === "lorrigo" ? "lorrigo" : "velocity";
-      const supportedRaw = Array.isArray(n.supportedActions) ? n.supportedActions : [];
-      const supportedActions = supportedRaw
-        .map((a) => String(a))
-        .filter((a): a is "reattempt" | "return" | "fake-attempt" =>
-          a === "reattempt" || a === "return" || a === "fake-attempt"
-        );
-      return {
-        awb: String(n.awb ?? ""),
-        customer: String(n.customer ?? ""),
-        seller: String(n.seller ?? ""),
-        reason: String(n.reason ?? ""),
-        attempts: Number(n.attempts ?? 1),
-        lastUpdate: String(n.lastUpdate ?? ""),
-        status: String(n.status ?? "Active"),
-        phone: String(n.phone ?? ""),
-        nextAction: String(n.nextAction ?? ""),
-        orderId: String(n.orderId ?? ""),
-        carrier: String(n.carrier ?? ""),
-        velocityStatus: String(n.velocityStatus ?? ""),
-        courierProvider: provider as "velocity" | "lorrigo",
-        providerStatus: String(n.providerStatus ?? ""),
-        customerRemarks: String(n.customerRemarks ?? ""),
-        actionRequired: n.actionRequired !== false,
-        recommendedAction: String(n.recommendedAction ?? ""),
-        supportedActions:
-          supportedActions.length > 0
-            ? supportedActions
-            : provider === "lorrigo"
-              ? (["reattempt", "return", "fake-attempt"] as Array<"reattempt" | "return" | "fake-attempt">)
-              : (["reattempt", "return"] as Array<"reattempt" | "return" | "fake-attempt">),
-        amount: n.amount != null ? Number(n.amount) : undefined,
-        actionStatus: String(n.actionStatus ?? ""),
-        actionMessage: String(n.actionMessage ?? ""),
-        lastActionAt: String(n.lastActionAt ?? ""),
-      };
-    });
-  }, []);
-  return useApiQuery<NdrRow>("ndr_orders", queryFn);
+export function useNdrOrders(opts?: { enabled?: boolean }) {
+  return useApiQuery<NdrRow>(
+    "ndr_orders",
+    queryKeys.ndr,
+    async () => {
+      const rows = (await ndrService.listNdr()) as unknown as Record<string, unknown>[];
+      return rows.map((n) => {
+        const provider = n.courierProvider === "lorrigo" ? "lorrigo" : "velocity";
+        const supportedRaw = Array.isArray(n.supportedActions) ? n.supportedActions : [];
+        const supportedActions = supportedRaw
+          .map((a) => String(a))
+          .filter((a): a is "reattempt" | "return" | "fake-attempt" =>
+            a === "reattempt" || a === "return" || a === "fake-attempt"
+          );
+        return {
+          awb: String(n.awb ?? ""),
+          customer: String(n.customer ?? ""),
+          seller: String(n.seller ?? ""),
+          reason: String(n.reason ?? ""),
+          attempts: Number(n.attempts ?? 1),
+          lastUpdate: String(n.lastUpdate ?? ""),
+          status: String(n.status ?? "Active"),
+          phone: String(n.phone ?? ""),
+          nextAction: String(n.nextAction ?? ""),
+          orderId: String(n.orderId ?? ""),
+          carrier: String(n.carrier ?? ""),
+          velocityStatus: String(n.velocityStatus ?? ""),
+          courierProvider: provider as "velocity" | "lorrigo",
+          providerStatus: String(n.providerStatus ?? ""),
+          customerRemarks: String(n.customerRemarks ?? ""),
+          actionRequired: n.actionRequired !== false,
+          recommendedAction: String(n.recommendedAction ?? ""),
+          supportedActions:
+            supportedActions.length > 0
+              ? supportedActions
+              : provider === "lorrigo"
+                ? (["reattempt", "return", "fake-attempt"] as Array<"reattempt" | "return" | "fake-attempt">)
+                : (["reattempt", "return"] as Array<"reattempt" | "return" | "fake-attempt">),
+          amount: n.amount != null ? Number(n.amount) : undefined,
+          actionStatus: String(n.actionStatus ?? ""),
+          actionMessage: String(n.actionMessage ?? ""),
+          lastActionAt: String(n.lastActionAt ?? ""),
+        };
+      });
+    },
+    { enabled: opts?.enabled ?? true, staleTime: 2 * 60 * 1000 }
+  );
 }
 
-export function useReturnOrders() {
-  const queryFn = useCallback(async () => {
-    const rows = (await returnService.listReturns()) as unknown as Record<string, unknown>[];
-    return rows.map((r) => ({
-      id: String(r.id ?? ""),
-      originalOrderId: String(r.originalOrderId ?? ""),
-      awb: String(r.awb ?? ""),
-      customer: String(r.customer ?? ""),
-      reason: String(r.reason ?? ""),
-      courier: (r.courier as ReturnOrder["courier"]) || "Delhivery",
-      status: (r.status as ReturnOrder["status"]) || "Return Requested",
-      date: String(r.date ?? ""),
-      refundAmount: Number(r.refundAmount ?? 0),
-      weight: String(r.weight ?? ""),
-    }));
-  }, []);
-  return useApiQuery<ReturnOrder>("return_orders", queryFn);
+export function useReturnOrders(opts?: { enabled?: boolean }) {
+  return useApiQuery<ReturnOrder>(
+    "return_orders",
+    queryKeys.returns,
+    async () => {
+      const rows = (await returnService.listReturns()) as unknown as Record<string, unknown>[];
+      return rows.map((r) => ({
+        id: String(r.id ?? ""),
+        originalOrderId: String(r.originalOrderId ?? ""),
+        awb: String(r.awb ?? ""),
+        customer: String(r.customer ?? ""),
+        reason: String(r.reason ?? ""),
+        courier: (r.courier as ReturnOrder["courier"]) || "Delhivery",
+        status: (r.status as ReturnOrder["status"]) || "Return Requested",
+        date: String(r.date ?? ""),
+        refundAmount: Number(r.refundAmount ?? 0),
+        weight: String(r.weight ?? ""),
+      }));
+    },
+    { enabled: opts?.enabled ?? true, staleTime: 2 * 60 * 1000 }
+  );
 }
 
 export type CatalogueProductRow = {
@@ -625,26 +583,30 @@ export type CatalogueProductRow = {
   dimensions: string;
 };
 
-export function useProducts() {
-  const queryFn = useCallback(async () => {
-    const rows = (await productService.listProducts()) as unknown as Record<string, unknown>[];
-    return rows.map((p) => ({
-      id: String(p._id ?? p.id ?? ""),
-      name: String(p.name ?? ""),
-      sku: String(p.sku ?? ""),
-      vendorSku: String(p.vendorSku ?? p.vendor_sku ?? ""),
-      category: String(p.category ?? ""),
-      weight: String(p.weight ?? ""),
-      price: Number(p.price ?? 0),
-      sellingPrice: Number(p.sellingPrice ?? p.selling_price ?? 0),
-      shippingCharge: Number(p.shippingCharge ?? p.shipping_charge ?? p.shippingCharges ?? 0),
-      ourCommission: Number(p.ourCommission ?? p.our_commission ?? p.commission ?? 40),
-      stock: Number(p.stock ?? 0),
-      hsn: String(p.hsn ?? ""),
-      dimensions: String(p.dimensions ?? ""),
-    }));
-  }, []);
-  return useApiQuery<CatalogueProductRow>("products", queryFn);
+export function useProducts(opts?: { enabled?: boolean }) {
+  return useApiQuery<CatalogueProductRow>(
+    "products",
+    queryKeys.products,
+    async () => {
+      const rows = (await productService.listProducts()) as unknown as Record<string, unknown>[];
+      return rows.map((p) => ({
+        id: String(p._id ?? p.id ?? ""),
+        name: String(p.name ?? ""),
+        sku: String(p.sku ?? ""),
+        vendorSku: String(p.vendorSku ?? p.vendor_sku ?? ""),
+        category: String(p.category ?? ""),
+        weight: String(p.weight ?? ""),
+        price: Number(p.price ?? 0),
+        sellingPrice: Number(p.sellingPrice ?? p.selling_price ?? 0),
+        shippingCharge: Number(p.shippingCharge ?? p.shipping_charge ?? p.shippingCharges ?? 0),
+        ourCommission: Number(p.ourCommission ?? p.our_commission ?? p.commission ?? 40),
+        stock: Number(p.stock ?? 0),
+        hsn: String(p.hsn ?? ""),
+        dimensions: String(p.dimensions ?? ""),
+      }));
+    },
+    { enabled: opts?.enabled ?? true, staleTime: 2 * 60 * 1000 }
+  );
 }
 
 export type CourierRow = {
@@ -664,53 +626,103 @@ export type CourierRow = {
   carrierId: string;
 };
 
-export function useCouriers() {
-  const queryFn = useCallback(async () => {
-    const rows = (await courierService.listCouriers()) as unknown as Record<string, unknown>[];
-    return rows.map((c) => ({
-      id: String(c._id ?? c.id ?? ""),
-      name: String(c.name ?? ""),
-      active: Boolean(c.active ?? true),
-      priority: Number(c.priority ?? 0),
-      deliveryRate: Number(c.deliveryRate ?? 0),
-      ndrRate: Number(c.ndrRate ?? 0),
-      rtoRate: Number(c.rtoRate ?? 0),
-      avgDeliveryDays: Number(c.avgDeliveryDays ?? 3),
-      codSupport: Boolean(c.codSupport ?? true),
-      reversePickup: Boolean(c.reversePickup ?? false),
-      surfaceRate: Number(c.surfaceRate ?? 0),
-      airRate: Number(c.airRate ?? 0),
-      preferredPickupAddressId: String(c.preferredPickupAddressId ?? ""),
-      carrierId: String(c.carrierId ?? ""),
-    }));
-  }, []);
-  return useApiQuery<CourierRow>("couriers", queryFn);
+export function useCouriers(opts?: { enabled?: boolean }) {
+  return useApiQuery<CourierRow>(
+    "couriers",
+    queryKeys.couriers,
+    async () => {
+      const rows = (await courierService.listCouriers()) as unknown as Record<string, unknown>[];
+      return rows.map((c) => ({
+        id: String(c._id ?? c.id ?? ""),
+        name: String(c.name ?? ""),
+        active: Boolean(c.active ?? true),
+        priority: Number(c.priority ?? 0),
+        deliveryRate: Number(c.deliveryRate ?? 0),
+        ndrRate: Number(c.ndrRate ?? 0),
+        rtoRate: Number(c.rtoRate ?? 0),
+        avgDeliveryDays: Number(c.avgDeliveryDays ?? 3),
+        codSupport: Boolean(c.codSupport ?? true),
+        reversePickup: Boolean(c.reversePickup ?? false),
+        surfaceRate: Number(c.surfaceRate ?? 0),
+        airRate: Number(c.airRate ?? 0),
+        preferredPickupAddressId: String(c.preferredPickupAddressId ?? ""),
+        carrierId: String(c.carrierId ?? ""),
+      }));
+    },
+    { enabled: opts?.enabled ?? true, staleTime: 10 * 60 * 1000 }
+  );
 }
 
-export function useCodRemittances() {
-  const queryFn = useCallback(async () => {
-    const r = await walletService.listCodRemittances({ page: "1", pageSize: "200" });
-    return r.items;
-  }, []);
-  return useApiQuery<CODRemittance>("cod_remittances", queryFn);
+export function useCodRemittances(opts?: { enabled?: boolean }) {
+  return useApiQuery<CODRemittance>(
+    "cod_remittances",
+    queryKeys.codRemittances,
+    async () => {
+      const r = await walletService.listCodRemittances({ page: "1", pageSize: "200" });
+      return r.items;
+    },
+    { enabled: opts?.enabled ?? true, staleTime: 2 * 60 * 1000 }
+  );
 }
 
-export function useGstRecords() {
-  const queryFn = useCallback(async () => {
-    const r = await walletService.listGstRecords({ limit: "500" });
-    return r.items;
-  }, []);
-  return useApiQuery<walletService.GstRecord>("gst_records", queryFn);
+export function useGstRecords(opts?: { enabled?: boolean }) {
+  return useApiQuery<walletService.GstRecord>(
+    "gst_records",
+    queryKeys.gstRecords,
+    async () => {
+      const r = await walletService.listGstRecords({ limit: "500" });
+      return r.items;
+    },
+    { enabled: opts?.enabled ?? true, staleTime: 2 * 60 * 1000 }
+  );
 }
 
-export function usePickupAddresses(opts?: { scope?: "platform" }) {
+export function usePickupAddresses(opts?: { scope?: "platform"; enabled?: boolean }) {
   const scope = opts?.scope;
   const cacheKey = scope === "platform" ? "pickup_addresses_platform" : "pickup_addresses";
-  const queryFn = useCallback(async () => pickupService.listPickupAddresses(scope), [scope]);
-  return useApiQuery<PickupAddress>(cacheKey, queryFn);
+  return useApiQuery<PickupAddress>(
+    cacheKey,
+    queryKeys.pickups(scope),
+    async () => pickupService.listPickupAddresses(scope),
+    { enabled: opts?.enabled ?? true, staleTime: 5 * 60 * 1000 }
+  );
 }
 
-export function usePincodes() {
-  const queryFn = useCallback(async () => pincodeService.listPincodes(), []);
-  return useApiQuery<PincodeService>("pincodes", queryFn);
+export function usePincodes(opts?: { enabled?: boolean }) {
+  return useApiQuery<PincodeService>(
+    "pincodes",
+    queryKeys.pincodes,
+    async () => pincodeService.listPincodes(),
+    { enabled: opts?.enabled ?? true, staleTime: 30 * 60 * 1000 }
+  );
+}
+
+/** Shared dashboard summary — one request, cached across dashboard/analytics. */
+export function useDashboardSummary<T = Record<string, unknown>>(opts?: { enabled?: boolean }) {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const ev = () => void qc.invalidateQueries({ queryKey: queryKeys.dashboard });
+    window.addEventListener("shipamaze:refetch:dashboard", ev);
+    return () => window.removeEventListener("shipamaze:refetch:dashboard", ev);
+  }, [qc]);
+
+  const q = useQuery({
+    queryKey: queryKeys.dashboard,
+    queryFn: async ({ signal }) => {
+      const { apiRequest } = await import("@/lib/apiClient");
+      return apiRequest<T>("/dashboard/summary", { method: "GET", signal });
+    },
+    enabled: opts?.enabled ?? true,
+    staleTime: 60 * 1000,
+  });
+
+  return {
+    data: q.data ?? null,
+    loading: q.isLoading,
+    error: q.error ? toError(q.error).message : null,
+    reload: () => {
+      void q.refetch();
+    },
+    refetch: q.refetch,
+  };
 }

@@ -59,6 +59,51 @@ const tabs: { label: string; filter: string }[] = [
 /** Tabs where bulk process + courier serviceability filter apply. */
 const SERVICEABILITY_FILTER_TABS = new Set(["all", "channel", "manual", "ready-to-ship"]);
 
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
+
+function MobileSelectCountControl({
+  max,
+  onApply,
+}: {
+  max: number;
+  onApply: (count: number) => void;
+}) {
+  const [value, setValue] = useState("");
+  const apply = () => {
+    const n = Math.floor(Number(value));
+    if (!Number.isFinite(n) || n < 1) {
+      toast.error("Enter a valid number of orders to select");
+      return;
+    }
+    onApply(Math.min(n, max));
+  };
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-xs font-medium text-text-secondary">Select</span>
+      <Input
+        type="number"
+        min={1}
+        max={max}
+        inputMode="numeric"
+        placeholder="e.g. 95"
+        className="h-7 w-[4.5rem] text-xs px-2 bg-background"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            apply();
+          }
+        }}
+        aria-label="Number of orders to select"
+      />
+      <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={apply}>
+        Go
+      </Button>
+    </div>
+  );
+}
+
 interface Props {
   breadcrumbPrefix: string;
   showActions?: boolean;
@@ -615,11 +660,14 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     };
   }, [activeTab, debouncedSearch, advancedFilters, effectivePayment, channelFulfillment]);
 
-  const handleSelectAllMatching = useCallback(async () => {
+  const handleSelectAllMatching = useCallback(async (limit?: number) => {
     try {
-      const res = await orderService.listOrderIds({ ...exportFilterParams(), limit: 1000 });
+      const requested = limit != null ? Math.floor(limit) : 1000;
+      const cappedLimit = Math.min(Math.max(1, requested), 1000);
+      const res = await orderService.listOrderIds({ ...exportFilterParams(), limit: cappedLimit });
       setSelected(new Set(res.ids));
-      if (res.capped) {
+      // Only warn when "select all" (or >1000 request) hit the hard 1,000 cap — not when user asked for e.g. 95 of 327.
+      if (res.capped && (limit == null || requested > 1000)) {
         toast.warning(`Selected first ${res.ids.length} of ${res.total} matching orders (max 1,000 per bulk action)`);
       } else {
         toast.success(`Selected ${res.ids.length} order${res.ids.length === 1 ? "" : "s"}`);
@@ -858,7 +906,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[50, 100, 250, 500, 1000].map((n) => (
+                  {PAGE_SIZE_OPTIONS.map((n) => (
                     <SelectItem key={n} value={String(n)}>
                       {n} / page
                     </SelectItem>
@@ -1094,6 +1142,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                         Select all {Math.min(total, 1000)} matching
                       </button>
                     )}
+                    {total > 0 && (
+                      <MobileSelectCountControl
+                        max={Math.min(total, 1000)}
+                        onApply={(n) => void handleSelectAllMatching(n)}
+                      />
+                    )}
                     <button
                       type="button"
                       className="ml-auto text-xs text-text-muted hover:text-text-primary"
@@ -1145,11 +1199,34 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                 onClearSelection={() => setSelected(new Set())}
               />
               <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-2">
-                <p className="text-xs text-text-secondary">
-                  {total === 0
-                    ? "Showing 0 of 0 orders"
-                    : `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total} orders`}
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-text-secondary">
+                    {total === 0
+                      ? "Showing 0 of 0 orders"
+                      : `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total} orders`}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-text-secondary whitespace-nowrap">Rows per page</span>
+                    <Select
+                      value={String(pageSize)}
+                      onValueChange={(v) => {
+                        setPageSize(Number(v));
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[72px] text-xs bg-card">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PAGE_SIZE_OPTIONS.map((n) => (
+                          <SelectItem key={n} value={String(n)}>
+                            {n}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 {total > pageSize ? (
                   <div className="flex items-center gap-1.5 shrink-0 rounded-lg border border-border/60 bg-card px-1.5 py-0.5">
                     <Button
@@ -1187,12 +1264,16 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           selected={selected}
           onToggleSelect={toggleSelect}
           onSelectAll={(ids) => setSelected(new Set(ids))}
-          onSelectAllMatching={() => void handleSelectAllMatching()}
+          onSelectAllMatching={(limit) => void handleSelectAllMatching(limit)}
           totalMatching={total}
           page={page}
           pageSize={pageSize}
           totalCount={total}
           onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
           onClearSelection={() => setSelected(new Set())}
           onMarkJunk={handleMarkJunk}
           onMarkReship={handleMarkReship}

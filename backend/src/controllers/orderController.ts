@@ -62,6 +62,9 @@ import { mapWithConcurrency } from "../modules/velocity/velocity.labelPdf.js";
 const PROCESS_SELECTED_MAX_ORDERS = 1000;
 const ORDER_IDS_MAX = 1000;
 const ORDER_EXPORT_MAX_ROWS = 50_000;
+
+/** Exclude heavy blobs from list endpoints — labels/raw payloads fetched on detail/label routes. */
+const ORDER_LIST_EXCLUDE = "-labelPdfBase64 -providerBookingRaw -providerEvents -trackingActivities -remarkHistory";
 /** Higher concurrency — each order is mostly waiting on Velocity I/O. */
 const PROCESS_SELECTED_CONCURRENCY = 10;
 
@@ -454,7 +457,12 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
     let query: Record<string, unknown> = { ...visibility };
     if (view === "junk") query = mergeQueries(query, { isJunk: true });
     else query = mergeQueries(query, { isJunk: { $ne: true } });
-    const rows = await Order.find(query).sort({ createdAt: -1 }).lean();
+    // Cap legacy list — full unbounded scan was a major perf hotspot (command palette / analytics)
+    const rows = await Order.find(query)
+      .select(ORDER_LIST_EXCLUDE)
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .lean();
     res.json(rows.map((o) => mapOrder(o)));
     return;
   }
@@ -504,7 +512,7 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
 
   const skip = (pq.page - 1) * pq.pageSize;
   const [rows, total] = await Promise.all([
-    Order.find(query).sort({ createdAt: -1 }).skip(skip).limit(pq.pageSize).lean(),
+    Order.find(query).select(ORDER_LIST_EXCLUDE).sort({ createdAt: -1 }).skip(skip).limit(pq.pageSize).lean(),
     Order.countDocuments(query),
   ]);
 

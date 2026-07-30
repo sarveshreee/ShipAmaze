@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CommandDialog,
@@ -8,9 +8,10 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { useOrders } from "@/hooks/useApiData";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStaffPermissions } from "@/hooks/useStaffPermissions";
+import * as orderService from "@/services/orderService";
+import type { Order } from "@/types/logistics";
 import {
   Package,
   LayoutDashboard,
@@ -69,13 +70,21 @@ const pages: PalettePage[] = [
   { label: "Track Shipment", path: "/track", icon: Search },
 ];
 
+type SearchOrder = Pick<Order, "id" | "awb" | "customer">;
+
+/**
+ * Command palette — pages only until user types a search query.
+ * Orders are fetched on-demand (paginated search), never on every authenticated page.
+ */
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [orders, setOrders] = useState<SearchOrder[]>([]);
   const navigate = useNavigate();
   const { role } = useAuth();
   const { isOwnerAdmin, hasAny } = useStaffPermissions();
-  const { data: orders = [] } = useOrders();
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<number | null>(null);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -87,6 +96,54 @@ export function CommandPalette() {
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
   }, []);
+
+  // Fetch orders only when palette is open AND user has typed 2+ chars
+  useEffect(() => {
+    if (!open) {
+      setOrders([]);
+      setSearch("");
+      abortRef.current?.abort();
+      return;
+    }
+
+    const query = search.trim();
+    if (query.length < 2) {
+      setOrders([]);
+      return;
+    }
+
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(() => {
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+      void (async () => {
+        try {
+          const res = await orderService.listOrders({
+            q: query,
+            page: 1,
+            pageSize: 12,
+            counts: false,
+          });
+          if (ac.signal.aborted) return;
+          const rows = Array.isArray(res) ? res : res.orders ?? [];
+          setOrders(
+            rows.map((o) => ({
+              id: String((o as { id?: string }).id ?? ""),
+              awb: String((o as { awb?: string }).awb ?? ""),
+              customer: String((o as { customer?: string }).customer ?? ""),
+            }))
+          );
+        } catch {
+          if (!ac.signal.aborted) setOrders([]);
+        }
+      })();
+    }, 280);
+
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    };
+  }, [open, search]);
 
   const goTo = (path: string) => {
     navigate(path);
@@ -111,29 +168,21 @@ export function CommandPalette() {
     [query, role, isOwnerAdmin, hasAny]
   );
 
-  const filteredOrders = useMemo(
-    () =>
-      orders
-        .filter(
-          (o) =>
-            o.id.toLowerCase().includes(query) ||
-            o.awb.toLowerCase().includes(query) ||
-            o.customer.toLowerCase().includes(query)
-        )
-        .slice(0, 10),
-    [orders, query]
-  );
+  const filteredOrders = useMemo(() => orders.slice(0, 10), [orders]);
 
   const filteredCustomers = useMemo(
     () =>
-      [...new Set(orders.map((o) => o.customer))]
-        .filter((name) => name.toLowerCase().includes(query))
+      [...new Set(orders.map((o) => o.customer).filter(Boolean))]
+        .filter((name) => !query || name.toLowerCase().includes(query))
         .slice(0, 6),
     [orders, query]
   );
 
   const filteredAWBs = useMemo(
-    () => orders.filter((o) => o.awb.toLowerCase().includes(query)).slice(0, 6),
+    () =>
+      orders
+        .filter((o) => o.awb && (!query || o.awb.toLowerCase().includes(query)))
+        .slice(0, 6),
     [orders, query]
   );
 

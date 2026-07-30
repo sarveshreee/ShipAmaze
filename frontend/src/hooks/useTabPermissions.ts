@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import * as tabPermissionService from "@/services/tabPermissionService";
 import { useAuth } from "@/contexts/AuthContext";
+import { queryKeys } from "@/lib/queryClient";
 
 interface TabPermission {
   tab_key: string;
@@ -9,33 +11,22 @@ interface TabPermission {
 
 export function useTabPermissions() {
   const { role, userId } = useAuth();
-  const [permissions, setPermissions] = useState<Record<string, boolean>>({});
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    if (role === "admin") {
-      setPermissions({});
-      setIsLoading(false);
-      return;
-    }
+  const q = useQuery({
+    queryKey: [...queryKeys.tabPermissions, role, userId],
+    enabled: role !== "admin" && !!userId,
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const data = await tabPermissionService.getMyTabPermissions();
+      const map: Record<string, boolean> = {};
+      (data || []).forEach((d: TabPermission) => {
+        map[d.tab_key] = d.enabled;
+      });
+      return map;
+    },
+  });
 
-    const load = async () => {
-      try {
-        const data = await tabPermissionService.getMyTabPermissions();
-        const map: Record<string, boolean> = {};
-        (data || []).forEach((d: TabPermission) => {
-          map[d.tab_key] = d.enabled;
-        });
-        setPermissions(map);
-      } catch {
-        setPermissions({});
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    void load();
-  }, [role, userId]);
+  const permissions = role === "admin" ? {} : (q.data ?? {});
 
   const isTabEnabled = useCallback(
     (tabKey: string): boolean => {
@@ -45,7 +36,11 @@ export function useTabPermissions() {
     [role, permissions]
   );
 
-  return { isTabEnabled, isLoading, permissions };
+  return {
+    isTabEnabled,
+    isLoading: role === "admin" ? false : q.isLoading,
+    permissions,
+  };
 }
 
 export function useAdminTabPermissions() {

@@ -53,6 +53,11 @@ async function main() {
   const app = createApp();
   const server = http.createServer(app);
 
+  // Render / reverse-proxy friendly keep-alive (reduce connection churn + cold TLS)
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 70_000;
+  server.requestTimeout = 120_000;
+
   let _retrying = false;
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {

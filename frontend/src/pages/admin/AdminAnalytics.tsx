@@ -4,11 +4,9 @@ import { CheckCircle2, Clock, RotateCcw, AlertTriangle, Target, Download, FileTe
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useEffect, useMemo, useState, Component, type ErrorInfo, type ReactNode } from "react";
+import { useMemo, Component, type ErrorInfo, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { useOrders, useNdrOrders } from "@/hooks/useApiData";
-import type { Order } from "@/types/logistics";
-import { apiClient } from "@/lib/apiClient";
+import { useNdrOrders, useDashboardSummary } from "@/hooks/useApiData";
 
 const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -53,94 +51,60 @@ function getHeatColor(count: number, max: number) {
   return "bg-primary/90";
 }
 
+type AnalyticsSummary = {
+  deliveryRatePct: number;
+  rtoPct: number;
+  ndrPct: number;
+  ndrCount: number;
+  totalOrders: number;
+  totalOrderValue?: number;
+  ordersOverTime?: Array<{ date: string; total: number; delivered: number; rto: number }>;
+  courierPerformance?: Array<{ name: string; delivered: number; ndr: number; rto: number; total?: number }>;
+};
+
 export default function AdminAnalytics() {
   const navigate = useNavigate();
-  const { data: orders = [], isLoading: ordersLoading, isError: ordersErr, refetch: refetchOrders } = useOrders();
+  const { data: summary, loading: summaryLoading, error: summaryErr, reload } = useDashboardSummary<AnalyticsSummary>();
   const { data: ndrRows = [], isLoading: ndrLoading, isError: ndrErr, refetch: refetchNdr } = useNdrOrders();
-  const [summaryKpis, setSummaryKpis] = useState<{
-    deliveryRatePct: number;
-    rtoPct: number;
-    ndrPct: number;
-    ndrCount: number;
-    totalOrders: number;
-  } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiClient
-      .get<{
-        deliveryRatePct: number;
-        rtoPct: number;
-        ndrPct: number;
-        ndrCount: number;
-        totalOrders: number;
-      }>("/dashboard/summary")
-      .then((d) => {
-        if (!cancelled) {
-          setSummaryKpis({
-            deliveryRatePct: d.deliveryRatePct ?? 0,
-            rtoPct: d.rtoPct ?? 0,
-            ndrPct: d.ndrPct ?? 0,
-            ndrCount: d.ndrCount ?? 0,
-            totalOrders: d.totalOrders ?? 0,
-          });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setSummaryKpis(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const ordersOverTime = useMemo(() => {
-    const days = 7;
-    const labels: string[] = [];
-    const counts = new Array(days).fill(0);
-    const today = new Date();
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      labels.push(d.toLocaleDateString("en-IN", { weekday: "short" }));
+    const series = summary?.ordersOverTime ?? [];
+    if (!series.length) {
+      return dayLabels.map((day) => ({ day, orders: 0 }));
     }
-    for (const o of orders) {
-      if (!o.date) continue;
-      const od = new Date(o.date);
-      if (Number.isNaN(od.getTime())) continue;
-      const diff = Math.floor((today.getTime() - od.getTime()) / (1000 * 60 * 60 * 24));
-      if (diff >= 0 && diff < days) counts[days - 1 - diff] += 1;
-    }
-    return labels.map((day, i) => ({ day, orders: counts[i] }));
-  }, [orders]);
+    const last7 = series.slice(-7);
+    return last7.map((row) => {
+      const d = new Date(row.date);
+      const day = Number.isNaN(d.getTime())
+        ? row.date
+        : d.toLocaleDateString("en-IN", { weekday: "short" });
+      return { day, orders: row.total ?? 0 };
+    });
+  }, [summary]);
 
   const courierPerformance = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const o of orders) {
-      const name = (o.courier || "Unknown").trim() || "Unknown";
-      map.set(name, (map.get(name) || 0) + 1);
-    }
-    const rows = Array.from(map.entries())
-      .map(([name, count]) => ({ name, count }))
+    const rows = (summary?.courierPerformance ?? [])
+      .map((c) => ({ name: c.name, count: c.total ?? c.delivered + c.ndr + c.rto }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
     return rows.length ? rows : [{ name: "No data", count: 0 }];
-  }, [orders]);
+  }, [summary]);
 
   const revenueData = useMemo(() => {
+    const series = summary?.ordersOverTime ?? [];
+    if (!series.length) return [{ month: "—", revenue: 0 }];
+    // Approximate monthly buckets from daily series (value not on series — use order counts as activity proxy)
     const map = new Map<string, number>();
-    for (const o of orders) {
-      if (!o.date) continue;
-      const d = new Date(o.date);
-      if (Number.isNaN(d.getTime())) continue;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      map.set(key, (map.get(key) || 0) + (Number(o.amount) || 0));
+    for (const row of series) {
+      const key = String(row.date).slice(0, 7);
+      if (!key || key.length < 7) continue;
+      map.set(key, (map.get(key) || 0) + (row.total || 0));
     }
     const keys = Array.from(map.keys()).sort();
     const last = keys.slice(-6);
     const rows = last.map((k) => ({ month: k, revenue: map.get(k) ?? 0 }));
     return rows.length ? rows : [{ month: "—", revenue: 0 }];
-  }, [orders]);
+  }, [summary]);
 
   const heatmapData = useMemo(() => {
     const weeks = 13;
@@ -150,66 +114,50 @@ export default function AdminAnalytics() {
         data.push({ week: w, day: d, count: 0 });
       }
     }
+    const series = summary?.ordersOverTime ?? [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    for (const o of orders) {
-      if (!o.date) continue;
-      const od = new Date(o.date);
+    for (const row of series) {
+      const od = new Date(row.date);
       if (Number.isNaN(od.getTime())) continue;
       od.setHours(0, 0, 0, 0);
       const diffDays = Math.floor((today.getTime() - od.getTime()) / 86400000);
       if (diffDays < 0 || diffDays >= weeks * 7) continue;
       const w = Math.min(Math.floor(diffDays / 7), weeks - 1);
-      // Convert Sunday=0..Saturday=6 → Monday=0..Sunday=6 to match dayLabels
       const d = (od.getDay() + 6) % 7;
       const cell = data.find((c) => c.week === w && c.day === d);
-      if (cell) cell.count += 1;
+      if (cell) cell.count += row.total || 0;
     }
     return data;
-  }, [orders]);
+  }, [summary]);
 
   const maxCount = useMemo(() => Math.max(1, ...heatmapData.map((d) => d.count)), [heatmapData]);
 
   const deliveryTrend = useMemo(() => {
-    const out: { day: string; rate: number }[] = [];
-    for (let i = 0; i < 14; i++) {
-      out.push({ day: `D${i + 1}`, rate: 0 });
+    const series = summary?.ordersOverTime ?? [];
+    const last14 = series.slice(-14);
+    if (!last14.length) {
+      return Array.from({ length: 14 }, (_, i) => ({ day: `D${i + 1}`, rate: 0 }));
     }
-    const windowDays = 14;
-    const today = new Date();
-    for (let i = 0; i < windowDays; i++) {
-      const dayOrders = orders.filter((o) => {
-        if (!o.date) return false;
-        const od = new Date(o.date);
-        if (Number.isNaN(od.getTime())) return false;
-        const diff = Math.floor((today.getTime() - od.getTime()) / (1000 * 60 * 60 * 24));
-        return diff === windowDays - 1 - i;
-      });
-      const total = dayOrders.length;
-      const delivered = dayOrders.filter((o) => o.status === "delivered").length;
-      const rate = total === 0 ? 0 : Math.round((delivered / total) * 100);
-      out[i] = { day: `Day ${i + 1}`, rate };
-    }
-    return out;
-  }, [orders]);
+    return last14.map((row, i) => {
+      const total = row.total || 0;
+      const rate = total === 0 ? 0 : Math.round(((row.delivered || 0) / total) * 100);
+      return { day: `Day ${i + 1}`, rate };
+    });
+  }, [summary]);
 
   const rtoByCourier = useMemo(() => {
-    const map = new Map<string, { total: number; rto: number }>();
-    for (const o of orders) {
-      const name = (o.courier || "Unknown").trim() || "Unknown";
-      const row = map.get(name) || { total: 0, rto: 0 };
-      row.total += 1;
-      if (o.status === "rto") row.rto += 1;
-      map.set(name, row);
-    }
-    return Array.from(map.entries())
-      .map(([name, { total, rto }]) => ({
-        name,
-        rto: total ? Math.round((rto / total) * 100) : 0,
-      }))
-      .filter((x) => x.name !== "No data")
+    const rows = (summary?.courierPerformance ?? [])
+      .map((c) => {
+        const total = c.total ?? c.delivered + c.ndr + c.rto;
+        return {
+          name: c.name,
+          rto: total ? Math.round((c.rto / total) * 100) : 0,
+        };
+      })
       .slice(0, 6);
-  }, [orders]);
+    return rows;
+  }, [summary]);
 
   const rtoChartData = rtoByCourier.length ? rtoByCourier : [{ name: "No data", rto: 0 }];
 
@@ -229,36 +177,29 @@ export default function AdminAnalytics() {
   }, [ndrRows]);
 
   const kpis = useMemo(() => {
-    if (summaryKpis) {
+    if (summary) {
       return {
-        delivery: `${summaryKpis.deliveryRatePct}%`,
+        delivery: `${summary.deliveryRatePct ?? 0}%`,
         avgTime: "—",
-        rto: `${summaryKpis.rtoPct}%`,
-        ndr: `${summaryKpis.ndrPct}%`,
-        activeNdr: String(summaryKpis.ndrCount),
+        rto: `${summary.rtoPct ?? 0}%`,
+        ndr: `${summary.ndrPct ?? 0}%`,
+        activeNdr: String(summary.ndrCount ?? 0),
       };
     }
-    const total = orders.length;
-    const delivered = orders.filter((o: Order) => o.status === "delivered").length;
-    const rto = orders.filter((o) => o.status === "rto").length;
-    const rate = total ? ((delivered / total) * 100).toFixed(1) : "0";
-    const rtoRate = total ? ((rto / total) * 100).toFixed(1) : "0";
-    const ndrCount = ndrRows.filter((n) => n.status === "Active").length;
-    const ndrRate = total ? ((ndrCount / Math.max(total, 1)) * 100).toFixed(1) : "0";
     return {
-      delivery: `${rate}%`,
+      delivery: "0%",
       avgTime: "—",
-      rto: `${rtoRate}%`,
-      ndr: `${ndrRate}%`,
-      activeNdr: String(ndrCount),
+      rto: "0%",
+      ndr: "0%",
+      activeNdr: "0",
     };
-  }, [orders, ndrRows, summaryKpis]);
+  }, [summary]);
 
-  if (ordersLoading || ndrLoading) {
+  if (summaryLoading || ndrLoading) {
     return <div className="animate-pulse p-8 text-text-muted">Loading analytics…</div>;
   }
 
-  if (ordersErr || ndrErr) {
+  if (summaryErr || ndrErr) {
     return (
       <div className="animate-fade-in-up p-6">
         <PageHeader title="Analytics" breadcrumb={["Admin", "Analytics"]} />
@@ -267,7 +208,7 @@ export default function AdminAnalytics() {
           <Button
             variant="outline"
             onClick={() => {
-              void refetchOrders();
+              reload();
               void refetchNdr();
             }}
           >

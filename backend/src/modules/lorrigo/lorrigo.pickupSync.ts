@@ -47,16 +47,32 @@ function extractLorrigoPickupId(raw: unknown): string {
 }
 
 /**
+ * Lorrigo text fields only allow A-Z, 0-9, spaces, `-` and `_`.
+ * Local ShipAmaze pickup stays as the admin/vendor typed it — we sanitize only
+ * the outbound provider payload so Sync never fails on punctuation/backslashes.
+ */
+export function sanitizeLorrigoTextField(raw: string, fallback = ""): string {
+  const cleaned = String(raw ?? "")
+    // Common separators → space or hyphen so meaning is preserved
+    .replace(/[\\/|,;:]+/g, " ")
+    .replace(/&/g, " and ")
+    .replace(/[^A-Za-z0-9 _-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || fallback;
+}
+
+/**
  * Lorrigo validates:
- * - address must contain `/` or `-`
+ * - text fields: A-Z, 0-9, spaces, - and _
+ * - address must contain `/` or `-` (we keep `-` after sanitize)
  * - rtoAddress (≥5 chars) and rtoPincode (6 digits) are required
  * When ShipAmaze has no separate RTO address, reuse the pickup address.
  */
 export function ensureLorrigoAddressShape(address: string): string {
-  const trimmed = address.trim();
-  if (!trimmed) return "Address -";
-  if (/[/-]/.test(trimmed)) return trimmed;
-  return `${trimmed} -`;
+  const cleaned = sanitizeLorrigoTextField(address, "Address");
+  if (/[/-]/.test(cleaned)) return cleaned;
+  return `${cleaned} -`;
 }
 
 export function pickupToLorrigoPickupPayload(
@@ -76,23 +92,30 @@ export function pickupToLorrigoPickupPayload(
 ) {
   const email = (pickup.email ?? "").trim() || fallbackEmail.trim();
   const pincode = String(pickup.pincode ?? "").replace(/\D/g, "").slice(0, 6);
-  const line1 = pickup.addressLine1.trim();
-  const line2 = (pickup.addressLine2 ?? "").trim();
-  const city = pickup.city.trim();
+  const city = sanitizeLorrigoTextField(pickup.city, "City");
+  const line1 = sanitizeLorrigoTextField(pickup.addressLine1);
+  const line2 = sanitizeLorrigoTextField(pickup.addressLine2 ?? "");
   // RTO address must be ≥5 chars; pad short lines with city before shape check.
   const baseAddress = line1.length >= 5 ? line1 : `${line1} ${city}`.trim();
-  const address = ensureLorrigoAddressShape(baseAddress);
+  const address = ensureLorrigoAddressShape(baseAddress || `${city} warehouse`);
+  const facilityName =
+    sanitizeLorrigoTextField(pickup.label, "Pickup") || "Pickup";
+  const contactPersonName =
+    sanitizeLorrigoTextField(pickup.contactName) ||
+    sanitizeLorrigoTextField(pickup.label, "Contact") ||
+    "Contact";
+
   return {
-    facilityName: pickup.label.trim() || "Pickup",
-    contactPersonName: pickup.contactName.trim() || pickup.label.trim() || "Contact",
+    facilityName,
+    contactPersonName,
     email,
     pincode,
     address,
     address2: line2,
     phone: String(pickup.phone ?? "").replace(/\D/g, "").slice(-10),
     city,
-    state: pickup.state.trim(),
-    country: (pickup.country ?? "India").trim() || "India",
+    state: sanitizeLorrigoTextField(pickup.state, "State"),
+    country: sanitizeLorrigoTextField(pickup.country ?? "India", "India") || "India",
     // Required by Lorrigo create pickup-address (default RTO = pickup)
     rtoAddress: address,
     rtoPincode: pincode,

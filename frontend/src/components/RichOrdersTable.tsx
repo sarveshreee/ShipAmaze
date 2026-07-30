@@ -30,6 +30,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
 
 const BULK_LABEL_PRINT_TABS = new Set([
   "pending-pickup",
@@ -746,8 +755,8 @@ interface Props {
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
   onSelectAll: (ids: string[]) => void;
-  /** Select up to 1,000 orders matching current filters (all pages). */
-  onSelectAllMatching?: () => void;
+  /** Select matching orders across pages. Pass limit for a custom count (max 1,000). */
+  onSelectAllMatching?: (limit?: number) => void;
   totalMatching?: number;
   /** Pagination metadata for footer: Showing X–Y of Z */
   page?: number;
@@ -755,6 +764,8 @@ interface Props {
   totalCount?: number;
   /** Change page from the sticky footer Prev/Next controls. */
   onPageChange?: (page: number) => void;
+  /** Change rows-per-page from the sticky footer dropdown. */
+  onPageSizeChange?: (pageSize: number) => void;
   onClearSelection: () => void;
   onMarkJunk: (id: string) => void;
   onMarkReship?: (id: string) => void;
@@ -818,6 +829,7 @@ export function RichOrdersTable({
   pageSize = 50,
   totalCount,
   onPageChange,
+  onPageSizeChange,
   onClearSelection,
   onMarkJunk,
   onMarkReship,
@@ -851,6 +863,7 @@ export function RichOrdersTable({
   const showCourierRemarkFilters = COURIER_FILTER_TABS.has(activeTab ?? "");
   const [bulkMoveToReadyConfirmOpen, setBulkMoveToReadyConfirmOpen] = useState(false);
   const [bulkDeleteJunkConfirmOpen, setBulkDeleteJunkConfirmOpen] = useState(false);
+  const [selectCountInput, setSelectCountInput] = useState("");
   const showBulkPrintActions = BULK_LABEL_PRINT_TABS.has(activeTab ?? "") && selected.size > 0;
   const [productFilter, setProductFilter] = useState({ open: false, search: "", mode: "AND" as "OR"|"AND"|"NOT", selectedNames: new Set<string>() });
   const [amountFilter, setAmountFilter] = useState({ open: false, from: "", to: "" });
@@ -1262,6 +1275,48 @@ export function RichOrdersTable({
                   {totalMatching > 1000 ? " (max 1,000)" : ""}
                 </button>
               )}
+            {onSelectAllMatching && typeof totalMatching === "number" && totalMatching > 0 && (
+              <div className="flex items-center gap-1.5 ml-1 pl-2 border-l border-border/60">
+                <span className="text-xs font-medium text-text-secondary">Select</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={Math.min(totalMatching, 1000)}
+                  inputMode="numeric"
+                  placeholder="e.g. 95"
+                  className="h-7 w-[4.75rem] text-xs px-2 bg-background"
+                  value={selectCountInput}
+                  onChange={(e) => setSelectCountInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    const n = Math.floor(Number(selectCountInput));
+                    if (!Number.isFinite(n) || n < 1) {
+                      toast.error("Enter a valid number of orders to select");
+                      return;
+                    }
+                    onSelectAllMatching(Math.min(n, Math.min(totalMatching, 1000)));
+                  }}
+                  aria-label="Number of orders to select"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2.5 text-xs font-semibold"
+                  onClick={() => {
+                    const n = Math.floor(Number(selectCountInput));
+                    if (!Number.isFinite(n) || n < 1) {
+                      toast.error("Enter a valid number of orders to select");
+                      return;
+                    }
+                    onSelectAllMatching(Math.min(n, Math.min(totalMatching, 1000)));
+                  }}
+                >
+                  Go
+                </Button>
+              </div>
+            )}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {showBulkMoveToReady && onBulkMoveToReady && (
@@ -2480,15 +2535,37 @@ export function RichOrdersTable({
         className="fixed bottom-0 z-30 border-t border-border/60 bg-card/90 backdrop-blur-sm left-0 right-0 pb-[env(safe-area-inset-bottom,0px)] max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:left-[var(--sidebar-width,4.5rem)] transition-[left] duration-300"
       >
         <div className="px-4 py-2.5 text-sm text-text-secondary flex flex-wrap items-center justify-between gap-2">
-          <span>
-            {(() => {
-              const z = typeof totalCount === "number" ? totalCount : filteredOrders.length;
-              if (z === 0) return "Showing 0 of 0 orders";
-              const start = (page - 1) * pageSize + 1;
-              const end = Math.min(page * pageSize, z);
-              return `Showing ${start}–${end} of ${z} orders`;
-            })()}
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span>
+              {(() => {
+                const z = typeof totalCount === "number" ? totalCount : filteredOrders.length;
+                if (z === 0) return "Showing 0 of 0 orders";
+                const start = (page - 1) * pageSize + 1;
+                const end = Math.min(page * pageSize, z);
+                return `Showing ${start}–${end} of ${z} orders`;
+              })()}
+            </span>
+            {onPageSizeChange && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-text-secondary whitespace-nowrap">Rows per page</span>
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(v) => onPageSizeChange(Number(v))}
+                >
+                  <SelectTrigger className="h-8 w-[72px] text-xs bg-card">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZE_OPTIONS.map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
           {onPageChange && typeof totalCount === "number" && totalCount > pageSize ? (
             <div className="flex items-center gap-1.5 shrink-0 rounded-lg border border-border/60 bg-card px-1.5 py-0.5">
               <Button

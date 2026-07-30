@@ -79,7 +79,7 @@ export function ProcessSelectedModal({
 }: Props) {
   const { role } = useAuth();
   const { data: userPickups = [] } = usePickupAddresses(
-    role === "admin" ? { scope: "platform" } : undefined
+    role === "admin" ? { scope: "platform", enabled: open } : { enabled: open }
   );
   const activePickups = useMemo(() => userPickups.filter((a) => a.isActive !== false), [userPickups]);
 

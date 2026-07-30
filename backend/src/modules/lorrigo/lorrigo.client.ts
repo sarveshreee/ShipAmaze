@@ -164,18 +164,22 @@ function getClient(): ProviderHttpClient {
       mapErrorMessage: (rawMsg) => {
         // Lorrigo often returns Zod issues as a JSON string in `message`.
         const trimmed = String(rawMsg ?? "").trim();
+        let text = trimmed;
         if (trimmed.startsWith("[")) {
           try {
             const issues = JSON.parse(trimmed) as Array<{ message?: string }>;
             const parts = issues
               .map((i) => (typeof i?.message === "string" ? i.message.trim() : ""))
               .filter(Boolean);
-            if (parts.length) return parts.slice(0, 3).join("; ");
+            if (parts.length) text = parts.slice(0, 3).join("; ");
           } catch {
             /* keep raw */
           }
         }
-        return trimmed;
+        if (/Only A-Z, 0-9, spaces, - and _ are allowed/i.test(text)) {
+          return "Lorrigo rejected special characters in the address. Retry sync — we now clean the address automatically for Lorrigo.";
+        }
+        return text;
       },
       fetchToken: fetchNewToken,
       onTokenInvalidate: () => {

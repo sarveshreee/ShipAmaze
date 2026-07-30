@@ -29,5 +29,9 @@ const returnOrderSchema = new Schema<IReturnOrder>(
   { timestamps: true }
 );
 
+returnOrderSchema.index({ status: 1, createdAt: -1 });
+returnOrderSchema.index({ originalOrderId: 1 });
+returnOrderSchema.index({ awb: 1 });
+
 export const ReturnOrder: Model<IReturnOrder> =
   mongoose.models.ReturnOrder || mongoose.model<IReturnOrder>("ReturnOrder", returnOrderSchema);

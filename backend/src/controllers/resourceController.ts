@@ -631,25 +631,33 @@ export const seedDefaultCouriersEndpoint = asyncHandler(async (req: AuthRequest,
 });
 
 export const listCouriers = asyncHandler(async (_req: AuthRequest, res: Response) => {
+  const { couriersCache } = await import("../utils/ttlCache.js");
+  const cached = couriersCache.get("all");
+  if (cached) {
+    res.setHeader("X-Cache", "HIT");
+    res.json(cached);
+    return;
+  }
   const rows = await Courier.find().sort({ priority: 1 }).lean();
-  res.json(
-    rows.map((c) => ({
-      id: String(c._id),
-      name: c.name,
-      active: c.active,
-      priority: c.priority,
-      deliveryRate: c.deliveryRate,
-      ndrRate: c.ndrRate,
-      rtoRate: c.rtoRate,
-      avgDeliveryDays: c.avgDeliveryDays,
-      codSupport: c.codSupport,
-      reversePickup: c.reversePickup,
-      surfaceRate: c.surfaceRate,
-      airRate: c.airRate,
-      preferredPickupAddressId: c.preferredPickupAddressId ?? "",
-      carrierId: c.carrierId ?? "",
-    }))
-  );
+  const payload = rows.map((c) => ({
+    id: String(c._id),
+    name: c.name,
+    active: c.active,
+    priority: c.priority,
+    deliveryRate: c.deliveryRate,
+    ndrRate: c.ndrRate,
+    rtoRate: c.rtoRate,
+    avgDeliveryDays: c.avgDeliveryDays,
+    codSupport: c.codSupport,
+    reversePickup: c.reversePickup,
+    surfaceRate: c.surfaceRate,
+    airRate: c.airRate,
+    preferredPickupAddressId: c.preferredPickupAddressId ?? "",
+    carrierId: c.carrierId ?? "",
+  }));
+  couriersCache.set("all", payload);
+  res.setHeader("X-Cache", "MISS");
+  res.json(payload);
 });
 
 export const upsertCourier = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -688,6 +696,8 @@ export const upsertCourier = asyncHandler(async (req: AuthRequest, res: Response
     new: true,
     setDefaultsOnInsert: true,
   });
+  const { couriersCache } = await import("../utils/ttlCache.js");
+  couriersCache.delete("all");
   res.json(c);
 });
 

@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { Package, CheckCircle2, RotateCcw, AlertTriangle, IndianRupee, Users, Store, Truck } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from "recharts";
 import { Link } from "react-router-dom";
-import { apiClient } from "@/lib/apiClient";
+import { useDashboardSummary } from "@/hooks/useApiData";
 import { DashboardEntityRow } from "@/components/DashboardEntityRow";
 
 type DashboardSummary = {
@@ -24,28 +24,6 @@ type DashboardSummary = {
   topVendors: Array<{ name: string; email: string; orderCount: number; revenue: number }>;
   topDropshippers: Array<{ name: string; email: string; orderCount: number; revenue: number }>;
 };
-
-function useDashboardSummary() {
-  const [data, setData] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    apiClient.get<DashboardSummary>("/dashboard/summary")
-      .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => {
-        if (cancelled) return;
-        setData(null);
-        setError(e instanceof Error ? e.message : "Failed to load dashboard");
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [reloadKey]);
-  return { data, loading, error, reload: () => setReloadKey((k) => k + 1) };
-}
 
 const STATUS_COLORS: Record<string, string> = {
   delivered: "#10b981",
@@ -76,7 +54,7 @@ const CHART = {
 };
 
 export default function AdminDashboard() {
-  const { data: summary, loading: isLoading, error, reload } = useDashboardSummary();
+  const { data: summary, loading: isLoading, error, reload } = useDashboardSummary<DashboardSummary>();
   const total = summary?.totalOrders ?? 0;
   const delivered = summary?.deliveredCount ?? 0;
   const rtoPct = summary?.rtoPct ?? 0;
@@ -246,7 +224,7 @@ export default function AdminDashboard() {
                       </td>
                       <td className="py-2.5 text-text-secondary">{o.courier}</td>
                       <td className="py-2.5">
-                        <PaymentBadge type={o.payment} />
+                        <PaymentBadge type={o.payment as "COD" | "Prepaid"} />
                       </td>
                       <td className="py-2.5 text-text-muted">{o.date}</td>
                     </tr>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Link2, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -26,21 +26,24 @@ function formatSyncTime(iso?: string): string {
 export function LorrigoPickupSyncCard({ pickup, onUpdated }: Props) {
   const [busy, setBusy] = useState(false);
   const status = pickup.lorrigoSyncStatus;
+  const synced = Boolean(pickup.lorrigoPickupId?.trim()) || status === "SUCCESS";
+  const failed = status === "FAILED";
 
-  // Nothing to show when Lorrigo was never attempted (disabled / skipped with no status)
-  if (!status && !pickup.lorrigoPickupId) return null;
+  const badgeClass = synced
+    ? "border-success/40 bg-success-light text-success-dark"
+    : failed
+      ? "border-danger/40 bg-danger-light text-danger"
+      : "border-border bg-muted text-text-muted";
 
-  const badgeClass =
-    status === "SUCCESS"
-      ? "border-success/40 bg-success-light text-success-dark"
-      : status === "FAILED"
-        ? "border-danger/40 bg-danger-light text-danger"
-        : "border-border bg-muted text-text-muted";
+  const label = synced
+    ? "Lorrigo synced"
+    : failed
+      ? "Lorrigo sync failed"
+      : status === "SKIPPED"
+        ? "Lorrigo not synced"
+        : "Lorrigo not synced";
 
-  const label =
-    status === "SUCCESS" ? "Lorrigo synced" : status === "FAILED" ? "Lorrigo sync failed" : "Lorrigo skipped";
-
-  const onRetry = async () => {
+  const onSync = async () => {
     setBusy(true);
     try {
       const res = await retryLorrigoPickupSync(pickup.id);
@@ -57,7 +60,7 @@ export function LorrigoPickupSyncCard({ pickup, onUpdated }: Props) {
       }
       await onUpdated?.();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Retry failed");
+      toast.error(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Sync failed");
     } finally {
       setBusy(false);
     }
@@ -69,27 +72,37 @@ export function LorrigoPickupSyncCard({ pickup, onUpdated }: Props) {
         <Badge variant="outline" className={cn("text-[10px] font-medium px-2 py-0 h-5", badgeClass)}>
           {label}
         </Badge>
-        {status === "FAILED" ? (
+        {!synced ? (
           <Button
             type="button"
             size="sm"
             variant="outline"
             className="h-7 text-xs"
             disabled={busy}
-            onClick={() => void onRetry()}
+            onClick={() => void onSync()}
           >
-            <RefreshCw className={cn("h-3 w-3 mr-1", busy && "animate-spin")} />
-            Retry Sync
+            {failed ? (
+              <RefreshCw className={cn("h-3 w-3 mr-1", busy && "animate-spin")} />
+            ) : (
+              <Link2 className={cn("h-3 w-3 mr-1", busy && "animate-pulse")} />
+            )}
+            {failed ? "Retry Sync" : "Sync to Lorrigo"}
           </Button>
         ) : null}
       </div>
       <p className="text-[11px] text-text-muted">
-        Last sync: {formatSyncTime(pickup.lorrigoLastSyncAt)}
-        {pickup.lorrigoPickupId ? (
-          <span className="ml-2 font-mono text-text-secondary">ID {pickup.lorrigoPickupId}</span>
-        ) : null}
+        {synced || pickup.lorrigoLastSyncAt ? (
+          <>
+            Last sync: {formatSyncTime(pickup.lorrigoLastSyncAt)}
+            {pickup.lorrigoPickupId ? (
+              <span className="ml-2 font-mono text-text-secondary">ID {pickup.lorrigoPickupId}</span>
+            ) : null}
+          </>
+        ) : (
+          "Not linked to Lorrigo yet — sync before booking with Lorrigo couriers."
+        )}
       </p>
-      {status === "FAILED" && pickup.lorrigoSyncError ? (
+      {failed && pickup.lorrigoSyncError ? (
         <p className="text-[11px] text-danger leading-snug">{pickup.lorrigoSyncError}</p>
       ) : null}
     </div>

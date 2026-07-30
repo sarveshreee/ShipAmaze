@@ -124,6 +124,30 @@ describe("lorrigo pickup sync", () => {
     expect(body.address).toBe("opp-matchiswala market");
   });
 
+  it("sanitizes special characters for Lorrigo without changing local meaning", () => {
+    const body = pickupToLorrigoPickupPayload(
+      {
+        label: "NIMA TRADERS #1",
+        contactName: "Rohit / Admin",
+        phone: "9876543210",
+        addressLine1:
+          "PADAL ROAD\\SUB LOCALITY:HADAPSAR, PUNE DIST. PUNE STATE MAHARASTRA PIN CODE 411028",
+        addressLine2: "Near Blue Kamti Society!",
+        city: "PUNE",
+        state: "MAHARASTRA",
+        pincode: "411028",
+      },
+      "a@b.com"
+    );
+    expect(body.facilityName).toMatch(/^[A-Za-z0-9 _-]+$/);
+    expect(body.contactPersonName).toMatch(/^[A-Za-z0-9 _-]+$/);
+    expect(body.address).toMatch(/^[A-Za-z0-9 _/-]+$/);
+    expect(body.address2).toMatch(/^[A-Za-z0-9 _-]*$/);
+    expect(body.address).toContain("-");
+    expect(body.facilityName).toContain("NIMA TRADERS");
+    expect(body.address.toLowerCase()).toContain("padal road");
+  });
+
   it("bypasses sync when LORRIGO_ENABLED=false", async () => {
     process.env.LORRIGO_ENABLED = "false";
     process.env.LORRIGO_EMAIL = "a@b.com";

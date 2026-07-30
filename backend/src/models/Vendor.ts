@@ -35,5 +35,8 @@ const vendorSchema = new Schema<IVendor>(
   { timestamps: true }
 );
 
+vendorSchema.index({ ownerUserId: 1 });
+vendorSchema.index({ status: 1 });
+
 export const Vendor: Model<IVendor> =
   mongoose.models.Vendor || mongoose.model<IVendor>("Vendor", vendorSchema);

@@ -320,6 +320,18 @@ orderSchema.index({ shopifyShopDomain: 1, shopifyOrderNumericId: 1 }, { sparse: 
 orderSchema.index({ courierProvider: 1, status: 1, lastProviderStatusSyncedAt: 1 });
 orderSchema.index({ status: 1, awb: 1, lastVelocityStatusSyncedAt: 1 });
 orderSchema.index({ shipmentCreated: 1, bookingInProgress: 1 });
+// Performance: list / dashboard / visibility filters
+orderSchema.index({ vendorId: 1, createdAt: -1 });
+orderSchema.index({ dropshipperId: 1, createdAt: -1 });
+orderSchema.index({ trackingId: 1 }, { sparse: true });
+orderSchema.index({ status: 1, createdAt: -1 });
+orderSchema.index({ createdAt: -1 });
+orderSchema.index({ updatedAt: -1 });
+orderSchema.index({ payment: 1, status: 1 });
+orderSchema.index({ isJunk: 1, status: 1, createdAt: -1 });
+orderSchema.index({ pickupAddressId: 1 });
+orderSchema.index({ ownerUserId: 1, createdAt: -1 });
+orderSchema.index({ createdBy: 1, createdAt: -1 });
 
 registerOrderEmailHooks(orderSchema);
 

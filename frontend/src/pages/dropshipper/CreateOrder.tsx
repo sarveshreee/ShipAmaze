@@ -54,14 +54,6 @@ export default function CreateOrder() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === "visible") void refetchPickups();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [refetchPickups]);
-
-  useEffect(() => {
     if (selectedPickup && !selectablePickups.some((a) => a.id === selectedPickup)) {
       setSelectedPickup("");
     }

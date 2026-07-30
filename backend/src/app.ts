@@ -132,8 +132,32 @@ export function createApp() {
   const corsAllowed = parseCorsOrigins();
 
   app.set("trust proxy", 1);
+  app.set("etag", "weak");
   app.use(helmet());
-  app.use(compression());
+  // Prefer brotli when available via Accept-Encoding; compression() negotiates gzip/deflate/br
+  app.use(
+    compression({
+      threshold: 1024,
+      level: 6,
+      filter: (req, res) => {
+        if (req.headers["x-no-compression"]) return false;
+        return compression.filter(req, res);
+      },
+    })
+  );
+
+  // Safe short cache for static-ish reference GETs; APIs remain private (no shared CDN cache)
+  app.use((req, res, next) => {
+    if (req.method === "GET" && /^\/api(\/v1)?\/(couriers|pincodes|categories)(\/|$|\?)/i.test(req.path)) {
+      res.setHeader("Cache-Control", "private, max-age=60, stale-while-revalidate=120");
+    } else if (req.method === "GET" && /^\/api(\/v1)?\/dashboard\//i.test(req.path)) {
+      res.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=45");
+    } else if (req.method === "GET" && /^\/api(\/v1)?\//i.test(req.path)) {
+      res.setHeader("Cache-Control", "private, no-cache");
+    }
+    next();
+  });
+
   app.get("/health", (_req, res) => {
     res.json({ ok: true, service: "shipamaze-api", uptimeSeconds: Math.floor(process.uptime()) });
   });

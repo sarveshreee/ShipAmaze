@@ -25,5 +25,8 @@ const manifestSchema = new Schema<IManifest>(
   { timestamps: true }
 );
 
+manifestSchema.index({ status: 1, createdAt: -1 });
+manifestSchema.index({ date: -1 });
+
 export const Manifest: Model<IManifest> =
   mongoose.models.Manifest || mongoose.model<IManifest>("Manifest", manifestSchema);

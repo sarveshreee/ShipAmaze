@@ -99,14 +99,6 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
     }
   }, [dialogOpen, resetPincode]);
 
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === "visible") void refetch();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [refetch]);
-
   const openCreate = () => {
     setEditingId(null);
     setEditingVelocityWarehouseId(undefined);

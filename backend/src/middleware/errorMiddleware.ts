@@ -57,6 +57,20 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     const msg = `Duplicate value for ${key}. Please use a unique value.`;
     return res.status(400).json({ success: false, message: msg, error: msg });
   }
+
+  // Mongoose CastError / ValidationError → 400 (avoid noisy 500s that trigger client retries)
+  if (typeof err === "object" && err !== null && "name" in err) {
+    const name = String((err as { name?: string }).name ?? "");
+    if (name === "CastError") {
+      const msg = "Invalid id or parameter format";
+      return res.status(400).json({ success: false, message: msg, error: msg });
+    }
+    if (name === "ValidationError") {
+      const msg = (err as Error).message || "Validation failed";
+      return res.status(400).json({ success: false, message: msg, error: msg });
+    }
+  }
+
   if (process.env.NODE_ENV === "development") {
     console.error(err);
   } else {

@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Package, Clock, Truck, CheckCircle2, ScanLine, Printer, FileDown, FileText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { apiClient, ApiError } from "@/lib/apiClient";
+import { useDashboardSummary } from "@/hooks/useApiData";
 import { toast } from "sonner";
+import { useEffect } from "react";
 
 type DashboardSummary = {
   toProcess: number;
@@ -27,29 +27,11 @@ type DashboardSummary = {
 
 export default function VendorDashboard() {
   const navigate = useNavigate();
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiClient.get<DashboardSummary>("/dashboard/summary");
-      setSummary(data);
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Failed to load dashboard";
-      setError(msg);
-      setSummary(null);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data: summary, loading, error, reload } = useDashboardSummary<DashboardSummary>();
 
   useEffect(() => {
-    void load();
-  }, []);
+    if (error) toast.error(error);
+  }, [error]);
 
   if (loading) {
     return <div className="animate-pulse p-8 text-text-muted">Loading…</div>;
@@ -59,7 +41,7 @@ export default function VendorDashboard() {
     return (
       <div className="animate-fade-in-up p-8 text-center space-y-3">
         <p className="text-text-muted">{error}</p>
-        <Button variant="outline" className="gap-2" onClick={() => void load()}>
+        <Button variant="outline" className="gap-2" onClick={reload}>
           <RefreshCw className="h-4 w-4" /> Retry
         </Button>
       </div>
@@ -74,7 +56,7 @@ export default function VendorDashboard() {
         title="Dashboard"
         breadcrumb={["Vendor", "Dashboard"]}
         actions={
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()}>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={reload}>
             <RefreshCw className="h-4 w-4" /> Refresh
           </Button>
         }

@@ -14,6 +14,7 @@ import type {
   ProviderTrackingResult,
 } from "../courier/types.js";
 import { lorrigoGet, lorrigoPost } from "./lorrigo.client.js";
+import { ensureLorrigoAddressShape, sanitizeLorrigoTextField } from "./lorrigo.pickupSync.js";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -70,15 +71,30 @@ export function buildLorrigoOneClickPayload(input: ProviderCreateShipmentInput):
   const sellerFromExtras = asRecord(input.providerPayload?.sellerDetails);
 
   const pickupAddress = {
-    facilityName: String(pickupFromExtras?.facilityName ?? input.providerPayload?.pickupName ?? "Pickup"),
-    contactPersonName: String(
-      pickupFromExtras?.contactPersonName ?? input.providerPayload?.contactPerson ?? "Contact"
+    facilityName: sanitizeLorrigoTextField(
+      String(pickupFromExtras?.facilityName ?? input.providerPayload?.pickupName ?? "Pickup"),
+      "Pickup"
+    ),
+    contactPersonName: sanitizeLorrigoTextField(
+      String(pickupFromExtras?.contactPersonName ?? input.providerPayload?.contactPerson ?? "Contact"),
+      "Contact"
     ),
     phone: String(pickupFromExtras?.phone ?? input.providerPayload?.pickupPhone ?? ""),
-    address: String(pickupFromExtras?.address ?? input.providerPayload?.pickupStreet ?? ""),
-    pincode: String(pickupFromExtras?.pincode ?? input.providerPayload?.pickupPincode ?? ""),
-    city: String(pickupFromExtras?.city ?? input.providerPayload?.pickupCity ?? ""),
-    state: String(pickupFromExtras?.state ?? input.providerPayload?.pickupState ?? ""),
+    address: ensureLorrigoAddressShape(
+      String(pickupFromExtras?.address ?? input.providerPayload?.pickupStreet ?? "")
+    ),
+    pincode: String(pickupFromExtras?.pincode ?? input.providerPayload?.pickupPincode ?? "").replace(
+      /\D/g,
+      ""
+    ).slice(0, 6),
+    city: sanitizeLorrigoTextField(
+      String(pickupFromExtras?.city ?? input.providerPayload?.pickupCity ?? ""),
+      "City"
+    ),
+    state: sanitizeLorrigoTextField(
+      String(pickupFromExtras?.state ?? input.providerPayload?.pickupState ?? ""),
+      "State"
+    ),
     ...(input.pickupId ? { pickupAddressId: input.pickupId } : {}),
   };
 

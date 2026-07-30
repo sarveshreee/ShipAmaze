@@ -99,6 +99,9 @@ function shouldAttachAuthToken(path: string): boolean {
   return true;
 }
 
+/** In-flight GET dedupe: identical pending GETs share one network request. */
+const inflightGets = new Map<string, Promise<unknown>>();
+
 export async function apiRequest<T>(
   path: string,
   init: RequestInit & { json?: unknown } = {}
@@ -119,9 +122,34 @@ export async function apiRequest<T>(
 
   const { json, ...rest } = init;
   const body = json !== undefined ? JSON.stringify(json) : rest.body;
+  const method = (rest.method ?? "GET").toUpperCase();
 
-  const res = await fetch(url, { ...rest, headers, body });
+  // Deduplicate concurrent identical GETs (skip when AbortSignal present — RQ cancels per query).
+  if (method === "GET" && !body && !rest.signal) {
+    const dedupeKey = `${hadToken ? "1" : "0"}:${path}`;
+    const existing = inflightGets.get(dedupeKey);
+    if (existing) return existing as Promise<T>;
 
+    const promise = (async () => {
+      try {
+        return await executeRequest<T>(url, { ...rest, headers, body }, hadToken);
+      } finally {
+        inflightGets.delete(dedupeKey);
+      }
+    })();
+    inflightGets.set(dedupeKey, promise);
+    return promise;
+  }
+
+  return executeRequest<T>(url, { ...rest, headers, body }, hadToken);
+}
+
+async function executeRequest<T>(
+  url: string,
+  init: RequestInit,
+  hadToken: boolean
+): Promise<T> {
+  const res = await fetch(url, init);
   if (res.status === 401 && hadToken) {
     setStoredToken(null);
     window.dispatchEvent(new CustomEvent("shipamaze:unauthorized"));
@@ -151,8 +179,10 @@ export async function apiRequest<T>(
 }
 
 export const apiClient = {
-  get: <T>(path: string) => apiRequest<T>(path, { method: "GET" }),
-  post: <T>(path: string, json?: unknown) => apiRequest<T>(path, { method: "POST", json }),
+  get: <T>(path: string, init?: { signal?: AbortSignal }) =>
+    apiRequest<T>(path, { method: "GET", signal: init?.signal }),
+  post: <T>(path: string, json?: unknown, init?: { signal?: AbortSignal }) =>
+    apiRequest<T>(path, { method: "POST", json, signal: init?.signal }),
   put: <T>(path: string, json?: unknown) => apiRequest<T>(path, { method: "PUT", json }),
   patch: <T>(path: string, json?: unknown) => apiRequest<T>(path, { method: "PATCH", json }),
   delete: <T>(path: string) => apiRequest<T>(path, { method: "DELETE" }),

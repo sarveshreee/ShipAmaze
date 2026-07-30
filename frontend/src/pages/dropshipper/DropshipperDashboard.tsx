@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { useNdrOrders } from "@/hooks/useApiData";
+import { useNdrOrders, useDashboardSummary } from "@/hooks/useApiData";
 import {
   Package,
   CheckCircle2,
@@ -22,7 +22,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useNavigate, Link } from "react-router-dom";
-import { apiClient, ApiError } from "@/lib/apiClient";
 import { toast } from "sonner";
 
 type DashboardSummary = {
@@ -47,32 +46,14 @@ function dayLabel(ymd: string) {
 
 export default function DropshipperDashboard() {
   const navigate = useNavigate();
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: summary, loading, error, reload } = useDashboardSummary<DashboardSummary>();
   const { data: ndrRows = [], isLoading: ndrLoading } = useNdrOrders();
   const activeNDR = useMemo(() => ndrRows.filter((n) => n.status === "Active").length, [ndrRows]);
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiClient.get<DashboardSummary>("/dashboard/summary");
-      setSummary(data);
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Failed to load dashboard";
-      setError(msg);
-      setSummary(null);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    void load();
-  }, []);
+    if (error) toast.error(error);
+  }, [error]);
 
   const weeklyOrders = useMemo(() => {
     const rows = summary?.ordersThisWeek ?? [];
@@ -94,7 +75,7 @@ export default function DropshipperDashboard() {
     return (
       <div className="animate-fade-in-up p-8 text-center space-y-3">
         <p className="text-text-muted">{error}</p>
-        <Button variant="outline" className="gap-2" onClick={() => void load()}>
+        <Button variant="outline" className="gap-2" onClick={reload}>
           <RefreshCw className="h-4 w-4" /> Retry
         </Button>
       </div>
@@ -119,7 +100,7 @@ export default function DropshipperDashboard() {
         title="Dashboard"
         breadcrumb={["Dropshipper", "Dashboard"]}
         actions={
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()}>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={reload}>
             <RefreshCw className="h-4 w-4" /> Refresh
           </Button>
         }

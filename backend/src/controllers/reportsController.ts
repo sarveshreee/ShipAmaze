@@ -9,6 +9,7 @@ import { Invoice } from "../models/Invoice.js";
 import { User } from "../models/User.js";
 import mongoose from "mongoose";
 import { buildReportOrdersQuery, csvRow, exportFilename } from "../utils/reportQuery.js";
+import { dashboardCache } from "../utils/ttlCache.js";
 
 const EXPORT_MAX_ROWS = 10_000;
 
@@ -374,6 +375,14 @@ export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Re
     throw new AppError(403, "Forbidden");
   }
 
+  const cacheKey = `dash:${String(req.user._id)}:${role}`;
+  const cached = dashboardCache.get(cacheKey);
+  if (cached) {
+    res.setHeader("X-Cache", "HIT");
+    res.json(cached);
+    return;
+  }
+
   const {
     buildDashboardMatch,
     countStatuses,
@@ -714,5 +723,7 @@ export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Re
     payload.topDropshippers = topDropshippers;
   }
 
+  dashboardCache.set(cacheKey, payload);
+  res.setHeader("X-Cache", "MISS");
   res.json(payload);
 });

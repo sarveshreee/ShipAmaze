@@ -43,5 +43,9 @@ const warehouseSchema = new Schema<IWarehouse>(
   { timestamps: true }
 );
 
+warehouseSchema.index({ vendorId: 1 });
+warehouseSchema.index({ ownerUserId: 1 });
+warehouseSchema.index({ isActive: 1, vendorId: 1 });
+
 export const Warehouse: Model<IWarehouse> =
   mongoose.models.Warehouse || mongoose.model<IWarehouse>("Warehouse", warehouseSchema);

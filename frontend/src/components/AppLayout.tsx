@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useEffect, useCallback, useRef } from "react";
+import { ReactNode, useMemo, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { ShipAmazeLogo, SidebarBrand } from "@/components/brand/ShipAmazeLogo";
 import { Button } from "@/components/ui/button";
-import { CommandPalette } from "@/components/CommandPalette";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -26,11 +25,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AddFundsModal } from "@/components/AddFundsModal";
 import type { UserRole } from "@/services/authService";
 import { roleHomePath } from "@/services/authService";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import * as notificationService from "@/services/notificationService";
+
+const CommandPalette = lazy(() =>
+  import("@/components/CommandPalette").then((m) => ({ default: m.CommandPalette }))
+);
+const AddFundsModal = lazy(() =>
+  import("@/components/AddFundsModal").then((m) => ({ default: m.AddFundsModal }))
+);
 
 interface NavItem {
   label: string;
@@ -327,6 +332,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     []
   );
 
+  // Prefetch unread count once; full list only when popover opens
   useEffect(() => {
     if (!user) return;
     void fetchNotifications({ page: 1, append: false });
@@ -338,8 +344,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("shipamaze:refetch:notifications", handler);
   }, [fetchNotifications]);
 
+  // Avoid duplicate fetch when opening bell right after mount (list already loaded)
+  const notifLoadedOnce = useRef(false);
   useEffect(() => {
-    if (notifOpen && user) void fetchNotifications({ page: 1, append: false });
+    if (notifications.length > 0 || notifUnread > 0) notifLoadedOnce.current = true;
+  }, [notifications.length, notifUnread]);
+
+  useEffect(() => {
+    if (notifOpen && user && notifLoadedOnce.current === false) {
+      void fetchNotifications({ page: 1, append: false });
+    }
   }, [notifOpen, user, fetchNotifications]);
 
   const toggleMenu = (label: string) => {
@@ -1007,8 +1021,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </div>
 
       <MobileBottomNav />
-      <CommandPalette />
-      <AddFundsModal open={addFundsOpen} onOpenChange={setAddFundsOpen} />
+      <Suspense fallback={null}>
+        <CommandPalette />
+      </Suspense>
+      {addFundsOpen && (
+        <Suspense fallback={null}>
+          <AddFundsModal open={addFundsOpen} onOpenChange={setAddFundsOpen} />
+        </Suspense>
+      )}
     </div>
   );
 }
