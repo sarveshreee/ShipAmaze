@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import type { IUser } from "../models/User.js";
 import { Vendor } from "../models/Vendor.js";
-import { pickupsLinkedToVendor, vendorOwnedPickupIds } from "./pickupVendor.js";
+import { pickupsLinkedToVendor } from "./pickupVendor.js";
 import { parseYmdEnd, parseYmdStart } from "./dateOnly.js";
 import { scanLookupClauses } from "./barcodeScanPriority.js";
 
@@ -11,15 +11,36 @@ export async function buildOrderVisibilityQuery(user: IUser): Promise<Record<str
   if (user.role === "vendor") {
     const v = await Vendor.findOne({ userId: user._id });
     if (v) {
-      const pickupIds = await vendorOwnedPickupIds(user._id);
-      const or: Record<string, unknown>[] = [{ vendorId: v._id }];
-      if (pickupIds.length > 0) {
-        or.push({ pickupAddressId: { $in: pickupIds } });
+      const linked = await pickupsLinkedToVendor(v._id as mongoose.Types.ObjectId, user._id);
+      const or: Record<string, unknown>[] = [
+        { vendorId: v._id },
+        { createdBy: user._id },
+        { ownerUserId: user._id },
+      ];
+      if (linked.ids.length > 0) {
+        const idStrings = linked.ids.map((id) => String(id));
+        or.push({ pickupAddressId: { $in: linked.ids } });
+        or.push({ pickupWarehouseId: { $in: idStrings } });
+      }
+      // Match embedded pickup snapshots when vendorId was never set on the order.
+      const names = [
+        ...new Set(
+          [String(v.name ?? "").trim(), ...linked.labels]
+            .map((n) => n.trim())
+            .filter(Boolean)
+        ),
+      ];
+      for (const name of names) {
+        const rx = new RegExp(`^${escapeRegex(name)}$`, "i");
+        or.push({ "pickupAddress.label": rx });
+        or.push({ "pickupAddress.warehouseName": rx });
+        or.push({ "pickupAddress.pickupName": rx });
       }
       return { $or: or };
     }
-    return { createdBy: user._id };
+    return { $or: [{ createdBy: user._id }, { ownerUserId: user._id }] };
   }
+  // Dropshipper (and any other non-admin role): only their own orders.
   return {
     $or: [{ ownerUserId: user._id }, { createdBy: user._id }, { dropshipperId: user._id }],
   };

@@ -24,6 +24,7 @@ import type {
   PincodeService,
 } from "@/types/logistics";
 import type { WalletSummary } from "@/services/walletService";
+import { useAuth } from "@/contexts/AuthContext";
 import { queryKeys } from "@/lib/queryClient";
 
 type QueryStatus = "pending" | "success" | "error";
@@ -198,6 +199,7 @@ function mapOrderRow(o: Record<string, unknown>): Order {
 
 /** @deprecated Prefer useOrdersQuery. Only fetch when explicitly needed (e.g. search UI). */
 export function useOrders(view?: "junk", opts?: { enabled?: boolean }) {
+  const { userId } = useAuth();
   const queryFn = useCallback(
     async (_signal: AbortSignal) => {
       const rows = await orderService.listOrders({ view, legacy: true });
@@ -207,7 +209,7 @@ export function useOrders(view?: "junk", opts?: { enabled?: boolean }) {
   );
   return useApiQuery<Order>(
     `orders:${view ?? "default"}`,
-    queryKeys.orders(view),
+    queryKeys.orders(userId, view),
     queryFn,
     { enabled: opts?.enabled ?? true, staleTime: 2 * 60 * 1000 }
   );
@@ -245,6 +247,7 @@ export interface OrdersQueryState {
 
 /** Paginated orders + server filters (preferred for order list pages). */
 export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
+  const { userId } = useAuth();
   const {
     view,
     page = 1,
@@ -296,7 +299,7 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
 
   const advKey = stableAdvKey(adv);
   const listKey = `${view ?? "default"}:${page}:${pageSize}:${q ?? ""}:${tab ?? ""}:${payment ?? ""}:${fulfillment ?? ""}:${counts ? 1 : 0}:${advKey}`;
-  const queryKey = queryKeys.ordersList(listKey);
+  const queryKey = queryKeys.ordersList(userId, listKey);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -391,9 +394,10 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
 }
 
 export function useManifests() {
+  const { userId } = useAuth();
   return useApiQuery<Manifest>(
     "manifests",
-    queryKeys.manifests,
+    queryKeys.manifests(userId),
     async () => {
       const rows = (await manifestService.listManifests()) as unknown as Record<string, unknown>[];
       return rows.map((m) => ({
@@ -412,9 +416,10 @@ export function useManifests() {
 }
 
 export function useInvoices() {
+  const { userId } = useAuth();
   return useApiQuery<Invoice>(
     "invoices",
-    queryKeys.invoices,
+    queryKeys.invoices(userId),
     async () => {
       const r = await invoiceService.listInvoices({ page: "1", pageSize: "200" });
       return r.items;
@@ -424,18 +429,20 @@ export function useInvoices() {
 }
 
 export function useWeightDisputes() {
+  const { userId } = useAuth();
   return useApiQuery<WeightDispute>(
     "weight_disputes",
-    queryKeys.weightDisputes,
+    queryKeys.weightDisputes(userId),
     async () => weightDisputeService.listWeightDisputes(),
     { staleTime: 2 * 60 * 1000 }
   );
 }
 
 export function useTransactions() {
+  const { userId } = useAuth();
   return useApiQuery<Transaction>(
     "transactions",
-    queryKeys.transactions,
+    queryKeys.transactions(userId),
     async () => {
       const r = await walletService.listTransactions({ page: 1, pageSize: 100 });
       return r.items;
@@ -446,15 +453,17 @@ export function useTransactions() {
 
 /** Wallet summary for topbar and wallet page (refetch via `shipamaze:refetch:wallet`). */
 export function useWalletSummary(opts?: { enabled?: boolean }) {
+  const { userId } = useAuth();
   const qc = useQueryClient();
+  const walletKey = queryKeys.wallet(userId);
   useEffect(() => {
-    const ev = () => void qc.invalidateQueries({ queryKey: queryKeys.wallet });
+    const ev = () => void qc.invalidateQueries({ queryKey: walletKey });
     window.addEventListener("shipamaze:refetch:wallet", ev);
     return () => window.removeEventListener("shipamaze:refetch:wallet", ev);
-  }, [qc]);
+  }, [qc, walletKey]);
 
   const q = useQuery({
-    queryKey: queryKeys.wallet,
+    queryKey: walletKey,
     queryFn: () => walletService.getWalletSummary(),
     enabled: opts?.enabled ?? true,
     staleTime: 60 * 1000,
@@ -496,9 +505,10 @@ export type NdrRow = {
 };
 
 export function useNdrOrders(opts?: { enabled?: boolean }) {
+  const { userId } = useAuth();
   return useApiQuery<NdrRow>(
     "ndr_orders",
-    queryKeys.ndr,
+    queryKeys.ndr(userId),
     async () => {
       const rows = (await ndrService.listNdr()) as unknown as Record<string, unknown>[];
       return rows.map((n) => {
@@ -545,9 +555,10 @@ export function useNdrOrders(opts?: { enabled?: boolean }) {
 }
 
 export function useReturnOrders(opts?: { enabled?: boolean }) {
+  const { userId } = useAuth();
   return useApiQuery<ReturnOrder>(
     "return_orders",
-    queryKeys.returns,
+    queryKeys.returns(userId),
     async () => {
       const rows = (await returnService.listReturns()) as unknown as Record<string, unknown>[];
       return rows.map((r) => ({
@@ -584,9 +595,10 @@ export type CatalogueProductRow = {
 };
 
 export function useProducts(opts?: { enabled?: boolean }) {
+  const { userId } = useAuth();
   return useApiQuery<CatalogueProductRow>(
     "products",
-    queryKeys.products,
+    queryKeys.products(userId),
     async () => {
       const rows = (await productService.listProducts()) as unknown as Record<string, unknown>[];
       return rows.map((p) => ({
@@ -654,9 +666,10 @@ export function useCouriers(opts?: { enabled?: boolean }) {
 }
 
 export function useCodRemittances(opts?: { enabled?: boolean }) {
+  const { userId } = useAuth();
   return useApiQuery<CODRemittance>(
     "cod_remittances",
-    queryKeys.codRemittances,
+    queryKeys.codRemittances(userId),
     async () => {
       const r = await walletService.listCodRemittances({ page: "1", pageSize: "200" });
       return r.items;
@@ -666,9 +679,10 @@ export function useCodRemittances(opts?: { enabled?: boolean }) {
 }
 
 export function useGstRecords(opts?: { enabled?: boolean }) {
+  const { userId } = useAuth();
   return useApiQuery<walletService.GstRecord>(
     "gst_records",
-    queryKeys.gstRecords,
+    queryKeys.gstRecords(userId),
     async () => {
       const r = await walletService.listGstRecords({ limit: "500" });
       return r.items;
@@ -678,11 +692,12 @@ export function useGstRecords(opts?: { enabled?: boolean }) {
 }
 
 export function usePickupAddresses(opts?: { scope?: "platform"; enabled?: boolean }) {
+  const { userId } = useAuth();
   const scope = opts?.scope;
   const cacheKey = scope === "platform" ? "pickup_addresses_platform" : "pickup_addresses";
   return useApiQuery<PickupAddress>(
     cacheKey,
-    queryKeys.pickups(scope),
+    queryKeys.pickups(userId, scope),
     async () => pickupService.listPickupAddresses(scope),
     { enabled: opts?.enabled ?? true, staleTime: 5 * 60 * 1000 }
   );
@@ -699,15 +714,17 @@ export function usePincodes(opts?: { enabled?: boolean }) {
 
 /** Shared dashboard summary — one request, cached across dashboard/analytics. */
 export function useDashboardSummary<T = Record<string, unknown>>(opts?: { enabled?: boolean }) {
+  const { userId } = useAuth();
   const qc = useQueryClient();
+  const dashboardKey = queryKeys.dashboard(userId);
   useEffect(() => {
-    const ev = () => void qc.invalidateQueries({ queryKey: queryKeys.dashboard });
+    const ev = () => void qc.invalidateQueries({ queryKey: dashboardKey });
     window.addEventListener("shipamaze:refetch:dashboard", ev);
     return () => window.removeEventListener("shipamaze:refetch:dashboard", ev);
-  }, [qc]);
+  }, [qc, dashboardKey]);
 
   const q = useQuery({
-    queryKey: queryKeys.dashboard,
+    queryKey: dashboardKey,
     queryFn: async ({ signal }) => {
       const { apiRequest } = await import("@/lib/apiClient");
       return apiRequest<T>("/dashboard/summary", { method: "GET", signal });

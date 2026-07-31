@@ -1,5 +1,6 @@
 import { useState, createContext, useContext, ReactNode, useEffect } from "react";
 import { getStoredToken, ApiError } from "@/lib/apiClient";
+import { resetSessionQueries } from "@/lib/queryClient";
 import * as authService from "@/services/authService";
 import type { AuthUser, SignupRole, UserRole } from "@/services/authService";
 
@@ -82,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithEmail = async (email: string, password: string) => {
     try {
       const { user: u } = await authService.login(email, password);
+      resetSessionQueries();
       setUser(u);
       return { user: u };
     } catch (e: unknown) {
@@ -123,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     void authService.logout().finally(() => {
+      resetSessionQueries();
       setUser(null);
       const pathOnly = window.location.pathname;
       if (!/^\/(login|signup|verify-email)(\/|$)/i.test(pathOnly)) {

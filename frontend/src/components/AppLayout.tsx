@@ -29,6 +29,8 @@ import type { UserRole } from "@/services/authService";
 import { roleHomePath } from "@/services/authService";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import * as notificationService from "@/services/notificationService";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queryClient";
 
 const CommandPalette = lazy(() =>
   import("@/components/CommandPalette").then((m) => ({ default: m.CommandPalette }))
@@ -283,7 +285,8 @@ function AccountMenuPanel({
 }
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { role, userName, logout, user } = useAuth();
+  const { role, userName, logout, user, userId } = useAuth();
+  const qc = useQueryClient();
   const { data: walletSummary, isLoading: walletLoading } = useWalletSummary();
   const [addFundsOpen, setAddFundsOpen] = useState(false);
   const [walletPopoverOpen, setWalletPopoverOpen] = useState(false);
@@ -304,14 +307,23 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [notifTotal, setNotifTotal] = useState(0);
   const [notifLoading, setNotifLoading] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(["Orders"]));
+  // Avoid duplicate fetch when opening bell right after mount (list already loaded)
+  const notifLoadedOnce = useRef(false);
 
   const fetchNotifications = useCallback(
-    async (opts?: { page?: number; append?: boolean }) => {
+    async (opts?: { page?: number; append?: boolean; force?: boolean }) => {
       const page = opts?.page ?? 1;
       const append = opts?.append ?? false;
       setNotifLoading(true);
       try {
-        const r = await notificationService.listNotifications(page, 20);
+        if (opts?.force) {
+          await qc.invalidateQueries({ queryKey: queryKeys.notifications(userId, page) });
+        }
+        const r = await qc.fetchQuery({
+          queryKey: queryKeys.notifications(userId, page),
+          queryFn: () => notificationService.listNotifications(page, 20),
+          staleTime: 60 * 1000,
+        });
         setNotifUnread(r.unreadCount ?? 0);
         setNotifTotal(r.total ?? 0);
         if (append) {
@@ -329,23 +341,25 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         setNotifLoading(false);
       }
     },
-    []
+    [qc, userId]
   );
 
   // Prefetch unread count once; full list only when popover opens
   useEffect(() => {
+    setNotifications([]);
+    setNotifUnread(0);
+    setNotifTotal(0);
+    notifLoadedOnce.current = false;
     if (!user) return;
     void fetchNotifications({ page: 1, append: false });
-  }, [user, fetchNotifications]);
+  }, [user, userId, fetchNotifications]);
 
   useEffect(() => {
-    const handler = () => void fetchNotifications({ page: 1, append: false });
+    const handler = () => void fetchNotifications({ page: 1, append: false, force: true });
     window.addEventListener("shipamaze:refetch:notifications", handler);
     return () => window.removeEventListener("shipamaze:refetch:notifications", handler);
   }, [fetchNotifications]);
 
-  // Avoid duplicate fetch when opening bell right after mount (list already loaded)
-  const notifLoadedOnce = useRef(false);
   useEffect(() => {
     if (notifications.length > 0 || notifUnread > 0) notifLoadedOnce.current = true;
   }, [notifications.length, notifUnread]);
@@ -827,7 +841,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                       onClick={async () => {
                         try {
                           await notificationService.markAllNotificationsRead();
-                          await fetchNotifications({ page: 1, append: false });
+                          await fetchNotifications({ page: 1, append: false, force: true });
                         } catch {
                           /* ignore */
                         }
@@ -842,7 +856,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                       onClick={async () => {
                         try {
                           await notificationService.clearAllNotifications();
-                          await fetchNotifications({ page: 1, append: false });
+                          await fetchNotifications({ page: 1, append: false, force: true });
                         } catch {
                           /* ignore */
                         }
@@ -874,7 +888,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                               /* ignore */
                             }
                           }
-                          await fetchNotifications({ page: 1, append: false });
+                          await fetchNotifications({ page: 1, append: false, force: true });
                         }}
                       >
                         <p className="text-text-primary font-medium">{n.title}</p>
