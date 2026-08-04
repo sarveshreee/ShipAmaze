@@ -68,6 +68,8 @@ function toPriorityEntries(carriers: VelocityLaneCarrier[]): BulkCourierPriority
 
     carrierId: String(c.carrier_id),
 
+    provider: c.provider === "lorrigo" ? "lorrigo" : "velocity",
+
     rank: i + 1,
 
   }));
@@ -204,9 +206,23 @@ export function CourierPriorityConfigModal({
 
         const enriched = savedList.map((p) => {
 
-          const match = velocityItems.find((c) => String(c.carrier_id) === String(p.carrierId ?? ""));
+          const match = velocityItems.find(
 
-          if (match?.carrier_name) return { ...p, courierName: match.carrier_name };
+            (c) =>
+
+              String(c.carrier_id) === String(p.carrierId ?? "") &&
+
+              (c.provider || "velocity") === (p.provider || "velocity")
+
+          );
+
+          if (match?.carrier_name) {
+            return {
+              ...p,
+              courierName: match.carrier_name,
+              provider: match.provider === "lorrigo" ? "lorrigo" : p.provider || "velocity",
+            };
+          }
 
           const byName = velocityItems.find(
 
@@ -214,7 +230,14 @@ export function CourierPriorityConfigModal({
 
           );
 
-          if (byName) return { ...p, courierName: byName.carrier_name, carrierId: String(byName.carrier_id) };
+          if (byName) {
+            return {
+              ...p,
+              courierName: byName.carrier_name,
+              carrierId: String(byName.carrier_id),
+              provider: byName.provider === "lorrigo" ? "lorrigo" : "velocity",
+            };
+          }
 
           return p;
 
@@ -252,7 +275,12 @@ export function CourierPriorityConfigModal({
 
   const priorityIds = useMemo(
 
-    () => new Set(priorities.map((p) => `${p.carrierId || ""}::${p.courierName}`.toLowerCase())),
+    () =>
+      new Set(
+        priorities.map(
+          (p) => `${p.provider || "velocity"}::${p.carrierId || ""}::${p.courierName}`.toLowerCase()
+        )
+      ),
 
     [priorities]
 
@@ -266,7 +294,10 @@ export function CourierPriorityConfigModal({
 
       available.filter(
 
-        (c) => !priorityIds.has(`${c.carrier_id}::${c.carrier_name}`.toLowerCase())
+        (c) =>
+          !priorityIds.has(
+            `${c.provider || "velocity"}::${c.carrier_id}::${c.carrier_name}`.toLowerCase()
+          )
 
       ),
 
@@ -316,6 +347,8 @@ export function CourierPriorityConfigModal({
 
         carrierId: carrier.carrier_id,
 
+        provider: carrier.provider === "lorrigo" ? "lorrigo" : "velocity",
+
         rank: prev.length + 1,
 
       },
@@ -330,7 +363,7 @@ export function CourierPriorityConfigModal({
 
     if (available.length === 0) {
 
-      toast.error("No Velocity couriers loaded for this lane. Check pickup pincode and try again.");
+      toast.error("No couriers loaded for this lane. Check pickup pincode and try again.");
 
       return;
 
@@ -338,7 +371,7 @@ export function CourierPriorityConfigModal({
 
     setPriorities(toPriorityEntries(available));
 
-    toast.success(`Loaded ${available.length} couriers from Velocity`);
+    toast.success(`Loaded ${available.length} couriers (Velocity + Lorrigo when enabled)`);
 
   };
 
@@ -454,7 +487,7 @@ export function CourierPriorityConfigModal({
 
                   <RefreshCw className="h-3.5 w-3.5" />
 
-                  Load all from Velocity
+                  Load all couriers
 
                 </Button>
 
@@ -472,7 +505,7 @@ export function CourierPriorityConfigModal({
 
                     <li
 
-                      key={`${p.carrierId}-${p.courierName}-${idx}`}
+                      key={`${p.provider || "velocity"}-${p.carrierId}-${p.courierName}-${idx}`}
 
                       className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-2/40 px-3 py-2"
 
@@ -482,7 +515,12 @@ export function CourierPriorityConfigModal({
 
                       <span className="text-xs font-bold text-primary w-6">#{idx + 1}</span>
 
-                      <span className="flex-1 text-sm font-medium text-text-primary">{p.courierName}</span>
+                      <span className="flex-1 text-sm font-medium text-text-primary">
+                        {p.courierName}
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-text-muted">
+                          {p.provider === "lorrigo" ? "Lorrigo" : "Velocity"}
+                        </span>
+                      </span>
 
                       <div className="flex items-center gap-1">
 
@@ -564,7 +602,7 @@ export function CourierPriorityConfigModal({
 
               <p className="text-xs text-text-muted mt-1 mb-3">
 
-                Couriers from Velocity for {laneLabel}
+                Couriers from Velocity and Lorrigo for {laneLabel}
 
                 {!destPincode && resolvedFromPin.length === 6 && " (reference destination — order pincodes may differ)"}.
 
@@ -578,7 +616,7 @@ export function CourierPriorityConfigModal({
 
                   {resolvedFromPin.length !== 6
 
-                    ? "Could not resolve pickup pincode. Select a pickup address with a valid 6-digit pincode, then click Load all from Velocity."
+                    ? "Could not resolve pickup pincode. Select a pickup address with a valid 6-digit pincode, then click Load all couriers."
 
                     : "No couriers returned for this lane. Try a different destination pincode or payment mode."}
 
@@ -594,7 +632,7 @@ export function CourierPriorityConfigModal({
 
                   {addable.map((c) => (
 
-                    <div key={`${c.carrier_id}-${c.carrier_name}`} className="relative">
+                    <div key={`${c.provider || "velocity"}-${c.carrier_id}-${c.carrier_name}`} className="relative">
 
                       <CourierCard
                         carrierId={c.carrier_id}

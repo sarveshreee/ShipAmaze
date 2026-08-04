@@ -40,16 +40,19 @@ import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 import { mapToPublicTracking } from "../utils/publicTracking.js";
 import { bookForwardShipmentForOrder, syncLocalOrderEditsToVelocity } from "../modules/velocity/velocity.controller.js";
 import { bookLorrigoShipment } from "../modules/courier/bookShipment.js";
+import { discoverServiceability } from "../modules/courier/discoverCouriers.js";
 import { getCourierProvider } from "../modules/courier/providerRegistry.js";
 import { providerSupports } from "../modules/courier/capabilities.js";
 import type { CourierProviderId } from "../modules/courier/types.js";
 import { isLorrigoEnabledFlag } from "../modules/lorrigo/lorrigo.config.js";
 import { isVelocityEnabledFlag } from "../config/env.js";
 import {
-  listServiceableCarriersForOrder,
   pickPriorityServiceableCourier,
+  type PriorityServiceableCourier,
+  type ResolvedServiceableCarrier,
   type ServiceabilityCache,
 } from "../modules/velocity/velocity.resolveCarrier.js";
+import { normalizePincode } from "../modules/velocity/velocity.payload.js";
 import { formatErrorMessage } from "../utils/errorMessage.js";
 import {
   getBulkCourierPriority,
@@ -1636,7 +1639,7 @@ type ProcessSelectedPrep = {
   courierSelectionMode: CourierSelectionMode;
   courierName: string;
   carrierId: string | undefined;
-  /** Provider for explicit courier booking; priority mode remains Velocity. */
+  /** Provider for explicit courier booking; priority mode resolves per priority entry. */
   courierProvider: CourierProviderId;
   shipmentMode: string;
   weight: number | undefined;
@@ -1645,12 +1648,15 @@ type ProcessSelectedPrep = {
   height: number | undefined;
   pickupSnapshot: ReturnType<typeof buildPickupSnapshotFromLean>["snapshot"];
   velocityWarehouseId: string;
+  lorrigoPickupId: string;
   vendorIdFromPickup: Types.ObjectId | undefined;
   now: Date;
   /** Loaded once per bulk request (priority mode). */
   priorities: BulkCourierPriorityCandidate[];
   /** Dedupes Velocity serviceability calls for identical lanes. */
   serviceabilityCache: ServiceabilityCache;
+  /** Dedupes multi-provider discovery for priority mode. */
+  multiProviderServiceabilityCache: Map<string, Promise<PriorityServiceableCourier[]>>;
 };
 
 type OrderDoc = InstanceType<typeof Order>;
@@ -1755,15 +1761,123 @@ async function saveOrderAfterBooking(o: OrderDoc): Promise<void> {
   }
 }
 
-function noteProcessSelectedBooked(o: OrderDoc, userId: Types.ObjectId) {
+function noteProcessSelectedBooked(o: OrderDoc, userId: Types.ObjectId, provider?: "velocity" | "lorrigo") {
   const canonical = normalizeOrderStatus(o.status);
-  // Keep history aligned with the real post-booking status (usually pickup_scheduled).
-  appendStatusHistory(
-    o,
-    canonical === "draft" ? "pickup_scheduled" : canonical,
-    userId,
-    "Processed via Process Selected (Velocity priority)"
+  const via =
+    provider === "lorrigo"
+      ? "Processed via Process Selected (Lorrigo priority)"
+      : "Processed via Process Selected (priority)";
+  appendStatusHistory(o, canonical === "draft" ? "pickup_scheduled" : canonical, userId, via);
+}
+
+async function listMultiProviderServiceableForOrder(
+  o: OrderDoc,
+  prep: ProcessSelectedPrep
+): Promise<PriorityServiceableCourier[]> {
+  const fromPin = normalizePincode(
+    prep.pickupSnapshot && typeof prep.pickupSnapshot === "object"
+      ? String((prep.pickupSnapshot as { pincode?: string }).pincode ?? "")
+      : ""
   );
+  const toPin = normalizePincode(String(o.shippingPincode ?? o.pincode ?? ""));
+  if (fromPin.length !== 6 || toPin.length !== 6) return [];
+
+  const paymentMode = String(o.payment ?? "").toLowerCase().includes("cod") ? "cod" : "prepaid";
+  const weightKg = Number(prep.weight ?? o.weight ?? 0.5) || 0.5;
+  const lengthCm = Number(prep.length ?? o.length ?? 10) || 10;
+  const widthCm = Number(prep.width ?? o.width ?? o.breadth ?? 10) || 10;
+  const heightCm = Number(prep.height ?? o.height ?? 10) || 10;
+  const key = `${fromPin}|${toPin}|${paymentMode}|${weightKg}|${lengthCm}|${widthCm}|${heightCm}`;
+
+  if (prep.multiProviderServiceabilityCache.has(key)) {
+    return prep.multiProviderServiceabilityCache.get(key)!;
+  }
+
+  const pending = (async (): Promise<PriorityServiceableCourier[]> => {
+    try {
+      const result = await discoverServiceability(
+        {
+          fromPincode: fromPin,
+          toPincode: toPin,
+          paymentMode,
+          weightKg,
+          lengthCm,
+          widthCm,
+          heightCm,
+          codValue: paymentMode === "cod" ? Number(o.amount ?? 0) : undefined,
+          shipmentType: "forward",
+        },
+        { mode: "both" }
+      );
+      return (result.couriers ?? [])
+        .filter((c) => c.serviceable !== false)
+        .map((c) => ({
+          carrier_id: String(c.courierId ?? "").trim(),
+          carrier_name: String(c.courierName ?? "").trim(),
+          provider: c.provider === "lorrigo" ? ("lorrigo" as const) : ("velocity" as const),
+        }))
+        .filter((c) => c.carrier_id && c.carrier_name);
+    } catch {
+      return [];
+    }
+  })();
+
+  prep.multiProviderServiceabilityCache.set(key, pending);
+  return pending;
+}
+
+async function bookPriorityResolvedCourier(
+  req: AuthRequest,
+  o: OrderDoc,
+  prep: ProcessSelectedPrep,
+  preferred: ResolvedServiceableCarrier,
+  bookingBase: Record<string, unknown>
+): Promise<{ awb: string; carrier: string }> {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const provider = preferred.provider === "lorrigo" ? "lorrigo" : "velocity";
+
+  if (provider === "lorrigo") {
+    if (!prep.lorrigoPickupId) {
+      throw new AppError(
+        422,
+        "Pickup address must be synced to Lorrigo before booking a Lorrigo courier from Priority Selection."
+      );
+    }
+    const w = Number(prep.weight ?? o.weight);
+    const L = Number(prep.length ?? o.length ?? 10);
+    const W = Number(prep.width ?? o.width ?? o.breadth ?? 10);
+    const H = Number(prep.height ?? o.height ?? 10);
+    const booking = await bookLorrigoShipment({
+      order: o,
+      provider: "lorrigo",
+      pickupAddressId: prep.pickupAddressId,
+      courierId: preferred.carrier_id,
+      courierName: preferred.carrier_name,
+      weightKg: w,
+      lengthCm: L,
+      widthCm: W,
+      heightCm: H,
+      skipServiceability: true,
+      userId: req.user._id,
+    });
+    return { awb: booking.awb, carrier: booking.courierName || preferred.carrier_name };
+  }
+
+  if (!prep.velocityWarehouseId) {
+    throw new AppError(
+      422,
+      "Pickup address must be linked to Velocity before booking a Velocity courier from Priority Selection."
+    );
+  }
+  const booking = await bookForwardShipmentForOrder(req, o, {
+    ...bookingBase,
+    courier_name: preferred.carrier_name,
+    carrier_id: preferred.carrier_id,
+    skip_serviceability: true,
+  });
+  noteProcessSelectedBooked(o, req.user._id, "velocity");
+  await saveOrderAfterBooking(o);
+  return { awb: booking.awb_code, carrier: booking.carrier_name };
 }
 
 type ProcessSelectedOrderResult =
@@ -1831,51 +1945,26 @@ async function processOneSelectedOrder(
       };
     }
 
-    const carrierResolveOpts = {
-      pickupPincode:
-        prep.pickupSnapshot && typeof prep.pickupSnapshot === "object"
-          ? String((prep.pickupSnapshot as { pincode?: string }).pincode ?? "")
-          : undefined,
-      weight: prep.weight,
-      length: prep.length,
-      width: prep.width,
-      height: prep.height,
-      cache: prep.serviceabilityCache,
-    };
-
     const attemptErrors: string[] = [];
-    let bookedPreferredId: string | undefined;
+    let bookedPreferredKey: string | undefined;
+    let preferred: ResolvedServiceableCarrier | undefined;
 
-    // Prefer one serviceability lookup → book the highest-priority match once.
-    const serviceable = await listServiceableCarriersForOrder(o, carrierResolveOpts);
-    const preferred = pickPriorityServiceableCourier(priorities, serviceable);
+    // Multi-provider discovery so Lorrigo priority #1 (e.g. Delhivery Spcl) is not
+    // fuzzy-matched onto a Velocity Delhivery service.
+    const serviceable = await listMultiProviderServiceableForOrder(o, prep);
+    preferred = pickPriorityServiceableCourier(priorities, serviceable);
     if (preferred) {
-      bookedPreferredId = preferred.carrier_id;
+      bookedPreferredKey = `${preferred.provider ?? "velocity"}::${preferred.carrier_id}`;
       try {
-        const booking = await bookForwardShipmentForOrder(req, o, {
-          ...bookingBase,
-          courier_name: preferred.carrier_name,
-          carrier_id: preferred.carrier_id,
-          // Carrier already verified via shared serviceability list — skip second Velocity call.
-          skip_serviceability: true,
-        });
-        noteProcessSelectedBooked(o, req.user._id);
-        await saveOrderAfterBooking(o);
+        const booking = await bookPriorityResolvedCourier(req, o, prep, preferred, bookingBase);
         return {
           outcome: "updated",
           orderId: o.orderId,
-          awb: booking.awb_code,
-          carrier: booking.carrier_name,
+          awb: booking.awb,
+          carrier: booking.carrier,
         };
       } catch (err: unknown) {
-        // If Velocity already created a shipment, never try another courier.
         if (o.shipmentCreated || String(o.awb || "").trim()) {
-          noteProcessSelectedBooked(o, req.user._id);
-          try {
-            await saveOrderAfterBooking(o);
-          } catch {
-            /* already saved in book helper */
-          }
           return {
             outcome: "updated",
             orderId: o.orderId,
@@ -1884,21 +1973,14 @@ async function processOneSelectedOrder(
           };
         }
         attemptErrors.push(
-          `${preferred.carrier_name}: ${formatErrorMessage(err, "booking failed")}`
+          `${preferred.carrier_name} (${preferred.provider ?? "velocity"}): ${formatErrorMessage(err, "booking failed")}`
         );
       }
     }
 
-    // Fallback: try remaining priorities in order when serviceability was empty
-    // or the preferred courier failed before any Velocity shipment was created.
+    // Fallback: try remaining priorities in order (provider-aware).
     for (const candidate of priorities) {
       if (o.shipmentCreated || String(o.awb || "").trim()) {
-        noteProcessSelectedBooked(o, req.user._id);
-        try {
-          await saveOrderAfterBooking(o);
-        } catch {
-          /* already saved */
-        }
         return {
           outcome: "updated",
           orderId: o.orderId,
@@ -1907,39 +1989,44 @@ async function processOneSelectedOrder(
         };
       }
 
+      const candidateKey = `${candidate.provider ?? "velocity"}::${candidate.carrierId ?? candidate.courierName}`;
       if (
-        bookedPreferredId &&
-        (candidate.carrierId?.trim() === bookedPreferredId ||
-          candidate.courierName.trim().toLowerCase() === preferred?.carrier_name.trim().toLowerCase())
+        bookedPreferredKey &&
+        (candidateKey === bookedPreferredKey ||
+          (candidate.carrierId?.trim() === preferred?.carrier_id &&
+            (candidate.provider ?? preferred?.provider ?? "velocity") ===
+              (preferred?.provider ?? "velocity")))
       ) {
         continue;
       }
 
-      const bookingBody: Record<string, unknown> = {
-        ...bookingBase,
-        courier_name: candidate.courierName,
+      const resolved: ResolvedServiceableCarrier = {
+        carrier_id: String(candidate.carrierId ?? "").trim(),
+        carrier_name: candidate.courierName,
+        provider: candidate.provider === "lorrigo" ? "lorrigo" : "velocity",
       };
-      if (candidate.carrierId?.trim()) {
-        bookingBody.carrier_id = candidate.carrierId.trim();
+      if (!resolved.carrier_id) {
+        // Resolve from live serviceability by name within provider.
+        const match = pickPriorityServiceableCourier([candidate], serviceable);
+        if (!match) {
+          attemptErrors.push(`${candidate.courierName}: not serviceable for this lane`);
+          continue;
+        }
+        resolved.carrier_id = match.carrier_id;
+        resolved.carrier_name = match.carrier_name;
+        resolved.provider = match.provider;
       }
+
       try {
-        const booking = await bookForwardShipmentForOrder(req, o, bookingBody);
-        noteProcessSelectedBooked(o, req.user._id);
-        await saveOrderAfterBooking(o);
+        const booking = await bookPriorityResolvedCourier(req, o, prep, resolved, bookingBase);
         return {
           outcome: "updated",
           orderId: o.orderId,
-          awb: booking.awb_code,
-          carrier: booking.carrier_name,
+          awb: booking.awb,
+          carrier: booking.carrier,
         };
       } catch (err: unknown) {
         if (o.shipmentCreated || String(o.awb || "").trim()) {
-          noteProcessSelectedBooked(o, req.user._id);
-          try {
-            await saveOrderAfterBooking(o);
-          } catch {
-            /* already saved */
-          }
           return {
             outcome: "updated",
             orderId: o.orderId,
@@ -2091,13 +2178,27 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     .toLowerCase();
   const courierProvider: CourierProviderId = providerRaw === "lorrigo" ? "lorrigo" : "velocity";
 
-  if (courierProvider === "lorrigo") {
-    if (courierSelectionMode === "priority") {
-      throw new AppError(
-        400,
-        "Lorrigo booking requires selecting a specific courier. Priority mode uses Velocity."
-      );
-    }
+  // Load priority list early — needed to know which pickup links are required.
+  const prioritiesEarly =
+    courierSelectionMode === "priority" ? await getBulkCourierPriority() : [];
+  if (courierSelectionMode === "priority" && prioritiesEarly.length === 0) {
+    throw new AppError(
+      400,
+      "No courier priority list configured. Open Priority Selection to set one."
+    );
+  }
+
+  const priorityNeedsLorrigo =
+    courierSelectionMode === "priority" &&
+    (prioritiesEarly.some((p) => p.provider === "lorrigo") ||
+      // Legacy entries without provider: allow Lorrigo exact-name match when enabled.
+      (isLorrigoEnabledFlag() && prioritiesEarly.some((p) => !p.provider)));
+  const priorityNeedsVelocity =
+    courierSelectionMode === "priority" &&
+    (prioritiesEarly.some((p) => p.provider === "velocity" || !p.provider) ||
+      prioritiesEarly.length === 0);
+
+  if (courierSelectionMode === "courier" && courierProvider === "lorrigo") {
     if (!isLorrigoEnabledFlag()) {
       throw new AppError(503, "Lorrigo is disabled (LORRIGO_ENABLED is not true).");
     }
@@ -2105,7 +2206,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     if (!providerSupports(lorrigo.capabilities, "booking") || !lorrigo.isConfigured()) {
       throw new AppError(503, "Lorrigo booking is not available (provider not configured).");
     }
-  } else {
+  } else if (courierSelectionMode === "courier") {
     if (!isVelocityEnabledFlag()) {
       throw new AppError(503, "Velocity is disabled (VELOCITY_ENABLED=false).");
     }
@@ -2114,6 +2215,28 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
         503,
         "Velocity courier credentials are not configured. Set VELOCITY_USERNAME and VELOCITY_PASSWORD to book real AWBs."
       );
+    }
+  } else {
+    // Priority mode may mix providers.
+    if (priorityNeedsVelocity) {
+      if (!isVelocityEnabledFlag()) {
+        throw new AppError(503, "Velocity is disabled (VELOCITY_ENABLED=false).");
+      }
+      if (!isVelocityConfigured()) {
+        throw new AppError(
+          503,
+          "Velocity courier credentials are not configured. Set VELOCITY_USERNAME and VELOCITY_PASSWORD to book real AWBs."
+        );
+      }
+    }
+    if (priorityNeedsLorrigo) {
+      if (!isLorrigoEnabledFlag()) {
+        throw new AppError(503, "Lorrigo is disabled (LORRIGO_ENABLED is not true).");
+      }
+      const lorrigo = getCourierProvider("lorrigo");
+      if (!providerSupports(lorrigo.capabilities, "booking") || !lorrigo.isConfigured()) {
+        throw new AppError(503, "Lorrigo booking is not available (provider not configured).");
+      }
     }
   }
 
@@ -2138,8 +2261,15 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     .lean();
   if (!pickup) throw new AppError(404, "Pickup address not found");
 
+  const lorrigoPickupId = String((pickup as { lorrigoPickupId?: string }).lorrigoPickupId ?? "").trim();
   let velocityWarehouseId = "";
-  if (courierProvider === "velocity") {
+
+  const needVelocityLink =
+    (courierSelectionMode === "courier" && courierProvider === "velocity") || priorityNeedsVelocity;
+  const needLorrigoLink =
+    (courierSelectionMode === "courier" && courierProvider === "lorrigo") || priorityNeedsLorrigo;
+
+  if (needVelocityLink) {
     const syncResult = await syncPickupToVelocity(pickupAddressId);
     if ("error" in syncResult && syncResult.error) {
       throw new AppError(422, `Pickup address is not linked to Velocity: ${syncResult.error}`);
@@ -2154,13 +2284,14 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
       );
     }
   } else {
-    const lorrigoPickupId = String((pickup as { lorrigoPickupId?: string }).lorrigoPickupId ?? "").trim();
-    if (!lorrigoPickupId) {
-      throw new AppError(
-        422,
-        "Pickup address must be synced to Lorrigo before booking. Use Retry Sync on the pickup address."
-      );
-    }
+    velocityWarehouseId = String(pickup.velocityWarehouseId ?? "").trim();
+  }
+
+  if (needLorrigoLink && !lorrigoPickupId) {
+    throw new AppError(
+      422,
+      "Pickup address must be synced to Lorrigo before booking. Use Sync to Lorrigo / Retry Sync on the pickup address."
+    );
   }
 
   const vendorIdFromPickup = await resolveVendorIdFromPickup(pickup);
@@ -2178,15 +2309,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     .map((id) => orderById.get(id))
     .filter((o): o is OrderDoc => o != null);
 
-  // Load priority list once for the whole batch (not per order).
-  const priorities =
-    courierSelectionMode === "priority" ? await getBulkCourierPriority() : [];
-  if (courierSelectionMode === "priority" && priorities.length === 0) {
-    throw new AppError(
-      400,
-      "No courier priority list configured. Open Priority Selection to set one."
-    );
-  }
+  const priorities = prioritiesEarly;
 
   const prep: ProcessSelectedPrep = {
     pickupAddressId,
@@ -2201,10 +2324,12 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     height,
     pickupSnapshot,
     velocityWarehouseId,
+    lorrigoPickupId,
     vendorIdFromPickup: vendorIdFromPickup ?? undefined,
     now: new Date(),
     priorities,
     serviceabilityCache: new Map(),
+    multiProviderServiceabilityCache: new Map(),
   };
 
   const results = await mapWithConcurrency(ordered, PROCESS_SELECTED_CONCURRENCY, (o) =>

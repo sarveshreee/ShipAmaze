@@ -17,6 +17,7 @@ function mapPriorityList(items: Awaited<ReturnType<typeof getBulkCourierPriority
     priorities: items.map((p) => ({
       courierName: p.courierName,
       carrierId: p.carrierId ?? "",
+      provider: p.provider ?? "",
       rank: p.rank,
     })),
   };

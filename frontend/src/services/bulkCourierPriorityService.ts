@@ -3,6 +3,8 @@ import { apiClient } from "@/lib/apiClient";
 export type BulkCourierPriorityEntry = {
   courierName: string;
   carrierId?: string;
+  /** velocity | lorrigo — required so Priority Selection books the right provider */
+  provider?: "velocity" | "lorrigo" | "";
   rank: number;
 };
 

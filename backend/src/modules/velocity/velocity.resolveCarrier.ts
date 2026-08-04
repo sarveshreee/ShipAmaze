@@ -177,43 +177,111 @@ export async function listServiceableCarriersForOrder(
 export type ResolvedServiceableCarrier = {
   carrier_id: string;
   carrier_name: string;
+  provider?: "velocity" | "lorrigo";
 };
 
 export type PriorityCourierCandidate = {
   courierName: string;
   carrierId?: string;
+  provider?: "velocity" | "lorrigo";
   rank?: number;
 };
 
-function carrierRowToResolved(row: VelocityCarrier, fallbackName: string): ResolvedServiceableCarrier | undefined {
+/** Multi-provider serviceable row used by Process Selected priority mode. */
+export type PriorityServiceableCourier = {
+  carrier_id: string;
+  carrier_name: string;
+  provider: "velocity" | "lorrigo";
+};
+
+function carrierRowToResolved(
+  row: VelocityCarrier | PriorityServiceableCourier,
+  fallbackName: string,
+  provider?: "velocity" | "lorrigo"
+): ResolvedServiceableCarrier | undefined {
   if (row.carrier_id == null || !String(row.carrier_id).trim()) return undefined;
+  const prov =
+    provider ??
+    ("provider" in row && (row.provider === "lorrigo" || row.provider === "velocity")
+      ? row.provider
+      : "velocity");
   return {
     carrier_id: String(row.carrier_id).trim(),
     carrier_name: String(row.carrier_name ?? fallbackName).trim() || fallbackName,
+    provider: prov,
   };
+}
+
+function poolForProvider(
+  serviceable: Array<VelocityCarrier | PriorityServiceableCourier>,
+  provider?: "velocity" | "lorrigo"
+): Array<VelocityCarrier | PriorityServiceableCourier> {
+  if (!provider) return serviceable;
+  return serviceable.filter((c) => {
+    const p = "provider" in c && c.provider ? c.provider : "velocity";
+    return p === provider;
+  });
+}
+
+function exactNameMatch(
+  serviceable: Array<VelocityCarrier | PriorityServiceableCourier>,
+  courierName: string
+): VelocityCarrier | PriorityServiceableCourier | undefined {
+  const name = courierName.trim().toLowerCase();
+  if (!name) return undefined;
+  return serviceable.find((c) => String(c.carrier_name ?? "").trim().toLowerCase() === name);
 }
 
 /**
  * Walk priority list in rank order and return the first courier that appears
  * in the live serviceability list. Used by Process Selected (priority mode)
  * so each order books exactly once with the highest-priority serviceable courier.
+ *
+ * Provider-aware: when a priority entry has provider=lorrigo|velocity, only that
+ * provider's lane is considered (prevents Lorrigo "Delhivery Spcl…" fuzzy-matching
+ * Velocity "Delhivery Standard").
  */
 export function pickPriorityServiceableCourier(
   priorities: PriorityCourierCandidate[],
-  serviceable: VelocityCarrier[]
+  serviceable: Array<VelocityCarrier | PriorityServiceableCourier>
 ): ResolvedServiceableCarrier | undefined {
   if (!priorities.length || !serviceable.length) return undefined;
 
   for (const candidate of priorities) {
     const preferredId = candidate.carrierId?.trim();
+    const providerHint = candidate.provider;
+    const pool = poolForProvider(serviceable, providerHint);
+
     if (preferredId) {
-      const byId = serviceable.find((c) => String(c.carrier_id ?? "").trim() === preferredId);
-      const resolved = byId ? carrierRowToResolved(byId, candidate.courierName) : undefined;
+      const byId = pool.find((c) => String(c.carrier_id ?? "").trim() === preferredId);
+      const resolved = byId
+        ? carrierRowToResolved(
+            byId,
+            candidate.courierName,
+            providerHint ?? ("provider" in byId ? byId.provider : "velocity")
+          )
+        : undefined;
       if (resolved) return resolved;
     }
-    const byName = pickCarrierFromList(serviceable, candidate.courierName);
-    const resolved = byName ? carrierRowToResolved(byName, candidate.courierName) : undefined;
-    if (resolved) return resolved;
+
+    // Exact name first (cross-provider when hint missing so Lorrigo Spcl wins over Velocity fuzzy).
+    const searchExact = providerHint ? pool : serviceable;
+    const exact = exactNameMatch(searchExact, candidate.courierName);
+    if (exact) {
+      return carrierRowToResolved(
+        exact,
+        candidate.courierName,
+        providerHint ?? ("provider" in exact ? exact.provider : "velocity")
+      );
+    }
+
+    // Fuzzy name only within Velocity (legacy brand aliases). Never fuzzy-match Lorrigo→Velocity.
+    const velocityPool = poolForProvider(serviceable, "velocity");
+    if (!providerHint || providerHint === "velocity") {
+      const fuzzy = pickCarrierFromList(velocityPool as VelocityCarrier[], candidate.courierName);
+      const resolved = fuzzy ? carrierRowToResolved(fuzzy, candidate.courierName, "velocity") : undefined;
+      if (resolved) return resolved;
+    }
   }
   return undefined;
 }

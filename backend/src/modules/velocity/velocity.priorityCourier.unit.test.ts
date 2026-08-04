@@ -24,7 +24,7 @@ describe("pickPriorityServiceableCourier", () => {
       ],
       serviceable
     );
-    expect(picked).toEqual({ carrier_id: "dlv", carrier_name: "Delhivery Standard" });
+    expect(picked).toEqual({ carrier_id: "dlv", carrier_name: "Delhivery Standard", provider: "velocity" });
   });
 
   it("matches by courier name when carrierId is missing or stale", () => {
@@ -49,7 +49,7 @@ describe("pickPriorityServiceableCourier", () => {
       ],
       serviceable
     );
-    expect(picked).toEqual({ carrier_id: "xb", carrier_name: "Xpressbees Standard" });
+    expect(picked).toEqual({ carrier_id: "xb", carrier_name: "Xpressbees Standard", provider: "velocity" });
   });
 
   it("returns undefined when none of the priority couriers are serviceable", () => {
@@ -98,7 +98,7 @@ describe("pickPriorityServiceableCourier", () => {
       { courierName: "Amazon Standard 250G", rank: 7 },
     ];
     const picked = pickPriorityServiceableCourier(priorities, allSeven);
-    expect(picked).toEqual({ carrier_id: "ek", carrier_name: "Ekart Standard" });
+    expect(picked).toEqual({ carrier_id: "ek", carrier_name: "Ekart Standard", provider: "velocity" });
   });
 
   it("skips unserviceable #1 and picks next ranked serviceable courier only", () => {
@@ -113,7 +113,36 @@ describe("pickPriorityServiceableCourier", () => {
       { courierName: "Shadowfax Standard", rank: 3 },
     ];
     const picked = pickPriorityServiceableCourier(priorities, serviceableSubset);
-    expect(picked).toEqual({ carrier_id: "dlv", carrier_name: "Delhivery Standard" });
+    expect(picked).toEqual({ carrier_id: "dlv", carrier_name: "Delhivery Standard", provider: "velocity" });
+  });
+  it("does not fuzzy-match Lorrigo Delhivery Spcl onto Velocity Delhivery Standard", () => {
+    const mixed = [
+      { carrier_id: "dlv-v", carrier_name: "Delhivery Standard", provider: "velocity" as const },
+      { carrier_id: "dlv-l", carrier_name: "Delhivery Spcl 500 gm", provider: "lorrigo" as const },
+      { carrier_id: "ek", carrier_name: "Ekart Standard", provider: "velocity" as const },
+    ];
+    const picked = pickPriorityServiceableCourier(
+      [{ courierName: "Delhivery Spcl 500 gm", carrierId: "dlv-l", provider: "lorrigo", rank: 1 }],
+      mixed
+    );
+    expect(picked).toEqual({
+      carrier_id: "dlv-l",
+      carrier_name: "Delhivery Spcl 500 gm",
+      provider: "lorrigo",
+    });
+  });
+
+  it("exact-name matches Lorrigo even when provider was not saved on priority entry", () => {
+    const mixed = [
+      { carrier_id: "dlv-v", carrier_name: "Delhivery Standard", provider: "velocity" as const },
+      { carrier_id: "dlv-l", carrier_name: "Delhivery Spcl 500 gm", provider: "lorrigo" as const },
+    ];
+    const picked = pickPriorityServiceableCourier(
+      [{ courierName: "Delhivery Spcl 500 gm", rank: 1 }],
+      mixed
+    );
+    expect(picked?.provider).toBe("lorrigo");
+    expect(picked?.carrier_id).toBe("dlv-l");
   });
 });
 

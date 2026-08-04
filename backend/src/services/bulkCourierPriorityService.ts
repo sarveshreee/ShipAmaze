@@ -5,10 +5,18 @@ import {
 export type BulkCourierPriorityCandidate = {
   courierName: string;
   carrierId?: string;
+  provider?: "velocity" | "lorrigo";
   rank: number;
 };
 
 const SETTINGS_KEY = "default";
+
+function normalizeProvider(raw: unknown): "velocity" | "lorrigo" | undefined {
+  const v = String(raw ?? "").trim().toLowerCase();
+  if (v === "lorrigo") return "lorrigo";
+  if (v === "velocity") return "velocity";
+  return undefined;
+}
 
 function mapEntries(rows: IBulkCourierPriorityEntry[]): BulkCourierPriorityCandidate[] {
   return [...rows]
@@ -16,6 +24,7 @@ function mapEntries(rows: IBulkCourierPriorityEntry[]): BulkCourierPriorityCandi
     .map((p) => ({
       courierName: p.courierName,
       carrierId: p.carrierId?.trim() || undefined,
+      provider: normalizeProvider(p.provider),
       rank: p.rank,
     }));
 }
@@ -44,14 +53,18 @@ export async function saveBulkCourierPriority(
     const courierName = String(o.courierName ?? "").trim();
     const rank = Number(o.rank);
     const carrierId = String(o.carrierId ?? "").trim();
+    const provider = normalizeProvider(o.provider);
     if (!courierName) throw new Error("Each priority entry needs courierName");
     if (!Number.isFinite(rank) || rank < 1) throw new Error("Each priority entry needs rank ≥ 1");
-    const key = carrierId ? `id:${carrierId.toLowerCase()}` : `name:${courierName.toLowerCase()}`;
+    const key = carrierId
+      ? `id:${provider ?? "any"}:${carrierId.toLowerCase()}`
+      : `name:${provider ?? "any"}:${courierName.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     priorities.push({
       courierName,
       carrierId: carrierId || undefined,
+      provider,
       rank,
     });
   }
