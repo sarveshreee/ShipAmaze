@@ -467,7 +467,8 @@ export function ProcessSelectedModal({
                 {courierMode === "priority" && (
                   <p className="text-xs text-text-muted rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2">
                     Each order will be booked using your saved priority list — starting from Priority #1 for every
-                    order, falling back to the next courier if the lane is not serviceable.
+                    order, falling back to the next courier if the lane is not serviceable. Lorrigo and Velocity
+                    couriers are both supported when configured.
                   </p>
                 )}
 
