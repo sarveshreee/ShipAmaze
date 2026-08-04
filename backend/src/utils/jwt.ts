@@ -3,10 +3,17 @@ import type { SignOptions } from "jsonwebtoken";
 import { AppError } from "../middleware/errorMiddleware.js";
 
 export interface JwtPayload {
+  /** Subject — authenticated user id (always present). */
   sub: string;
   role: string;
+  /** Same as sub; included on impersonation tokens for explicit claim shape. */
+  userId?: string;
   /** Login session id for activity tracking */
   sid?: string;
+  /** Admin who started this session (impersonation only). */
+  impersonatedBy?: string;
+  /** True when this JWT was issued via admin impersonation. */
+  isImpersonation?: boolean;
 }
 
 function getJwtSecret(): string {

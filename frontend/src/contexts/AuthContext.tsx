@@ -1,5 +1,12 @@
-import { useState, createContext, useContext, ReactNode, useEffect } from "react";
-import { getStoredToken, ApiError } from "@/lib/apiClient";
+import { useState, createContext, useContext, ReactNode, useEffect, useCallback } from "react";
+import {
+  getStoredToken,
+  setStoredToken,
+  getAdminToken,
+  setAdminToken,
+  clearAdminToken,
+  ApiError,
+} from "@/lib/apiClient";
 import { resetSessionQueries } from "@/lib/queryClient";
 import * as authService from "@/services/authService";
 import type { AuthUser, SignupRole, UserRole } from "@/services/authService";
@@ -11,6 +18,8 @@ interface AuthContextType {
   userName: string;
   userId: string | null;
   isLoading: boolean;
+  /** True when viewing the app as another user via admin impersonation. */
+  isImpersonating: boolean;
   loginWithEmail: (email: string, password: string) => Promise<{ error?: string; user?: AuthUser }>;
   signupWithEmail: (
     email: string,
@@ -25,6 +34,16 @@ interface AuthContextType {
   applyUser: (u: AuthUser) => void;
   /** Reload user from GET /auth/profile */
   refreshUser: () => Promise<void>;
+  /**
+   * Switch into a target user session. Stashes the current admin JWT as adminToken,
+   * installs the impersonation token, and updates auth state — no login page.
+   */
+  startImpersonation: (token: string, user: AuthUser) => void;
+  /**
+   * Restore the stashed admin JWT, refresh auth state, and return to admin dashboard.
+   * Returns the restored admin user (or null if restore failed).
+   */
+  stopImpersonation: () => Promise<AuthUser | null>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -34,11 +53,14 @@ const AuthContext = createContext<AuthContextType>({
   userName: "",
   userId: null,
   isLoading: true,
+  isImpersonating: false,
   loginWithEmail: async () => ({}),
   signupWithEmail: async () => ({}),
   logout: () => {},
   applyUser: () => {},
   refreshUser: async () => {},
+  startImpersonation: () => {},
+  stopImpersonation: async () => null,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -52,17 +74,22 @@ function errMessage(e: unknown) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isImpersonating, setIsImpersonating] = useState(() => !!getAdminToken());
 
   useEffect(() => {
     if (!getStoredToken()) {
       setIsLoading(false);
+      setIsImpersonating(!!getAdminToken());
       return;
     }
     let cancelled = false;
     (async () => {
       try {
         const { user: u } = await authService.getCurrentUser();
-        if (!cancelled) setUser(u);
+        if (!cancelled) {
+          setUser(u);
+          setIsImpersonating(!!getAdminToken() || !!u.isImpersonation);
+        }
       } catch {
         if (!cancelled) setUser(null);
       } finally {
@@ -75,13 +102,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const handler = () => setUser(null);
+    const handler = () => {
+      setUser(null);
+      setIsImpersonating(false);
+    };
     window.addEventListener("shipamaze:unauthorized", handler);
     return () => window.removeEventListener("shipamaze:unauthorized", handler);
   }, []);
 
   const loginWithEmail = async (email: string, password: string) => {
     try {
+      clearAdminToken();
+      setIsImpersonating(false);
       const { user: u } = await authService.login(email, password);
       resetSessionQueries();
       setUser(u);
@@ -127,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void authService.logout().finally(() => {
       resetSessionQueries();
       setUser(null);
+      setIsImpersonating(false);
       const pathOnly = window.location.pathname;
       if (!/^\/(login|signup|verify-email)(\/|$)/i.test(pathOnly)) {
         window.location.replace(`${window.location.origin}/login`);
@@ -136,16 +169,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const applyUser = (u: AuthUser) => {
     setUser(u);
+    setIsImpersonating(!!getAdminToken() || !!u.isImpersonation);
   };
 
   const refreshUser = async () => {
     try {
       const { user: u } = await authService.getCurrentUser();
       setUser(u);
+      setIsImpersonating(!!getAdminToken() || !!u.isImpersonation);
     } catch {
       setUser(null);
+      setIsImpersonating(false);
     }
   };
+
+  const startImpersonation = useCallback((token: string, nextUser: AuthUser) => {
+    const current = getStoredToken();
+    if (!current) {
+      throw new Error("No admin session to stash for impersonation");
+    }
+    setAdminToken(current);
+    setStoredToken(token);
+    resetSessionQueries();
+    setUser(nextUser);
+    setIsImpersonating(true);
+  }, []);
+
+  const stopImpersonation = useCallback(async (): Promise<AuthUser | null> => {
+    const adminJwt = getAdminToken();
+    if (!adminJwt) {
+      setIsImpersonating(false);
+      return null;
+    }
+    setStoredToken(adminJwt);
+    clearAdminToken();
+    setIsImpersonating(false);
+    resetSessionQueries();
+    try {
+      const { user: u } = await authService.getCurrentUser();
+      setUser(u);
+      return u;
+    } catch {
+      setUser(null);
+      return null;
+    }
+  }, []);
 
   const value: AuthContextType = {
     isAuthenticated: !!user,
@@ -154,11 +222,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     userName: user?.name ?? "",
     userId: user?.id ?? null,
     isLoading,
+    isImpersonating,
     loginWithEmail,
     signupWithEmail,
     logout,
     applyUser,
     refreshUser,
+    startImpersonation,
+    stopImpersonation,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -18,6 +18,7 @@ import {
   Eye,
   EyeOff,
   Copy,
+  LogIn,
 } from "lucide-react";
 import {
   Sheet,
@@ -36,6 +37,9 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/apiClient";
 import type { UserRole } from "@/services/authService";
+import { roleDashboardPath } from "@/services/authService";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Admin",
@@ -67,6 +71,8 @@ function CredentialCell({
 }
 
 export default function AdminUsers() {
+  const { startImpersonation, user: authUser } = useAuth();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const [items, setItems] = useState<AdminUserRow[]>([]);
@@ -78,6 +84,7 @@ export default function AdminUsers() {
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [createOpen, setCreateOpen] = useState(false);
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AdminUserDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -197,6 +204,31 @@ export default function AdminUsers() {
       toast.error(e instanceof ApiError ? e.message : "Password reset failed");
     } finally {
       setResetting(false);
+    }
+  };
+
+  const canLoginAsUser =
+    !!detail &&
+    detail.status === "active" &&
+    detail.id !== authUser?.id &&
+    (detail.role !== "admin" || !!authUser?.isOwnerAdmin);
+
+  const handleLoginAsUser = async () => {
+    if (!detail || !canLoginAsUser) return;
+    setImpersonatingId(detail.id);
+    try {
+      const res = await userService.adminImpersonateUser(detail.id);
+      if (!res.success || !res.token || !res.user) {
+        throw new Error("Invalid impersonation response");
+      }
+      startImpersonation(res.token, res.user);
+      setDetailId(null);
+      toast.success(`Now viewing as ${res.user.name}`);
+      navigate(roleDashboardPath(res.user.role), { replace: true });
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Impersonation failed");
+    } finally {
+      setImpersonatingId(null);
     }
   };
 
@@ -498,6 +530,34 @@ export default function AdminUsers() {
                   </Button>
                 </div>
               </div>
+
+              {canLoginAsUser && (
+                <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/[0.04] p-4">
+                  <p className="text-sm font-medium">Impersonation</p>
+                  <p className="text-xs text-text-muted">
+                    Open the app as this user without their password. Your admin session is preserved so you can return anytime.
+                  </p>
+                  <Button
+                    size="sm"
+                    className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary-dark"
+                    disabled={impersonatingId === detail.id}
+                    onClick={() => void handleLoginAsUser()}
+                  >
+                    {impersonatingId === detail.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <LogIn className="h-4 w-4" />
+                    )}
+                    Login as User
+                  </Button>
+                </div>
+              )}
+              {!canLoginAsUser && detail.status !== "active" && (
+                <p className="text-xs text-text-muted">Activate this user before using Login as User.</p>
+              )}
+              {!canLoginAsUser && detail.role === "admin" && !authUser?.isOwnerAdmin && (
+                <p className="text-xs text-text-muted">Only a Super Admin can impersonate another admin.</p>
+              )}
 
               {detail.role === "dropshipper" && detail.dropshipper && (
                 <div className="space-y-3 rounded-lg border border-border p-4">

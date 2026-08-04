@@ -486,6 +486,12 @@ export function createApp() {
     requireOwnerAdmin,
     adminWorkflowController.adminResetUserPassword
   );
+  api.post(
+    "/admin/users/:userId/impersonate",
+    authMiddleware,
+    requireRoles("admin"),
+    adminWorkflowController.adminImpersonateUser
+  );
 
   api.get("/admin/vendors", authMiddleware, requireRoles("admin"), requireOwnerAdmin, adminWorkflowController.adminListVendors);
   api.get("/admin/vendors/:id", authMiddleware, requireRoles("admin"), requireOwnerAdmin, adminWorkflowController.adminGetVendor);

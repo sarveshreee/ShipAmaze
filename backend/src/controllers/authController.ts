@@ -53,7 +53,7 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-async function toPublicUser(user: {
+export async function toPublicUser(user: {
   _id: unknown;
   name: string;
   email: string;
@@ -245,7 +245,18 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
 export const me = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  res.json({ user: await toPublicUser(req.user) });
+  const user = await toPublicUser(req.user);
+  res.json({
+    user: {
+      ...user,
+      ...(req.impersonation
+        ? {
+            isImpersonation: true as const,
+            impersonatedBy: req.impersonation.impersonatedBy,
+          }
+        : {}),
+    },
+  });
 });
 
 const profileUpdateSchema = z.object({

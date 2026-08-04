@@ -8,6 +8,11 @@ import { authUserCache } from "../utils/ttlCache.js";
 export interface AuthRequest extends Request {
   user?: IUser;
   sessionId?: string;
+  /** Present when the JWT was issued via admin impersonation. */
+  impersonation?: {
+    isImpersonation: true;
+    impersonatedBy: string;
+  };
 }
 
 export async function authMiddleware(req: AuthRequest, _res: Response, next: NextFunction) {
@@ -28,11 +33,18 @@ export async function authMiddleware(req: AuthRequest, _res: Response, next: Nex
 
     if (user.status === "blocked") throw new AppError(403, "Your account has been blocked");
     if (user.status === "inactive") throw new AppError(403, "Your account is inactive");
-    if (user.emailVerified === false) {
+    // Impersonation sessions may open unverified accounts for admin support.
+    if (user.emailVerified === false && !payload.isImpersonation) {
       throw new AppError(403, "Please verify your email before logging in.");
     }
 
     req.user = user;
+    if (payload.isImpersonation && payload.impersonatedBy) {
+      req.impersonation = {
+        isImpersonation: true,
+        impersonatedBy: String(payload.impersonatedBy),
+      };
+    }
     if (payload.sid) {
       req.sessionId = payload.sid;
       void touchLoginSessionActivity(payload.sid);

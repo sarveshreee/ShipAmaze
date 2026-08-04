@@ -1,4 +1,4 @@
-import { apiClient, setStoredToken } from "@/lib/apiClient";
+import { apiClient, setStoredToken, clearAdminToken } from "@/lib/apiClient";
 
 export type UserRole = "admin" | "vendor" | "dropshipper";
 
@@ -43,6 +43,10 @@ export interface AuthUser {
   allowWarehouseAccess?: boolean;
   kycStatus?: "pending_kyc" | "pending_approval" | "approved" | "rejected";
   kycVerified?: boolean;
+  /** True when the current JWT is an admin impersonation session. */
+  isImpersonation?: boolean;
+  /** Admin user id who started impersonation. */
+  impersonatedBy?: string;
 }
 
 export type RegisterResult =
@@ -100,6 +104,7 @@ export async function logout() {
     /* offline */
   }
   setStoredToken(null);
+  clearAdminToken();
 }
 
 export async function getCurrentUser() {

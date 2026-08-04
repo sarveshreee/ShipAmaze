@@ -1,4 +1,6 @@
 const TOKEN_KEY = "shipamaze_token";
+/** Stashed admin JWT while impersonating another user. */
+const ADMIN_TOKEN_KEY = "adminToken";
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -7,6 +9,19 @@ export function getStoredToken(): string | null {
 export function setStoredToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getAdminToken(): string | null {
+  return localStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+export function setAdminToken(token: string | null) {
+  if (token) localStorage.setItem(ADMIN_TOKEN_KEY, token);
+  else localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+export function clearAdminToken() {
+  localStorage.removeItem(ADMIN_TOKEN_KEY);
 }
 
 export class ApiError extends Error {
@@ -152,6 +167,7 @@ async function executeRequest<T>(
   const res = await fetch(url, init);
   if (res.status === 401 && hadToken) {
     setStoredToken(null);
+    clearAdminToken();
     window.dispatchEvent(new CustomEvent("shipamaze:unauthorized"));
     const pathOnly = window.location.pathname;
     if (!/^\/(login|signup|forgot-password|verify-email)(\/|$)/i.test(pathOnly)) {

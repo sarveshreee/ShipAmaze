@@ -15,6 +15,7 @@ import {
 import { ShipAmazeLogo, SidebarBrand } from "@/components/brand/ShipAmazeLogo";
 import { Button } from "@/components/ui/button";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -781,6 +782,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </TooltipProvider>
 
       <div className="flex min-w-0 flex-1 flex-col lg:pl-[4.5rem]">
+        <ImpersonationBanner />
         <header className="flex h-14 shrink-0 items-center gap-2 overflow-hidden border-b border-border bg-card px-4 sm:h-[60px] sm:gap-3 sm:px-5 lg:px-8">
           <div className="flex min-w-0 items-center gap-2 lg:hidden">
             <button

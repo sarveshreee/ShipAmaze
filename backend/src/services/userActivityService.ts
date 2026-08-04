@@ -61,4 +61,5 @@ export const ACTIVITY_ACTIONS = {
   SETTINGS_CHANGED: "Settings Changed",
   SUPPORT_TICKET_CREATED: "Support Ticket Created",
   SUPPORT_TICKET_UPDATED: "Support Ticket Updated",
+  IMPERSONATION_START: "Impersonation Start",
 } as const;

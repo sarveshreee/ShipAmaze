@@ -20,9 +20,12 @@ import { createInAppNotification, notifyAllAdmins } from "../services/inAppNotif
 import { randomBytes } from "crypto";
 import { getFinalProductPrice, resolveOurCommission, resolveShippingCharge } from "../utils/productPricing.js";
 import { assertProductPermission, PRODUCT_PERMISSIONS } from "../utils/productPermissions.js";
-import { devLog } from "../utils/devLog.js";
+import { auditLog, devLog } from "../utils/devLog.js";
 import { buildProductListPipeline } from "../utils/productListPayload.js";
 import { decrypt, encrypt } from "../utils/crypto.js";
+import { signToken } from "../utils/jwt.js";
+import { isOwnerAdmin } from "../utils/staffPermissions.js";
+import { parseClientContext } from "../services/requestContext.js";
 
 function assertAdmin(req: AuthRequest): void {
   if (!req.user) throw new AppError(401, "Unauthorized");
@@ -302,6 +305,79 @@ export const adminResetUserPassword = asyncHandler(async (req: AuthRequest, res:
     ok: true,
     message: "Password updated successfully",
     password: body.newPassword,
+  });
+});
+
+/**
+ * Admin impersonation: issue a JWT for the target user without using their password.
+ * Owner (super) admin may impersonate anyone active; staff admin may not impersonate other admins.
+ */
+export const adminImpersonateUser = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  if (req.user.role !== "admin") throw new AppError(403, "Only admins can impersonate users");
+  if (req.impersonation?.isImpersonation) {
+    throw new AppError(403, "Cannot start impersonation while already impersonating another user");
+  }
+
+  const id = req.params.userId || req.params.id;
+  if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid user id");
+
+  const target = await User.findById(id);
+  if (!target) throw new AppError(404, "User not found");
+  if (String(target._id) === String(req.user._id)) {
+    throw new AppError(400, "Cannot impersonate yourself");
+  }
+  if (target.status !== "active") {
+    throw new AppError(403, `Cannot impersonate a user with status "${target.status}"`);
+  }
+  if (target.role === "admin" && !isOwnerAdmin(req.user)) {
+    throw new AppError(403, "Only a Super Admin can impersonate another admin");
+  }
+
+  const adminId = String(req.user._id);
+  const userId = String(target._id);
+  const token = signToken({
+    sub: userId,
+    userId,
+    role: target.role,
+    impersonatedBy: adminId,
+    isImpersonation: true,
+  });
+
+  const ctx = parseClientContext(req);
+  recordUserActivity({
+    user: req.user,
+    module: "auth",
+    action: ACTIVITY_ACTIONS.IMPERSONATION_START,
+    metadata: {
+      adminId,
+      targetUserId: userId,
+      targetEmail: target.email,
+      targetRole: target.role,
+      timestamp: new Date().toISOString(),
+      ip: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    },
+    req,
+  });
+  auditLog("admin_impersonation_start", {
+    adminId,
+    targetUserId: userId,
+    targetRole: target.role,
+    ip: ctx.ipAddress,
+    userAgent: ctx.userAgent,
+  });
+
+  const { toPublicUser } = await import("./authController.js");
+  const publicUser = await toPublicUser(target);
+  res.json({
+    success: true,
+    token,
+    user: {
+      ...publicUser,
+      isImpersonation: true as const,
+      impersonatedBy: adminId,
+    },
   });
 });
 

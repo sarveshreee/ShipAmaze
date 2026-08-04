@@ -1,5 +1,5 @@
 import { apiClient } from "@/lib/apiClient";
-import type { UserRole } from "./authService";
+import type { AuthUser, UserRole } from "./authService";
 
 export interface UserListRow {
   user_id: string;
@@ -86,4 +86,12 @@ export function adminResetUserPassword(id: string, newPassword: string) {
     `/admin/users/${encodeURIComponent(id)}/reset-password`,
     { newPassword }
   );
+}
+
+export function adminImpersonateUser(userId: string) {
+  return apiClient.post<{
+    success: boolean;
+    token: string;
+    user: AuthUser;
+  }>(`/admin/users/${encodeURIComponent(userId)}/impersonate`);
 }
