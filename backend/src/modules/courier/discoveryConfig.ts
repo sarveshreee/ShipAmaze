@@ -11,22 +11,26 @@ function intEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-function parseMode(raw: string | undefined): CourierDiscoveryMode {
+function parseMode(raw: string | undefined): CourierDiscoveryMode | null {
   const v = (raw ?? "").trim().toLowerCase();
+  if (!v) return null;
   if (v === "lorrigo") return "lorrigo";
   if (v === "both" || v === "all" || v === "velocity,lorrigo" || v === "lorrigo,velocity") {
     return "both";
   }
+  if (v === "velocity") return "velocity";
   return "velocity";
 }
 
 export const discoveryConfig = {
   /**
    * velocity | lorrigo | both
-   * Default velocity keeps existing behavior until explicitly opted in.
+   * When unset: "both" if Lorrigo is enabled, otherwise "velocity" (legacy default).
    */
   get mode(): CourierDiscoveryMode {
-    return parseMode(process.env.COURIER_DISCOVERY_MODE);
+    const explicit = parseMode(process.env.COURIER_DISCOVERY_MODE);
+    if (explicit) return explicit;
+    return isLorrigoEnabledFlag() ? "both" : "velocity";
   },
 
   /** 0 disables cross-request cache. Default 60s. */

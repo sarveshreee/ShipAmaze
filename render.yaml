@@ -17,3 +17,20 @@ services:
       # Add in the dashboard (secrets): MONGODB_URI, JWT_SECRET, CORS_ORIGIN, ENCRYPTION_SECRET,
       # CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET,
       # SHOPIFY_*, and optionally VELOCITY_* when VELOCITY_ENABLED=true.
+      #
+      # Lorrigo (required for Lorrigo couriers on shipamaze.com Process Selected):
+      #   LORRIGO_ENABLED=true
+      #   LORRIGO_BASE_URL=https://app.lorrigo.com/api
+      #   LORRIGO_EMAIL=...
+      #   LORRIGO_PASSWORD=...   (if password contains #, paste the full value; do not truncate)
+      #   COURIER_DISCOVERY_MODE=both
+      - key: LORRIGO_ENABLED
+        sync: false
+      - key: LORRIGO_BASE_URL
+        sync: false
+      - key: LORRIGO_EMAIL
+        sync: false
+      - key: LORRIGO_PASSWORD
+        sync: false
+      - key: COURIER_DISCOVERY_MODE
+        value: both
