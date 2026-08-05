@@ -16,6 +16,11 @@ vi.mock("../../../ekart/ekart.config.js", () => ({
     createLargeEndpoint: "/shipments/large/create",
     trackLargeEndpoint: "/shipments/large/track",
     serviceabilityEndpoint: "/v1/offerings",
+    rtoCreateEndpoint: "/v3/shipments/rto/create",
+    cancelRvpEndpoint: "/v3/shipments/cancel_rvp",
+    reverseServiceCode: "RETURNS_SMART_CHECK",
+    webhooksEnabled: false,
+    webhookSecret: "",
     tokenCacheTtlMinutes: 40,
     requestTimeoutMs: 30000,
     maxTransientRetries: 2,
@@ -69,14 +74,15 @@ describe("Ekart provider foundation", () => {
     expect(listCourierProviders().map((p) => p.id)).not.toContain("ekart");
   });
 
-  it("declares Phase 1 capabilities without faking unsupported features", () => {
+  it("declares Phase 3 capabilities without faking PDF labels", () => {
     expect(EKART_CAPABILITIES.booking).toBe(true);
     expect(EKART_CAPABILITIES.tracking).toBe(true);
     expect(EKART_CAPABILITIES.pickupSync).toBe(false);
     expect(EKART_CAPABILITIES.rates).toBe(false);
+    expect(EKART_CAPABILITIES.cancel).toBe(true);
+    expect(EKART_CAPABILITIES.returns).toBe(true);
     expect(EKART_CAPABILITIES.labels).toBe(false);
-    expect(EKART_CAPABILITIES.ndr).toBe(false);
-    expect(EKART_CAPABILITIES.cancel).toBe(false);
+    expect(EKART_CAPABILITIES.webhooks).toBe(true);
     expect(providerSupports(EKART_CAPABILITIES, "booking")).toBe(true);
     expect(providerSupports(EKART_CAPABILITIES, "pickupSync")).toBe(false);
   });

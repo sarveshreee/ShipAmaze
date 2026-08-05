@@ -52,12 +52,12 @@ export const PROVIDER_CAPABILITIES: Record<CourierProviderId, CourierProviderCap
     rates: false,
     booking: true,
     tracking: true,
-    cancel: false,
+    cancel: true,
     ndr: false,
-    returns: false,
+    returns: true,
     pickupSync: false,
     labels: false,
-    webhooks: false,
+    webhooks: true,
   },
 };
 

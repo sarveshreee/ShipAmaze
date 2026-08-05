@@ -22,6 +22,7 @@ import {
   type EkartPickupLean,
 } from "./ekart.payload.js";
 import { trackEkartShipment } from "./ekart.tracking.js";
+import { cancelEkartShipment as cancelEkartViaDurin } from "./ekart.cancel.js";
 import {
   recordEkartBookingAttempt,
   recordEkartBookingFailure,
@@ -69,6 +70,11 @@ export async function createEkartShipment(
     pickup,
     customer: input.customer,
     items: input.items,
+    serviceLeg:
+      input.providerPayload?.shipmentType === "return" ||
+      String(input.providerPayload?.serviceLeg ?? "").toUpperCase() === "REVERSE"
+        ? "REVERSE"
+        : "FORWARD",
   });
 
   if (ekartConfig.debugLogs) {
@@ -151,10 +157,7 @@ export async function getEkartShipment(
 }
 
 export async function cancelEkartShipment(
-  _input: ProviderCancelInput
+  input: ProviderCancelInput
 ): Promise<ProviderCancelResult> {
-  throw new AppError(
-    501,
-    "Ekart cancel is not enabled in Phase 1 (use RTO API in a later phase)."
-  );
+  return cancelEkartViaDurin(input);
 }

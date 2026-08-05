@@ -1,4 +1,4 @@
-# Ekart Provider (Phase 1–2)
+# Ekart Provider (Phase 1–3)
 
 Durin / Ekart Logistics integration as a first-class `CourierProvider` (`provider = "ekart"`).
 
@@ -99,54 +99,88 @@ Background poller (same scheduler pattern as Lorrigo/Velocity):
 | `EKART_RETRY_COUNT` | `2` |
 | `EKART_CREATE_ENDPOINT` | `/v2/shipments/create` |
 | `EKART_TRACK_ENDPOINT` | `/v2/shipments/track` |
-| `EKART_CREATE_LARGE_ENDPOINT` | `/shipments/large/create` |
-| `EKART_TRACK_LARGE_ENDPOINT` | `/shipments/large/track` |
+| `EKART_RTO_CREATE_ENDPOINT` | `/v3/shipments/rto/create` |
+| `EKART_CANCEL_RVP_ENDPOINT` | `/v3/shipments/cancel_rvp` |
+| `EKART_REVERSE_SERVICE_CODE` | `RETURNS_SMART_CHECK` |
 | `EKART_STATUS_SYNC_INTERVAL_MS` | `300000` |
+| `EKART_WEBHOOKS_ENABLED` | `false` |
+| `EKART_WEBHOOK_SECRET` | (optional) |
 
-## Capabilities (Phase 1–2)
+## Capabilities (Phase 3)
 
 | Capability | |
 |------------|--|
 | booking | true |
 | tracking | true |
 | background status sync | true |
-| serviceability | true (`/v1/offerings`) |
+| serviceability | true (`POST /v1/offerings` via shared discovery) |
+| cancel | true (FORWARD → RTO create; REVERSE → Cancel RVP) |
+| returns | true (REVERSE create on `/v2/shipments/create`) |
 | rates | false |
 | pickupSync | false |
 | createPickup | false (501) |
-| cancel | false |
 | ndr | false |
-| returns | false |
-| labels | false |
-| webhooks | false |
+| labels | **false** — Durin `get_label_information` returns COC/route/2d_barcode metadata only; no PDF URL (never faked) |
+| webhooks | true (Critical Updates receiver; runtime `EKART_WEBHOOKS_ENABLED`) |
+
+## Phase 3A — Cancel / Reverse / Return
+
+| Action | Durin API |
+|--------|-----------|
+| Cancel forward | `PUT /v3/shipments/rto/create` with `tracking_id` or `merchant_reference_id` |
+| Cancel reverse | `PUT /v3/shipments/cancel_rvp` |
+| Create reverse | `POST /v2/shipments/create` with `service_leg: REVERSE` |
+
+Docs historically note some v3 paths were gated to merchant `MYS` — confirm with Ekart for your merchant code.
+
+## Phase 3B — Labels
+
+**Not implemented as PDF labels.** Official `POST /v2/shipments/get_label_information` returns barcode/route metadata only. ShipAmaze does not invent label URLs.
+
+## Phase 3C — Serviceability
+
+`POST /v1/offerings` → `ProviderCourierOption[]` → shared `discoverServiceability` / discovery controller. No Ekart-only serviceability UI.
+
+## Phase 3D — Webhooks
+
+Official Critical Updates: client enrolls HTTPS URL; Ekart POSTs events.
+
+- Receiver: `POST /api/ekart/webhooks/critical-updates`
+- Gate: `EKART_WEBHOOKS_ENABLED=true`
+- Optional: `EKART_WEBHOOK_SECRET`
+- **Polling remains the source of truth**
 
 ## Health / metrics
 
-`GET /api/ekart/health` (admin) reports:
+`GET /api/ekart/health` (admin) includes provider version metadata:
 
-- Authentication status + auth latency
-- Booking / tracking success·failure·latency
-- Status sync: active shipments, last poll, last successful poll, consecutive failures, provider latency, statusChanges
+```json
+{
+  "provider": "ekart",
+  "apiVersion": "Durin V2",
+  "apiVersionCode": "v2",
+  "openApiVersion": "2.0.0",
+  "merchantCode": "TEC",
+  "enabled": true
+}
+```
 
-Also under courier booking metrics (`ekart` key).
+Also: auth latency, booking/tracking metrics, status sync health, webhook flag.
 
 ## Limitations
 
-- Large shipment endpoints configured but not used in booking.
-- No PDF label API (Durin `get_label_information` is metadata only).
-- No cancel/RTO/RVP yet.
-- No reverse shipments yet.
+- Large shipment path unused in booking.
+- No PDF label API.
 - No freight rate API.
-- Critical Updates webhooks not enrolled (polling covers active shipments).
+- NDR actions not implemented.
+- RTO/Cancel RVP may require Ekart merchant enablement.
 
 ## Rollback
 
-Set `EKART_ENABLED=false` and restart. Existing Velocity/Lorrigo unchanged. Optional Order/Pickup fields remain unused.
+Set `EKART_ENABLED=false` and restart. Existing Velocity/Lorrigo unchanged.
 
-## Phase 3 (planned)
+## Later
 
-- Cancel via RTO / Cancel RVP
-- Reverse shipments
 - Large shipment path
-- Optional Critical Updates webhooks
-- Label generation strategy (if product needs it)
+- NDR actions (if Durin documents a merchant NDR API)
+- Label PDF only if Ekart publishes a real label URL/download API

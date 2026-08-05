@@ -165,8 +165,15 @@ export function buildEkartCreateShipmentPayload(input: {
   items: EkartOrderItemLean[];
   /** When provided by caller (tests); otherwise derived per Durin format. */
   trackingId?: string;
+  /**
+   * FORWARD (default) or REVERSE (RVP).
+   * Durin: reverse uses service_leg REVERSE; customer is source, warehouse is destination.
+   */
+  serviceLeg?: "FORWARD" | "REVERSE";
 }): EkartCreatePayloadBuild {
   const merchant = ekartConfig.merchantCode;
+  const serviceLeg = input.serviceLeg === "REVERSE" ? "REVERSE" : "FORWARD";
+  const isReverse = serviceLeg === "REVERSE";
   const clientReferenceId = buildEkartClientReferenceId(input.orderId);
   const trackingId =
     input.trackingId?.trim() ||
@@ -174,10 +181,12 @@ export function buildEkartCreateShipmentPayload(input: {
       merchantCode: merchant,
       paymentMode: input.paymentMode,
       orderId: input.orderId,
+      reverse: isReverse,
     });
 
-  const amountToCollect =
-    input.paymentMode === "cod"
+  const amountToCollect = isReverse
+    ? 0
+    : input.paymentMode === "cod"
       ? Math.max(0, Math.round(Number(input.codAmount ?? input.orderAmount ?? 0)))
       : 0;
 
@@ -187,9 +196,8 @@ export function buildEkartCreateShipmentPayload(input: {
       ? input.items
       : [{ name: "Item", qty: 1, price: shipmentValue || 1 }];
 
-  const source = buildSourceOrReturn(input.pickup);
-  const returnLocation = buildSourceOrReturn(input.pickup);
-  const destination = buildAddressBlock({
+  const warehouse = buildSourceOrReturn(input.pickup);
+  const customerAddr = buildAddressBlock({
     firstName: input.customer.name,
     addressLine1: input.customer.address,
     addressLine2: input.customer.address2,
@@ -200,22 +208,28 @@ export function buildEkartCreateShipmentPayload(input: {
     email: input.customer.email,
   });
 
+  // Durin REVERSE example: source = customer, destination = warehouse location_code/address.
+  const source = isReverse ? customerAddr : warehouse;
+  const destination = isReverse ? warehouse : customerAddr;
+  const returnLocation = warehouse;
+  const serviceCode = isReverse ? ekartConfig.reverseServiceCode : ekartConfig.serviceCode;
+
   const body: Record<string, unknown> = {
     client_name: merchant,
     goods_category: ekartConfig.goodsCategory,
     services: [
       {
-        service_code: ekartConfig.serviceCode,
+        service_code: serviceCode,
         service_details: [
           {
-            service_leg: "FORWARD",
+            service_leg: serviceLeg,
             service_data: {
               vendor_name: "Ekart",
               amount_to_collect: String(amountToCollect),
               delivery_type: "SMALL",
               source,
               destination,
-              return_location: returnLocation,
+              ...(isReverse ? {} : { return_location: returnLocation }),
             },
             shipment: {
               client_reference_id: clientReferenceId,

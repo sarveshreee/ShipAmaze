@@ -17,7 +17,8 @@ export type ProviderEventType =
   | "RECONCILIATION"
   | "NDR_RECEIVED"
   | "NDR_ACTION"
-  | "NDR_RESOLVED";
+  | "NDR_RESOLVED"
+  | "WEBHOOK_RECEIVED";
 
 export type ProviderEventStatus = "SUCCESS" | "FAILED" | "SKIPPED" | "PENDING";
 

@@ -89,9 +89,24 @@ export async function cancelProviderShipmentForOrder(
   try {
     const result = await provider.cancelShipment({
       providerOrderId:
-        providerId === "lorrigo" ? lorrigoOrderId || undefined : velocityOrderId || undefined,
+        providerId === "lorrigo"
+          ? lorrigoOrderId || undefined
+          : providerId === "ekart"
+            ? String(order.ekartClientReferenceId ?? "").trim() || undefined
+            : velocityOrderId || undefined,
       awbs: awb ? [awb] : undefined,
       reason,
+      merchantReferenceId:
+        providerId === "ekart"
+          ? String(order.ekartClientReferenceId ?? "").trim() || undefined
+          : undefined,
+      serviceLeg:
+        providerId === "ekart" &&
+        String(order.ekartTrackingId ?? order.awb ?? "").toUpperCase().charAt(3) === "R"
+          ? "REVERSE"
+          : providerId === "ekart"
+            ? "FORWARD"
+            : undefined,
     });
     appendProviderEvent(order, {
       provider: providerId,

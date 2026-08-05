@@ -48,8 +48,10 @@ export const LORRIGO_CAPABILITIES: CourierProviderCapabilities = {
 };
 
 /**
- * Ekart Phase 1 — Durin Non-Large.
- * No pickup sync, no rates, no labels PDF, no NDR/returns/cancel in this phase.
+ * Ekart Phase 3 — Durin Non-Large.
+ * Cancel = RTO create / Cancel RVP. Returns = REVERSE create. Labels stay false
+ * (get_label_information is metadata only). Webhooks = Critical Updates receiver
+ * (runtime-gated by EKART_WEBHOOKS_ENABLED; polling remains source of truth).
  */
 export const EKART_CAPABILITIES: CourierProviderCapabilities = {
   authentication: true,
@@ -57,12 +59,12 @@ export const EKART_CAPABILITIES: CourierProviderCapabilities = {
   rates: false,
   booking: true,
   tracking: true,
-  cancel: false,
+  cancel: true,
   ndr: false,
-  returns: false,
+  returns: true,
   pickupSync: false,
   labels: false,
-  webhooks: false,
+  webhooks: true,
 };
 
 const BY_ID: Record<CourierProviderId, CourierProviderCapabilities> = {

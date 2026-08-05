@@ -19,11 +19,16 @@ describe("provider capabilities registry", () => {
     expect(LORRIGO_CAPABILITIES.webhooks).toBe(false);
   });
 
-  it("declares Ekart Phase 1 caps without pickup sync", () => {
+  it("declares Ekart Phase 3 caps without pickup sync or PDF labels", () => {
     expect(EKART_CAPABILITIES.booking).toBe(true);
     expect(EKART_CAPABILITIES.tracking).toBe(true);
+    expect(EKART_CAPABILITIES.cancel).toBe(true);
+    expect(EKART_CAPABILITIES.returns).toBe(true);
+    expect(EKART_CAPABILITIES.serviceability).toBe(true);
+    expect(EKART_CAPABILITIES.webhooks).toBe(true);
     expect(EKART_CAPABILITIES.pickupSync).toBe(false);
     expect(EKART_CAPABILITIES.rates).toBe(false);
+    expect(EKART_CAPABILITIES.labels).toBe(false);
     expect(EKART_CAPABILITIES.ndr).toBe(false);
   });
 

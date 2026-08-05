@@ -62,8 +62,34 @@ export const ekartConfig = {
   trackLargeEndpoint:
     (process.env.EKART_TRACK_LARGE_ENDPOINT || "/shipments/large/track").trim() ||
     "/shipments/large/track",
+  /** Durin PUT /v3/shipments/rto/create — forward cancel via RTO. */
+  rtoCreateEndpoint:
+    (process.env.EKART_RTO_CREATE_ENDPOINT || "/v3/shipments/rto/create").trim() ||
+    "/v3/shipments/rto/create",
+  /** Durin PUT /v3/shipments/cancel_rvp — cancel reverse (RVP) pickup. */
+  cancelRvpEndpoint:
+    (process.env.EKART_CANCEL_RVP_ENDPOINT || "/v3/shipments/cancel_rvp").trim() ||
+    "/v3/shipments/cancel_rvp",
+  /** Reverse create service_code (Durin example: RETURNS_SMART_CHECK). */
+  get reverseServiceCode() {
+    return (
+      (process.env.EKART_REVERSE_SERVICE_CODE || "RETURNS_SMART_CHECK").trim().toUpperCase() ||
+      "RETURNS_SMART_CHECK"
+    );
+  },
   serviceabilityEndpoint:
     (process.env.EKART_SERVICEABILITY_ENDPOINT || "/v1/offerings").trim() || "/v1/offerings",
+  /**
+   * Critical Updates push receiver. When false, endpoint returns 503;
+   * polling remains the operational source of truth.
+   */
+  get webhooksEnabled() {
+    return truthy(process.env.EKART_WEBHOOKS_ENABLED);
+  },
+  /** Optional shared secret for webhook Authorization / X-Ekart-Webhook-Secret. */
+  get webhookSecret() {
+    return (process.env.EKART_WEBHOOK_SECRET || "").trim();
+  },
   /** Durin tokens expire ~45m; cache slightly under that. */
   tokenCacheTtlMinutes: intEnv("EKART_TOKEN_CACHE_TTL_MINUTES", 40),
   requestTimeoutMs: intEnv("EKART_TIMEOUT_MS", 30_000),

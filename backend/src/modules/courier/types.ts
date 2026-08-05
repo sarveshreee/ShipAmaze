@@ -184,6 +184,10 @@ export interface ProviderCancelInput {
   providerOrderId?: string;
   awbs?: string[];
   reason?: string;
+  /** Ekart: client_reference_id / merchant_reference_id when distinct from AWB. */
+  merchantReferenceId?: string;
+  /** Ekart: FORWARD → RTO create; REVERSE → Cancel RVP. */
+  serviceLeg?: "FORWARD" | "REVERSE";
 }
 
 export interface ProviderCancelResult {

@@ -1,5 +1,5 @@
 /**
- * Ekart routes — health only (booking goes through /api/courier).
+ * Ekart routes — health (admin) + Critical Updates webhook (optional public).
  */
 
 import { Router } from "express";
@@ -8,6 +8,9 @@ import { requireRoles } from "../../middleware/roleMiddleware.js";
 import * as ec from "./ekart.controller.js";
 
 const router = Router();
+
+/** Durin Critical Updates — enroll this HTTPS path with Ekart (no JWT). */
+router.post("/webhooks/critical-updates", ec.postEkartCriticalUpdates);
 
 router.use(authMiddleware);
 router.get("/health", requireRoles("admin"), ec.getEkartHealth);

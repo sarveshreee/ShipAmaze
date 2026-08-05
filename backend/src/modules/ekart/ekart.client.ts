@@ -25,6 +25,10 @@ export interface EkartAuthMetrics {
 
 const PROCESS_STARTED_AT = Date.now();
 export const EKART_API_VERSION = "v2";
+/** Human-readable Durin product line for health / debugging. */
+export const EKART_API_PRODUCT = "Durin V2";
+/** OpenAPI `info.version` from Durin Non_Large docs. */
+export const EKART_OPENAPI_VERSION = "2.0.0";
 
 let client: ProviderHttpClient | null = null;
 let loginAttemptCount = 0;
@@ -193,6 +197,20 @@ export async function ekartPost<T>(
 ): Promise<T> {
   return getClient().post<T>(endpoint, body, {
     retryable: opts?.retryable,
+    correlationId: opts?.correlationId,
+    headers: opts?.headers,
+  });
+}
+
+export async function ekartPut<T>(
+  endpoint: string,
+  body?: unknown,
+  opts?: { retryable?: boolean; correlationId?: string; headers?: Record<string, string> }
+): Promise<T> {
+  return getClient().request<T>(endpoint, {
+    method: "PUT",
+    body,
+    retryable: opts?.retryable ?? false,
     correlationId: opts?.correlationId,
     headers: opts?.headers,
   });

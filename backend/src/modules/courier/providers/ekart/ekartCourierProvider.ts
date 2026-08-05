@@ -105,7 +105,7 @@ export const ekartCourierProvider: CourierProvider = {
   },
 
   async performNDRAction(_input: ProviderNdrActionInput): Promise<ProviderNdrActionResult> {
-    throw new AppError(501, "Ekart NDR actions are not supported in Phase 1.");
+    throw new AppError(501, "Ekart NDR actions are not supported yet.");
   },
 
   async syncNDR(_opts?: { daysBack?: number }): Promise<ProviderSyncResult> {
