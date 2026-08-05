@@ -90,12 +90,16 @@ export const getEkartHealth = asyncHandler(async (req: AuthRequest, res: Respons
         secretConfigured: Boolean(ekartConfig.webhookSecret),
         note: "Polling remains source of truth; Critical Updates are optional.",
       },
+      cancel: {
+        enabled: ekartConfig.cancelEnabled,
+        note: "Durin v3 RTO/Cancel RVP — enable only after Ekart confirms merchant access.",
+      },
       capabilities: {
         pickupSync: false,
         createPickup: false,
         booking: true,
         tracking: true,
-        cancel: true,
+        cancel: ekartConfig.cancelEnabled,
         returns: true,
         rates: false,
         ndr: false,

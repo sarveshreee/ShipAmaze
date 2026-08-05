@@ -52,7 +52,7 @@ export const PROVIDER_CAPABILITIES: Record<CourierProviderId, CourierProviderCap
     rates: false,
     booking: true,
     tracking: true,
-    cancel: true,
+    cancel: false,
     ndr: false,
     returns: true,
     pickupSync: false,

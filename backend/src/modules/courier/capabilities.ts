@@ -3,6 +3,7 @@
  */
 
 import type { CourierProviderId } from "./types.js";
+import { isEkartCancelEnabledFlag } from "../ekart/ekart.config.js";
 
 export interface CourierProviderCapabilities {
   authentication: boolean;
@@ -49,8 +50,8 @@ export const LORRIGO_CAPABILITIES: CourierProviderCapabilities = {
 
 /**
  * Ekart Phase 3 — Durin Non-Large.
- * Cancel = RTO create / Cancel RVP. Returns = REVERSE create. Labels stay false
- * (get_label_information is metadata only). Webhooks = Critical Updates receiver
+ * Cancel/RTO is runtime-gated by EKART_CANCEL_ENABLED (default false) via getEkartCapabilities().
+ * Returns = REVERSE create. Labels stay false. Webhooks = Critical Updates receiver
  * (runtime-gated by EKART_WEBHOOKS_ENABLED; polling remains source of truth).
  */
 export const EKART_CAPABILITIES: CourierProviderCapabilities = {
@@ -59,7 +60,8 @@ export const EKART_CAPABILITIES: CourierProviderCapabilities = {
   rates: false,
   booking: true,
   tracking: true,
-  cancel: true,
+  /** Default off — use getEkartCapabilities() for live cancel flag. */
+  cancel: false,
   ndr: false,
   returns: true,
   pickupSync: false,
@@ -73,9 +75,18 @@ const BY_ID: Record<CourierProviderId, CourierProviderCapabilities> = {
   ekart: EKART_CAPABILITIES,
 };
 
+/** Live Ekart caps — cancel follows EKART_CANCEL_ENABLED (like webhooks gate). */
+export function getEkartCapabilities(): CourierProviderCapabilities {
+  return {
+    ...EKART_CAPABILITIES,
+    cancel: isEkartCancelEnabledFlag(),
+  };
+}
+
 export function getStaticProviderCapabilities(
   id: CourierProviderId
 ): CourierProviderCapabilities {
+  if (id === "ekart") return getEkartCapabilities();
   return { ...BY_ID[id] };
 }
 

@@ -18,6 +18,11 @@ export function isEkartEnabledFlag(): boolean {
   return truthy(process.env.EKART_ENABLED);
 }
 
+/** Cancel/RTO/Cancel RVP — off until merchant is confirmed for Durin v3. */
+export function isEkartCancelEnabledFlag(): boolean {
+  return truthy(process.env.EKART_CANCEL_ENABLED);
+}
+
 /** Credentials present (independent of feature flag). */
 export function isEkartConfigured(): boolean {
   const auth = process.env.EKART_AUTHORIZATION?.trim() || "";
@@ -85,6 +90,13 @@ export const ekartConfig = {
    */
   get webhooksEnabled() {
     return truthy(process.env.EKART_WEBHOOKS_ENABLED);
+  },
+  /**
+   * Cancel / RTO / Cancel RVP. Default false — Durin v3 paths may be
+   * merchant-gated; enable only after Ekart confirms for your merchant code.
+   */
+  get cancelEnabled() {
+    return truthy(process.env.EKART_CANCEL_ENABLED);
   },
   /** Optional shared secret for webhook Authorization / X-Ekart-Webhook-Secret. */
   get webhookSecret() {

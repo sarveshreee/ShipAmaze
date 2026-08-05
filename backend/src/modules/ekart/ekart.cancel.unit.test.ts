@@ -10,6 +10,9 @@ vi.mock("./ekart.config.js", () => ({
   ekartConfig: {
     rtoCreateEndpoint: "/v3/shipments/rto/create",
     cancelRvpEndpoint: "/v3/shipments/cancel_rvp",
+    get cancelEnabled() {
+      return process.env.EKART_CANCEL_ENABLED === "true";
+    },
   },
 }));
 
@@ -22,6 +25,15 @@ import {
 describe("Ekart cancel / RTO / RVP", () => {
   beforeEach(() => {
     putMock.mockReset();
+    process.env.EKART_CANCEL_ENABLED = "true";
+  });
+
+  it("does not call Durin when EKART_CANCEL_ENABLED is false", async () => {
+    process.env.EKART_CANCEL_ENABLED = "false";
+    await expect(
+      cancelEkartShipment({ awbs: ["TECP0000000001"], serviceLeg: "FORWARD" })
+    ).rejects.toThrow(/EKART_CANCEL_ENABLED/);
+    expect(putMock).not.toHaveBeenCalled();
   });
 
   it("detects reverse tracking ids (4th char R)", () => {

@@ -105,6 +105,7 @@ Background poller (same scheduler pattern as Lorrigo/Velocity):
 | `EKART_STATUS_SYNC_INTERVAL_MS` | `300000` |
 | `EKART_WEBHOOKS_ENABLED` | `false` |
 | `EKART_WEBHOOK_SECRET` | (optional) |
+| `EKART_CANCEL_ENABLED` | `false` |
 
 ## Capabilities (Phase 3)
 
@@ -114,7 +115,7 @@ Background poller (same scheduler pattern as Lorrigo/Velocity):
 | tracking | true |
 | background status sync | true |
 | serviceability | true (`POST /v1/offerings` via shared discovery) |
-| cancel | true (FORWARD → RTO create; REVERSE → Cancel RVP) |
+| cancel | **runtime** — `EKART_CANCEL_ENABLED` (default false); FORWARD → RTO create; REVERSE → Cancel RVP |
 | returns | true (REVERSE create on `/v2/shipments/create`) |
 | rates | false |
 | pickupSync | false |
@@ -125,13 +126,13 @@ Background poller (same scheduler pattern as Lorrigo/Velocity):
 
 ## Phase 3A — Cancel / Reverse / Return
 
-| Action | Durin API |
-|--------|-----------|
-| Cancel forward | `PUT /v3/shipments/rto/create` with `tracking_id` or `merchant_reference_id` |
-| Cancel reverse | `PUT /v3/shipments/cancel_rvp` |
-| Create reverse | `POST /v2/shipments/create` with `service_leg: REVERSE` |
+| Action | Durin API | Gate |
+|--------|-----------|------|
+| Cancel forward | `PUT /v3/shipments/rto/create` | `EKART_CANCEL_ENABLED=true` |
+| Cancel reverse | `PUT /v3/shipments/cancel_rvp` | `EKART_CANCEL_ENABLED=true` |
+| Create reverse | `POST /v2/shipments/create` with `service_leg: REVERSE` | (booking; not gated by cancel flag) |
 
-Docs historically note some v3 paths were gated to merchant `MYS` — confirm with Ekart for your merchant code.
+When `EKART_CANCEL_ENABLED=false` (default): cancel capability is not exposed and v3 RTO/Cancel RVP are never called. Enable only after Ekart confirms Durin v3 access for your merchant code (docs historically mentioned merchant `MYS`).
 
 ## Phase 3B — Labels
 

@@ -79,7 +79,7 @@ describe("Ekart provider foundation", () => {
     expect(EKART_CAPABILITIES.tracking).toBe(true);
     expect(EKART_CAPABILITIES.pickupSync).toBe(false);
     expect(EKART_CAPABILITIES.rates).toBe(false);
-    expect(EKART_CAPABILITIES.cancel).toBe(true);
+    expect(EKART_CAPABILITIES.cancel).toBe(false);
     expect(EKART_CAPABILITIES.returns).toBe(true);
     expect(EKART_CAPABILITIES.labels).toBe(false);
     expect(EKART_CAPABILITIES.webhooks).toBe(true);

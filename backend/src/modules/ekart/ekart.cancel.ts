@@ -59,6 +59,13 @@ export function resolveEkartCancelLeg(
 export async function cancelEkartShipment(
   input: ProviderCancelInput
 ): Promise<ProviderCancelResult> {
+  if (!ekartConfig.cancelEnabled) {
+    throw new AppError(
+      501,
+      "Ekart cancel/RTO is disabled (EKART_CANCEL_ENABLED is not true)."
+    );
+  }
+
   const awb = String(input.awbs?.[0] ?? "").trim();
   const merchantRef = String(
     input.merchantReferenceId ?? input.providerOrderId ?? ""

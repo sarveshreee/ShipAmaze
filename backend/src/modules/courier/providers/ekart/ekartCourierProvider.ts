@@ -23,7 +23,7 @@ import type {
   ProviderTrackingResult,
 } from "../../types.js";
 import { AppError } from "../../../../middleware/errorMiddleware.js";
-import { EKART_CAPABILITIES } from "../../capabilities.js";
+import { getEkartCapabilities } from "../../capabilities.js";
 import { ensureEkartAuth, invalidateEkartToken } from "../../../ekart/ekart.client.js";
 import { isEkartConfigured, isEkartEnabledFlag } from "../../../ekart/ekart.config.js";
 import {
@@ -38,7 +38,9 @@ import { syncEkartActiveShipmentStatuses } from "../../../ekart/ekart.statusSync
 export const ekartCourierProvider: CourierProvider = {
   id: "ekart",
   displayName: "Ekart",
-  capabilities: EKART_CAPABILITIES,
+  get capabilities() {
+    return getEkartCapabilities();
+  },
 
   isConfigured(): boolean {
     return isEkartEnabledFlag() && isEkartConfigured();
