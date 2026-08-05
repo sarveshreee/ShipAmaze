@@ -103,7 +103,10 @@ export async function createEkartShipment(
 
   recordEkartBookingSuccess(Date.now() - started);
 
-  // awb = response tracking_id only. Merchant ref stays in raw metadata — never overwrite.
+  // Current Ekart V2 API echoes the client tracking_id in the response.
+  // If a future API introduces a dedicated AWB field,
+  // prefer that value for Order.awb instead of the echoed tracking_id.
+  // Merchant ref (client_reference_id) stays in raw metadata — never overwrite with AWB.
   return {
     providerOrderId: parsed.requestId || built.clientReferenceId,
     providerShipmentId: parsed.trackingId,
