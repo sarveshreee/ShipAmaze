@@ -702,9 +702,13 @@ function applyEkartShipmentToOrder(
   order.awb = result.awb;
   order.trackingId = result.awb;
   order.shipmentCreated = true;
+  // Merchant reference (client_reference_id) vs shipment AWB (response tracking_id) — keep separate.
+  const rawMeta = (result.raw as { shipamaze?: Record<string, unknown> } | undefined)?.shipamaze;
+  const clientRef = String(rawMeta?.clientReferenceId ?? input.order.orderId).slice(0, 15);
+  order.ekartClientReferenceId = clientRef;
   order.ekartTrackingId = result.awb;
   order.ekartRequestId = result.providerOrderId || order.ekartRequestId;
-  order.shipmentId = result.providerShipmentId || result.providerOrderId || order.shipmentId;
+  order.shipmentId = result.providerShipmentId || result.awb || order.shipmentId;
   order.courierCompanyId = result.courierId ?? input.courierId ?? "ekart";
   order.courierName = result.courierName ?? input.courierName ?? "Ekart";
   order.courier = order.courierName || order.courier;
@@ -894,6 +898,10 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
             trackingId: result.awb,
             shipmentCreated: true,
             bookingInProgress: false,
+            ekartClientReferenceId: String(
+              (result.raw as { shipamaze?: { clientReferenceId?: string } } | undefined)?.shipamaze
+                ?.clientReferenceId ?? order.orderId
+            ).slice(0, 15),
             ekartTrackingId: result.awb,
             ekartRequestId: result.providerOrderId,
             courierProvider: "ekart",
@@ -916,6 +924,7 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
   Object.assign(input.order, {
     awb: order.awb,
     shipmentCreated: order.shipmentCreated,
+    ekartClientReferenceId: order.ekartClientReferenceId,
     ekartTrackingId: order.ekartTrackingId,
     ekartRequestId: order.ekartRequestId,
     courierProvider: order.courierProvider,

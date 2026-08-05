@@ -107,8 +107,8 @@ describe("Ekart provider foundation", () => {
   });
 
   it("maps Pickup fields into source and return_location", () => {
-    const body = buildEkartCreateShipmentPayload({
-      orderId: "ORD123",
+    const built = buildEkartCreateShipmentPayload({
+      orderId: "ORD123456789012345",
       paymentMode: "prepaid",
       orderAmount: 500,
       weightKg: 0.5,
@@ -136,16 +136,21 @@ describe("Ekart provider foundation", () => {
       trackingId: "TECP0000000001",
     });
 
-    const detail = (body.services as any)[0].service_details[0];
+    const detail = (built.body.services as any)[0].service_details[0];
     expect(detail.service_data.source.address.first_name).toBe("Alice");
     expect(detail.service_data.source.address.pincode).toBe("560001");
     expect(detail.service_data.return_location.address.pincode).toBe("560001");
     expect(detail.service_data.destination.address.pincode).toBe("700016");
+    // Merchant reference ≠ tracking AWB
+    expect(detail.shipment.client_reference_id).toBe("ORD123456789012"); // max 15
     expect(detail.shipment.tracking_id).toBe("TECP0000000001");
+    expect(built.clientReferenceId).toBe("ORD123456789012");
+    expect(built.trackingIdSent).toBe("TECP0000000001");
+    expect(built.clientReferenceId).not.toBe(built.trackingIdSent);
   });
 
   it("uses location_code when ekartLocationCode is set", () => {
-    const body = buildEkartCreateShipmentPayload({
+    const built = buildEkartCreateShipmentPayload({
       orderId: "ORD124",
       paymentMode: "cod",
       orderAmount: 100,
@@ -173,7 +178,7 @@ describe("Ekart provider foundation", () => {
       items: [],
       trackingId: "TECC0000000002",
     });
-    const detail = (body.services as any)[0].service_details[0];
+    const detail = (built.body.services as any)[0].service_details[0];
     expect(detail.service_data.source).toEqual({ location_code: "TEC_BLR_01" });
   });
 

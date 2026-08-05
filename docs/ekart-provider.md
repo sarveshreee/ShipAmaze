@@ -27,16 +27,47 @@ ShipAmaze Pickup (canonical)
   → bookEkartShipment / POST /api/courier/shipments { provider: "ekart" }
   → map Pickup → Ekart source + return_location
   → POST /v2/shipments/create
-  → store response tracking_id as Order.awb / ekartTrackingId
+  → store ids distinctly (see below)
 ```
 
 **No** `syncPickupToEkart`, **no** provider pickup IDs.
 
 Optional future: `Pickup.ekartLocationCode` → `source.location_code` when set; otherwise full address.
 
-### Tracking ID note
+### Durin create ID fields (OpenAPI Non_Large v2)
 
-Durin OpenAPI requires a client-supplied `tracking_id` in format `{MERCHANT}{P|C|R}{10 digits}`. Phase 1 derives a compliant id from merchant code + order id for the **request**. The **stored AWB** is always the tracking id returned in the create response.
+Source: `https://api.ekartlogistics.com/api_docs/type/Non_Large/version/v2?format=yaml` — `ShipmentDetails` + create response examples.
+
+**Request** (`services[].service_details[].shipment`):
+
+| Field | Required | Docs meaning |
+|-------|----------|--------------|
+| `client_reference_id` | Yes (NotEmpty on large; used on non-large) | “Client’s reference id for the shipment. Can be same as tracking_id. Max allowed length is 15.” |
+| `tracking_id` | Yes (NotEmpty) | “The tracking id of the shipment… uniquely identify the shipment for a client… format: 3-char merchant code + `C`/`P` (COD/PREPAID) + 10 unique digits.” |
+
+**Response** (`ApiResponse` example on `POST /v2/shipments/create`):
+
+| Field | Docs meaning |
+|-------|--------------|
+| `request_id` | Request correlation id (UUID in examples) |
+| `response[].tracking_id` | Echoed tracking id (e.g. `MVKC0056134525`) |
+| `response[].status` | `REQUEST_RECEIVED` / `REQUEST_REJECTED` |
+| `response[].status_code` | e.g. `200` |
+| `response[].shipment_payment_link` | Optional |
+| `response[].is_parked` | Optional (`NOT_PARKED`, …) |
+| `response[].message` | Rejection reasons |
+
+Durin does **not** document a separate Ekart-generated AWB field on create. The AWB used downstream is `response[].tracking_id`. Later APIs also use `merchant_reference_id` (often equal to tracking_id in examples; RTO/RVP may take either).
+
+### ShipAmaze storage (never overwrite)
+
+| Concept | Durin field | Order field |
+|---------|-------------|-------------|
+| Merchant reference | request `client_reference_id` | `ekartClientReferenceId` |
+| Shipment AWB | response `tracking_id` | `awb` + `ekartTrackingId` |
+| Request id | response `request_id` | `ekartRequestId` |
+
+Phase 1 allocates a Flipkart-format `tracking_id` for the request; AWB shown in ShipAmaze is always taken from the **response** `tracking_id`.
 
 ## Tracking flow
 

@@ -96,7 +96,13 @@ export interface IOrder extends Document {
   /** Lorrigo order / shipment ids after booking (optional). */
   lorrigoOrderId?: string;
   lorrigoShipmentId?: string;
-  /** Ekart tracking / request ids after booking (optional). */
+  /**
+   * Ekart Durin ids after booking (optional). Keep distinct:
+   * - ekartClientReferenceId = request client_reference_id (ShipAmaze merchant ref)
+   * - ekartTrackingId / awb = response tracking_id (shipment AWB used for track)
+   * - ekartRequestId = response request_id
+   */
+  ekartClientReferenceId?: string;
   ekartTrackingId?: string;
   ekartRequestId?: string;
   /** Sanitized provider booking response for support / reconciliation. */
@@ -262,6 +268,7 @@ const orderSchema = new Schema<IOrder>(
     courierProvider: { type: String, enum: ["velocity", "lorrigo", "ekart"], index: true },
     lorrigoOrderId: { type: String, sparse: true, index: true },
     lorrigoShipmentId: { type: String, sparse: true },
+    ekartClientReferenceId: { type: String, sparse: true, index: true },
     ekartTrackingId: { type: String, sparse: true, index: true },
     ekartRequestId: { type: String, sparse: true },
     providerBookingRaw: { type: Schema.Types.Mixed },

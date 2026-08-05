@@ -57,7 +57,7 @@ export async function createEkartShipment(
         : undefined,
   };
 
-  const body = buildEkartCreateShipmentPayload({
+  const built = buildEkartCreateShipmentPayload({
     orderId: input.orderId,
     paymentMode: input.paymentMode,
     orderAmount: input.orderAmount,
@@ -73,13 +73,13 @@ export async function createEkartShipment(
 
   if (ekartConfig.debugLogs) {
     console.info(
-      `[ekart] create payload sanitized=${JSON.stringify(sanitizeForProviderLog(body))}`
+      `[ekart] create payload sanitized=${JSON.stringify(sanitizeForProviderLog(built.body))}`
     );
   }
 
   let raw: unknown;
   try {
-    raw = await ekartPost<unknown>(ekartConfig.createEndpoint, body, {
+    raw = await ekartPost<unknown>(ekartConfig.createEndpoint, built.body, {
       retryable: false,
       correlationId:
         typeof input.providerPayload?.correlationId === "string"
@@ -103,15 +103,24 @@ export async function createEkartShipment(
 
   recordEkartBookingSuccess(Date.now() - started);
 
+  // awb = response tracking_id only. Merchant ref stays in raw metadata — never overwrite.
   return {
-    providerOrderId: parsed.requestId || parsed.trackingId,
+    providerOrderId: parsed.requestId || built.clientReferenceId,
     providerShipmentId: parsed.trackingId,
     awb: parsed.trackingId,
     courierId: input.courierId || "ekart",
     courierName: "Ekart",
     status: parsed.status,
     message: parsed.message,
-    raw: sanitizeForProviderLog(raw) as Record<string, unknown>,
+    raw: {
+      ...(sanitizeForProviderLog(raw) as Record<string, unknown>),
+      shipamaze: {
+        clientReferenceId: built.clientReferenceId,
+        trackingIdSent: built.trackingIdSent,
+        trackingIdFromResponse: parsed.trackingId,
+        requestId: parsed.requestId,
+      },
+    },
   };
 }
 

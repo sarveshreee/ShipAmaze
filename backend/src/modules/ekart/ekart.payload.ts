@@ -60,10 +60,14 @@ function line(raw: unknown, fallback = ""): string {
 }
 
 /**
- * Durin requires client-supplied tracking_id:
+ * Durin CreateShipment requires a client-supplied `tracking_id` in Flipkart format:
  * {3-char merchant}{P|C|R}{10 digits}.
- * This is not ShipAmaze inventing AWBs — it is the documented request field.
- * Stored AWB always comes from the API response tracking_id.
+ *
+ * This is distinct from `client_reference_id` (merchant / ShipAmaze order reference).
+ * Official create response echoes `tracking_id` — it does not document a separate
+ * Ekart-generated AWB field. ShipAmaze must still store:
+ * - client_reference_id → ekartClientReferenceId (merchant reference)
+ * - response tracking_id → awb / ekartTrackingId (never overwrite one with the other)
  */
 export function buildEkartTrackingId(opts: {
   merchantCode: string;
@@ -82,6 +86,13 @@ export function buildEkartTrackingId(opts: {
   }
   while (num.length < 10) num += "0";
   return `${padded}${type}${num.slice(0, 10)}`;
+}
+
+/** ShipAmaze order id → Durin client_reference_id (max 15). Not the tracking AWB. */
+export function buildEkartClientReferenceId(orderId: string): string {
+  return String(orderId ?? "")
+    .trim()
+    .slice(0, 15);
 }
 
 function buildAddressBlock(opts: {
@@ -131,6 +142,15 @@ function buildSourceOrReturn(pickup: EkartPickupLean) {
   });
 }
 
+export type EkartCreatePayloadBuild = {
+  /** Exact JSON body for Durin POST /v2/shipments/create */
+  body: Record<string, unknown>;
+  /** Request client_reference_id (ShipAmaze merchant reference) */
+  clientReferenceId: string;
+  /** Request tracking_id sent to Durin (Flipkart-format AWB allocation) */
+  trackingIdSent: string;
+};
+
 export function buildEkartCreateShipmentPayload(input: {
   orderId: string;
   paymentMode: "cod" | "prepaid";
@@ -145,8 +165,9 @@ export function buildEkartCreateShipmentPayload(input: {
   items: EkartOrderItemLean[];
   /** When provided by caller (tests); otherwise derived per Durin format. */
   trackingId?: string;
-}): Record<string, unknown> {
+}): EkartCreatePayloadBuild {
   const merchant = ekartConfig.merchantCode;
+  const clientReferenceId = buildEkartClientReferenceId(input.orderId);
   const trackingId =
     input.trackingId?.trim() ||
     buildEkartTrackingId({
@@ -179,7 +200,7 @@ export function buildEkartCreateShipmentPayload(input: {
     email: input.customer.email,
   });
 
-  return {
+  const body: Record<string, unknown> = {
     client_name: merchant,
     goods_category: ekartConfig.goodsCategory,
     services: [
@@ -197,7 +218,7 @@ export function buildEkartCreateShipmentPayload(input: {
               return_location: returnLocation,
             },
             shipment: {
-              client_reference_id: String(input.orderId).slice(0, 15),
+              client_reference_id: clientReferenceId,
               tracking_id: trackingId,
               shipment_value: String(shipmentValue || 1),
               shipment_dimensions: {
@@ -233,14 +254,18 @@ export function buildEkartCreateShipmentPayload(input: {
       },
     ],
   };
+
+  return { body, clientReferenceId, trackingIdSent: trackingId };
 }
 
 export function parseEkartCreateResponse(raw: unknown): {
+  /** Response tracking_id — use as ShipAmaze AWB (do not replace with client_reference_id). */
   trackingId: string;
   status: string;
   statusCode?: number;
   message?: string;
   rejected: boolean;
+  /** Response request_id */
   requestId?: string;
 } {
   const root = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
