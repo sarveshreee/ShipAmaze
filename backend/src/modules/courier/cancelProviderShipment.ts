@@ -13,17 +13,21 @@ import { ensureCorrelationId } from "./correlation.js";
 export type CancelProviderShipmentResult = {
   attempted: boolean;
   success: boolean;
-  provider: "velocity" | "lorrigo";
+  provider: "velocity" | "lorrigo" | "ekart";
   message?: string;
 };
 
-/** Prefer explicit courierProvider; if missing, infer Lorrigo from stored Lorrigo ids. */
-function resolveCancelProviderId(order: IOrder): "velocity" | "lorrigo" {
+/** Prefer explicit courierProvider; if missing, infer from stored provider ids. */
+function resolveCancelProviderId(order: IOrder): "velocity" | "lorrigo" | "ekart" {
   const explicit = String(order.courierProvider ?? "").trim().toLowerCase();
   if (explicit === "lorrigo") return "lorrigo";
+  if (explicit === "ekart") return "ekart";
   if (explicit === "velocity") return "velocity";
   if (String(order.lorrigoOrderId ?? "").trim() || String(order.lorrigoShipmentId ?? "").trim()) {
     return "lorrigo";
+  }
+  if (String(order.ekartTrackingId ?? "").trim() || String(order.ekartRequestId ?? "").trim()) {
+    return "ekart";
   }
   return resolveCourierProviderId(order.courierProvider);
 }
@@ -39,6 +43,9 @@ export async function cancelProviderShipmentForOrder(
 
   if (providerId === "lorrigo" && !lorrigoOrderId && !awb) {
     return { attempted: false, success: false, provider: "lorrigo", message: "No Lorrigo shipment to cancel" };
+  }
+  if (providerId === "ekart" && !awb) {
+    return { attempted: false, success: false, provider: "ekart", message: "No AWB to cancel" };
   }
   if (providerId === "velocity" && !awb) {
     return { attempted: false, success: false, provider: "velocity", message: "No AWB to cancel" };

@@ -18,6 +18,10 @@ function truthyLorrigoEnabled(): boolean {
   return truthyFlag(process.env.LORRIGO_ENABLED);
 }
 
+function truthyEkartEnabled(): boolean {
+  return truthyFlag(process.env.EKART_ENABLED);
+}
+
 /** Redact user:password from a MongoDB URI for logs. */
 export function redactMongoUri(uri: string): string {
   return uri.replace(/\/\/([^/@]+)@/, "//***@");
@@ -48,6 +52,12 @@ export function validateEnv(): void {
 
     if (truthyLorrigoEnabled()) {
       for (const k of ["LORRIGO_EMAIL", "LORRIGO_PASSWORD"] as const) {
+        if (!process.env[k]?.trim()) missing.push(k);
+      }
+    }
+
+    if (truthyEkartEnabled()) {
+      for (const k of ["EKART_AUTHORIZATION", "EKART_MERCHANT_CODE"] as const) {
         if (!process.env[k]?.trim()) missing.push(k);
       }
     }
@@ -98,4 +108,14 @@ export function isLorrigoEnabledFlag(): boolean {
 
 export function isLorrigoConfigured(): boolean {
   return !!(process.env.LORRIGO_EMAIL?.trim() && process.env.LORRIGO_PASSWORD?.trim());
+}
+
+export function isEkartEnabledFlag(): boolean {
+  return truthyEkartEnabled();
+}
+
+export function isEkartConfigured(): boolean {
+  return !!(
+    process.env.EKART_AUTHORIZATION?.trim() && process.env.EKART_MERCHANT_CODE?.trim()
+  );
 }

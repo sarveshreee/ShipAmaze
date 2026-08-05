@@ -22,6 +22,7 @@ import {
   recordBookingSuccess,
   recordBookingValidationFailure,
 } from "../lorrigo/lorrigo.bookingMetrics.js";
+import { recordEkartBookingValidationFailure } from "../ekart/ekart.metrics.js";
 import { discoverServiceability } from "./discoverCouriers.js";
 import { appendProviderEvent } from "./providerEvents.js";
 import { CURRENT_BOOKING_VERSION, ensureCorrelationId } from "./correlation.js";
@@ -580,15 +581,356 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
   };
 }
 
-/** Thin router used by HTTP / process-selected for Lorrigo-only; Velocity callers stay on existing helpers. */
+/** Thin router used by HTTP / process-selected for non-Velocity providers. */
 export async function bookShipmentViaProvider(
   input: BookShipmentInput
 ): Promise<BookShipmentResult> {
   if (input.provider === "lorrigo") {
     return bookLorrigoShipment(input);
   }
+  if (input.provider === "ekart") {
+    return bookEkartShipment(input);
+  }
   throw new AppError(
     501,
     "Use the existing Velocity booking path for Velocity shipments (bookForwardShipmentForOrder)."
   );
+}
+
+/**
+ * Validate local preconditions for Ekart booking. Never calls provider API.
+ * No provider pickup id required — ShipAmaze Pickup address is mapped at create time.
+ */
+export async function validateEkartBooking(input: BookShipmentInput): Promise<{
+  pickupLean: Record<string, unknown>;
+}> {
+  const { order } = input;
+
+  if (!(input.weightKg > 0) || !Number.isFinite(input.weightKg)) {
+    recordEkartBookingValidationFailure();
+    throw new AppError(400, "Invalid weight (must be > 0)");
+  }
+  for (const [label, v] of [
+    ["length", input.lengthCm],
+    ["width", input.widthCm],
+    ["height", input.heightCm],
+  ] as const) {
+    if (!(v > 0) || !Number.isFinite(v)) {
+      recordEkartBookingValidationFailure();
+      throw new AppError(400, `Invalid ${label} (must be > 0)`);
+    }
+  }
+
+  const toPin = pin(order.shippingPincode ?? order.pincode);
+  if (toPin.length !== 6) {
+    recordEkartBookingValidationFailure();
+    throw new AppError(400, "Order delivery pincode is invalid");
+  }
+  const address = String(order.shippingAddress1 ?? order.address ?? "").trim();
+  if (!address) {
+    recordEkartBookingValidationFailure();
+    throw new AppError(400, "Order delivery address is required");
+  }
+  const customer = String(order.customer ?? "").trim();
+  const phone = String(order.customerPhone ?? order.phone ?? "").replace(/\D/g, "");
+  if (!customer || phone.length < 10) {
+    recordEkartBookingValidationFailure();
+    throw new AppError(400, "Order customer name and phone are required");
+  }
+
+  const pay = paymentModeOf(order);
+  if (pay === "cod" && !(Number(order.amount) > 0)) {
+    recordEkartBookingValidationFailure();
+    throw new AppError(400, "COD orders require a positive amount");
+  }
+
+  const pickup = await Pickup.findById(input.pickupAddressId).lean();
+  if (!pickup || (pickup as { deletedAt?: Date }).deletedAt) {
+    recordEkartBookingValidationFailure();
+    throw new AppError(404, "Pickup address not found");
+  }
+
+  const fromPin = pin((pickup as { pincode?: string }).pincode);
+  if (fromPin.length !== 6) {
+    recordEkartBookingValidationFailure();
+    throw new AppError(400, "Pickup pincode is invalid");
+  }
+  const line1 = String((pickup as { addressLine1?: string }).addressLine1 ?? "").trim();
+  if (!line1) {
+    recordEkartBookingValidationFailure();
+    throw new AppError(400, "Pickup address line 1 is required for Ekart booking");
+  }
+
+  if (!input.skipServiceability) {
+    const svc = await discoverServiceability(
+      {
+        fromPincode: fromPin,
+        toPincode: toPin,
+        paymentMode: pay,
+        weightKg: input.weightKg,
+        lengthCm: input.lengthCm,
+        widthCm: input.widthCm,
+        heightCm: input.heightCm,
+        collectableAmount: pay === "cod" ? Number(order.amount) : undefined,
+      },
+      { mode: "ekart" }
+    );
+    const wanted = String(input.courierId ?? "").trim();
+    if (wanted) {
+      const ok = svc.couriers.some((c) => String(c.courierId) === wanted);
+      if (!ok && svc.couriers.length > 0) {
+        recordEkartBookingValidationFailure();
+        throw new AppError(422, "Selected Ekart courier is not serviceable for this lane");
+      }
+    }
+  }
+
+  return { pickupLean: pickup as Record<string, unknown> };
+}
+
+function applyEkartShipmentToOrder(
+  order: IOrder,
+  result: ProviderShipmentResult,
+  input: BookShipmentInput,
+  pickupLean: Record<string, unknown>,
+  opts?: { correlationId?: string; durationMs?: number }
+): void {
+  const correlationId = opts?.correlationId ?? ensureCorrelationId(order);
+  order.correlationId = correlationId;
+  order.bookingVersion = order.bookingVersion ?? CURRENT_BOOKING_VERSION;
+  order.courierProvider = "ekart";
+  order.awb = result.awb;
+  order.trackingId = result.awb;
+  order.shipmentCreated = true;
+  order.ekartTrackingId = result.awb;
+  order.ekartRequestId = result.providerOrderId || order.ekartRequestId;
+  order.shipmentId = result.providerShipmentId || result.providerOrderId || order.shipmentId;
+  order.courierCompanyId = result.courierId ?? input.courierId ?? "ekart";
+  order.courierName = result.courierName ?? input.courierName ?? "Ekart";
+  order.courier = order.courierName || order.courier;
+  if (result.labelUrl) order.labelUrl = result.labelUrl;
+  if (result.freightCharge != null) {
+    order.shippingCharges = result.freightCharge;
+  }
+  order.shipmentStatus = result.status || "pending_pickup";
+  order.assignedDateTime = new Date();
+  order.bookedAt = new Date();
+  order.providerBookingRaw = result.raw as Record<string, unknown> | undefined;
+  order.bookingReconciliationRequired = false;
+
+  order.pickupWarehouseId = input.pickupAddressId;
+  order.pickupAddress = {
+    id: input.pickupAddressId,
+    label: String(pickupLean.label ?? ""),
+    contactName: String(pickupLean.contactName ?? ""),
+    phone: String(pickupLean.phone ?? ""),
+    email: String(pickupLean.email ?? ""),
+    address: String(pickupLean.addressLine1 ?? ""),
+    city: String(pickupLean.city ?? ""),
+    state: String(pickupLean.state ?? ""),
+    pincode: String(pickupLean.pincode ?? ""),
+    country: String(pickupLean.country ?? "India"),
+  };
+
+  if (order.status !== "pending_pickup" && order.status !== "pending-pickup") {
+    appendHistory(order, "pending_pickup", "Booked via Ekart", input.userId);
+    order.status = "pending_pickup";
+  }
+
+  appendProviderEvent(order, {
+    provider: "ekart",
+    type: "BOOKING_RESPONSE",
+    status: "SUCCESS",
+    durationMs: opts?.durationMs,
+    correlationId,
+    message: `AWB ${result.awb}`,
+    metadata: {
+      providerOrderId: result.providerOrderId,
+      providerShipmentId: result.providerShipmentId,
+      bookingVersion: order.bookingVersion,
+    },
+  });
+}
+
+/**
+ * Book an Ekart shipment. Maps ShipAmaze Pickup → source/return_location.
+ * Does not create any Ekart pickup/warehouse.
+ */
+export async function bookEkartShipment(input: BookShipmentInput): Promise<BookShipmentResult> {
+  const provider = getCourierProvider("ekart");
+  if (!providerSupports(provider.capabilities, "booking")) {
+    throw new AppError(501, "Ekart booking is not enabled for this provider");
+  }
+  if (!provider.isConfigured()) {
+    throw new AppError(503, "Ekart is not configured");
+  }
+
+  const started = Date.now();
+  const correlationId = ensureCorrelationId(input.order);
+
+  const claim = await claimOrderForBooking({
+    orderId: input.order.orderId,
+    provider: "ekart",
+    idempotencyKey: input.idempotencyKey,
+    correlationId,
+  });
+
+  const order = claim.order;
+  input.order = order;
+
+  if (claim.reusedExisting && String(order.awb || "").trim()) {
+    return {
+      awb: String(order.awb),
+      providerOrderId: String(order.ekartRequestId ?? order.ekartTrackingId ?? ""),
+      providerShipmentId: order.ekartTrackingId,
+      courierId: order.courierCompanyId != null ? String(order.courierCompanyId) : undefined,
+      courierName: order.courierName,
+      labelUrl: order.labelUrl,
+      freightCharge: order.shippingCharges,
+      status: order.shipmentStatus,
+    };
+  }
+
+  let pickupLean: Record<string, unknown>;
+  try {
+    ({ pickupLean } = await validateEkartBooking({ ...input, order }));
+  } catch (err) {
+    await releaseBookingClaim(order.orderId);
+    throw err;
+  }
+
+  const pay = paymentModeOf(order);
+  const createInput: ProviderCreateShipmentInput = {
+    orderId: order.orderId,
+    pickupId: input.pickupAddressId,
+    paymentMode: pay,
+    orderAmount: Number(order.amount ?? 0) || 0,
+    codAmount: pay === "cod" ? Number(order.amount ?? 0) : undefined,
+    weightKg: input.weightKg,
+    lengthCm: input.lengthCm,
+    widthCm: input.widthCm,
+    heightCm: input.heightCm,
+    courierId: input.courierId || "ekart",
+    customer: {
+      name: String(order.customer ?? ""),
+      phone: String(order.customerPhone ?? order.phone ?? "").replace(/\D/g, "").slice(-10),
+      email: order.customerEmail,
+      address: String(order.shippingAddress1 ?? order.address ?? ""),
+      city: String(order.shippingCity ?? order.city ?? ""),
+      state: String(order.shippingState ?? order.state ?? ""),
+      pincode: pin(order.shippingPincode ?? order.pincode),
+      country: "India",
+    },
+    items: orderItems(order),
+    providerPayload: {
+      pickupName: pickupLean.label,
+      contactPerson: pickupLean.contactName,
+      pickupPhone: pickupLean.phone,
+      pickupEmail: pickupLean.email,
+      pickupStreet: pickupLean.addressLine1,
+      pickupStreet2: pickupLean.addressLine2,
+      pickupLandmark: pickupLean.landmark,
+      pickupPincode: pickupLean.pincode,
+      pickupCity: pickupLean.city,
+      pickupState: pickupLean.state,
+      pickupCountry: pickupLean.country,
+      ekartLocationCode: pickupLean.ekartLocationCode,
+      pickupAddress: {
+        label: pickupLean.label,
+        contactName: pickupLean.contactName,
+        phone: pickupLean.phone,
+        email: pickupLean.email,
+        addressLine1: pickupLean.addressLine1,
+        addressLine2: pickupLean.addressLine2,
+        landmark: pickupLean.landmark,
+        city: pickupLean.city,
+        state: pickupLean.state,
+        pincode: pickupLean.pincode,
+        country: pickupLean.country,
+        ekartLocationCode: pickupLean.ekartLocationCode,
+      },
+      correlationId,
+      idempotencyKey: claim.idempotencyKey,
+    },
+  };
+
+  let result: ProviderShipmentResult;
+  try {
+    result = await provider.createShipment(createInput);
+  } catch (err) {
+    await releaseBookingClaim(order.orderId);
+    appendProviderEvent(order, {
+      provider: "ekart",
+      type: "BOOKING_FAILED",
+      status: "FAILED",
+      durationMs: Date.now() - started,
+      correlationId,
+      message: err instanceof Error ? err.message.slice(0, 300) : String(err),
+    });
+    try {
+      await order.save();
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+
+  applyEkartShipmentToOrder(order, result, input, pickupLean, {
+    correlationId,
+    durationMs: Date.now() - started,
+  });
+  order.bookingInProgress = false;
+
+  try {
+    await order.save();
+  } catch (saveErr) {
+    order.bookingReconciliationRequired = true;
+    try {
+      await Order.updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            awb: result.awb,
+            trackingId: result.awb,
+            shipmentCreated: true,
+            bookingInProgress: false,
+            ekartTrackingId: result.awb,
+            ekartRequestId: result.providerOrderId,
+            courierProvider: "ekart",
+            correlationId,
+            bookingVersion: CURRENT_BOOKING_VERSION,
+            bookingReconciliationRequired: true,
+            bookedAt: new Date(),
+          },
+        }
+      );
+    } catch {
+      /* ignore */
+    }
+    throw new AppError(
+      500,
+      `Shipment created on Ekart (AWB ${result.awb}) but failed to save locally. Reconciliation required.`
+    );
+  }
+
+  Object.assign(input.order, {
+    awb: order.awb,
+    shipmentCreated: order.shipmentCreated,
+    ekartTrackingId: order.ekartTrackingId,
+    ekartRequestId: order.ekartRequestId,
+    courierProvider: order.courierProvider,
+    correlationId: order.correlationId,
+    bookingInProgress: false,
+  });
+
+  return {
+    awb: result.awb,
+    providerOrderId: result.providerOrderId,
+    providerShipmentId: result.providerShipmentId,
+    courierId: result.courierId,
+    courierName: result.courierName,
+    labelUrl: result.labelUrl,
+    freightCharge: result.freightCharge,
+    status: result.status,
+  };
 }

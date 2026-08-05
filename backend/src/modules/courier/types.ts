@@ -3,7 +3,7 @@
  * Velocity / Lorrigo / future carriers map into these shapes at the adapter boundary.
  */
 
-export type CourierProviderId = "velocity" | "lorrigo";
+export type CourierProviderId = "velocity" | "lorrigo" | "ekart";
 
 export type ProviderPaymentMode = "cod" | "prepaid";
 export type ProviderShipmentType = "forward" | "return";
@@ -60,7 +60,7 @@ export interface ProviderCourierOption {
 }
 
 /** Discovery mode — which providers to query for serviceability / rates. */
-export type CourierDiscoveryMode = "velocity" | "lorrigo" | "both";
+export type CourierDiscoveryMode = "velocity" | "lorrigo" | "ekart" | "both";
 
 export interface ProviderDiscoveryInput {
   fromPincode: string;

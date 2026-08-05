@@ -7,6 +7,8 @@ import {
   isVelocityActive,
   isLorrigoEnabledFlag,
   isLorrigoConfigured,
+  isEkartEnabledFlag,
+  isEkartConfigured,
   redactMongoUri,
   validateEnv,
 } from "./config/env.js";
@@ -20,6 +22,7 @@ import { syncFailureRemarksBatch } from "./modules/velocity/velocityRemarkSync.j
 import { registerCourierProviders, getCourierProvider } from "./modules/courier/index.js";
 import { getLorrigoStatusSyncIntervalMs } from "./modules/lorrigo/lorrigo.statusSync.js";
 import { getLorrigoNdrSyncIntervalMs } from "./modules/lorrigo/lorrigo.ndrSync.js";
+import { getEkartStatusSyncIntervalMs } from "./modules/ekart/ekart.statusSync.js";
 import { isSyncMutexSkipResult } from "./modules/courier/syncMutex.js";
 import { withSyncLock } from "./modules/courier/distributedLock.js";
 
@@ -119,6 +122,13 @@ async function main() {
     } else {
       devLog.info(`[server] Lorrigo: disabled (set LORRIGO_ENABLED=true to activate)`);
     }
+    if (isEkartEnabledFlag()) {
+      devLog.info(
+        `[server] Ekart: enabled (credentials ${isEkartConfigured() ? "set" : "missing"})`
+      );
+    } else {
+      devLog.info(`[server] Ekart: disabled (set EKART_ENABLED=true to activate)`);
+    }
     if (process.env.NODE_ENV === "production") {
       console.info(`[server] ShipAmaze API ready on port ${PORT}`);
     }
@@ -165,6 +175,26 @@ async function main() {
     }
   }, lorrigoSyncIntervalMs);
   lorrigoBgSync.unref();
+
+  // Ekart status sync — only when EKART_ENABLED; no pickup sync.
+  const ekartSyncIntervalMs = getEkartStatusSyncIntervalMs();
+  const ekartBgSync = setInterval(async () => {
+    try {
+      if (!isEkartEnabledFlag() || !isEkartConfigured()) return;
+      const ekart = getCourierProvider("ekart");
+      if (!ekart.isConfigured()) return;
+      const r = await withSyncLock("ekart:status", () =>
+        ekart.syncStatus({ batchSize: 100 })
+      );
+      if (isSyncMutexSkipResult(r)) return;
+      console.info(
+        `[ekart:bg-sync] scanned=${r.scanned ?? 0} updated=${r.updated ?? 0} errors=${r.errors ?? 0}`
+      );
+    } catch (e: unknown) {
+      console.error("[ekart:bg-sync] error", e instanceof Error ? e.message : e);
+    }
+  }, ekartSyncIntervalMs);
+  ekartBgSync.unref();
 
   if (isLorrigoEnabledFlag() && isLorrigoConfigured()) {
     setTimeout(async () => {

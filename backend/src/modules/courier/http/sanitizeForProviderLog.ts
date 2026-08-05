@@ -36,7 +36,10 @@ export function sanitizeForProviderLog(payload: unknown): unknown {
       kl.includes("token") ||
       kl.includes("secret") ||
       kl.includes("api_key") ||
-      kl.includes("apikey")
+      kl.includes("apikey") ||
+      kl.includes("merchant_code") ||
+      kl === "http_x_merchant_code" ||
+      kl === "client_name"
     ) {
       out[key] = "***MASKED***";
       continue;

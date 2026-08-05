@@ -26,7 +26,7 @@ function buildIdempotencyKey(orderId: string, provider: string, explicit?: strin
  */
 export async function claimOrderForBooking(opts: {
   orderId: string;
-  provider: "velocity" | "lorrigo";
+  provider: "velocity" | "lorrigo" | "ekart";
   idempotencyKey?: string;
   correlationId?: string;
 }): Promise<BookingClaimResult> {

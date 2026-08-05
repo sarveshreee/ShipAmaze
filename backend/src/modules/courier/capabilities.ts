@@ -47,9 +47,28 @@ export const LORRIGO_CAPABILITIES: CourierProviderCapabilities = {
   webhooks: false,
 };
 
+/**
+ * Ekart Phase 1 — Durin Non-Large.
+ * No pickup sync, no rates, no labels PDF, no NDR/returns/cancel in this phase.
+ */
+export const EKART_CAPABILITIES: CourierProviderCapabilities = {
+  authentication: true,
+  serviceability: true,
+  rates: false,
+  booking: true,
+  tracking: true,
+  cancel: false,
+  ndr: false,
+  returns: false,
+  pickupSync: false,
+  labels: false,
+  webhooks: false,
+};
+
 const BY_ID: Record<CourierProviderId, CourierProviderCapabilities> = {
   velocity: VELOCITY_CAPABILITIES,
   lorrigo: LORRIGO_CAPABILITIES,
+  ekart: EKART_CAPABILITIES,
 };
 
 export function getStaticProviderCapabilities(

@@ -65,7 +65,7 @@ function isTimeoutError(err: unknown): boolean {
 
 function applyDefaultPriority(couriers: ProviderCourierOption[]): ProviderCourierOption[] {
   // Stable ordering: Velocity first (existing default), then Lorrigo; within provider keep API order.
-  const rank: Record<CourierProviderId, number> = { velocity: 0, lorrigo: 1000 };
+  const rank: Record<CourierProviderId, number> = { velocity: 0, lorrigo: 1000, ekart: 2000 };
   return couriers.map((c, index) => ({
     ...c,
     priorityScore: c.priorityScore ?? rank[c.provider] + index,

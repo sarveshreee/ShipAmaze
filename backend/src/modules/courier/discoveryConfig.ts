@@ -4,6 +4,7 @@
 
 import type { CourierDiscoveryMode, CourierProviderId } from "./types.js";
 import { isLorrigoEnabledFlag } from "../lorrigo/lorrigo.config.js";
+import { isEkartEnabledFlag } from "../ekart/ekart.config.js";
 import { isVelocityEnabledFlag } from "../../config/env.js";
 
 function intEnv(name: string, fallback: number): number {
@@ -15,22 +16,25 @@ function parseMode(raw: string | undefined): CourierDiscoveryMode | null {
   const v = (raw ?? "").trim().toLowerCase();
   if (!v) return null;
   if (v === "lorrigo") return "lorrigo";
-  if (v === "both" || v === "all" || v === "velocity,lorrigo" || v === "lorrigo,velocity") {
+  if (v === "ekart") return "ekart";
+  if (v === "velocity") return "velocity";
+  if (v === "both" || v === "all") return "both";
+  // Comma lists / mixed → query all flagged providers
+  if (v.includes(",") || v.includes("lorrigo") || v.includes("ekart") || v.includes("velocity")) {
     return "both";
   }
-  if (v === "velocity") return "velocity";
   return "velocity";
 }
 
 export const discoveryConfig = {
   /**
-   * velocity | lorrigo | both
-   * When unset: "both" if Lorrigo is enabled, otherwise "velocity" (legacy default).
+   * velocity | lorrigo | ekart | both
+   * When unset: "both" if Lorrigo or Ekart is enabled, otherwise "velocity".
    */
   get mode(): CourierDiscoveryMode {
     const explicit = parseMode(process.env.COURIER_DISCOVERY_MODE);
     if (explicit) return explicit;
-    return isLorrigoEnabledFlag() ? "both" : "velocity";
+    return isLorrigoEnabledFlag() || isEkartEnabledFlag() ? "both" : "velocity";
   },
 
   /** 0 disables cross-request cache. Default 60s. */
@@ -43,17 +47,19 @@ export const discoveryConfig = {
   },
 };
 
-/** Resolve which providers to query for discovery (respects VELOCITY_ENABLED / LORRIGO_ENABLED). */
+/** Resolve which providers to query for discovery (respects feature flags). */
 export function resolveDiscoveryProviderIds(
   mode: CourierDiscoveryMode = discoveryConfig.mode
 ): CourierProviderId[] {
   const velocityOk = isVelocityEnabledFlag();
   const lorrigoOk = isLorrigoEnabledFlag();
+  const ekartOk = isEkartEnabledFlag();
   if (mode === "velocity") return velocityOk ? ["velocity"] : [];
   if (mode === "lorrigo") return lorrigoOk ? ["lorrigo"] : [];
-  // both
+  if (mode === "ekart") return ekartOk ? ["ekart"] : [];
   const ids: CourierProviderId[] = [];
   if (velocityOk) ids.push("velocity");
   if (lorrigoOk) ids.push("lorrigo");
+  if (ekartOk) ids.push("ekart");
   return ids;
 }

@@ -9,7 +9,7 @@ import type { AuthRequest } from "../../middleware/authMiddleware.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { AppError } from "../../middleware/errorMiddleware.js";
 import { Order, type IOrder } from "../../models/Order.js";
-import { bookLorrigoShipment } from "./bookShipment.js";
+import { bookShipmentViaProvider } from "./bookShipment.js";
 import {
   getCourierProvider,
   listConfiguredCourierProviders,
@@ -19,6 +19,9 @@ import {
 import { getStaticProviderCapabilities, providerSupports } from "./capabilities.js";
 import { getLorrigoBookingMetrics } from "../lorrigo/lorrigo.bookingMetrics.js";
 import { getLorrigoNdrMetrics } from "../lorrigo/lorrigo.ndrMetrics.js";
+import { getEkartBookingMetrics, getEkartTrackingMetrics } from "../ekart/ekart.metrics.js";
+import { getEkartAuthMetrics } from "../ekart/ekart.client.js";
+import { getEkartStatusSyncMetrics } from "../ekart/ekart.statusSyncMetrics.js";
 
 function assertBookingOrderAccess(
   user: NonNullable<AuthRequest["user"]>,
@@ -81,12 +84,12 @@ export const createShipment = asyncHandler(async (req: AuthRequest, res: Respons
   const width = Number(body.width ?? order.width ?? order.breadth ?? 10);
   const height = Number(body.height ?? order.height ?? 10);
 
-  const booking = await bookLorrigoShipment({
+  const booking = await bookShipmentViaProvider({
     order,
-    provider: "lorrigo",
+    provider,
     pickupAddressId: warehouseId,
-    courierId: carrierId,
-    courierName: courierName || undefined,
+    courierId: carrierId || (provider === "ekart" ? "ekart" : ""),
+    courierName: courierName || (provider === "ekart" ? "Ekart" : undefined),
     weightKg: weight,
     lengthCm: length,
     widthCm: width,
@@ -106,7 +109,7 @@ export const createShipment = asyncHandler(async (req: AuthRequest, res: Respons
       label_url: booking.labelUrl,
       shipping_charges: booking.freightCharge,
       status: booking.status,
-      provider: "lorrigo",
+      provider,
     },
     orderId: order.orderId,
   });
@@ -117,6 +120,12 @@ export const bookingMetrics = asyncHandler(async (_req: AuthRequest, res: Respon
     success: true,
     data: {
       lorrigo: getLorrigoBookingMetrics(),
+      ekart: {
+        booking: getEkartBookingMetrics(),
+        tracking: getEkartTrackingMetrics(),
+        auth: getEkartAuthMetrics(),
+        statusSync: getEkartStatusSyncMetrics(),
+      },
     },
   });
 });

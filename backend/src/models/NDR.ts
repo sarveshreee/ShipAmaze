@@ -17,7 +17,7 @@ export interface INDR extends Document {
   /** Raw Velocity shipment status (e.g. ndr_raised) */
   velocityStatus?: string;
   /** Active courier provider for this NDR row. */
-  courierProvider?: "velocity" | "lorrigo";
+  courierProvider?: "velocity" | "lorrigo" | "ekart";
   /** Provider-native status string. */
   providerStatus?: string;
   customerRemarks?: string;
@@ -52,7 +52,7 @@ const ndrSchema = new Schema<INDR>(
     orderId: { type: String, default: "" },
     carrier: { type: String, default: "" },
     velocityStatus: { type: String, default: "" },
-    courierProvider: { type: String, enum: ["velocity", "lorrigo"], index: true },
+    courierProvider: { type: String, enum: ["velocity", "lorrigo", "ekart"], index: true },
     providerStatus: { type: String, default: "" },
     customerRemarks: { type: String, default: "" },
     actionRequired: { type: Boolean, default: true },

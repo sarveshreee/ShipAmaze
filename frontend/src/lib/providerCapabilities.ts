@@ -3,7 +3,7 @@
  * Prefer live values from GET /api/courier/providers when available.
  */
 
-export type CourierProviderId = "velocity" | "lorrigo";
+export type CourierProviderId = "velocity" | "lorrigo" | "ekart";
 
 export interface CourierProviderCapabilities {
   authentication: boolean;
@@ -46,12 +46,26 @@ export const PROVIDER_CAPABILITIES: Record<CourierProviderId, CourierProviderCap
     labels: true,
     webhooks: false,
   },
+  ekart: {
+    authentication: true,
+    serviceability: true,
+    rates: false,
+    booking: true,
+    tracking: true,
+    cancel: false,
+    ndr: false,
+    returns: false,
+    pickupSync: false,
+    labels: false,
+    webhooks: false,
+  },
 };
 
 export function providerSupports(
   provider: string | undefined,
   capability: keyof CourierProviderCapabilities
 ): boolean {
-  const id = provider === "lorrigo" ? "lorrigo" : "velocity";
+  const id =
+    provider === "lorrigo" ? "lorrigo" : provider === "ekart" ? "ekart" : "velocity";
   return PROVIDER_CAPABILITIES[id][capability] === true;
 }

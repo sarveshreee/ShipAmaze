@@ -16,7 +16,7 @@ export interface IOrderStatusEvent {
 
 /** Append-only provider integration timeline (booking, tracking, cancel, …). */
 export interface IProviderEvent {
-  provider: "velocity" | "lorrigo";
+  provider: "velocity" | "lorrigo" | "ekart";
   type: string;
   timestamp: Date;
   status?: "SUCCESS" | "FAILED" | "SKIPPED" | "PENDING";
@@ -92,10 +92,13 @@ export interface IOrder extends Document {
   junkedAt?: Date;
   junkReason?: string;
   /** Active courier provider for this shipment (optional; default velocity). */
-  courierProvider?: "velocity" | "lorrigo";
+  courierProvider?: "velocity" | "lorrigo" | "ekart";
   /** Lorrigo order / shipment ids after booking (optional). */
   lorrigoOrderId?: string;
   lorrigoShipmentId?: string;
+  /** Ekart tracking / request ids after booking (optional). */
+  ekartTrackingId?: string;
+  ekartRequestId?: string;
   /** Sanitized provider booking response for support / reconciliation. */
   providerBookingRaw?: Record<string, unknown>;
   /** Set when provider booking succeeded but local persistence failed. */
@@ -187,7 +190,7 @@ const statusHistorySchema = new Schema<IOrderStatusEvent>(
 
 const providerEventSchema = new Schema<IProviderEvent>(
   {
-    provider: { type: String, enum: ["velocity", "lorrigo"], required: true },
+    provider: { type: String, enum: ["velocity", "lorrigo", "ekart"], required: true },
     type: { type: String, required: true },
     timestamp: { type: Date, default: Date.now },
     status: { type: String, enum: ["SUCCESS", "FAILED", "SKIPPED", "PENDING"] },
@@ -256,9 +259,11 @@ const orderSchema = new Schema<IOrder>(
     isJunk: { type: Boolean, default: false, index: true },
     junkedAt: { type: Date },
     junkReason: { type: String },
-    courierProvider: { type: String, enum: ["velocity", "lorrigo"], index: true },
+    courierProvider: { type: String, enum: ["velocity", "lorrigo", "ekart"], index: true },
     lorrigoOrderId: { type: String, sparse: true, index: true },
     lorrigoShipmentId: { type: String, sparse: true },
+    ekartTrackingId: { type: String, sparse: true, index: true },
+    ekartRequestId: { type: String, sparse: true },
     providerBookingRaw: { type: Schema.Types.Mixed },
     bookingReconciliationRequired: { type: Boolean, default: false, index: true },
     bookedAt: { type: Date },

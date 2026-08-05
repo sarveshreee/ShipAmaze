@@ -105,11 +105,45 @@ const LORRIGO_RAW_TO_PROVIDER: Record<string, ProviderCanonicalStatus> = {
   lost: "LOST",
 };
 
+/** Ekart Durin history statuses → provider canonical. */
+const EKART_RAW_TO_PROVIDER: Record<string, ProviderCanonicalStatus> = {
+  ...LORRIGO_RAW_TO_PROVIDER,
+  created: "CREATED",
+  shipment_created: "CREATED",
+  pickup_out_for_pickup: "CREATED",
+  out_for_pickup: "CREATED",
+  pickup_complete: "PICKED_UP",
+  shipment_pickup_complete: "PICKED_UP",
+  received: "IN_TRANSIT",
+  mh_received: "IN_TRANSIT",
+  shipment_shipped: "IN_TRANSIT",
+  shipment_received: "IN_TRANSIT",
+  out_for_delivery: "OUT_FOR_DELIVERY",
+  delivered: "DELIVERED",
+  undelivered_attempted: "FAILED",
+  undelivered_unattempted: "FAILED",
+  pickup_cancelled: "CANCELLED",
+  cancelled: "CANCELLED",
+  rto_created: "RETURNED",
+  rto_completed: "RETURNED",
+  rto_cancelled: "CANCELLED",
+};
+
 export function mapLorrigoStatusToProviderCanonical(raw: unknown): ProviderCanonicalStatus {
   const k = key(raw);
   if (LORRIGO_RAW_TO_PROVIDER[k]) return LORRIGO_RAW_TO_PROVIDER[k];
-  // Lorrigo variants like CANCELLED_ORDER / ORDER_CANCELLED
   if (k.includes("cancel")) return "CANCELLED";
+  return "IN_TRANSIT";
+}
+
+export function mapEkartStatusToProviderCanonical(raw: unknown): ProviderCanonicalStatus {
+  const k = key(raw);
+  if (EKART_RAW_TO_PROVIDER[k]) return EKART_RAW_TO_PROVIDER[k];
+  if (k.includes("cancel")) return "CANCELLED";
+  if (k.includes("deliver")) return "DELIVERED";
+  if (k.includes("rto") || k.includes("return")) return "RETURNED";
+  if (k.includes("pickup") && k.includes("complete")) return "PICKED_UP";
+  if (k.includes("out_for_delivery") || k.includes("ofd")) return "OUT_FOR_DELIVERY";
   return "IN_TRANSIT";
 }
 
@@ -120,13 +154,15 @@ export function providerCanonicalToOrderStatus(
 }
 
 export function mapProviderRawToOrderStatus(
-  provider: "lorrigo" | "velocity",
+  provider: "lorrigo" | "velocity" | "ekart",
   raw: unknown
 ): OrderCanonicalStatus {
   if (provider === "lorrigo") {
     return providerCanonicalToOrderStatus(mapLorrigoStatusToProviderCanonical(raw));
   }
-  // Velocity callers should keep using mapVelocityStatus + normalizeOrderStatus.
+  if (provider === "ekart") {
+    return providerCanonicalToOrderStatus(mapEkartStatusToProviderCanonical(raw));
+  }
   return normalizeOrderStatus(String(raw ?? ""));
 }
 

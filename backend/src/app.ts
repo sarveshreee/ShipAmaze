@@ -29,6 +29,7 @@ import * as productImageController from "./controllers/productImageController.js
 import * as shopifyController from "./controllers/shopifyController.js";
 import velocityRouter from "./modules/velocity/velocity.routes.js";
 import lorrigoRouter from "./modules/lorrigo/lorrigo.routes.js";
+import ekartRouter from "./modules/ekart/ekart.routes.js";
 import courierDiscoveryRouter from "./modules/courier/discovery.routes.js";
 import { registerCourierProviders } from "./modules/courier/index.js";
 import * as debugController from "./controllers/debugController.js";
@@ -843,6 +844,7 @@ export function createApp() {
 
   // Lorrigo — Phase 2: admin status/health only (no booking routes)
   api.use("/lorrigo", lorrigoRouter);
+  api.use("/ekart", ekartRouter);
 
   // Multi-provider serviceability / rates discovery (Velocity + Lorrigo)
   api.use("/courier", courierDiscoveryRouter);

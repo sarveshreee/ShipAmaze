@@ -28,6 +28,7 @@ export function resolveCourierProviderId(
 ): CourierProviderId {
   const v = String(raw ?? "").trim().toLowerCase();
   if (v === "lorrigo") return "lorrigo";
+  if (v === "ekart") return "ekart";
   if (v === "velocity" || !v) return "velocity";
   return DEFAULT_COURIER_PROVIDER_ID;
 }
