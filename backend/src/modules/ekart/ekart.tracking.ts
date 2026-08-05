@@ -1,5 +1,9 @@
 /**
  * Ekart tracking — POST /v2/shipments/track → ProviderTrackingResult.
+ *
+ * Durin TrackResponseV2 is keyed by tracking id; `history` is newest-first.
+ * Prefer machine `history[0].status` for canonical mapping; keep
+ * `public_description` on timeline activities for UI.
  */
 
 import type {
@@ -7,6 +11,7 @@ import type {
   ProviderTrackingActivity,
   ProviderTrackingResult,
 } from "../courier/types.js";
+import { AppError } from "../../middleware/errorMiddleware.js";
 import { ekartConfig } from "./ekart.config.js";
 import { ekartPost } from "./ekart.client.js";
 import {
@@ -19,7 +24,8 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
-function mapHistory(raw: unknown): ProviderTrackingActivity[] {
+/** Exported for unit tests — Durin history → ShipAmaze activities (newest-first). */
+export function mapEkartTrackHistory(raw: unknown): ProviderTrackingActivity[] {
   if (!Array.isArray(raw)) return [];
   const out: ProviderTrackingActivity[] = [];
   for (const row of raw) {
@@ -38,17 +44,22 @@ function mapHistory(raw: unknown): ProviderTrackingActivity[] {
   return out;
 }
 
-function extractShipmentBlock(raw: unknown, awb: string): Record<string, unknown> {
+/** Exported for unit tests — pick shipment block from TrackResponseV2. */
+export function extractEkartShipmentBlock(raw: unknown, awb: string): Record<string, unknown> {
   const root = asRecord(raw);
   if (!root) return {};
 
-  // Map keyed by tracking id
+  // Map keyed by tracking id (primary Durin shape)
   if (asRecord(root[awb])) return asRecord(root[awb])!;
 
   for (const [k, v] of Object.entries(root)) {
     if (k === "request_id" || k === "response") continue;
     const block = asRecord(v);
-    if (block && (String(block.shipment_id ?? "") === awb || String(block.external_tracking_id ?? "") === awb)) {
+    if (
+      block &&
+      (String(block.shipment_id ?? "") === awb ||
+        String(block.external_tracking_id ?? "") === awb)
+    ) {
       return block;
     }
   }
@@ -66,10 +77,56 @@ function extractShipmentBlock(raw: unknown, awb: string): Record<string, unknown
   return root;
 }
 
+/**
+ * Parse Durin track payload into ProviderTrackingResult fields.
+ * Status uses machine codes from history (e.g. `delivered`), not public text.
+ */
+export function parseEkartTrackResponse(
+  raw: unknown,
+  awb: string
+): Omit<ProviderTrackingResult, "raw"> & { rawStatusCode: string } {
+  const block = extractEkartShipmentBlock(raw, awb);
+  const historyRows = Array.isArray(block.history) ? block.history : [];
+  const activities = mapEkartTrackHistory(historyRows);
+
+  const latest = asRecord(historyRows[0]);
+  const machineStatus = String(latest?.status ?? "").trim();
+  const deliveredFlag = block.delivered === true;
+  const status =
+    machineStatus ||
+    (deliveredFlag ? "delivered" : "") ||
+    String(block.status ?? "").trim() ||
+    (activities[0]?.activity ? String(activities[0].activity) : "") ||
+    "in_transit";
+
+  const delivered =
+    deliveredFlag ||
+    machineStatus.toLowerCase() === "delivered" ||
+    status.toLowerCase().includes("delivered");
+
+  return {
+    awb: String(block.shipment_id ?? block.external_tracking_id ?? awb),
+    status,
+    rawStatusCode: machineStatus || status,
+    courierName: String(block.merchant_name ?? "Ekart"),
+    providerOrderId: String(block.order_id ?? block.external_tracking_id ?? awb),
+    activities,
+    deliveredDate: delivered
+      ? String(activities[0]?.date || latest?.event_date_iso8601 || latest?.event_date || "")
+      : undefined,
+    pickupDate: undefined,
+    message: undefined,
+  };
+}
+
 export async function trackEkartShipment(
   input: ProviderTrackInput
 ): Promise<ProviderTrackingResult> {
   const awb = String(input.awb ?? "").trim();
+  if (!awb) {
+    throw new AppError(400, "Ekart track requires AWB / tracking id");
+  }
+
   const started = Date.now();
   recordEkartTrackAttempt();
 
@@ -80,30 +137,18 @@ export async function trackEkartShipment(
       { retryable: true }
     );
 
-    const block = extractShipmentBlock(raw, awb);
-    const history = mapHistory(block.history);
-    const status = String(
-      history[0]?.activity ||
-        block.status ||
-        (block.delivered === true ? "delivered" : "in_transit")
-    );
-    const delivered =
-      block.delivered === true ||
-      status.toLowerCase().includes("delivered");
-
+    const parsed = parseEkartTrackResponse(raw, awb);
     recordEkartTrackSuccess(Date.now() - started);
 
     return {
-      awb: String(block.shipment_id ?? block.external_tracking_id ?? awb),
-      status,
-      courierName: String(block.merchant_name ?? "Ekart"),
-      providerOrderId: String(block.order_id ?? block.external_tracking_id ?? awb),
-      activities: history,
-      deliveredDate: delivered
-        ? String(history[0]?.date || block.event_date || "")
-        : undefined,
-      pickupDate: undefined,
-      message: undefined,
+      awb: parsed.awb,
+      status: parsed.status,
+      courierName: parsed.courierName,
+      providerOrderId: parsed.providerOrderId,
+      activities: parsed.activities,
+      deliveredDate: parsed.deliveredDate,
+      pickupDate: parsed.pickupDate,
+      message: parsed.message,
       raw,
     };
   } catch (err) {

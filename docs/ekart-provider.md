@@ -1,4 +1,4 @@
-# Ekart Provider (Phase 1)
+# Ekart Provider (Phase 1–2)
 
 Durin / Ekart Logistics integration as a first-class `CourierProvider` (`provider = "ekart"`).
 
@@ -69,9 +69,23 @@ Durin does **not** document a separate Ekart-generated AWB field on create. The 
 
 Phase 1 allocates a Flipkart-format `tracking_id` for the request; AWB shown in ShipAmaze is always taken from the **response** `tracking_id`.
 
-## Tracking flow
+## Tracking flow (Phase 2)
 
-`POST /v2/shipments/track` with `{ tracking_ids: [awb] }` → normalized `ProviderTrackingResult` → Order status history / provider events / background sync.
+```
+POST /v2/shipments/track { tracking_ids: [awb] }
+  → parse machine history[0].status (newest-first)
+  → mapEkartStatusToProviderCanonical → Order.status
+  → refresh trackingActivities from public_description
+  → STATUS_CHANGE provider event only when status advances
+  → duplicate same-status polls: bump lastProviderStatusSyncedAt only
+```
+
+Background poller (same scheduler pattern as Lorrigo/Velocity):
+
+- `setInterval` + `withSyncLock("ekart:status")` in `server.ts`
+- Polls only `courierProvider: "ekart"` with AWB, non-terminal status
+- Interval: `EKART_STATUS_SYNC_INTERVAL_MS` (default 5 minutes)
+- Startup sync ~50s after boot when enabled + configured
 
 ## Environment variables
 
@@ -87,13 +101,15 @@ Phase 1 allocates a Flipkart-format `tracking_id` for the request; AWB shown in 
 | `EKART_TRACK_ENDPOINT` | `/v2/shipments/track` |
 | `EKART_CREATE_LARGE_ENDPOINT` | `/shipments/large/create` |
 | `EKART_TRACK_LARGE_ENDPOINT` | `/shipments/large/track` |
+| `EKART_STATUS_SYNC_INTERVAL_MS` | `300000` |
 
-## Capabilities (Phase 1)
+## Capabilities (Phase 1–2)
 
 | Capability | |
 |------------|--|
 | booking | true |
 | tracking | true |
+| background status sync | true |
 | serviceability | true (`/v1/offerings`) |
 | rates | false |
 | pickupSync | false |
@@ -106,23 +122,28 @@ Phase 1 allocates a Flipkart-format `tracking_id` for the request; AWB shown in 
 
 ## Health / metrics
 
-- `GET /api/ekart/health` (admin)
-- Booking metrics also under `GET /api/courier/…` booking metrics payload (`ekart` key)
+`GET /api/ekart/health` (admin) reports:
+
+- Authentication status + auth latency
+- Booking / tracking success·failure·latency
+- Status sync: active shipments, last poll, last successful poll, consecutive failures, provider latency, statusChanges
+
+Also under courier booking metrics (`ekart` key).
 
 ## Limitations
 
-- Large shipment endpoints configured but not used in Phase 1 booking.
+- Large shipment endpoints configured but not used in booking.
 - No PDF label API (Durin `get_label_information` is metadata only).
-- No cancel/RTO/RVP in Phase 1.
-- No reverse shipments in Phase 1.
+- No cancel/RTO/RVP yet.
+- No reverse shipments yet.
 - No freight rate API.
-- Critical Updates webhooks not enrolled.
+- Critical Updates webhooks not enrolled (polling covers active shipments).
 
 ## Rollback
 
 Set `EKART_ENABLED=false` and restart. Existing Velocity/Lorrigo unchanged. Optional Order/Pickup fields remain unused.
 
-## Phase 2 (planned)
+## Phase 3 (planned)
 
 - Cancel via RTO / Cancel RVP
 - Reverse shipments

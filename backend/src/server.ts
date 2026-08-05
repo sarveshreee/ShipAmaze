@@ -188,13 +188,32 @@ async function main() {
       );
       if (isSyncMutexSkipResult(r)) return;
       console.info(
-        `[ekart:bg-sync] scanned=${r.scanned ?? 0} updated=${r.updated ?? 0} errors=${r.errors ?? 0}`
+        `[ekart:bg-sync] scanned=${r.scanned ?? 0} updated=${r.updated ?? 0} errors=${r.errors ?? 0}` +
+          (r.statusChanges != null ? ` statusChanges=${r.statusChanges}` : "")
       );
     } catch (e: unknown) {
       console.error("[ekart:bg-sync] error", e instanceof Error ? e.message : e);
     }
   }, ekartSyncIntervalMs);
   ekartBgSync.unref();
+
+  if (isEkartEnabledFlag() && isEkartConfigured()) {
+    setTimeout(async () => {
+      try {
+        const ekart = getCourierProvider("ekart");
+        const r = await withSyncLock("ekart:status", () =>
+          ekart.syncStatus({ batchSize: 100 })
+        );
+        if (isSyncMutexSkipResult(r)) return;
+        console.info(
+          `[ekart:startup-sync] scanned=${r.scanned ?? 0} updated=${r.updated ?? 0} errors=${r.errors ?? 0}` +
+            (r.statusChanges != null ? ` statusChanges=${r.statusChanges}` : "")
+        );
+      } catch (e: unknown) {
+        console.error("[ekart:startup-sync] error", e instanceof Error ? e.message : e);
+      }
+    }, 50_000).unref();
+  }
 
   if (isLorrigoEnabledFlag() && isLorrigoConfigured()) {
     setTimeout(async () => {

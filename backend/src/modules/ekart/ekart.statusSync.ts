@@ -1,8 +1,10 @@
 /**
- * Ekart background status sync — polls active shipments via trackShipment.
+ * Ekart background status sync — polls active shipments via CourierProvider.trackShipment.
+ * Reuses Lorrigo patterns: timeline events, duplicate suppression, terminal skip.
  */
 
 import { Order, type IOrder } from "../../models/Order.js";
+import { normalizeOrderStatus } from "../../utils/orderStatus.js";
 import { getCourierProvider } from "../courier/providerRegistry.js";
 import { appendProviderEvent } from "../courier/providerEvents.js";
 import { ensureCorrelationId } from "../courier/correlation.js";
@@ -29,8 +31,9 @@ function intEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 30_000 ? n : fallback;
 }
 
+/** Env-configurable poll interval (default 5 minutes). */
 export function getEkartStatusSyncIntervalMs(): number {
-  return intEnv("EKART_STATUS_SYNC_INTERVAL_MS", 300_000);
+  return intEnv("EKART_STATUS_SYNC_INTERVAL_MS", 5 * 60 * 1000);
 }
 
 function appendStatusHistory(order: IOrder, status: string, note: string) {
@@ -39,6 +42,11 @@ function appendStatusHistory(order: IOrder, status: string, note: string) {
   if (typeof order.markModified === "function") order.markModified("statusHistory");
 }
 
+/**
+ * Sync active Ekart shipments only.
+ * Skips delivered / cancelled / returned / lost (and ShipAmaze terminal statuses).
+ * Same status repeatedly: bump lastSyncedAt only — no duplicate timeline events.
+ */
 export async function syncEkartActiveShipmentStatuses(
   batchSize = 100
 ): Promise<EkartStatusSyncResult> {
@@ -75,12 +83,14 @@ export async function syncEkartActiveShipmentStatuses(
     shipmentStatus: { $nin: ["reship", "delivered", "cancelled", "returned", "lost"] },
   })
     .select(
-      "_id orderId awb status shipmentStatus trackingActivities statusHistory providerEvents correlationId bookingVersion ekartTrackingId lastProviderStatusSyncedAt"
+      "_id orderId awb status shipmentStatus trackingActivities statusHistory providerEvents correlationId bookingVersion ekartTrackingId ekartClientReferenceId lastProviderStatusSyncedAt"
     )
     .sort({ lastProviderStatusSyncedAt: 1, updatedAt: 1 })
     .limit(batchSize)
     .exec();
 
+  let providerLatencyTotal = 0;
+  let providerCalls = 0;
   let hadSuccess = false;
 
   for (const order of orders) {
@@ -92,67 +102,113 @@ export async function syncEkartActiveShipmentStatuses(
     }
 
     const correlationId = ensureCorrelationId(order);
+    const trackStarted = Date.now();
+
     try {
       const tracked = await provider.trackShipment({ awb });
+      const providerLatency = Date.now() - trackStarted;
+      providerLatencyTotal += providerLatency;
+      providerCalls += 1;
       hadSuccess = true;
-      const canonical = mapEkartStatusToProviderCanonical(tracked.status);
-      const nextStatus = providerCanonicalToOrderStatus(canonical);
-      const activities = (tracked.activities ?? []).map((a) => ({
-        date: a.date,
-        activity: a.activity,
-        location: a.location,
-      }));
 
-      order.trackingActivities = activities;
-      order.shipmentStatus = tracked.status;
-      order.lastProviderStatusSyncedAt = new Date();
-
-      if (shouldApplyStatusUpdate(String(order.status ?? ""), nextStatus)) {
-        appendStatusHistory(order, nextStatus, `Ekart track: ${tracked.status}`);
-        order.status = nextStatus;
-        result.statusChanges += 1;
+      const rawStatus = tracked.status;
+      if (!rawStatus || !String(rawStatus).trim()) {
+        result.errors += 1;
+        order.lastProviderStatusSyncedAt = new Date();
+        appendProviderEvent(order, {
+          provider: "ekart",
+          type: "TRACKING_FAILED",
+          status: "FAILED",
+          durationMs: providerLatency,
+          correlationId,
+          message: "Empty status from Ekart",
+        });
+        await order.save();
+        continue;
       }
 
-      appendProviderEvent(order, {
-        provider: "ekart",
-        type: "TRACKING_SYNC",
-        status: "SUCCESS",
-        correlationId,
-        message: tracked.status,
-        metadata: { awb, canonical },
-      });
+      const providerCanonical = mapEkartStatusToProviderCanonical(rawStatus);
+      const nextStatus = providerCanonicalToOrderStatus(providerCanonical);
+      const current = normalizeOrderStatus(order.status);
+      const rawShipmentStatus = String(rawStatus);
 
+      // Always refresh activities when provided (replace snapshot).
+      if (Array.isArray(tracked.activities) && tracked.activities.length > 0) {
+        order.trackingActivities = tracked.activities.map((a) => ({
+          date: a.date,
+          activity: a.activity,
+          location: a.location,
+        }));
+      }
+
+      const sameStatus = current === nextStatus;
+
+      if (order.shipmentStatus !== rawShipmentStatus) {
+        order.shipmentStatus = rawShipmentStatus;
+      }
+
+      if (!sameStatus && shouldApplyStatusUpdate(order.status, nextStatus)) {
+        appendStatusHistory(order, nextStatus, "ekart_bg_sync");
+        order.status = nextStatus;
+        result.statusChanges += 1;
+        appendProviderEvent(order, {
+          provider: "ekart",
+          type: "STATUS_CHANGE",
+          status: "SUCCESS",
+          durationMs: providerLatency,
+          correlationId,
+          message: `${current} → ${nextStatus}`,
+          metadata: {
+            providerCanonical,
+            rawStatus: rawShipmentStatus,
+          },
+        });
+      }
+      // Same status repeatedly: do not duplicate timeline entries — only bump lastSyncedAt.
+
+      order.lastProviderStatusSyncedAt = new Date();
       await order.save();
       result.updated += 1;
     } catch (err) {
       result.errors += 1;
       const msg = err instanceof Error ? err.message : String(err);
-      result.errorDetails = [...(result.errorDetails ?? []), `${order.orderId}: ${msg}`].slice(
-        -20
-      );
-      appendProviderEvent(order, {
-        provider: "ekart",
-        type: "TRACKING_FAILED",
-        status: "FAILED",
-        correlationId,
-        message: msg.slice(0, 300),
-      });
+      if ((result.errorDetails?.length ?? 0) < 10) {
+        result.errorDetails = [...(result.errorDetails ?? []), `${order.orderId}: ${msg}`];
+      }
       try {
         order.lastProviderStatusSyncedAt = new Date();
+        appendProviderEvent(order, {
+          provider: "ekart",
+          type: "TRACKING_FAILED",
+          status: "FAILED",
+          durationMs: Date.now() - trackStarted,
+          correlationId,
+          message: msg.slice(0, 300),
+        });
         await order.save();
       } catch {
-        /* ignore */
+        await Order.updateOne(
+          { _id: order._id },
+          { $set: { lastProviderStatusSyncedAt: new Date() } }
+        ).catch(() => undefined);
       }
     }
   }
 
+  const latencyMs = Date.now() - started;
   recordEkartStatusSyncPoll({
-    processed: result.processed,
-    updated: result.updated,
-    errors: result.errors,
-    durationMs: Date.now() - started,
-    ok: hadSuccess || result.errors === 0,
+    activeShipments: orders.length,
+    latencyMs,
+    providerLatencyMs: providerCalls > 0 ? Math.round(providerLatencyTotal / providerCalls) : undefined,
+    statusChanges: result.statusChanges,
+    failures: result.errors,
+    hadSuccess,
   });
+
+  console.info(
+    `[ekart:status-sync] processed=${result.processed} updated=${result.updated} ` +
+      `statusChanges=${result.statusChanges} errors=${result.errors} skipped=${result.skipped} latencyMs=${latencyMs}`
+  );
 
   return result;
 }

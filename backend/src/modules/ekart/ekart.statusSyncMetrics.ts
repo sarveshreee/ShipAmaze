@@ -1,61 +1,82 @@
 /**
  * Ekart status-sync health metrics (process lifetime).
+ * Shape mirrors Lorrigo so admin health payloads stay consistent.
  */
 
-export interface EkartStatusSyncMetricsSnapshot {
-  polls: number;
-  consecutiveFailures: number;
+export interface EkartStatusSyncHealth {
+  activeShipments: number;
   lastPollAt: string | null;
-  lastSuccessAt: string | null;
-  lastProcessed: number;
-  lastUpdated: number;
-  lastErrors: number;
-  lastLatencyMs: number | null;
+  lastSuccessfulSyncAt: string | null;
+  consecutiveFailures: number;
+  lastSyncLatencyMs: number | null;
+  lastProviderLatencyMs: number | null;
+  statusChanges: number;
+  pollFailures: number;
+  polls: number;
 }
 
 const state = {
-  polls: 0,
+  activeShipments: 0,
+  lastPollAt: null as Date | null,
+  lastSuccessfulSyncAt: null as Date | null,
   consecutiveFailures: 0,
-  lastPollAt: null as string | null,
-  lastSuccessAt: null as string | null,
-  lastProcessed: 0,
-  lastUpdated: 0,
-  lastErrors: 0,
-  lastLatencyMs: null as number | null,
+  lastSyncLatencyMs: null as number | null,
+  lastProviderLatencyMs: null as number | null,
+  statusChanges: 0,
+  pollFailures: 0,
+  polls: 0,
 };
 
 export function recordEkartStatusSyncPoll(opts: {
-  processed: number;
-  updated: number;
-  errors: number;
-  durationMs: number;
-  ok: boolean;
+  activeShipments: number;
+  latencyMs: number;
+  providerLatencyMs?: number;
+  statusChanges: number;
+  failures: number;
+  hadSuccess: boolean;
 }): void {
   state.polls += 1;
-  state.lastPollAt = new Date().toISOString();
-  state.lastProcessed = opts.processed;
-  state.lastUpdated = opts.updated;
-  state.lastErrors = opts.errors;
-  state.lastLatencyMs = opts.durationMs;
-  if (opts.ok) {
+  state.activeShipments = opts.activeShipments;
+  state.lastPollAt = new Date();
+  state.lastSyncLatencyMs = opts.latencyMs;
+  if (opts.providerLatencyMs != null) state.lastProviderLatencyMs = opts.providerLatencyMs;
+  state.statusChanges += opts.statusChanges;
+  state.pollFailures += opts.failures;
+  if (opts.hadSuccess) {
+    state.lastSuccessfulSyncAt = new Date();
     state.consecutiveFailures = 0;
-    state.lastSuccessAt = state.lastPollAt;
-  } else {
+  } else if (opts.failures > 0) {
     state.consecutiveFailures += 1;
   }
 }
 
-export function getEkartStatusSyncMetrics(): EkartStatusSyncMetricsSnapshot {
-  return { ...state };
+export function getEkartStatusSyncHealth(): EkartStatusSyncHealth {
+  return {
+    activeShipments: state.activeShipments,
+    lastPollAt: state.lastPollAt?.toISOString() ?? null,
+    lastSuccessfulSyncAt: state.lastSuccessfulSyncAt?.toISOString() ?? null,
+    consecutiveFailures: state.consecutiveFailures,
+    lastSyncLatencyMs: state.lastSyncLatencyMs,
+    lastProviderLatencyMs: state.lastProviderLatencyMs,
+    statusChanges: state.statusChanges,
+    pollFailures: state.pollFailures,
+    polls: state.polls,
+  };
+}
+
+/** @deprecated Prefer getEkartStatusSyncHealth — kept for booking metrics alias. */
+export function getEkartStatusSyncMetrics(): EkartStatusSyncHealth {
+  return getEkartStatusSyncHealth();
 }
 
 export function resetEkartStatusSyncMetricsForTests(): void {
-  state.polls = 0;
-  state.consecutiveFailures = 0;
+  state.activeShipments = 0;
   state.lastPollAt = null;
-  state.lastSuccessAt = null;
-  state.lastProcessed = 0;
-  state.lastUpdated = 0;
-  state.lastErrors = 0;
-  state.lastLatencyMs = null;
+  state.lastSuccessfulSyncAt = null;
+  state.consecutiveFailures = 0;
+  state.lastSyncLatencyMs = null;
+  state.lastProviderLatencyMs = null;
+  state.statusChanges = 0;
+  state.pollFailures = 0;
+  state.polls = 0;
 }
