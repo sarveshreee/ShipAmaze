@@ -18,6 +18,8 @@ import { toast } from "sonner";
 import type { ProcessSelectedPayload } from "@/services/orderService";
 import {
   discoverServiceability,
+  groupCouriersByProvider,
+  providerDisplayName,
   type DiscoveredCourier,
 } from "@/services/courierDiscoveryService";
 import { providerSupports } from "@/lib/providerCapabilities";
@@ -246,11 +248,20 @@ export function ProcessSelectedModal({
       return {
         carrier_id: String(c.courierId || c.carrier_id),
         carrier_name: String(c.courierName || c.carrier_name || c.courierId || c.carrier_id),
-        provider: (c.provider || "velocity") as "velocity" | "lorrigo",
+        provider: (c.provider === "lorrigo"
+          ? "lorrigo"
+          : c.provider === "ekart"
+            ? "ekart"
+            : "velocity") as "velocity" | "lorrigo" | "ekart",
         price,
       };
     });
   }, [serviceableCouriers, fixedCourierFromFilter]);
+
+  const courierSections = useMemo(
+    () => groupCouriersByProvider(displayCouriers),
+    [displayCouriers]
+  );
 
   const validationMessages = useMemo(() => {
     if (!open) return [] as string[];
@@ -331,7 +342,14 @@ export function ProcessSelectedModal({
       courierSelectionMode: mode,
       courierName: mode === "priority" ? "Priority" : selectedCarrierName,
       carrierId: mode === "courier" ? selectedCarrierId : undefined,
-      provider: mode === "courier" ? (selectedCarrierProvider === "lorrigo" ? "lorrigo" : "velocity") : "velocity",
+      provider:
+        mode === "courier"
+          ? selectedCarrierProvider === "lorrigo"
+            ? "lorrigo"
+            : selectedCarrierProvider === "ekart"
+              ? "ekart"
+              : "velocity"
+          : "velocity",
       shipmentMode,
       weight: w,
       length: L,
@@ -362,8 +380,9 @@ export function ProcessSelectedModal({
               </DialogTitle>
             </DialogHeader>
             <p className="text-sm text-text-muted mt-2 pr-4">
-              Orders are booked via Velocity with a real AWB. Dropshippers are charged your admin Rate
-              Card price (Rates &amp; Shipping), not Velocity&apos;s actual freight.
+              Orders are booked via the selected courier provider (Velocity, Lorrigo, or Ekart when enabled)
+              with a real AWB. Dropshippers are charged your admin Rate Card price (Rates &amp; Shipping),
+              not the provider&apos;s actual freight.
               {fixedCourierFromFilter && (
                 <>
                   {" "}
@@ -467,8 +486,8 @@ export function ProcessSelectedModal({
                 {courierMode === "priority" && (
                   <p className="text-xs text-text-muted rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2">
                     Each order will be booked using your saved priority list — starting from Priority #1 for every
-                    order, falling back to the next courier if the lane is not serviceable. Lorrigo and Velocity
-                    couriers are both supported when configured.
+                    order, falling back to the next courier if the lane is not serviceable. Velocity, Lorrigo,
+                    and Ekart couriers are supported when configured.
                   </p>
                 )}
 
@@ -481,7 +500,7 @@ export function ProcessSelectedModal({
                     {serviceableLoading && (
                       <p className="text-[11px] text-text-muted mt-2 flex items-center gap-1">
                         <Loader2 className="h-3 w-3 animate-spin" />
-                        Loading serviceable couriers from Velocity…
+                        Loading serviceable couriers…
                       </p>
                     )}
 
@@ -492,20 +511,31 @@ export function ProcessSelectedModal({
                     )}
 
                     {displayCouriers.length > 0 && (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-3">
-                        {displayCouriers.map((c) => (
-                          <CourierCard
-                            key={`${c.provider}:${c.carrier_id}`}
-                            carrierId={c.carrier_id}
-                            carrierName={c.carrier_name}
-                            provider={c.provider}
-                            price={"price" in c ? c.price : null}
-                            selected={
-                              selectedCarrierId === c.carrier_id &&
-                              selectedCarrierProvider === c.provider
-                            }
-                            onClick={() => selectCourier(c.carrier_id, c.carrier_name, c.provider)}
-                          />
+                      <div className="space-y-5 mt-3">
+                        {courierSections.map((section) => (
+                          <div key={section.provider}>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-2">
+                              {providerDisplayName(section.provider)}
+                            </p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                              {section.items.map((c) => (
+                                <CourierCard
+                                  key={`${c.provider}:${c.carrier_id}`}
+                                  carrierId={c.carrier_id}
+                                  carrierName={c.carrier_name}
+                                  provider={c.provider}
+                                  price={"price" in c ? c.price : null}
+                                  selected={
+                                    selectedCarrierId === c.carrier_id &&
+                                    selectedCarrierProvider === c.provider
+                                  }
+                                  onClick={() =>
+                                    selectCourier(c.carrier_id, c.carrier_name, c.provider)
+                                  }
+                                />
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}

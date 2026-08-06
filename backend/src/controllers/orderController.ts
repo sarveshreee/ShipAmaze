@@ -39,12 +39,13 @@ import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddlew
 import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 import { mapToPublicTracking } from "../utils/publicTracking.js";
 import { bookForwardShipmentForOrder, syncLocalOrderEditsToVelocity } from "../modules/velocity/velocity.controller.js";
-import { bookLorrigoShipment } from "../modules/courier/bookShipment.js";
+import { bookLorrigoShipment, bookEkartShipment } from "../modules/courier/bookShipment.js";
 import { discoverServiceability } from "../modules/courier/discoverCouriers.js";
 import { getCourierProvider } from "../modules/courier/providerRegistry.js";
 import { providerSupports } from "../modules/courier/capabilities.js";
 import type { CourierProviderId } from "../modules/courier/types.js";
 import { isLorrigoEnabledFlag } from "../modules/lorrigo/lorrigo.config.js";
+import { isEkartEnabledFlag, isEkartConfigured } from "../modules/ekart/ekart.config.js";
 import { isVelocityEnabledFlag } from "../config/env.js";
 import {
   pickPriorityServiceableCourier,
@@ -1761,12 +1762,18 @@ async function saveOrderAfterBooking(o: OrderDoc): Promise<void> {
   }
 }
 
-function noteProcessSelectedBooked(o: OrderDoc, userId: Types.ObjectId, provider?: "velocity" | "lorrigo") {
+function noteProcessSelectedBooked(
+  o: OrderDoc,
+  userId: Types.ObjectId,
+  provider?: "velocity" | "lorrigo" | "ekart"
+) {
   const canonical = normalizeOrderStatus(o.status);
   const via =
     provider === "lorrigo"
       ? "Processed via Process Selected (Lorrigo priority)"
-      : "Processed via Process Selected (priority)";
+      : provider === "ekart"
+        ? "Processed via Process Selected (Ekart priority)"
+        : "Processed via Process Selected (priority)";
   appendStatusHistory(o, canonical === "draft" ? "pickup_scheduled" : canonical, userId, via);
 }
 
@@ -1814,7 +1821,12 @@ async function listMultiProviderServiceableForOrder(
         .map((c) => ({
           carrier_id: String(c.courierId ?? "").trim(),
           carrier_name: String(c.courierName ?? "").trim(),
-          provider: c.provider === "lorrigo" ? ("lorrigo" as const) : ("velocity" as const),
+          provider:
+            c.provider === "lorrigo"
+              ? ("lorrigo" as const)
+              : c.provider === "ekart"
+                ? ("ekart" as const)
+                : ("velocity" as const),
         }))
         .filter((c) => c.carrier_id && c.carrier_name);
     } catch {
@@ -1834,7 +1846,12 @@ async function bookPriorityResolvedCourier(
   bookingBase: Record<string, unknown>
 ): Promise<{ awb: string; carrier: string }> {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const provider = preferred.provider === "lorrigo" ? "lorrigo" : "velocity";
+  const provider: CourierProviderId =
+    preferred.provider === "lorrigo"
+      ? "lorrigo"
+      : preferred.provider === "ekart"
+        ? "ekart"
+        : "velocity";
 
   if (provider === "lorrigo") {
     if (!prep.lorrigoPickupId) {
@@ -1850,6 +1867,27 @@ async function bookPriorityResolvedCourier(
     const booking = await bookLorrigoShipment({
       order: o,
       provider: "lorrigo",
+      pickupAddressId: prep.pickupAddressId,
+      courierId: preferred.carrier_id,
+      courierName: preferred.carrier_name,
+      weightKg: w,
+      lengthCm: L,
+      widthCm: W,
+      heightCm: H,
+      skipServiceability: true,
+      userId: req.user._id,
+    });
+    return { awb: booking.awb, carrier: booking.courierName || preferred.carrier_name };
+  }
+
+  if (provider === "ekart") {
+    const w = Number(prep.weight ?? o.weight);
+    const L = Number(prep.length ?? o.length ?? 10);
+    const W = Number(prep.width ?? o.width ?? o.breadth ?? 10);
+    const H = Number(prep.height ?? o.height ?? 10);
+    const booking = await bookEkartShipment({
+      order: o,
+      provider: "ekart",
       pickupAddressId: prep.pickupAddressId,
       courierId: preferred.carrier_id,
       courierName: preferred.carrier_name,
@@ -2003,7 +2041,12 @@ async function processOneSelectedOrder(
       const resolved: ResolvedServiceableCarrier = {
         carrier_id: String(candidate.carrierId ?? "").trim(),
         carrier_name: candidate.courierName,
-        provider: candidate.provider === "lorrigo" ? "lorrigo" : "velocity",
+        provider:
+          candidate.provider === "lorrigo"
+            ? "lorrigo"
+            : candidate.provider === "ekart"
+              ? "ekart"
+              : "velocity",
       };
       if (!resolved.carrier_id) {
         // Resolve from live serviceability by name within provider.
@@ -2057,7 +2100,7 @@ async function processOneSelectedOrder(
     bookingBody.skip_serviceability = true;
   }
 
-  // Lorrigo explicit courier booking — Velocity path below is untouched.
+  // Explicit courier booking by provider — Velocity path below is untouched.
   if (prep.courierProvider === "lorrigo") {
     try {
       const w = Number(prep.weight ?? o.weight);
@@ -2089,6 +2132,40 @@ async function processOneSelectedOrder(
         outcome: "failed",
         orderId: o.orderId,
         error: formatErrorMessage(err, "Lorrigo booking failed"),
+      };
+    }
+  }
+
+  if (prep.courierProvider === "ekart") {
+    try {
+      const w = Number(prep.weight ?? o.weight);
+      const L = Number(prep.length ?? o.length ?? 10);
+      const W = Number(prep.width ?? o.width ?? o.breadth ?? 10);
+      const H = Number(prep.height ?? o.height ?? 10);
+      const booking = await bookEkartShipment({
+        order: o,
+        provider: "ekart",
+        pickupAddressId: prep.pickupAddressId,
+        courierId: String(prep.carrierId ?? "").trim(),
+        courierName: prep.courierName,
+        weightKg: w,
+        lengthCm: L,
+        widthCm: W,
+        heightCm: H,
+        skipServiceability: true,
+        userId: req.user._id,
+      });
+      return {
+        outcome: "updated",
+        orderId: o.orderId,
+        awb: booking.awb,
+        carrier: booking.courierName || prep.courierName,
+      };
+    } catch (err: unknown) {
+      return {
+        outcome: "failed",
+        orderId: o.orderId,
+        error: formatErrorMessage(err, "Ekart booking failed"),
       };
     }
   }
@@ -2176,7 +2253,8 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   const providerRaw = String(body.provider ?? body.courierProvider ?? "velocity")
     .trim()
     .toLowerCase();
-  const courierProvider: CourierProviderId = providerRaw === "lorrigo" ? "lorrigo" : "velocity";
+  const courierProvider: CourierProviderId =
+    providerRaw === "lorrigo" ? "lorrigo" : providerRaw === "ekart" ? "ekart" : "velocity";
 
   // Load priority list early — needed to know which pickup links are required.
   const prioritiesEarly =
@@ -2193,6 +2271,8 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     (prioritiesEarly.some((p) => p.provider === "lorrigo") ||
       // Legacy entries without provider: allow Lorrigo exact-name match when enabled.
       (isLorrigoEnabledFlag() && prioritiesEarly.some((p) => !p.provider)));
+  const priorityNeedsEkart =
+    courierSelectionMode === "priority" && prioritiesEarly.some((p) => p.provider === "ekart");
   const priorityNeedsVelocity =
     courierSelectionMode === "priority" &&
     (prioritiesEarly.some((p) => p.provider === "velocity" || !p.provider) ||
@@ -2205,6 +2285,20 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     const lorrigo = getCourierProvider("lorrigo");
     if (!providerSupports(lorrigo.capabilities, "booking") || !lorrigo.isConfigured()) {
       throw new AppError(503, "Lorrigo booking is not available (provider not configured).");
+    }
+  } else if (courierSelectionMode === "courier" && courierProvider === "ekart") {
+    if (!isEkartEnabledFlag()) {
+      throw new AppError(503, "Ekart is disabled (EKART_ENABLED is not true).");
+    }
+    if (!isEkartConfigured()) {
+      throw new AppError(
+        503,
+        "Ekart credentials are not configured. Set EKART_AUTHORIZATION and EKART_MERCHANT_CODE."
+      );
+    }
+    const ekart = getCourierProvider("ekart");
+    if (!providerSupports(ekart.capabilities, "booking") || !ekart.isConfigured()) {
+      throw new AppError(503, "Ekart booking is not available (provider not configured).");
     }
   } else if (courierSelectionMode === "courier") {
     if (!isVelocityEnabledFlag()) {
@@ -2236,6 +2330,21 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
       const lorrigo = getCourierProvider("lorrigo");
       if (!providerSupports(lorrigo.capabilities, "booking") || !lorrigo.isConfigured()) {
         throw new AppError(503, "Lorrigo booking is not available (provider not configured).");
+      }
+    }
+    if (priorityNeedsEkart) {
+      if (!isEkartEnabledFlag()) {
+        throw new AppError(503, "Ekart is disabled (EKART_ENABLED is not true).");
+      }
+      if (!isEkartConfigured()) {
+        throw new AppError(
+          503,
+          "Ekart credentials are not configured. Set EKART_AUTHORIZATION and EKART_MERCHANT_CODE."
+        );
+      }
+      const ekart = getCourierProvider("ekart");
+      if (!providerSupports(ekart.capabilities, "booking") || !ekart.isConfigured()) {
+        throw new AppError(503, "Ekart booking is not available (provider not configured).");
       }
     }
   }

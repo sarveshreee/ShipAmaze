@@ -8,6 +8,11 @@ import { Label } from "@/components/ui/label";
 
 import { CourierCard } from "@/components/CourierCard";
 
+import {
+  providerDisplayName,
+  groupCouriersByProvider,
+} from "@/services/courierDiscoveryService";
+
 import { toast } from "sonner";
 
 import { ChevronDown, ChevronUp, GripVertical, Loader2, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
@@ -68,7 +73,8 @@ function toPriorityEntries(carriers: VelocityLaneCarrier[]): BulkCourierPriority
 
     carrierId: String(c.carrier_id),
 
-    provider: c.provider === "lorrigo" ? "lorrigo" : "velocity",
+    provider:
+      c.provider === "lorrigo" ? "lorrigo" : c.provider === "ekart" ? "ekart" : "velocity",
 
     rank: i + 1,
 
@@ -220,7 +226,12 @@ export function CourierPriorityConfigModal({
             return {
               ...p,
               courierName: match.carrier_name,
-              provider: match.provider === "lorrigo" ? "lorrigo" : p.provider || "velocity",
+              provider:
+                match.provider === "lorrigo"
+                  ? "lorrigo"
+                  : match.provider === "ekart"
+                    ? "ekart"
+                    : p.provider || "velocity",
             };
           }
 
@@ -235,7 +246,12 @@ export function CourierPriorityConfigModal({
               ...p,
               courierName: byName.carrier_name,
               carrierId: String(byName.carrier_id),
-              provider: byName.provider === "lorrigo" ? "lorrigo" : "velocity",
+              provider:
+                byName.provider === "lorrigo"
+                  ? "lorrigo"
+                  : byName.provider === "ekart"
+                    ? "ekart"
+                    : "velocity",
             };
           }
 
@@ -347,7 +363,12 @@ export function CourierPriorityConfigModal({
 
         carrierId: carrier.carrier_id,
 
-        provider: carrier.provider === "lorrigo" ? "lorrigo" : "velocity",
+        provider:
+          carrier.provider === "lorrigo"
+            ? "lorrigo"
+            : carrier.provider === "ekart"
+              ? "ekart"
+              : "velocity",
 
         rank: prev.length + 1,
 
@@ -371,7 +392,9 @@ export function CourierPriorityConfigModal({
 
     setPriorities(toPriorityEntries(available));
 
-    toast.success(`Loaded ${available.length} couriers (Velocity + Lorrigo when enabled)`);
+    toast.success(
+      `Loaded ${available.length} courier${available.length === 1 ? "" : "s"} from discovery (Velocity / Lorrigo / Ekart when each returns serviceable)`
+    );
 
   };
 
@@ -518,7 +541,11 @@ export function CourierPriorityConfigModal({
                       <span className="flex-1 text-sm font-medium text-text-primary">
                         {p.courierName}
                         <span className="ml-2 text-[10px] uppercase tracking-wide text-text-muted">
-                          {p.provider === "lorrigo" ? "Lorrigo" : "Velocity"}
+                          {p.provider === "lorrigo"
+                            ? "Lorrigo"
+                            : p.provider === "ekart"
+                              ? "Ekart"
+                              : "Velocity"}
                         </span>
                       </span>
 
@@ -602,7 +629,7 @@ export function CourierPriorityConfigModal({
 
               <p className="text-xs text-text-muted mt-1 mb-3">
 
-                Couriers from Velocity and Lorrigo for {laneLabel}
+                Couriers from Velocity, Lorrigo, and Ekart for {laneLabel}
 
                 {!destPincode && resolvedFromPin.length === 6 && " (reference destination — order pincodes may differ)"}.
 
@@ -628,42 +655,39 @@ export function CourierPriorityConfigModal({
 
               ) : (
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-
-                  {addable.map((c) => (
-
-                    <div key={`${c.provider || "velocity"}-${c.carrier_id}-${c.carrier_name}`} className="relative">
-
-                      <CourierCard
-                        carrierId={c.carrier_id}
-                        carrierName={c.carrier_name}
-                        provider={c.provider}
-                        compact
-                        onClick={() => add(c)}
-                      />
-
-                      <Button
-
-                        type="button"
-
-                        size="icon"
-
-                        variant="secondary"
-
-                        className="absolute -top-2 -right-2 h-7 w-7 rounded-full shadow-md"
-
-                        onClick={() => add(c)}
-
-                      >
-
-                        <Plus className="h-3.5 w-3.5" />
-
-                      </Button>
-
+                <div className="space-y-5">
+                  {groupCouriersByProvider(addable).map((section) => (
+                    <div key={section.provider}>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-2">
+                        {providerDisplayName(section.provider)}
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                        {section.items.map((c) => (
+                          <div
+                            key={`${c.provider || "velocity"}-${c.carrier_id}-${c.carrier_name}`}
+                            className="relative"
+                          >
+                            <CourierCard
+                              carrierId={c.carrier_id}
+                              carrierName={c.carrier_name}
+                              provider={c.provider}
+                              compact
+                              onClick={() => add(c)}
+                            />
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="secondary"
+                              className="absolute -top-2 -right-2 h-7 w-7 rounded-full shadow-md"
+                              onClick={() => add(c)}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-
                   ))}
-
                 </div>
 
               )}

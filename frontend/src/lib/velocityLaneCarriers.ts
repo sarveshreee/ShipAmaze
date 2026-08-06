@@ -3,8 +3,14 @@ import { discoverRates, discoverServiceability } from "@/services/courierDiscove
 export type VelocityLaneCarrier = {
   carrier_id: string;
   carrier_name: string;
-  provider?: "velocity" | "lorrigo";
+  provider?: "velocity" | "lorrigo" | "ekart";
 };
+
+function normalizeProvider(provider?: string): "velocity" | "lorrigo" | "ekart" {
+  if (provider === "lorrigo") return "lorrigo";
+  if (provider === "ekart") return "ekart";
+  return "velocity";
+}
 
 function pushCarrier(
   items: VelocityLaneCarrier[],
@@ -16,7 +22,7 @@ function pushCarrier(
   const id = carrierId != null ? String(carrierId).trim() : "";
   const name = String(carrierName ?? id).trim();
   if (!id || !name) return;
-  const prov = provider === "lorrigo" ? "lorrigo" : "velocity";
+  const prov = normalizeProvider(provider);
   const key = `${prov}::${id}::${name}`.toLowerCase();
   if (seen.has(key)) return;
   seen.add(key);

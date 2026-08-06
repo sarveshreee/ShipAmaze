@@ -5,15 +5,16 @@ import {
 export type BulkCourierPriorityCandidate = {
   courierName: string;
   carrierId?: string;
-  provider?: "velocity" | "lorrigo";
+  provider?: "velocity" | "lorrigo" | "ekart";
   rank: number;
 };
 
 const SETTINGS_KEY = "default";
 
-function normalizeProvider(raw: unknown): "velocity" | "lorrigo" | undefined {
+function normalizeProvider(raw: unknown): "velocity" | "lorrigo" | "ekart" | undefined {
   const v = String(raw ?? "").trim().toLowerCase();
   if (v === "lorrigo") return "lorrigo";
+  if (v === "ekart") return "ekart";
   if (v === "velocity") return "velocity";
   return undefined;
 }

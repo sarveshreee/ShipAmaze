@@ -177,13 +177,13 @@ export async function listServiceableCarriersForOrder(
 export type ResolvedServiceableCarrier = {
   carrier_id: string;
   carrier_name: string;
-  provider?: "velocity" | "lorrigo";
+  provider?: "velocity" | "lorrigo" | "ekart";
 };
 
 export type PriorityCourierCandidate = {
   courierName: string;
   carrierId?: string;
-  provider?: "velocity" | "lorrigo";
+  provider?: "velocity" | "lorrigo" | "ekart";
   rank?: number;
 };
 
@@ -191,20 +191,21 @@ export type PriorityCourierCandidate = {
 export type PriorityServiceableCourier = {
   carrier_id: string;
   carrier_name: string;
-  provider: "velocity" | "lorrigo";
+  provider: "velocity" | "lorrigo" | "ekart";
 };
 
 function carrierRowToResolved(
   row: VelocityCarrier | PriorityServiceableCourier,
   fallbackName: string,
-  provider?: "velocity" | "lorrigo"
+  provider?: "velocity" | "lorrigo" | "ekart"
 ): ResolvedServiceableCarrier | undefined {
   if (row.carrier_id == null || !String(row.carrier_id).trim()) return undefined;
-  const prov =
-    provider ??
-    ("provider" in row && (row.provider === "lorrigo" || row.provider === "velocity")
+  const rowProv =
+    "provider" in row &&
+    (row.provider === "lorrigo" || row.provider === "velocity" || row.provider === "ekart")
       ? row.provider
-      : "velocity");
+      : undefined;
+  const prov = provider ?? rowProv ?? "velocity";
   return {
     carrier_id: String(row.carrier_id).trim(),
     carrier_name: String(row.carrier_name ?? fallbackName).trim() || fallbackName,
@@ -214,7 +215,7 @@ function carrierRowToResolved(
 
 function poolForProvider(
   serviceable: Array<VelocityCarrier | PriorityServiceableCourier>,
-  provider?: "velocity" | "lorrigo"
+  provider?: "velocity" | "lorrigo" | "ekart"
 ): Array<VelocityCarrier | PriorityServiceableCourier> {
   if (!provider) return serviceable;
   return serviceable.filter((c) => {
@@ -237,9 +238,8 @@ function exactNameMatch(
  * in the live serviceability list. Used by Process Selected (priority mode)
  * so each order books exactly once with the highest-priority serviceable courier.
  *
- * Provider-aware: when a priority entry has provider=lorrigo|velocity, only that
- * provider's lane is considered (prevents Lorrigo "Delhivery Spcl…" fuzzy-matching
- * Velocity "Delhivery Standard").
+ * Provider-aware: when a priority entry has provider=lorrigo|velocity|ekart, only that
+ * provider's lane is considered (prevents cross-provider fuzzy name matches).
  */
 export function pickPriorityServiceableCourier(
   priorities: PriorityCourierCandidate[],

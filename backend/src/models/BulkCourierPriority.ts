@@ -3,8 +3,8 @@ import mongoose, { Schema, type Document, type Model } from "mongoose";
 export interface IBulkCourierPriorityEntry {
   courierName: string;
   carrierId?: string;
-  /** velocity | lorrigo — required to book the correct provider in priority mode */
-  provider?: "velocity" | "lorrigo";
+  /** velocity | lorrigo | ekart — required to book the correct provider in priority mode */
+  provider?: "velocity" | "lorrigo" | "ekart";
   rank: number;
 }
 
@@ -18,7 +18,7 @@ const entrySchema = new Schema<IBulkCourierPriorityEntry>(
   {
     courierName: { type: String, required: true, trim: true },
     carrierId: { type: String, trim: true },
-    provider: { type: String, enum: ["velocity", "lorrigo"], required: false },
+    provider: { type: String, enum: ["velocity", "lorrigo", "ekart"], required: false },
     rank: { type: Number, required: true, min: 1 },
   },
   { _id: false }

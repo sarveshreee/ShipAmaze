@@ -296,8 +296,8 @@ export type ProcessSelectedPayload = {
   courierSelectionMode: "priority" | "courier";
   courierName: string;
   carrierId?: string;
-  /** velocity (default) | lorrigo */
-  provider?: "velocity" | "lorrigo";
+  /** velocity (default) | lorrigo | ekart */
+  provider?: "velocity" | "lorrigo" | "ekart";
   shipmentMode: "forward" | "reverse";
   weight?: number;
   length?: number;
