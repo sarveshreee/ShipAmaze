@@ -87,6 +87,7 @@ export const PENDING_PICKUP_INTERNAL_KEYS = [
   "ready_for_pickup",
   "out_for_pickup",
   "pickup_out_for_pickup",
+  "pickup_exception",
   "not_picked",
 ] as const;
 
@@ -107,7 +108,6 @@ export const DELIVERED_INTERNAL_KEYS = ["delivered"] as const;
 export const PROCESSING_FAILED_INTERNAL_KEYS = [
   "processing_failed",
   "pickup_failed",
-  "pickup_exception",
   "booking_failed",
   "label_generation_failed",
   "courier_api_failed",
@@ -196,6 +196,8 @@ const RAW_KEY_TO_INTERNAL: Record<string, string> = {
   ready_for_pickup: "pending_pickup",
   out_for_pickup: "pending_pickup",
   pickup_out_for_pickup: "pending_pickup",
+  pickup_exception: "pickup_exception",
+  pickupexception: "pickup_exception",
   not_picked: "pending_pickup",
   on_process: "pending_pickup",
   // In transit
@@ -235,8 +237,6 @@ const RAW_KEY_TO_INTERNAL: Record<string, string> = {
   pickup_failed: "pickup_failed",
   pickupfailed: "pickup_failed",
   pick_up_failed: "pickup_failed",
-  pickup_exception: "pickup_failed",
-  pickupexception: "pickup_failed",
   booking_failed: "booking_failed",
   label_generation_failed: "label_generation_failed",
   courier_api_failed: "courier_api_failed",
@@ -313,8 +313,8 @@ const PROVIDER_RAW_OVERRIDES: Record<string, Record<string, string>> = {
     booking_failed: "booking_failed",
     out_for_pickup: "pending_pickup",
     pickup_out_for_pickup: "pending_pickup",
-    pickup_exception: "pickup_failed",
-    pickupexception: "pickup_failed",
+    pickup_exception: "pickup_exception",
+    pickupexception: "pickup_exception",
   },
   ekart: {
     pickup_cancelled: "pickup_cancelled",
@@ -325,7 +325,10 @@ const PROVIDER_RAW_OVERRIDES: Record<string, Record<string, string>> = {
 
 function inferInternalFromHeuristics(key: string): string | undefined {
   if (!key) return undefined;
-  if (key.includes("pickup") && (key.includes("fail") || key.includes("cancel") || key.includes("exception"))) {
+  if (key.includes("pickup") && key.includes("exception")) {
+    return "pickup_exception";
+  }
+  if (key.includes("pickup") && (key.includes("fail") || key.includes("cancel"))) {
     return key.includes("cancel") ? "pickup_cancelled" : "pickup_failed";
   }
   if (key.includes("booking") && key.includes("fail")) return "booking_failed";
@@ -415,6 +418,7 @@ const INTERNAL_PROGRESS_RANK: Record<string, number> = {
   pickup_scheduled: 20,
   ready_for_pickup: 20,
   not_picked: 20,
+  pickup_exception: 20,
   picked_up: 30,
   in_transit: 35,
   shipped: 35,
@@ -512,7 +516,6 @@ export function classifyOrderTab(order: OrderClassificationInput): OrderTabCateg
   const shipmentCategory = internalKeyToTabCategory(shipmentKey);
   if (
     shipmentCategory === "pending_pickup" ||
-    shipmentCategory === "failed" ||
     shipmentCategory === "ndr" ||
     shipmentCategory === "rto"
   ) {

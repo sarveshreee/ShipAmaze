@@ -35,6 +35,7 @@ describe("buildTabQuery", () => {
     expect(s).toContain("ready_for_pickup");
     expect(s).toContain("not_picked");
     expect(s).toContain("out_for_pickup");
+    expect(s).toContain("pickup_exception");
   });
 
   it("failed includes processing failures but not ndr in inclusion set", () => {

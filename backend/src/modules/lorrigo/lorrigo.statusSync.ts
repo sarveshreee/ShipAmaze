@@ -194,8 +194,8 @@ export async function syncLorrigoActiveShipmentStatuses(
         current === "in_transit" &&
         (rawKey === "out_for_pickup" || rawKey === "pickup_out_for_pickup");
       const healPickupException =
-        nextStatus === "pickup_failed" &&
-        (current === "in_transit" || current === "pickup_scheduled" || current === "pending_pickup");
+        rawKey === "pickup_exception" &&
+        (current === "in_transit" || current === "pickup_failed" || current === "pickup_scheduled");
 
       if (order.shipmentStatus !== rawShipmentStatus) {
         order.shipmentStatus = rawShipmentStatus;

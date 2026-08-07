@@ -89,8 +89,8 @@ describe("classifyOrderTab", () => {
     ).toBe("pending_pickup");
   });
 
-  it("Lorrigo PICKUP_EXCEPTION goes to failed even when status is in_transit", () => {
-    expect(normalizeTrackingStatus("PICKUP_EXCEPTION", "lorrigo")).toBe("pickup_failed");
+  it("Lorrigo PICKUP_EXCEPTION goes to pending_pickup with pickup exception status", () => {
+    expect(normalizeTrackingStatus("PICKUP_EXCEPTION", "lorrigo")).toBe("pickup_exception");
     expect(
       classifyOrderTab({
         status: "in_transit",
@@ -98,7 +98,29 @@ describe("classifyOrderTab", () => {
         awb: "39598662811500",
         courierProvider: "lorrigo",
       })
-    ).toBe("failed");
+    ).toBe("pending_pickup");
+    expect(
+      orderMatchesTabCategory(
+        {
+          status: "pickup_failed",
+          shipmentStatus: "PICKUP_EXCEPTION",
+          awb: "39598662811500",
+          courierProvider: "lorrigo",
+        },
+        "pending-pickup"
+      )
+    ).toBe(true);
+    expect(
+      orderMatchesTabCategory(
+        {
+          status: "pickup_failed",
+          shipmentStatus: "PICKUP_EXCEPTION",
+          awb: "39598662811500",
+          courierProvider: "lorrigo",
+        },
+        "failed"
+      )
+    ).toBe(false);
   });
 });
 

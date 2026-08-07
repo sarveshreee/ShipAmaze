@@ -79,6 +79,8 @@ const LORRIGO_RAW_TO_PROVIDER: Record<string, ProviderCanonicalStatus> = {
   ready_for_pickup: "CREATED",
   out_for_pickup: "CREATED",
   pickup_out_for_pickup: "CREATED",
+  pickup_exception: "CREATED",
+  pickupexception: "CREATED",
   picked_up: "PICKED_UP",
   pickedup: "PICKED_UP",
   pickup: "PICKED_UP",
