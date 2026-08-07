@@ -5,9 +5,11 @@ import {
   getAdminToken,
   setAdminToken,
   clearAdminToken,
+  getStoredUserJson,
+  setStoredUserJson,
   ApiError,
 } from "@/lib/apiClient";
-import { resetSessionQueries } from "@/lib/queryClient";
+import { clearUserScopedQueries, queryClient, queryKeys, resetSessionQueries } from "@/lib/queryClient";
 import * as authService from "@/services/authService";
 import type { AuthUser, SignupRole, UserRole } from "@/services/authService";
 
@@ -71,9 +73,32 @@ function errMessage(e: unknown) {
   return "Something went wrong";
 }
 
+function parseStoredUser(): AuthUser | null {
+  const raw = getStoredUserJson();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+async function prefetchDashboard(userId: string) {
+  try {
+    const { apiRequest } = await import("@/lib/apiClient");
+    await queryClient.prefetchQuery({
+      queryKey: queryKeys.dashboard(userId),
+      queryFn: () => apiRequest<Record<string, unknown>>("/dashboard/summary"),
+      staleTime: 60 * 1000,
+    });
+  } catch {
+    /* non-blocking */
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState<AuthUser | null>(() => parseStoredUser());
+  const [isLoading, setIsLoading] = useState(() => !!getStoredToken() && !parseStoredUser());
   const [isImpersonating, setIsImpersonating] = useState(() => !!getAdminToken());
 
   useEffect(() => {
@@ -88,10 +113,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { user: u } = await authService.getCurrentUser();
         if (!cancelled) {
           setUser(u);
+          setStoredUserJson(JSON.stringify(u));
+          queryClient.setQueryData(queryKeys.profile(u.id), { user: u });
           setIsImpersonating(!!getAdminToken() || !!u.isImpersonation);
         }
       } catch {
-        if (!cancelled) setUser(null);
+        if (!cancelled) {
+          setUser(null);
+          setStoredUserJson(null);
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -104,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handler = () => {
       setUser(null);
+      setStoredUserJson(null);
       setIsImpersonating(false);
     };
     window.addEventListener("shipamaze:unauthorized", handler);
@@ -115,8 +146,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearAdminToken();
       setIsImpersonating(false);
       const { user: u } = await authService.login(email, password);
-      resetSessionQueries();
+      clearUserScopedQueries();
+      queryClient.setQueryData(queryKeys.profile(u.id), { user: u });
       setUser(u);
+      void prefetchDashboard(u.id);
       return { user: u };
     } catch (e: unknown) {
       return { error: errMessage(e) };
@@ -147,6 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if ("token" in res && res.token) {
         const u = res.user;
         setUser(u);
+        setStoredUserJson(JSON.stringify(u));
         return { user: u };
       }
       return { error: "Unexpected registration response" };
@@ -159,6 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void authService.logout().finally(() => {
       resetSessionQueries();
       setUser(null);
+      setStoredUserJson(null);
       setIsImpersonating(false);
       const pathOnly = window.location.pathname;
       if (!/^\/(login|signup|verify-email)(\/|$)/i.test(pathOnly)) {
@@ -169,6 +204,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const applyUser = (u: AuthUser) => {
     setUser(u);
+    setStoredUserJson(JSON.stringify(u));
+    queryClient.setQueryData(queryKeys.profile(u.id), { user: u });
     setIsImpersonating(!!getAdminToken() || !!u.isImpersonation);
   };
 
@@ -176,9 +213,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { user: u } = await authService.getCurrentUser();
       setUser(u);
+      setStoredUserJson(JSON.stringify(u));
+      queryClient.setQueryData(queryKeys.profile(u.id), { user: u });
       setIsImpersonating(!!getAdminToken() || !!u.isImpersonation);
     } catch {
       setUser(null);
+      setStoredUserJson(null);
       setIsImpersonating(false);
     }
   };
@@ -190,8 +230,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setAdminToken(current);
     setStoredToken(token);
-    resetSessionQueries();
+    clearUserScopedQueries();
     setUser(nextUser);
+    setStoredUserJson(JSON.stringify(nextUser));
     setIsImpersonating(true);
   }, []);
 
@@ -204,13 +245,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStoredToken(adminJwt);
     clearAdminToken();
     setIsImpersonating(false);
-    resetSessionQueries();
+    clearUserScopedQueries();
     try {
       const { user: u } = await authService.getCurrentUser();
       setUser(u);
+      setStoredUserJson(JSON.stringify(u));
       return u;
     } catch {
       setUser(null);
+      setStoredUserJson(null);
       return null;
     }
   }, []);

@@ -1,27 +1,46 @@
 const TOKEN_KEY = "shipamaze_token";
 /** Stashed admin JWT while impersonating another user. */
 const ADMIN_TOKEN_KEY = "adminToken";
+/** Cached user profile for instant session restore (tab-scoped). */
+const USER_KEY = "shipamaze_user";
+
+/** Session storage — token expires when browser tab closes. */
+function authStorage(): Storage {
+  return sessionStorage;
+}
 
 export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return authStorage().getItem(TOKEN_KEY);
 }
 
 export function setStoredToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  const storage = authStorage();
+  if (token) storage.setItem(TOKEN_KEY, token);
+  else storage.removeItem(TOKEN_KEY);
+}
+
+export function getStoredUserJson(): string | null {
+  return authStorage().getItem(USER_KEY);
+}
+
+export function setStoredUserJson(userJson: string | null) {
+  const storage = authStorage();
+  if (userJson) storage.setItem(USER_KEY, userJson);
+  else storage.removeItem(USER_KEY);
 }
 
 export function getAdminToken(): string | null {
-  return localStorage.getItem(ADMIN_TOKEN_KEY);
+  return authStorage().getItem(ADMIN_TOKEN_KEY);
 }
 
 export function setAdminToken(token: string | null) {
-  if (token) localStorage.setItem(ADMIN_TOKEN_KEY, token);
-  else localStorage.removeItem(ADMIN_TOKEN_KEY);
+  const storage = authStorage();
+  if (token) storage.setItem(ADMIN_TOKEN_KEY, token);
+  else storage.removeItem(ADMIN_TOKEN_KEY);
 }
 
 export function clearAdminToken() {
-  localStorage.removeItem(ADMIN_TOKEN_KEY);
+  authStorage().removeItem(ADMIN_TOKEN_KEY);
 }
 
 export class ApiError extends Error {

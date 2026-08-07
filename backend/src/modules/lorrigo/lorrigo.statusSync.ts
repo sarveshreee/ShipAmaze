@@ -10,7 +10,7 @@ import { appendProviderEvent } from "../courier/providerEvents.js";
 import { ensureCorrelationId } from "../courier/correlation.js";
 import {
   mapLorrigoStatusToProviderCanonical,
-  providerCanonicalToOrderStatus,
+  mapProviderRawToOrderStatus,
   shouldApplyStatusUpdate,
   TERMINAL_ORDER_STATUS_VALUES,
 } from "../courier/statusNormalize.js";
@@ -164,7 +164,7 @@ export async function syncLorrigoActiveShipmentStatuses(
       }
 
       const providerCanonical = mapLorrigoStatusToProviderCanonical(rawStatus);
-      const nextStatus = providerCanonicalToOrderStatus(providerCanonical);
+      const nextStatus = mapProviderRawToOrderStatus("lorrigo", rawStatus);
       const current = normalizeOrderStatus(order.status);
       const rawShipmentStatus = String(rawStatus);
 
@@ -184,12 +184,28 @@ export async function syncLorrigoActiveShipmentStatuses(
       }
 
       const sameStatus = current === nextStatus;
+      const rawKey = String(rawStatus)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      const healMisMappedPickup =
+        providerCanonical === "CREATED" &&
+        current === "in_transit" &&
+        (rawKey === "out_for_pickup" || rawKey === "pickup_out_for_pickup");
+      const healPickupException =
+        nextStatus === "pickup_failed" &&
+        (current === "in_transit" || current === "pickup_scheduled" || current === "pending_pickup");
 
       if (order.shipmentStatus !== rawShipmentStatus) {
         order.shipmentStatus = rawShipmentStatus;
       }
 
-      if (!sameStatus && shouldApplyStatusUpdate(order.status, nextStatus)) {
+      if (
+        (!sameStatus && shouldApplyStatusUpdate(order.status, nextStatus)) ||
+        healMisMappedPickup ||
+        healPickupException
+      ) {
         appendStatusHistory(order, nextStatus, "lorrigo_bg_sync");
         order.status = nextStatus;
         result.statusChanges += 1;

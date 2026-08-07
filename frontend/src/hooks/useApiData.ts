@@ -108,6 +108,7 @@ function useApiQuery<T>(
 function mapOrderRow(o: Record<string, unknown>): Order {
   return {
     id: String(o.id ?? o.orderId ?? ""),
+    orderId: o.orderId != null ? String(o.orderId) : undefined,
     customer: String(o.customer ?? ""),
     phone: String(o.phone ?? ""),
     address: String(o.address ?? ""),
@@ -126,6 +127,7 @@ function mapOrderRow(o: Record<string, unknown>): Order {
     awb: String(o.awb ?? ""),
     amount: Number(o.amount ?? 0),
     products: (o.products as Order["products"]) || [],
+    orderItems: (o.orderItems as Order["orderItems"]) || undefined,
     dimensions: o.dimensions as string | undefined,
     zone: o.zone as string | undefined,
     pickupAddress:
@@ -193,6 +195,7 @@ function mapOrderRow(o: Record<string, unknown>): Order {
       ? (o.shopifyLineItems as Order["shopifyLineItems"])
       : undefined,
     items: (o.items as Order["products"]) || (o.orderItems as Order["products"]) || undefined,
+    courierProvider: o.courierProvider != null ? String(o.courierProvider) : undefined,
     updatedAt: toIsoDateString(o.updatedAt),
   };
 }

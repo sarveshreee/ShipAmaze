@@ -1,4 +1,4 @@
-import { apiClient, setStoredToken, clearAdminToken } from "@/lib/apiClient";
+import { apiClient, setStoredToken, setStoredUserJson, clearAdminToken } from "@/lib/apiClient";
 
 export type UserRole = "admin" | "vendor" | "dropshipper";
 
@@ -56,6 +56,7 @@ export type RegisterResult =
 export async function login(email: string, password: string) {
   const res = await apiClient.post<{ user: AuthUser; token: string }>("/auth/login", { email, password });
   setStoredToken(res.token);
+  setStoredUserJson(JSON.stringify(res.user));
   return res;
 }
 
@@ -69,7 +70,10 @@ export async function register(payload: {
   termsAccepted?: boolean;
 }): Promise<RegisterResult> {
   const res = await apiClient.post<RegisterResult>("/auth/register", payload);
-  if ("token" in res && res.token) setStoredToken(res.token);
+  if ("token" in res && res.token) {
+    setStoredToken(res.token);
+    setStoredUserJson(JSON.stringify(res.user));
+  }
   return res;
 }
 
@@ -80,6 +84,7 @@ export async function sendOtp(email: string) {
 export async function verifyOtp(email: string, otp: string) {
   const res = await apiClient.post<{ user: AuthUser; token: string }>("/auth/verify-otp", { email, otp });
   setStoredToken(res.token);
+  setStoredUserJson(JSON.stringify(res.user));
   return res;
 }
 
@@ -104,6 +109,7 @@ export async function logout() {
     /* offline */
   }
   setStoredToken(null);
+  setStoredUserJson(null);
   clearAdminToken();
 }
 

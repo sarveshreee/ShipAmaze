@@ -9,6 +9,8 @@ export const ORDER_STATUSES = [
   "delivered",
   "ndr",
   "rto",
+  "pickup_failed",
+  "processing_failed",
   "cancelled",
 ] as const;
 
@@ -45,7 +47,17 @@ const LEGACY_TO_CANONICAL: Record<string, OrderCanonicalStatus> = {
   cancelled: "cancelled",
   canceled: "cancelled",
   junk: "cancelled",
-  failed: "ndr",
+  failed: "processing_failed",
+  processing_failed: "processing_failed",
+  pickup_failed: "pickup_failed",
+  booking_failed: "processing_failed",
+  label_generation_failed: "processing_failed",
+  courier_api_failed: "processing_failed",
+  manifest_failed: "processing_failed",
+  booking_rejected: "processing_failed",
+  shipment_creation_failed: "processing_failed",
+  shipment_lost: "processing_failed",
+  pickup_cancelled: "processing_failed",
   reship: "ready_to_ship",
 };
 
@@ -63,7 +75,9 @@ export function normalizeOrderStatus(raw: string | undefined | null): OrderCanon
 
 const TRANSITIONS: Record<OrderCanonicalStatus, Set<OrderCanonicalStatus>> = {
   draft: new Set(["ready_to_ship", "cancelled"]),
-  ready_to_ship: new Set(["pickup_scheduled", "cancelled"]),
+  ready_to_ship: new Set(["pickup_scheduled", "cancelled", "processing_failed", "pickup_failed"]),
+  pickup_failed: new Set(["ready_to_ship", "cancelled"]),
+  processing_failed: new Set(["ready_to_ship", "cancelled"]),
   pickup_scheduled: new Set(["picked_up", "in_transit", "cancelled"]),
   picked_up: new Set(["in_transit", "out_for_delivery", "cancelled"]),
   in_transit: new Set(["out_for_delivery", "delivered", "ndr", "rto", "cancelled"]),

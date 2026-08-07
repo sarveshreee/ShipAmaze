@@ -34,14 +34,31 @@ describe("buildTabQuery", () => {
     expect(s).toContain("ready_to_ship");
     expect(s).toContain("ready_for_pickup");
     expect(s).toContain("not_picked");
+    expect(s).toContain("out_for_pickup");
   });
 
-  it("failed includes ndr but not not_picked", () => {
+  it("failed includes processing failures but not ndr in inclusion set", () => {
     const q = buildTabQuery("failed");
     const s = JSON.stringify(q);
-    expect(s).toContain("failed");
+    const inclusionPart = s.split('"$nin"')[0] ?? s;
+    expect(inclusionPart).toContain("pickup_failed");
+    expect(inclusionPart).toContain("booking_failed");
+    expect(inclusionPart).not.toContain("Customer Refused");
+    expect(inclusionPart).not.toContain("ndr_raised");
+  });
+
+  it("ndr tab includes ndr statuses", () => {
+    const q = buildTabQuery("ndr");
+    const s = JSON.stringify(q);
     expect(s).toContain("ndr");
-    expect(s).not.toContain("not_picked");
+    expect(s).toContain("Customer Refused");
+  });
+
+  it("rto tab includes rto statuses", () => {
+    const q = buildTabQuery("rto");
+    const s = JSON.stringify(q);
+    expect(s).toContain("rto");
+    expect(s).toContain("RTO Initiated");
   });
 
   it("in-transit includes picked_up", () => {

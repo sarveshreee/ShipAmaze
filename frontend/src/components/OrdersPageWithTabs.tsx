@@ -29,6 +29,7 @@ import { syncShipmentStatuses } from "@/services/velocityService";
 import type { OrderListFilterValues } from "@/services/orderService";
 import { errorMessageFromUnknown } from "@/lib/errorMessage";
 import { isOrderReadyToShip, orderMatchesTab } from "@/lib/orderTabFilters";
+import { orderMissingSku } from "@/lib/orderSkuValidation";
 import {
   normalizePincode,
   useServiceableOrdersFilter,
@@ -53,6 +54,8 @@ const tabs: { label: string; filter: string }[] = [
   { label: "Delivered", filter: "delivered" },
   { label: "Reship", filter: "reship" },
   { label: "Failed", filter: "failed" },
+  { label: "NDR", filter: "ndr" },
+  { label: "RTO", filter: "rto" },
   { label: "Junk", filter: "junk" },
 ];
 
@@ -1289,6 +1292,18 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                 );
               }
             }
+            if (selectedOrders.length > 0) {
+              const missingSku = selectedOrders
+                .filter((o) => orderMissingSku(o))
+                .map((o) => o.orderId ?? o.id);
+              if (missingSku.length > 0) {
+                toast.error("SKU is mandatory before processing shipment.", {
+                  description: `Missing SKU on: ${missingSku.join(", ")}`,
+                  duration: 10000,
+                });
+                return;
+              }
+            }
             setProcessModalOpen(true);
           }}
           onBulkMoveToReady={handleBulkMoveToReady}
@@ -1379,6 +1394,18 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         submitting={processSubmitting}
         processProgress={processProgress}
         onProcess={async (payload) => {
+          if (selectedOrders.length > 0) {
+            const missingSku = selectedOrders
+              .filter((o) => orderMissingSku(o))
+              .map((o) => o.orderId ?? o.id);
+            if (missingSku.length > 0) {
+              toast.error("SKU is mandatory before processing shipment.", {
+                description: `Missing SKU on: ${missingSku.join(", ")}`,
+                duration: 10000,
+              });
+              return;
+            }
+          }
           setProcessSubmitting(true);
           setProcessProgress({ done: 0, total: payload.orderIds.length });
           try {

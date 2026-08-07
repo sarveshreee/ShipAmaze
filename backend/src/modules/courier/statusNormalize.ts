@@ -4,6 +4,7 @@
  */
 
 import { normalizeOrderStatus, type OrderCanonicalStatus } from "../../utils/orderStatus.js";
+import { normalizeTrackingStatus } from "../../utils/orderStatusClassifier.js";
 import {
   shouldApplyInternalStatusUpdate,
   internalShipmentProgressRank,
@@ -76,6 +77,8 @@ const LORRIGO_RAW_TO_PROVIDER: Record<string, ProviderCanonicalStatus> = {
   pending: "CREATED",
   pickup_scheduled: "CREATED",
   ready_for_pickup: "CREATED",
+  out_for_pickup: "CREATED",
+  pickup_out_for_pickup: "CREATED",
   picked_up: "PICKED_UP",
   pickedup: "PICKED_UP",
   pickup: "PICKED_UP",
@@ -183,6 +186,11 @@ export function mapProviderRawToOrderStatus(
   provider: "lorrigo" | "velocity" | "ekart",
   raw: unknown
 ): OrderCanonicalStatus {
+  const classified = normalizeTrackingStatus(raw, provider);
+  const fromClassifier = normalizeOrderStatus(classified);
+  if (fromClassifier !== "draft" || !String(raw ?? "").trim()) {
+    return fromClassifier;
+  }
   if (provider === "lorrigo") {
     return providerCanonicalToOrderStatus(mapLorrigoStatusToProviderCanonical(raw));
   }

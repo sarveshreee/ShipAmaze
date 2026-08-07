@@ -9,7 +9,7 @@ describe("velocity status sync mapping consistency", () => {
       ["out_for_delivery", "out_for_delivery"],
       ["OFD", "out_for_delivery"],
       ["Delivered", "delivered"],
-      ["Booked", "pickup_scheduled"],
+      ["Booked", "ready_to_ship"],
       ["ndr_raised", "ndr"],
       ["Dispatched", "in_transit"],
       ["Connected", "in_transit"],

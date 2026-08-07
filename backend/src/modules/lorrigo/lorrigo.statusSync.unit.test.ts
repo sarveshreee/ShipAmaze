@@ -193,4 +193,54 @@ describe("lorrigo status sync", () => {
     expect(order.shipmentStatus).toBe("reship");
     expect(order.awb).toBe("");
   });
+
+  it("heals mis-mapped OUT_FOR_PICKUP from in_transit to pickup_scheduled", async () => {
+    const order = makeOrder({
+      status: "in_transit",
+      shipmentStatus: "OUT_FOR_PICKUP",
+      shipmentCreated: true,
+      lorrigoOrderId: "lo-pickup",
+      awb: "AWB-PICKUP",
+    });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => ({
+        awb: "AWB-PICKUP",
+        status: "OUT_FOR_PICKUP",
+        activities: [],
+      }))
+    );
+
+    const { syncLorrigoActiveShipmentStatuses } = await import("./lorrigo.statusSync.js");
+    const r = await syncLorrigoActiveShipmentStatuses(10);
+
+    expect(r.statusChanges).toBe(1);
+    expect(order.status).toBe("pickup_scheduled");
+    expect(order.shipmentStatus).toBe("OUT_FOR_PICKUP");
+  });
+
+  it("heals PICKUP_EXCEPTION from in_transit to pickup_failed", async () => {
+    const order = makeOrder({
+      status: "in_transit",
+      shipmentStatus: "PICKUP_EXCEPTION",
+      shipmentCreated: true,
+      lorrigoOrderId: "lo-exception",
+      awb: "AWB-EXCEPTION",
+    });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => ({
+        awb: "AWB-EXCEPTION",
+        status: "PICKUP_EXCEPTION",
+        activities: [],
+      }))
+    );
+
+    const { syncLorrigoActiveShipmentStatuses } = await import("./lorrigo.statusSync.js");
+    const r = await syncLorrigoActiveShipmentStatuses(10);
+
+    expect(r.statusChanges).toBe(1);
+    expect(order.status).toBe("pickup_failed");
+    expect(order.shipmentStatus).toBe("PICKUP_EXCEPTION");
+  });
 });

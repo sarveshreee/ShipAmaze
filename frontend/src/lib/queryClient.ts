@@ -31,8 +31,27 @@ export function resetSessionQueries() {
   queryClient.clear();
 }
 
+/** Clear user-scoped caches on login without wiping global reference data. */
+export function clearUserScopedQueries() {
+  queryClient.removeQueries({ queryKey: ["orders"] });
+  queryClient.removeQueries({ queryKey: ["wallet"] });
+  queryClient.removeQueries({ queryKey: ["dashboard"] });
+  queryClient.removeQueries({ queryKey: ["notifications"] });
+  queryClient.removeQueries({ queryKey: ["ndr_orders"] });
+  queryClient.removeQueries({ queryKey: ["return_orders"] });
+  queryClient.removeQueries({ queryKey: ["transactions"] });
+  queryClient.removeQueries({ queryKey: ["manifests"] });
+  queryClient.removeQueries({ queryKey: ["invoices"] });
+  queryClient.removeQueries({ queryKey: ["weight_disputes"] });
+  queryClient.removeQueries({ queryKey: ["products"] });
+  queryClient.removeQueries({ queryKey: ["cod_remittances"] });
+  queryClient.removeQueries({ queryKey: ["gst_records"] });
+  queryClient.removeQueries({ queryKey: ["pickup_addresses"] });
+}
+
 /** Shared query keys — keep stable across pages for cache reuse. Always include userId for role-scoped data. */
 export const queryKeys = {
+  profile: (userId?: string | null) => ["auth", "profile", userId ?? "anon"] as const,
   wallet: (userId?: string | null) => ["wallet", userId ?? "anon"] as const,
   notifications: (userId: string | null | undefined, page = 1) =>
     ["notifications", userId ?? "anon", page] as const,

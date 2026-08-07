@@ -153,6 +153,9 @@ export interface Order {
   ownerUserId?: string;
   dropshipperId?: string;
   shopifyLineItems?: Array<Record<string, unknown>>;
+  courierProvider?: "velocity" | "lorrigo" | "ekart" | string;
+  /** Business order id (e.g. SA-1001) when distinct from Mongo `id`. */
+  orderId?: string;
 }
 
 export interface Dropshipper {

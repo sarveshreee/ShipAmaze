@@ -491,6 +491,8 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
       "delivered",
       "reship",
       "failed",
+      "ndr",
+      "rto",
     ];
     tabCounts = {};
     const countEntries = await Promise.all(
@@ -1588,7 +1590,16 @@ const BLOCKED_PROCESS_SELECTED_STATUSES = new Set([
   "rto",
   "junk",
   "failed",
+  "processing_failed",
+  "pickup_failed",
+  "booking_failed",
 ]);
+
+function orderMissingSku(o: Pick<IOrder, "products" | "orderItems" | "items" | "shopifyLineItems">): boolean {
+  const items = firstItemArrayFromOrderDoc(o);
+  if (items.length === 0) return true;
+  return items.some((row) => !String(row.sku ?? "").trim());
+}
 
 function clearOrderShipmentForRebook(order: InstanceType<typeof Order>): void {
   order.shipmentCreated = false;
@@ -2412,6 +2423,14 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
 
   const orders = await Order.find({ orderId: { $in: ids } }).exec();
   if (orders.length !== ids.length) throw new AppError(404, "One or more orders were not found");
+
+  const missingSkuOrders = orders.filter((o) => orderMissingSku(o));
+  if (missingSkuOrders.length > 0) {
+    throw new AppError(
+      400,
+      `SKU is mandatory before processing shipment. Orders: ${missingSkuOrders.map((o) => o.orderId).join(", ")}`
+    );
+  }
 
   const orderById = new Map(orders.map((o) => [o.orderId, o]));
   const ordered = ids
