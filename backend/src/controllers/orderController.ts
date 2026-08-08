@@ -62,6 +62,7 @@ import {
 import { syncPickupToVelocity } from "../modules/velocity/velocity.warehouseSync.js";
 import { velocityConfig } from "../modules/velocity/velocity.config.js";
 import { mapWithConcurrency } from "../modules/velocity/velocity.labelPdf.js";
+import { appendRemarkHistory } from "../modules/velocity/velocityFailureReason.js";
 
 const PROCESS_SELECTED_MAX_ORDERS = 1000;
 const ORDER_IDS_MAX = 1000;
@@ -1773,6 +1774,53 @@ async function saveOrderAfterBooking(o: OrderDoc): Promise<void> {
   }
 }
 
+type ProcessSelectedOrderResult =
+  | { outcome: "updated"; orderId: string; awb: string; carrier: string }
+  | { outcome: "skipped"; orderId: string; reason: string }
+  | { outcome: "failed"; orderId: string; error: string };
+
+/** Move order to Failed tab when Process Selected booking cannot complete (e.g. non-serviceable pincode). */
+async function markProcessSelectedBookingFailed(
+  o: OrderDoc,
+  error: string,
+  userId: Types.ObjectId
+): Promise<void> {
+  if (o.shipmentCreated || String(o.awb || "").trim()) return;
+
+  const fresh = await Order.findById(o._id);
+  const order = fresh ?? o;
+  if (order.shipmentCreated || String(order.awb || "").trim()) return;
+
+  const message = error.trim().slice(0, 2000);
+  order.status = "booking_failed";
+  order.shipmentStatus = "booking_failed";
+  order.bookingInProgress = false;
+  appendStatusHistory(order, "booking_failed", userId, message.slice(0, 500));
+  order.remarkHistory = appendRemarkHistory(
+    order.remarkHistory as Parameters<typeof appendRemarkHistory>[0],
+    message,
+    "process_selected"
+  );
+  await order.save();
+}
+
+async function failProcessSelectedOrder(
+  o: OrderDoc,
+  userId: Types.ObjectId,
+  error: string
+): Promise<ProcessSelectedOrderResult> {
+  try {
+    await markProcessSelectedBookingFailed(o, error, userId);
+  } catch (err) {
+    devLog.warn(
+      "[process-selected] failed to mark booking_failed",
+      o.orderId,
+      err instanceof Error ? err.message : err
+    );
+  }
+  return { outcome: "failed", orderId: o.orderId, error };
+}
+
 function noteProcessSelectedBooked(
   o: OrderDoc,
   userId: Types.ObjectId,
@@ -1929,11 +1977,6 @@ async function bookPriorityResolvedCourier(
   return { awb: booking.awb_code, carrier: booking.carrier_name };
 }
 
-type ProcessSelectedOrderResult =
-  | { outcome: "updated"; orderId: string; awb: string; carrier: string }
-  | { outcome: "skipped"; orderId: string; reason: string }
-  | { outcome: "failed"; orderId: string; error: string };
-
 async function processOneSelectedOrder(
   req: AuthRequest,
   o: OrderDoc,
@@ -1968,11 +2011,11 @@ async function processOneSelectedOrder(
   try {
     o = await persistProcessSelectedPrep(o, prep, req.user._id);
   } catch (err: unknown) {
-    return {
-      outcome: "failed",
-      orderId: o.orderId,
-      error: formatErrorMessage(err, "Failed to prepare order for booking"),
-    };
+    return failProcessSelectedOrder(
+      o,
+      req.user._id,
+      formatErrorMessage(err, "Failed to prepare order for booking")
+    );
   }
 
   const bookingBase: Record<string, unknown> = {
@@ -1987,11 +2030,11 @@ async function processOneSelectedOrder(
   if (prep.courierSelectionMode === "priority") {
     const priorities = prep.priorities;
     if (priorities.length === 0) {
-      return {
-        outcome: "failed",
-        orderId: o.orderId,
-        error: "No courier priority list configured. Open Priority Selection to set one.",
-      };
+      return failProcessSelectedOrder(
+        o,
+        req.user._id,
+        "No courier priority list configured. Open Priority Selection to set one."
+      );
     }
 
     const attemptErrors: string[] = [];
@@ -2094,14 +2137,13 @@ async function processOneSelectedOrder(
       }
     }
 
-    return {
-      outcome: "failed",
-      orderId: o.orderId,
-      error:
-        attemptErrors.length > 0
-          ? attemptErrors.join(" → ")
-          : "No courier in your priority list can deliver to this pincode.",
-    };
+    return failProcessSelectedOrder(
+      o,
+      req.user._id,
+      attemptErrors.length > 0
+        ? attemptErrors.join(" → ")
+        : "No courier in your priority list can deliver to this pincode."
+    );
   }
 
   const bookingBody: Record<string, unknown> = { ...bookingBase };
@@ -2139,11 +2181,11 @@ async function processOneSelectedOrder(
         carrier: booking.courierName || prep.courierName,
       };
     } catch (err: unknown) {
-      return {
-        outcome: "failed",
-        orderId: o.orderId,
-        error: formatErrorMessage(err, "Lorrigo booking failed"),
-      };
+      return failProcessSelectedOrder(
+        o,
+        req.user._id,
+        formatErrorMessage(err, "Lorrigo booking failed")
+      );
     }
   }
 
@@ -2173,11 +2215,11 @@ async function processOneSelectedOrder(
         carrier: booking.courierName || prep.courierName,
       };
     } catch (err: unknown) {
-      return {
-        outcome: "failed",
-        orderId: o.orderId,
-        error: formatErrorMessage(err, "Ekart booking failed"),
-      };
+      return failProcessSelectedOrder(
+        o,
+        req.user._id,
+        formatErrorMessage(err, "Ekart booking failed")
+      );
     }
   }
 
@@ -2192,11 +2234,11 @@ async function processOneSelectedOrder(
       carrier: booking.carrier_name,
     };
   } catch (err: unknown) {
-    return {
-      outcome: "failed",
-      orderId: o.orderId,
-      error: formatErrorMessage(err, "Velocity booking failed"),
-    };
+    return failProcessSelectedOrder(
+      o,
+      req.user._id,
+      formatErrorMessage(err, "Velocity booking failed")
+    );
   }
 }
 

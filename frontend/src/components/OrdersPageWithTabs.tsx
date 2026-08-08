@@ -1292,18 +1292,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                 );
               }
             }
-            if (selectedOrders.length > 0) {
-              const missingSku = selectedOrders
-                .filter((o) => orderMissingSku(o))
-                .map((o) => o.orderId ?? o.id);
-              if (missingSku.length > 0) {
-                toast.error("SKU is mandatory before processing shipment.", {
-                  description: `Missing SKU on: ${missingSku.join(", ")}`,
-                  duration: 10000,
-                });
-                return;
-              }
-            }
             setProcessModalOpen(true);
           }}
           onBulkMoveToReady={handleBulkMoveToReady}
@@ -1391,6 +1379,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
             payment: o.payment,
             amount: o.amount,
           }))}
+        selectedOrders={selectedOrders}
         submitting={processSubmitting}
         processProgress={processProgress}
         onProcess={async (payload) => {
@@ -1436,7 +1425,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               toast.info(`All ${res.skipped.length} order(s) were already processed or not eligible`);
             }
 
-            if (res.updatedCount > 0) {
+            if (res.updatedCount > 0 || res.failed.length > 0) {
               setProcessModalOpen(false);
               setSelected(new Set());
             }

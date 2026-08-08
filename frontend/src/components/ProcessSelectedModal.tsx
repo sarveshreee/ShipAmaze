@@ -26,6 +26,9 @@ import { providerSupports } from "@/lib/providerCapabilities";
 import { CourierCard } from "@/components/CourierCard";
 import { CourierPriorityConfigModal } from "@/components/CourierPriorityConfigModal";
 import { cn } from "@/lib/utils";
+import type { Order } from "@/types/logistics";
+import { getOrderLineItems } from "@/lib/orderSkuValidation";
+import * as orderService from "@/services/orderService";
 
 const WEIGHT_DIMENSION_PRESETS: Record<string, { weight: string; l: string; w: string; h: string }> = {
   "0.5": { weight: "0.5", l: "1", w: "1", h: "1" },
@@ -54,6 +57,8 @@ interface Props {
   orderIds: string[];
   couriers: Array<{ id: string; name: string; carrierId?: string }>;
   referenceOrders?: ProcessSelectedOrderRef[];
+  /** Full selected orders — used for mandatory SKU entry before booking. */
+  selectedOrders?: Order[];
   submitting?: boolean;
   processProgress?: { done: number; total: number } | null;
   initialPickupId?: string;
@@ -72,6 +77,7 @@ export function ProcessSelectedModal({
   orderIds,
   couriers: _couriers,
   referenceOrders = [],
+  selectedOrders = [],
   submitting = false,
   processProgress = null,
   initialPickupId,
@@ -100,6 +106,41 @@ export function ProcessSelectedModal({
   const [serviceableCouriers, setServiceableCouriers] = useState<DiscoveredCourier[]>([]);
   const [serviceableLoading, setServiceableLoading] = useState(false);
   const [priorityConfigOpen, setPriorityConfigOpen] = useState(false);
+  const [skuDrafts, setSkuDrafts] = useState<Record<string, string>>({});
+
+  type SkuTask = { order: Order; lineIndex: number; productName: string };
+
+  const skuTasks = useMemo((): SkuTask[] => {
+    const tasks: SkuTask[] = [];
+    for (const order of selectedOrders) {
+      const items = getOrderLineItems(order);
+      items.forEach((item, lineIndex) => {
+        if (!String(item.sku ?? "").trim()) {
+          const name = String(
+            (item as { name?: string; productName?: string }).name ??
+              (item as { productName?: string }).productName ??
+              ""
+          ).trim();
+          tasks.push({ order, lineIndex, productName: name || `Line ${lineIndex + 1}` });
+        }
+      });
+    }
+    return tasks;
+  }, [selectedOrders]);
+
+  const allSkusReady = useMemo(() => {
+    if (selectedOrders.length === 0) return true;
+    return selectedOrders.every((order) => {
+      const items = getOrderLineItems(order);
+      if (items.length === 0) return false;
+      return items.every((item, lineIndex) => {
+        const existing = String(item.sku ?? "").trim();
+        if (existing) return true;
+        const key = `${order.id}:${lineIndex}`;
+        return Boolean(skuDrafts[key]?.trim());
+      });
+    });
+  }, [selectedOrders, skuDrafts]);
 
   useEffect(() => {
     if (!open) {
@@ -117,6 +158,7 @@ export function ProcessSelectedModal({
       setWeightPreset("other");
       setServiceableCouriers([]);
       setPriorityConfigOpen(false);
+      setSkuDrafts({});
     }
   }, [open]);
 
@@ -334,6 +376,24 @@ export function ProcessSelectedModal({
         toast.error("Selected courier provider does not support booking yet.");
         return;
       }
+    }
+
+    if (!allSkusReady) {
+      toast.error("SKU is mandatory on every line item before processing.");
+      return;
+    }
+
+    try {
+      for (const task of skuTasks) {
+        const key = `${task.order.id}:${task.lineIndex}`;
+        const sku = skuDrafts[key]?.trim();
+        if (sku) {
+          await orderService.patchOrderLineItemSku(task.order.id, task.lineIndex, sku);
+        }
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save SKU");
+      return;
     }
 
     const payload: ProcessSelectedPayload = {
@@ -639,6 +699,37 @@ export function ProcessSelectedModal({
             </div>
           </div>
 
+          {skuTasks.length > 0 && (
+            <div className="mx-6 mb-4 rounded-lg border-2 border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-200">
+                SKU required — enter SKU for each line item before processing
+              </p>
+              {skuTasks.map((task) => {
+                const key = `${task.order.id}:${task.lineIndex}`;
+                return (
+                  <div key={key} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                    <div>
+                      <Label className="text-xs text-text-muted">Order</Label>
+                      <p className="text-sm font-mono truncate">{task.order.orderId ?? task.order.id}</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-text-muted">{task.productName}</Label>
+                      <Input
+                        className={cn("mt-1 h-9 font-mono", modalInputClass)}
+                        placeholder="Enter SKU *"
+                        value={skuDrafts[key] ?? ""}
+                        onChange={(e) =>
+                          setSkuDrafts((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                        disabled={submitting}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {submitting && processProgress && processProgress.total > 0 && (
             <p className="text-sm text-text-muted px-6 pb-2">
               Booking shipments… {processProgress.done} / {processProgress.total} orders
@@ -661,7 +752,7 @@ export function ProcessSelectedModal({
             <div className="flex gap-3 sm:ml-auto">
               <Button
                 onClick={() => void handleSubmit()}
-                disabled={submitting}
+                disabled={submitting || !allSkusReady}
                 className="h-10 gap-2 px-6 font-bold bg-gradient-to-r from-primary to-primary-dark text-white shadow-lg shadow-primary/30 hover:shadow-xl hover:brightness-105 border-0"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
