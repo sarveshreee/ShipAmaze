@@ -24,6 +24,10 @@ export type PickupAddressPayload = {
   isActive?: boolean;
   /** Admin only — target vendor/dropshipper user id */
   userId?: string;
+  /** Opt-in provider sync on create/update — nothing syncs unless listed */
+  syncProviders?: Array<"velocity" | "lorrigo">;
+  syncToVelocity?: boolean;
+  syncToLorrigo?: boolean;
 };
 
 function unwrapList(body: unknown): PickupAddress[] {

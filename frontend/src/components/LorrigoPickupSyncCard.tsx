@@ -14,6 +14,8 @@ type Props = {
     "id" | "lorrigoPickupId" | "lorrigoSyncStatus" | "lorrigoLastSyncAt" | "lorrigoSyncError"
   >;
   onUpdated?: () => void | Promise<void>;
+  /** Hide third-party provider branding from vendor-facing screens. */
+  showProviderBrand?: boolean;
 };
 
 function formatSyncTime(iso?: string): string {
@@ -23,11 +25,12 @@ function formatSyncTime(iso?: string): string {
   return d.toLocaleString();
 }
 
-export function LorrigoPickupSyncCard({ pickup, onUpdated }: Props) {
+export function LorrigoPickupSyncCard({ pickup, onUpdated, showProviderBrand = true }: Props) {
   const [busy, setBusy] = useState(false);
   const status = pickup.lorrigoSyncStatus;
   const synced = Boolean(pickup.lorrigoPickupId?.trim()) || status === "SUCCESS";
   const failed = status === "FAILED";
+  const brand = showProviderBrand ? "Lorrigo" : "alternate couriers";
 
   const badgeClass = synced
     ? "border-success/40 bg-success-light text-success-dark"
@@ -36,12 +39,16 @@ export function LorrigoPickupSyncCard({ pickup, onUpdated }: Props) {
       : "border-border bg-muted text-text-muted";
 
   const label = synced
-    ? "Lorrigo synced"
+    ? showProviderBrand
+      ? "Lorrigo synced"
+      : "Alternate synced"
     : failed
-      ? "Lorrigo sync failed"
-      : status === "SKIPPED"
+      ? showProviderBrand
+        ? "Lorrigo sync failed"
+        : "Alternate sync failed"
+      : showProviderBrand
         ? "Lorrigo not synced"
-        : "Lorrigo not synced";
+        : "Alternate not synced";
 
   const onSync = async () => {
     setBusy(true);
@@ -50,13 +57,17 @@ export function LorrigoPickupSyncCard({ pickup, onUpdated }: Props) {
       if (res.lorrigoSync?.synced) {
         toast.success(
           res.lorrigoSync.alreadySynced
-            ? "Lorrigo pickup already linked"
-            : `Lorrigo synced: ${res.lorrigoSync.pickupId}`
+            ? showProviderBrand
+              ? "Lorrigo pickup already linked"
+              : "Alternate pickup already linked"
+            : showProviderBrand
+              ? `Lorrigo synced: ${res.lorrigoSync.pickupId}`
+              : `Alternate pickup synced: ${res.lorrigoSync.pickupId}`
         );
       } else if (res.lorrigoSync?.skipped) {
-        toast.warning(res.lorrigoSync.reason || "Lorrigo sync skipped");
+        toast.warning(res.lorrigoSync.reason || `${brand} sync skipped`);
       } else {
-        toast.error(res.lorrigoSync?.error || "Lorrigo sync failed");
+        toast.error(res.lorrigoSync?.error || `${brand} sync failed`);
       }
       await onUpdated?.();
     } catch (e) {
@@ -86,7 +97,11 @@ export function LorrigoPickupSyncCard({ pickup, onUpdated }: Props) {
             ) : (
               <Link2 className={cn("h-3 w-3 mr-1", busy && "animate-pulse")} />
             )}
-            {failed ? "Retry Sync" : "Sync to Lorrigo"}
+            {failed
+              ? "Retry Sync"
+              : showProviderBrand
+                ? "Sync to Lorrigo"
+                : "Sync alternate"}
           </Button>
         ) : null}
       </div>
@@ -98,8 +113,10 @@ export function LorrigoPickupSyncCard({ pickup, onUpdated }: Props) {
               <span className="ml-2 font-mono text-text-secondary">ID {pickup.lorrigoPickupId}</span>
             ) : null}
           </>
-        ) : (
+        ) : showProviderBrand ? (
           "Not linked to Lorrigo yet — sync before booking with Lorrigo couriers."
+        ) : (
+          "Not linked for alternate couriers yet — sync before booking with those couriers."
         )}
       </p>
       {failed && pickup.lorrigoSyncError ? (

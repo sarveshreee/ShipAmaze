@@ -1,5 +1,5 @@
 import PickupAddressesPanel from "@/components/PickupAddressesPanel";
 
 export default function DropshipperPickupAddresses() {
-  return <PickupAddressesPanel breadcrumb={["Dropshipper", "Addresses"]} />;
+  return <PickupAddressesPanel breadcrumb={["Dropshipper", "Addresses"]} showProviderBrand={false} />;
 }

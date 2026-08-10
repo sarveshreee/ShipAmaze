@@ -1298,6 +1298,18 @@ function pickupContactFromBody(b: Record<string, unknown>): string {
   return trimStr(b.contactName) || trimStr(b.contactPerson);
 }
 
+/** Opt-in sync targets from create/update body. Nothing syncs unless explicitly requested. */
+function parsePickupSyncTargets(b: Record<string, unknown>): { syncVelocity: boolean; syncLorrigo: boolean } {
+  const providers = Array.isArray(b.syncProviders)
+    ? b.syncProviders.map((p) => String(p).trim().toLowerCase()).filter(Boolean)
+    : [];
+  const fromListVelocity = providers.includes("velocity");
+  const fromListLorrigo = providers.includes("lorrigo");
+  const syncVelocity = b.syncToVelocity === true || fromListVelocity;
+  const syncLorrigo = b.syncToLorrigo === true || fromListLorrigo;
+  return { syncVelocity, syncLorrigo };
+}
+
 function mapPickupDoc(a: {
   _id: unknown;
   label: string;
@@ -1499,23 +1511,43 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     createdByRole: ownerRole,
   });
 
-  // Auto-sync to Velocity (non-fatal — do not roll back pickup save on failure)
-  const velocitySync = await syncPickupToVelocity(doc._id).catch((e) => ({
-    linked: false as const,
-    error: e instanceof Error ? e.message : String(e),
-  }));
+  // Opt-in sync only — nothing syncs by default; client must request providers explicitly.
+  const { syncVelocity, syncLorrigo } = parsePickupSyncTargets(b);
 
-  // Auto-sync to Lorrigo when enabled (non-fatal — never roll back local pickup)
-  console.info(`[lorrigo] local pickup created pickupId=${String(doc._id)}`);
-  const lorrigoSync = await syncPickupToLorrigo(doc._id).catch((e) => ({
-    synced: false as const,
-    error: e instanceof Error ? e.message : String(e),
-  }));
+  let velocitySync:
+    | Awaited<ReturnType<typeof syncPickupToVelocity>>
+    | { linked: false; skipped: true; reason: string }
+    | { linked: false; error: string }
+    | undefined;
+  let lorrigoSync:
+    | Awaited<ReturnType<typeof syncPickupToLorrigo>>
+    | { synced: false; skipped: true; reason: string }
+    | { synced: false; error: string }
+    | undefined;
+
+  if (syncVelocity) {
+    velocitySync = await syncPickupToVelocity(doc._id).catch((e) => ({
+      linked: false as const,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+  } else {
+    velocitySync = { linked: false, skipped: true, reason: "Sync not requested" };
+  }
+
+  if (syncLorrigo) {
+    console.info(`[lorrigo] local pickup created pickupId=${String(doc._id)} (sync requested)`);
+    lorrigoSync = await syncPickupToLorrigo(doc._id).catch((e) => ({
+      synced: false as const,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+  } else {
+    lorrigoSync = { synced: false, skipped: true, reason: "Sync not requested" };
+  }
 
   // Re-read latest provider fields from DB for the response
   const fresh = await Pickup.findById(doc._id).lean();
   const responseDoc = fresh ?? doc.toObject();
-  if (!fresh && velocitySync.linked) {
+  if (!fresh && velocitySync && "linked" in velocitySync && velocitySync.linked) {
     (responseDoc as { velocityWarehouseId?: string }).velocityWarehouseId = velocitySync.warehouse_id;
   }
 
@@ -1666,9 +1698,19 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
 
   await existing.save();
 
-  // Auto-sync to Velocity only when not yet linked (idempotent, non-fatal)
-  let velocitySync: Awaited<ReturnType<typeof syncPickupToVelocity>> | { linked: false; error: string } | undefined;
-  if (!existing.velocityWarehouseId?.trim()) {
+  // Opt-in sync only — never auto-sync on update unless the client requests it.
+  const { syncVelocity, syncLorrigo } = parsePickupSyncTargets(b);
+
+  let velocitySync:
+    | Awaited<ReturnType<typeof syncPickupToVelocity>>
+    | { linked: false; error: string }
+    | undefined;
+  let lorrigoSync:
+    | Awaited<ReturnType<typeof syncPickupToLorrigo>>
+    | { synced: false; error: string }
+    | undefined;
+
+  if (syncVelocity) {
     velocitySync = await syncPickupToVelocity(existing._id).catch((e) => ({
       linked: false as const,
       error: e instanceof Error ? e.message : String(e),
@@ -1678,7 +1720,20 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     }
   }
 
-  res.json({ success: true, data: mapPickupDoc(existing.toObject()), ...(velocitySync ? { velocitySync } : {}) });
+  if (syncLorrigo) {
+    lorrigoSync = await syncPickupToLorrigo(existing._id).catch((e) => ({
+      synced: false as const,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+  }
+
+  const fresh = await Pickup.findById(existing._id).lean();
+  res.json({
+    success: true,
+    data: mapPickupDoc(fresh ?? existing.toObject()),
+    ...(velocitySync ? { velocitySync } : {}),
+    ...(lorrigoSync ? { lorrigoSync } : {}),
+  });
 });
 
 export const deletePickupAddress = asyncHandler(async (req: AuthRequest, res: Response) => {

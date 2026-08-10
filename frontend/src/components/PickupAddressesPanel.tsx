@@ -67,18 +67,31 @@ function notifyPickupRefetch() {
 interface Props {
   breadcrumb: [string, string];
   subtitle?: string;
+  /** When false, hide Velocity/Lorrigo brand names (vendor & dropshipper panels). */
+  showProviderBrand?: boolean;
 }
 
-export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
+export default function PickupAddressesPanel({ breadcrumb, subtitle, showProviderBrand = true }: Props) {
   const { data: pickupAddresses = [], isLoading, refetch } = usePickupAddresses();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  /** Opt-in sync targets — nothing selected by default. */
+  const [syncToVelocity, setSyncToVelocity] = useState(false);
+  const [syncToLorrigo, setSyncToLorrigo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   /** Velocity code on the address being edited — for edit-dialog warnings only. */
   const [editingVelocityWarehouseId, setEditingVelocityWarehouseId] = useState<string | undefined>();
   const { lookupPincode, pincodeData, pincodeError, pincodeLoading, resetPincode } = usePincodeValidation();
+
+  const velocityBadgeLabels = showProviderBrand
+    ? undefined
+    : {
+        linked: "Linked",
+        not_linked: "Not linked",
+        invalid: "Link invalid",
+      };
 
   useEffect(() => {
     if (pincodeData) {
@@ -94,6 +107,8 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
     if (!dialogOpen) {
       setEditingId(null);
       setForm(emptyForm);
+      setSyncToVelocity(false);
+      setSyncToLorrigo(false);
       setEditingVelocityWarehouseId(undefined);
       resetPincode();
     }
@@ -103,12 +118,16 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
     setEditingId(null);
     setEditingVelocityWarehouseId(undefined);
     setForm(emptyForm);
+    setSyncToVelocity(false);
+    setSyncToLorrigo(false);
     setDialogOpen(true);
   };
 
   const openEdit = (a: PickupAddress) => {
     setEditingId(a.id);
     setEditingVelocityWarehouseId(a.velocityWarehouseId);
+    setSyncToVelocity(false);
+    setSyncToLorrigo(false);
     setForm({
       label: a.label,
       contactName: a.contactName,
@@ -134,8 +153,12 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
       toast.error("Fill warehouse name, contact person, line 1, city, state, and pincode");
       return;
     }
-    if (!form.email.trim()) {
-      toast.error("Email is required for Velocity warehouse registration");
+    if (syncToVelocity && !form.email.trim()) {
+      toast.error(
+        showProviderBrand
+          ? "Email is required when syncing to Velocity"
+          : "Email is required when syncing the warehouse"
+      );
       return;
     }
     const pinDigits = form.pincode.replace(/\D/g, "").slice(0, 6);
@@ -156,12 +179,16 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
     }
     setSaving(true);
     try {
+      const syncProviders: Array<"velocity" | "lorrigo"> = [];
+      if (syncToVelocity) syncProviders.push("velocity");
+      if (syncToLorrigo) syncProviders.push("lorrigo");
+
       const payload = {
         label: form.label.trim(),
         contactName: form.contactName.trim(),
         phone: form.phone.trim(),
         alternatePhone: form.alternatePhone.trim() || undefined,
-        email: form.email.trim(),
+        email: form.email.trim() || undefined,
         addressLine1: form.addressLine1.trim(),
         addressLine2: form.addressLine2.trim(),
         landmark: form.landmark.trim() || undefined,
@@ -172,6 +199,9 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
         gstin: form.gstin.trim() || undefined,
         isDefault: form.isDefault,
         isActive: form.isActive,
+        syncProviders,
+        syncToVelocity,
+        syncToLorrigo,
       };
 
       let resp: Awaited<ReturnType<typeof pickupService.createPickupAddress>> | undefined;
@@ -184,19 +214,33 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
       const vSync = resp?.velocitySync;
       const lSync = resp?.lorrigoSync;
       if (vSync?.linked && vSync.warehouse_id) {
-        toast.success(`Address saved — Velocity warehouse linked: ${vSync.warehouse_id}`);
-      } else if (vSync?.skipped) {
-        toast.success(editingId ? "Address updated" : "Address saved");
+        toast.success(
+          showProviderBrand
+            ? `Address saved — Velocity warehouse linked: ${vSync.warehouse_id}`
+            : `Address saved — warehouse linked: ${vSync.warehouse_id}`
+        );
       } else if (vSync?.error) {
         toast.success(editingId ? "Address updated" : "Address saved");
-        toast.warning(`Velocity sync failed: ${vSync.error}. Use the link card to retry.`);
+        toast.warning(
+          showProviderBrand
+            ? `Velocity sync failed: ${vSync.error}. Use the link card to retry.`
+            : `Warehouse sync failed: ${vSync.error}. Use the link card to retry.`
+        );
       } else {
         toast.success(editingId ? "Address updated" : "Address saved");
       }
       if (lSync?.synced && lSync.pickupId) {
-        toast.success(`Lorrigo pickup synced: ${lSync.pickupId}`);
+        toast.success(
+          showProviderBrand
+            ? `Lorrigo pickup synced: ${lSync.pickupId}`
+            : `Alternate pickup synced: ${lSync.pickupId}`
+        );
       } else if (lSync?.error) {
-        toast.warning(`Lorrigo sync failed: ${lSync.error}. Use Retry Sync on the card.`);
+        toast.warning(
+          showProviderBrand
+            ? `Lorrigo sync failed: ${lSync.error}. Use Retry Sync on the card.`
+            : `Alternate sync failed: ${lSync.error}. Use Retry Sync on the card.`
+        );
       }
 
       notifyPickupRefetch();
@@ -286,7 +330,10 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
                           Default
                         </span>
                       )}
-                      <VelocityWarehouseLinkStatusBadge velocityWarehouseId={a.velocityWarehouseId} />
+                      <VelocityWarehouseLinkStatusBadge
+                        velocityWarehouseId={a.velocityWarehouseId}
+                        labels={velocityBadgeLabels}
+                      />
                       {a.isActive === false ? (
                         <span className="inline-flex rounded-full bg-text-muted/20 text-text-muted px-2 py-0.5 text-[10px] font-medium">
                           Inactive
@@ -318,7 +365,9 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
                     ) : getVelocityWarehouseLinkStatus(a.velocityWarehouseId) === "not_linked" ? (
                       <p className="mt-1 text-[10px] text-warning-dark">Not linked — booking disabled</p>
                     ) : a.velocityWarehouseId?.trim() ? (
-                      <p className="mt-1 text-[10px] text-danger">Invalid Velocity code</p>
+                      <p className="mt-1 text-[10px] text-danger">
+                        {showProviderBrand ? "Invalid Velocity code" : "Invalid warehouse code"}
+                      </p>
                     ) : null}
                   </div>
                 </div>
@@ -356,6 +405,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
                   await refetch();
                 }}
                 forbiddenHint="pickup"
+                showProviderBrand={showProviderBrand}
               />
 
               <LorrigoPickupSyncCard
@@ -364,6 +414,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
                   notifyPickupRefetch();
                   await refetch();
                 }}
+                showProviderBrand={showProviderBrand}
               />
 
               <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-border">
@@ -405,8 +456,9 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
             <Alert className="border-warning/40 bg-warning-light/40 py-2.5 [&>svg]:text-warning-dark">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription className="text-xs text-warning-dark">
-                Address changes do not automatically update Velocity. Update the warehouse in Velocity Dashboard if
-                required.
+                {showProviderBrand
+                  ? "Address changes do not automatically update Velocity. Update the warehouse in Velocity Dashboard if required."
+                  : "Address changes do not automatically update the linked warehouse. Update it in the shipping dashboard if required."}
                 {normalizeVelocityWarehouseCode(editingVelocityWarehouseId) ? (
                   <>
                     {" "}
@@ -456,8 +508,15 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
             </div>
             <div className="sm:col-span-2">
               <Label>
-                Email <span className="text-danger">*</span>
-                <span className="text-[10px] font-normal text-text-muted ml-1">(required for Velocity)</span>
+                Email
+                {syncToVelocity ? <span className="text-danger"> *</span> : null}
+                {syncToVelocity ? (
+                  <span className="text-[10px] font-normal text-text-muted ml-1">
+                    {showProviderBrand ? "(required for Velocity)" : "(required for warehouse sync)"}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-normal text-text-muted ml-1">(optional)</span>
+                )}
               </Label>
               <Input className="mt-1" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="contact@example.com" />
             </div>
@@ -520,6 +579,43 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle }: Props) {
               <Label>GST (optional)</Label>
               <Input className="mt-1" value={form.gstin} onChange={(e) => setForm((f) => ({ ...f, gstin: e.target.value.toUpperCase() }))} maxLength={15} />
             </div>
+
+            <div className="sm:col-span-2 rounded-lg border border-border bg-surface-2/40 p-3 space-y-2">
+              <div>
+                <p className="text-sm font-medium text-text-primary">Sync providers</p>
+                <p className="text-[11px] text-text-muted mt-0.5">
+                  Optional — nothing is selected by default. Sync only the providers you enable (you can also sync later from the address card).
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="sync-velocity"
+                  checked={syncToVelocity}
+                  onCheckedChange={(v) => setSyncToVelocity(Boolean(v))}
+                />
+                <Label htmlFor="sync-velocity" className="text-sm font-normal cursor-pointer">
+                  {showProviderBrand ? "Sync to Velocity" : "Sync warehouse (primary shipping)"}
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="sync-lorrigo"
+                  checked={syncToLorrigo}
+                  onCheckedChange={(v) => setSyncToLorrigo(Boolean(v))}
+                />
+                <Label htmlFor="sync-lorrigo" className="text-sm font-normal cursor-pointer">
+                  {showProviderBrand ? "Sync to Lorrigo" : "Sync for alternate couriers"}
+                </Label>
+              </div>
+              {!syncToVelocity && !syncToLorrigo ? (
+                <p className="text-[11px] text-text-muted">
+                  {showProviderBrand
+                    ? "Address will be saved without syncing to Velocity or Lorrigo."
+                    : "Address will be saved without syncing. You can sync later from the address card."}
+                </p>
+              ) : null}
+            </div>
+
             <div className="sm:col-span-2 flex items-center gap-2 pt-1">
               <Checkbox id="def" checked={form.isDefault} onCheckedChange={(v) => setForm((f) => ({ ...f, isDefault: Boolean(v) }))} />
               <Label htmlFor="def" className="text-sm font-normal cursor-pointer">
