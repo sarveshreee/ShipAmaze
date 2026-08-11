@@ -1284,10 +1284,18 @@ function assertPickupApiRole(role: UserRole) {
   }
 }
 
+/**
+ * Admin Process Selected / platform dropdowns must list every pickup admins can book with:
+ * - Admin-owned pickups
+ * - Vendor warehouses mirrored under admin (sourceWarehouseId)
+ * - Vendor/dropshipper addresses created directly in Pickup Addresses (owned by their userId)
+ *
+ * Previously this only returned admin-owned rows, so vendor Pickup-section addresses
+ * (e.g. ULTIMATE SHOPPING NETWORK) appeared on Admin → Pickup Addresses but not in
+ * Process Selected. Keep this aligned with admin's unscoped pickup list.
+ */
 async function platformPickupListQuery(): Promise<Record<string, unknown>> {
-  const adminUsers = await User.find({ role: "admin" }).select("_id").lean();
-  const adminUserIds = adminUsers.map((u) => u._id);
-  return { $and: [{ userId: { $in: adminUserIds } }, { ...PICKUP_NOT_DELETED }] };
+  return { ...PICKUP_NOT_DELETED };
 }
 
 function pickupLabelFromBody(b: Record<string, unknown>): string {
@@ -1489,6 +1497,15 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
 
   const isActive = b.isActive === false ? false : true;
 
+  // Attribute vendor-owned pickups with vendorId (same as warehouse→pickup mirror) so
+  // admin filters / badges / dropshipper access stay consistent regardless of which
+  // section the address was created in.
+  let vendorIdForPickup: Types.ObjectId | undefined;
+  if (ownerRole === "vendor") {
+    const ownVendor = await Vendor.findOne({ userId: ownerUserId }).select("_id").lean();
+    if (ownVendor?._id) vendorIdForPickup = ownVendor._id as Types.ObjectId;
+  }
+
   const doc = await Pickup.create({
     userId: ownerUserId,
     dropshipperId: ownerRole === "dropshipper" ? ownerUserId : undefined,
@@ -1509,6 +1526,7 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     isDefault: makeDefault,
     isActive,
     createdByRole: ownerRole,
+    ...(vendorIdForPickup ? { vendorId: vendorIdForPickup } : {}),
   });
 
   // Opt-in sync only — nothing syncs by default; client must request providers explicitly.

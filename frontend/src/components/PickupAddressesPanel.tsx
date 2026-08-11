@@ -347,13 +347,21 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
                         <span className="inline-flex rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 text-[10px] font-medium">
                           Vendor Warehouse
                         </span>
+                      ) : a.createdByRole === "vendor" || a.vendorId ? (
+                        <span className="inline-flex rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 text-[10px] font-medium">
+                          Vendor
+                        </span>
+                      ) : a.createdByRole === "dropshipper" ? (
+                        <span className="inline-flex rounded-full bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 px-2 py-0.5 text-[10px] font-medium">
+                          Dropshipper
+                        </span>
                       ) : (
                         <span className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-[10px] font-medium">
                           Admin
                         </span>
                       )}
                     </div>
-                    {a.sourceWarehouseId && a.vendorId ? (
+                    {(a.sourceWarehouseId || a.createdByRole === "vendor" || a.vendorId) && a.vendorId ? (
                       <p className="mt-1 text-[10px] text-text-muted">
                         Source: Vendor · ID: {a.vendorId.slice(-6)}
                       </p>
