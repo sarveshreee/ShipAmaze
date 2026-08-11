@@ -59,6 +59,14 @@ function line(raw: unknown, fallback = ""): string {
   return s || fallback;
 }
 
+/** Durin rejects address_line1/address_line2 over 255 chars with a 400 — hard cap outbound only. */
+const EKART_ADDRESS_LINE_MAX = 255;
+
+function addressLineCapped(raw: unknown, fallback = ""): string {
+  const s = line(raw, fallback);
+  return s.length > EKART_ADDRESS_LINE_MAX ? s.slice(0, EKART_ADDRESS_LINE_MAX).trim() : s;
+}
+
 /**
  * Durin CreateShipment requires a client-supplied `tracking_id` in Flipkart format:
  * {3-char merchant}{P|C|R}{10 digits}.
@@ -117,11 +125,18 @@ function buildAddressBlock(opts: {
   phone: string;
   email?: string;
 }) {
+  // Overflow from an oversized line1 spills into line2 (also capped) instead of being lost,
+  // so vendor address dumps still carry useful detail after Durin's 255-char truncation.
+  const rawLine1 = line(opts.addressLine1, "Address");
+  const line1 = addressLineCapped(rawLine1, "Address");
+  const overflow = rawLine1.length > EKART_ADDRESS_LINE_MAX ? rawLine1.slice(EKART_ADDRESS_LINE_MAX).trim() : "";
+  const line2 = addressLineCapped([overflow, line(opts.addressLine2)].filter(Boolean).join(", "));
+
   return {
     address: {
       first_name: line(opts.firstName, "Customer"),
-      address_line1: line(opts.addressLine1, "Address"),
-      address_line2: line(opts.addressLine2),
+      address_line1: line1,
+      address_line2: line2,
       pincode: pin6(opts.pincode),
       city: line(opts.city, "City"),
       state: line(opts.state, "State"),

@@ -727,7 +727,7 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   const rawPid = body.pickupAddressId ?? body.pickupWarehouseId;
   if (rawPid != null && String(rawPid).trim() !== "") {
     if (!mongoose.isValidObjectId(String(rawPid))) throw new AppError(400, "Invalid pickupAddressId");
-    const p = await Pickup.findOne(pickupByIdSelectableQuery(String(rawPid), req.user));
+    const p = await Pickup.findOne(await pickupByIdSelectableQuery(String(rawPid), req.user));
     if (!p) throw new AppError(400, "Pickup address not found or not allowed");
     pickupAddressId = p._id;
   }
@@ -1081,7 +1081,7 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
       order.velocityWarehouseId = undefined;
     } else {
       if (!mongoose.isValidObjectId(s)) throw new AppError(400, "Invalid pickupAddressId");
-      const p = await Pickup.findOne(pickupByIdSelectableQuery(s, req.user));
+      const p = await Pickup.findOne(await pickupByIdSelectableQuery(s, req.user));
       if (!p) throw new AppError(400, "Pickup address not found or not allowed");
       const pu = await Pickup.findById(p._id)
         .select(
@@ -2441,7 +2441,7 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     if (v !== undefined && (!(v > 0) || !Number.isFinite(v))) throw new AppError(400, `${k} must be > 0`);
   }
 
-  const pickup = await Pickup.findOne(pickupByIdSelectableQuery(pickupAddressId, req.user))
+  const pickup = await Pickup.findOne(await pickupByIdSelectableQuery(pickupAddressId, req.user))
     .select(
       "label contactName phone alternatePhone email addressLine1 addressLine2 landmark city state pincode country gstin velocityWarehouseId lorrigoPickupId lorrigoSyncStatus vendorId createdByRole userId"
     )

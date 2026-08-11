@@ -27,6 +27,18 @@ export interface IPickup extends Document {
   velocityWarehouseId?: string;
   /** Lorrigo pickup-address id after successful sync. */
   lorrigoPickupId?: string;
+  /**
+   * Exact facilityName/address/pincode Lorrigo actually stored for lorrigoPickupId (from the
+   * create/lookup response). Bookings must reuse these verbatim — recomputing from the local
+   * label/address can drift and make Lorrigo's one-click API try to re-create the pickup address,
+   * which fails.
+   */
+  lorrigoFacilityName?: string;
+  lorrigoAddress?: string;
+  lorrigoCity?: string;
+  lorrigoState?: string;
+  lorrigoPincode?: string;
+  lorrigoPhone?: string;
   /** Optional Ekart pre-registered location_code (future). Booking uses full address when absent. */
   ekartLocationCode?: string;
   /** Lorrigo sync outcome — optional; unset when sync was never attempted. */
@@ -65,6 +77,12 @@ const pickupSchema = new Schema<IPickup>(
     addressFingerprint: { type: String, index: true },
     velocityWarehouseId: { type: String },
     lorrigoPickupId: { type: String, sparse: true, index: true },
+    lorrigoFacilityName: { type: String },
+    lorrigoAddress: { type: String },
+    lorrigoCity: { type: String },
+    lorrigoState: { type: String },
+    lorrigoPincode: { type: String },
+    lorrigoPhone: { type: String },
     ekartLocationCode: { type: String, sparse: true },
     lorrigoSyncStatus: { type: String, enum: ["SUCCESS", "FAILED", "SKIPPED"] },
     lorrigoLastSyncAt: { type: Date },

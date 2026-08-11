@@ -37,6 +37,69 @@ export type LorrigoPickupPayload = {
   rtoPincode: string;
 };
 
+/**
+ * The exact identity fields Lorrigo has on file for a hub — must be reused verbatim on
+ * later shipment bookings (see buildLorrigoOneClickPayload). Recomputing from the local
+ * Pickup label/address can drift from whichever payload variant actually got accepted
+ * (first attempt, simplified retry, or an existing hub we linked to).
+ */
+export type LorrigoHubFields = {
+  facilityName: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  phone: string;
+};
+
+function hubFieldsFromPayload(body: LorrigoPickupPayload): LorrigoHubFields {
+  return {
+    facilityName: body.facilityName,
+    address: body.address,
+    city: body.city,
+    state: body.state,
+    pincode: body.pincode,
+    phone: body.phone,
+  };
+}
+
+/** Best-effort extraction of the hub identity Lorrigo actually stored, from a create/list response row. */
+function extractLorrigoHubFields(raw: unknown, fallback: LorrigoHubFields): LorrigoHubFields {
+  if (!raw || typeof raw !== "object") return fallback;
+  const o = raw as Record<string, unknown>;
+  const data = (o.data as Record<string, unknown> | undefined) ?? o;
+  const hub = (data.hub as Record<string, unknown> | undefined) ?? data;
+  const addrRaw = hub.address;
+  const addr =
+    addrRaw && typeof addrRaw === "object" && !Array.isArray(addrRaw)
+      ? (addrRaw as Record<string, unknown>)
+      : undefined;
+
+  const facilityName = pickString(hub, ["facilityName", "name"]) ?? fallback.facilityName;
+  const address =
+    pickString(addr ?? {}, ["address", "addressLine1"]) ??
+    (typeof addrRaw === "string" ? addrRaw.trim() : undefined) ??
+    fallback.address;
+  const city = pickString(addr ?? {}, ["city"]) ?? pickString(hub, ["city"]) ?? fallback.city;
+  const state = pickString(addr ?? {}, ["state"]) ?? pickString(hub, ["state"]) ?? fallback.state;
+  const pincode =
+    pickString(addr ?? {}, ["pincode", "pinCode", "pin"]) ??
+    pickString(hub, ["pincode", "pinCode", "pin"]) ??
+    fallback.pincode;
+  const phone =
+    pickString(hub, ["phone", "contactNumber", "mobile"]) ?? fallback.phone;
+
+  return { facilityName, address, city, state, pincode, phone };
+}
+
+function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
 function extractLorrigoPickupId(raw: unknown): string {
   if (!raw || typeof raw !== "object") return "";
   const o = raw as Record<string, unknown>;
@@ -270,7 +333,9 @@ function asRecordArray(raw: unknown): Record<string, unknown>[] {
  * Best-effort: find an existing Lorrigo hub that matches this pickup (phone + pincode).
  * Used when create fails (duplicate / transient 5xx) so sync can still succeed.
  */
-async function findExistingLorrigoPickupId(body: LorrigoPickupPayload): Promise<string> {
+async function findExistingLorrigoPickupId(
+  body: LorrigoPickupPayload
+): Promise<{ id: string; hub: LorrigoHubFields } | null> {
   const endpoints = ["/v2/pickup-address", "/v2/hubs", "/v2/pickup-addresses"];
   for (const endpoint of endpoints) {
     try {
@@ -280,7 +345,10 @@ async function findExistingLorrigoPickupId(body: LorrigoPickupPayload): Promise<
         const phone = String(row.phone ?? row.contactNumber ?? row.mobile ?? "")
           .replace(/\D/g, "")
           .slice(-10);
-        const pin = String(row.pincode ?? row.pin ?? row.pinCode ?? "")
+        const addr = (row.address as Record<string, unknown> | undefined) ?? undefined;
+        const pin = String(
+          addr?.pincode ?? row.pincode ?? row.pin ?? row.pinCode ?? ""
+        )
           .replace(/\D/g, "")
           .slice(0, 6);
         const name = sanitizeLorrigoTextField(
@@ -301,7 +369,7 @@ async function findExistingLorrigoPickupId(body: LorrigoPickupPayload): Promise<
             console.info(
               `[lorrigo] linked existing hub id=${id} via ${endpoint} phone=${phone} pin=${pin}`
             );
-            return id;
+            return { id, hub: extractLorrigoHubFields(row, hubFieldsFromPayload(body)) };
           }
         }
       }
@@ -311,10 +379,38 @@ async function findExistingLorrigoPickupId(body: LorrigoPickupPayload): Promise<
       );
     }
   }
-  return "";
+  return null;
 }
 
-async function createLorrigoPickup(body: LorrigoPickupPayload): Promise<string> {
+/** Look up a hub's exact registered identity by its Lorrigo pickup id (for backfilling old rows). */
+async function findLorrigoHubById(pickupId: string): Promise<LorrigoHubFields | null> {
+  const endpoints = ["/v2/pickup-address", "/v2/hubs", "/v2/pickup-addresses"];
+  for (const endpoint of endpoints) {
+    try {
+      const raw = await lorrigoGet<unknown>(endpoint);
+      const rows = asRecordArray(raw);
+      const row = rows.find((r) => extractLorrigoPickupId(r) === pickupId);
+      if (row) {
+        const fields = extractLorrigoHubFields(row, {
+          facilityName: "",
+          address: "",
+          city: "",
+          state: "",
+          pincode: "",
+          phone: "",
+        });
+        if (fields.facilityName && fields.address) return fields;
+      }
+    } catch {
+      /* try next endpoint */
+    }
+  }
+  return null;
+}
+
+async function createLorrigoPickup(
+  body: LorrigoPickupPayload
+): Promise<{ id: string; hub: LorrigoHubFields }> {
   const raw = await lorrigoPost<unknown>("/v2/pickup-address", body, { retryable: true });
   const rejected = isLorrigoCreateRejected(raw);
   if (rejected) {
@@ -328,7 +424,7 @@ async function createLorrigoPickup(body: LorrigoPickupPayload): Promise<string> 
     console.error(`[lorrigo] pickup create returned no id keys=${keys}`);
     throw new AppError(502, "Lorrigo pickup create succeeded but no pickup id was returned");
   }
-  return providerId;
+  return { id: providerId, hub: extractLorrigoHubFields(raw, hubFieldsFromPayload(body)) };
 }
 
 /**
@@ -356,12 +452,28 @@ export async function syncPickupToLorrigo(
   const existingId = (pickup.lorrigoPickupId ?? "").trim();
   if (existingId) {
     // Idempotency: never create a duplicate on Lorrigo
+    let dirty = false;
     if (pickup.lorrigoSyncStatus !== "SUCCESS") {
       pickup.lorrigoSyncStatus = "SUCCESS";
       pickup.lorrigoSyncError = undefined;
       pickup.lorrigoLastSyncAt = new Date();
-      await pickup.save();
+      dirty = true;
     }
+    // Backfill hub identity for pickups synced before this field was tracked — bookings
+    // need the exact registered facilityName/address, not a recomputed guess.
+    if (!pickup.lorrigoFacilityName?.trim()) {
+      const found = await findLorrigoHubById(existingId).catch(() => null);
+      if (found) {
+        pickup.lorrigoFacilityName = found.facilityName;
+        pickup.lorrigoAddress = found.address;
+        pickup.lorrigoCity = found.city;
+        pickup.lorrigoState = found.state;
+        pickup.lorrigoPincode = found.pincode;
+        pickup.lorrigoPhone = found.phone;
+        dirty = true;
+      }
+    }
+    if (dirty) await pickup.save();
     console.info(
       `[lorrigo] pickup sync skipped (already synced) pickupId=${id} lorrigoPickupId=${existingId}`
     );
@@ -392,10 +504,13 @@ export async function syncPickupToLorrigo(
 
   try {
     let providerId = "";
+    let hubFields: LorrigoHubFields | null = null;
     let lastError = "";
 
     try {
-      providerId = await createLorrigoPickup(body);
+      const created = await createLorrigoPickup(body);
+      providerId = created.id;
+      hubFields = created.hub;
     } catch (err) {
       lastError = formatErrorMessage(err, "Lorrigo pickup sync failed");
       console.warn(`[lorrigo] pickup create attempt 1 failed pickupId=${id} error=${lastError}`);
@@ -411,7 +526,9 @@ export async function syncPickupToLorrigo(
         contactPersonName: (body.contactPersonName || "Contact").slice(0, 30),
       };
       try {
-        providerId = await createLorrigoPickup(retryBody);
+        const created = await createLorrigoPickup(retryBody);
+        providerId = created.id;
+        hubFields = created.hub;
         lastError = "";
       } catch (err2) {
         lastError = formatErrorMessage(err2, lastError || "Lorrigo pickup sync failed");
@@ -421,10 +538,14 @@ export async function syncPickupToLorrigo(
 
     // Create failed (often duplicate / transient 5xx) — try linking an existing hub.
     if (!providerId) {
-      providerId = await findExistingLorrigoPickupId(body);
+      const linked = await findExistingLorrigoPickupId(body);
+      if (linked) {
+        providerId = linked.id;
+        hubFields = linked.hub;
+      }
     }
 
-    if (!providerId) {
+    if (!providerId || !hubFields) {
       throw new AppError(502, lastError || "Lorrigo pickup sync failed");
     }
 
@@ -432,6 +553,15 @@ export async function syncPickupToLorrigo(
     pickup.lorrigoSyncStatus = "SUCCESS";
     pickup.lorrigoLastSyncAt = new Date();
     pickup.lorrigoSyncError = undefined;
+    // Bookings must resend this exact identity — Lorrigo's one-click API tries to
+    // re-create the pickup address if the facilityName/address it receives doesn't
+    // match what's on file for this id, which fails with a generic 400.
+    pickup.lorrigoFacilityName = hubFields.facilityName;
+    pickup.lorrigoAddress = hubFields.address;
+    pickup.lorrigoCity = hubFields.city;
+    pickup.lorrigoState = hubFields.state;
+    pickup.lorrigoPincode = hubFields.pincode;
+    pickup.lorrigoPhone = hubFields.phone;
     await pickup.save();
 
     const durationMs = Date.now() - started;

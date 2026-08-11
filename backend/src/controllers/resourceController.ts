@@ -1396,7 +1396,7 @@ export const listPickupAddresses = asyncHandler(async (req: AuthRequest, res: Re
   if (req.user.role === "admin" && scope === "platform") {
     findQuery = await platformPickupListQuery();
   } else {
-    findQuery = pickupListQuery(req.user, { includeInactive: true });
+    findQuery = await pickupListQuery(req.user, { includeInactive: true });
   }
   const rows = await Pickup.find(findQuery)
     .sort({ createdAt: -1 })
@@ -1610,7 +1610,7 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const existing = await Pickup.findOne({
-    $and: [{ _id: id }, pickupListQuery(req.user, { includeInactive: true })],
+    $and: [{ _id: id }, await pickupListQuery(req.user, { includeInactive: true })],
   });
   if (!existing) throw new AppError(404, "Pickup address not found");
 
@@ -1760,7 +1760,7 @@ export const deletePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const doc = await Pickup.findOne({
-    $and: [{ _id: id }, pickupListQuery(req.user, { includeInactive: true })],
+    $and: [{ _id: id }, await pickupListQuery(req.user, { includeInactive: true })],
   });
   if (!doc) throw new AppError(404, "Pickup address not found");
 
@@ -1793,7 +1793,7 @@ export const setDefaultPickupAddress = asyncHandler(async (req: AuthRequest, res
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const doc = await Pickup.findOne({
-    $and: [{ _id: id }, pickupListQuery(req.user, { includeInactive: false })],
+    $and: [{ _id: id }, await pickupListQuery(req.user, { includeInactive: false })],
   });
   if (!doc) throw new AppError(404, "Pickup address not found or inactive");
 

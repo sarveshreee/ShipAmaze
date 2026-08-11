@@ -30,6 +30,11 @@ import {
   claimOrderForBooking,
   releaseBookingClaim,
 } from "./bookingClaim.js";
+import {
+  syncPickupToLorrigo,
+  buildLorrigoFacilityName,
+  buildLorrigoStreetAddress,
+} from "../lorrigo/lorrigo.pickupSync.js";
 
 export type BookShipmentInput = {
   order: IOrder;
@@ -148,16 +153,29 @@ export async function validateLorrigoBooking(input: BookShipmentInput): Promise<
     recordBookingValidationFailure();
     throw new AppError(404, "Pickup address not found");
   }
-  const lorrigoPickupId = String((pickup as { lorrigoPickupId?: string }).lorrigoPickupId ?? "").trim();
-  const syncStatus = String((pickup as { lorrigoSyncStatus?: string }).lorrigoSyncStatus ?? "");
-  if (!lorrigoPickupId) {
-    recordBookingValidationFailure();
-    throw new AppError(
-      422,
-      "Pickup is not synced to Lorrigo. Sync the pickup address before booking."
-    );
+  let lorrigoPickupId = String((pickup as { lorrigoPickupId?: string }).lorrigoPickupId ?? "").trim();
+  let syncStatus = String((pickup as { lorrigoSyncStatus?: string }).lorrigoSyncStatus ?? "");
+  if (!lorrigoPickupId || syncStatus === "FAILED") {
+    const syncResult = await syncPickupToLorrigo(input.pickupAddressId, { force: true }).catch((e) => ({
+      synced: false as const,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+    if (syncResult && "synced" in syncResult && syncResult.synced && syncResult.pickupId) {
+      lorrigoPickupId = syncResult.pickupId;
+      syncStatus = "SUCCESS";
+    } else if (!lorrigoPickupId) {
+      recordBookingValidationFailure();
+      const detail =
+        syncResult && "error" in syncResult && syncResult.error
+          ? `: ${syncResult.error}`
+          : "";
+      throw new AppError(
+        422,
+        `Pickup is not synced to Lorrigo. Sync the pickup address before booking${detail}`
+      );
+    }
   }
-  if (syncStatus === "FAILED") {
+  if (syncStatus === "FAILED" && !lorrigoPickupId) {
     recordBookingValidationFailure();
     throw new AppError(422, "Pickup Lorrigo sync failed. Retry sync before booking.");
   }
@@ -405,14 +423,25 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
       pickupPincode: pickupLean.pincode,
       pickupCity: pickupLean.city,
       pickupState: pickupLean.state,
+      // Must match what Lorrigo has on file for lorrigoPickupId exactly (persisted at sync
+      // time) — sending a recomputed/mismatched facilityName or address makes Lorrigo's
+      // one-click API try to re-create the pickup address, which fails with a generic 400.
       pickupAddress: {
-        facilityName: pickupLean.label,
+        facilityName:
+          String(pickupLean.lorrigoFacilityName ?? "").trim() ||
+          buildLorrigoFacilityName(String(pickupLean.label ?? ""), String(pickupLean.pincode ?? "")),
         contactPersonName: pickupLean.contactName,
-        phone: pickupLean.phone,
-        address: pickupLean.addressLine1,
-        pincode: pickupLean.pincode,
-        city: pickupLean.city,
-        state: pickupLean.state,
+        phone: String(pickupLean.lorrigoPhone ?? "").trim() || pickupLean.phone,
+        address:
+          String(pickupLean.lorrigoAddress ?? "").trim() ||
+          buildLorrigoStreetAddress(
+            String(pickupLean.addressLine1 ?? ""),
+            String(pickupLean.addressLine2 ?? ""),
+            String(pickupLean.city ?? "")
+          ),
+        pincode: String(pickupLean.lorrigoPincode ?? "").trim() || pickupLean.pincode,
+        city: String(pickupLean.lorrigoCity ?? "").trim() || pickupLean.city,
+        state: String(pickupLean.lorrigoState ?? "").trim() || pickupLean.state,
         pickupAddressId: lorrigoPickupId,
       },
       idempotencyKey: claim.idempotencyKey,

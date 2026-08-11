@@ -24,8 +24,8 @@ export const PICKUP_ACTIVE: Record<string, unknown> = {
 /**
  * Build find query for a pickup id that the user may use on an order (owned, active, not deleted).
  */
-export function pickupByIdSelectableQuery(pickupId: string, user: IUser): Record<string, unknown> {
-  const owner = getPickupOwnerFilterForUser(user);
+export async function pickupByIdSelectableQuery(pickupId: string, user: IUser): Promise<Record<string, unknown>> {
+  const owner = await getPickupOwnerFilterForUser(user);
   const parts: Record<string, unknown>[] = [
     { _id: pickupId },
     { ...PICKUP_NOT_DELETED },
@@ -40,8 +40,11 @@ export function pickupByIdSelectableQuery(pickupId: string, user: IUser): Record
 /**
  * List/manage query: non-deleted pickups for this user. When includeInactive is false, only active rows.
  */
-export function pickupListQuery(user: IUser, opts?: { includeInactive?: boolean }): Record<string, unknown> {
-  const owner = getPickupOwnerFilterForUser(user);
+export async function pickupListQuery(
+  user: IUser,
+  opts?: { includeInactive?: boolean }
+): Promise<Record<string, unknown>> {
+  const owner = await getPickupOwnerFilterForUser(user);
   const parts: Record<string, unknown>[] = [{ ...PICKUP_NOT_DELETED }];
   if (!opts?.includeInactive) {
     parts.push({ ...PICKUP_ACTIVE });
@@ -53,8 +56,11 @@ export function pickupListQuery(user: IUser, opts?: { includeInactive?: boolean 
 }
 
 /** Pickup by id that the user may still manage (not soft-deleted); includes inactive rows. */
-export function pickupByIdManageQuery(pickupId: string | Types.ObjectId, user: IUser): Record<string, unknown> {
-  const q = pickupListQuery(user, { includeInactive: true });
+export async function pickupByIdManageQuery(
+  pickupId: string | Types.ObjectId,
+  user: IUser
+): Promise<Record<string, unknown>> {
+  const q = await pickupListQuery(user, { includeInactive: true });
   const idCond = { _id: pickupId };
   if ("$and" in q && Array.isArray((q as { $and: Record<string, unknown>[] }).$and)) {
     return { $and: [idCond, ...(q as { $and: Record<string, unknown>[] }).$and] };
