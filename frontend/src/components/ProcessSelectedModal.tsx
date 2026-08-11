@@ -193,6 +193,13 @@ export function ProcessSelectedModal({
     return String(p?.pincode ?? "").replace(/\D/g, "").slice(0, 6);
   }, [activePickups, pickupAddr]);
 
+  const selectedPickup = useMemo(
+    () => activePickups.find((a) => a.id === pickupAddr),
+    [activePickups, pickupAddr]
+  );
+  /** Booking requires a real Lorrigo pickup id — not just a SUCCESS badge. */
+  const lorrigoPickupReady = Boolean(selectedPickup?.lorrigoPickupId?.trim());
+
   const destPincode = useMemo(() => {
     for (const o of referenceOrders) {
       const pin = String(o.pincode ?? "").replace(/\D/g, "").slice(0, 6);
@@ -284,21 +291,27 @@ export function ProcessSelectedModal({
         },
       ];
     }
-    return serviceableCouriers.map((c) => {
-      const priceRaw = c.totalCharge ?? c.total_charge ?? c.freight ?? c.freightCharge ?? c.freight_charge;
-      const price = typeof priceRaw === "number" && Number.isFinite(priceRaw) ? priceRaw : null;
-      return {
-        carrier_id: String(c.courierId || c.carrier_id),
-        carrier_name: String(c.courierName || c.carrier_name || c.courierId || c.carrier_id),
-        provider: (c.provider === "lorrigo"
-          ? "lorrigo"
-          : c.provider === "ekart"
-            ? "ekart"
-            : "velocity") as "velocity" | "lorrigo" | "ekart",
-        price,
-      };
-    });
-  }, [serviceableCouriers, fixedCourierFromFilter]);
+    return serviceableCouriers
+      .filter((c) => {
+        // Hide Lorrigo couriers until the selected pickup has a real lorrigoPickupId.
+        if ((c.provider || "velocity") === "lorrigo" && !lorrigoPickupReady) return false;
+        return true;
+      })
+      .map((c) => {
+        const priceRaw = c.totalCharge ?? c.total_charge ?? c.freight ?? c.freightCharge ?? c.freight_charge;
+        const price = typeof priceRaw === "number" && Number.isFinite(priceRaw) ? priceRaw : null;
+        return {
+          carrier_id: String(c.courierId || c.carrier_id),
+          carrier_name: String(c.courierName || c.carrier_name || c.courierId || c.carrier_id),
+          provider: (c.provider === "lorrigo"
+            ? "lorrigo"
+            : c.provider === "ekart"
+              ? "ekart"
+              : "velocity") as "velocity" | "lorrigo" | "ekart",
+          price,
+        };
+      });
+  }, [serviceableCouriers, fixedCourierFromFilter, lorrigoPickupReady]);
 
   const courierSections = useMemo(
     () => groupCouriersByProvider(displayCouriers),
@@ -314,8 +327,28 @@ export function ProcessSelectedModal({
     if (pickupAddr && !hasPickupPin) {
       msgs.push("Selected pickup address does not contain a valid pincode.");
     }
+    if (
+      pickupAddr &&
+      !lorrigoPickupReady &&
+      serviceableCouriers.some((c) => (c.provider || "") === "lorrigo")
+    ) {
+      msgs.push(
+        role === "admin"
+          ? "Lorrigo couriers are hidden until this pickup address is synced to Lorrigo (use Sync / Retry Sync on Pickup Addresses)."
+          : "Some couriers are hidden until this pickup address is synced. Use Sync / Retry Sync on Pickup Addresses."
+      );
+    }
     return msgs;
-  }, [open, referenceOrders.length, hasDestPin, pickupAddr, hasPickupPin]);
+  }, [
+    open,
+    referenceOrders.length,
+    hasDestPin,
+    pickupAddr,
+    hasPickupPin,
+    lorrigoPickupReady,
+    serviceableCouriers,
+    role,
+  ]);
 
   const handlePreset = (val: string) => {
     setWeightPreset(val);
@@ -334,6 +367,15 @@ export function ProcessSelectedModal({
     setSelectedCarrierName(carrierName);
     setSelectedCarrierProvider(provider || "velocity");
   };
+
+  // Drop a selected Lorrigo courier if the pickup is no longer Lorrigo-ready.
+  useEffect(() => {
+    if (!lorrigoPickupReady && selectedCarrierProvider === "lorrigo") {
+      setSelectedCarrierId("");
+      setSelectedCarrierName("");
+      setSelectedCarrierProvider("velocity");
+    }
+  }, [lorrigoPickupReady, selectedCarrierProvider]);
 
   const handleSubmit = async () => {
     if (orderIds.length === 0) {

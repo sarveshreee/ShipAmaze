@@ -45,6 +45,7 @@ import { getCourierProvider } from "../modules/courier/providerRegistry.js";
 import { providerSupports } from "../modules/courier/capabilities.js";
 import type { CourierProviderId } from "../modules/courier/types.js";
 import { isLorrigoEnabledFlag } from "../modules/lorrigo/lorrigo.config.js";
+import { syncPickupToLorrigo } from "../modules/lorrigo/lorrigo.pickupSync.js";
 import { isEkartEnabledFlag, isEkartConfigured } from "../modules/ekart/ekart.config.js";
 import { isVelocityEnabledFlag } from "../config/env.js";
 import {
@@ -1590,6 +1591,12 @@ const BLOCKED_PROCESS_SELECTED_STATUSES = new Set([
   "ndr",
   "rto",
   "junk",
+  // booking_failed / processing_failed / failed / pickup_failed are reprocessable —
+  // restored to ready_to_ship in processOneSelectedOrder before eligibility check.
+]);
+
+/** Failed-tab / booking-failure statuses that Process Selected may retry. */
+const REPROCESSABLE_FAILED_STATUSES = new Set([
   "failed",
   "processing_failed",
   "pickup_failed",
@@ -1628,6 +1635,13 @@ function restoreOrderFromJunkForProcess(order: InstanceType<typeof Order>): void
   order.isJunk = false;
   order.junkedAt = undefined;
   order.junkReason = undefined;
+  clearOrderShipmentForRebook(order);
+  order.status = "ready_to_ship";
+  order.shipmentStatus = "ready_to_ship";
+}
+
+/** Clear partial booking state so Failed-tab orders can be rebooked via Process Selected. */
+function restoreOrderFromFailedForProcess(order: InstanceType<typeof Order>): void {
   clearOrderShipmentForRebook(order);
   order.status = "ready_to_ship";
   order.shipmentStatus = "ready_to_ship";
@@ -1995,6 +2009,17 @@ async function processOneSelectedOrder(
   if (o.isJunk) {
     restoreOrderFromJunkForProcess(o);
     appendStatusHistory(o, "ready_to_ship", req.user._id, "Restored from junk via Process Selected");
+  }
+
+  const priorStatus = normalizeOrderStatusKey(o.status);
+  if (REPROCESSABLE_FAILED_STATUSES.has(priorStatus)) {
+    restoreOrderFromFailedForProcess(o);
+    appendStatusHistory(
+      o,
+      "ready_to_ship",
+      req.user._id,
+      `Restored from ${priorStatus} via Process Selected`
+    );
   }
 
   try {
@@ -2423,8 +2448,11 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     .lean();
   if (!pickup) throw new AppError(404, "Pickup address not found");
 
-  const lorrigoPickupId = String((pickup as { lorrigoPickupId?: string }).lorrigoPickupId ?? "").trim();
+  const lorrigoPickupIdExisting = String(
+    (pickup as { lorrigoPickupId?: string }).lorrigoPickupId ?? ""
+  ).trim();
   let velocityWarehouseId = "";
+  let lorrigoPickupId = lorrigoPickupIdExisting;
 
   const needVelocityLink =
     (courierSelectionMode === "courier" && courierProvider === "velocity") || priorityNeedsVelocity;
@@ -2449,11 +2477,28 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     velocityWarehouseId = String(pickup.velocityWarehouseId ?? "").trim();
   }
 
-  if (needLorrigoLink && !lorrigoPickupId) {
-    throw new AppError(
-      422,
-      "Pickup address must be synced to Lorrigo before booking. Use Sync to Lorrigo / Retry Sync on the pickup address."
-    );
+  if (needLorrigoLink) {
+    if (!lorrigoPickupId) {
+      // Mirror Velocity: attempt sync on demand before blocking the whole batch.
+      const syncResult = await syncPickupToLorrigo(pickupAddressId, { force: true }).catch((e) => ({
+        synced: false as const,
+        error: e instanceof Error ? e.message : String(e),
+      }));
+      if (syncResult && "synced" in syncResult && syncResult.synced && syncResult.pickupId) {
+        lorrigoPickupId = syncResult.pickupId;
+      } else if (syncResult && "error" in syncResult && syncResult.error) {
+        throw new AppError(
+          422,
+          `Pickup address could not be synced to Lorrigo: ${syncResult.error}. Use Retry Sync on the pickup address.`
+        );
+      }
+    }
+    if (!lorrigoPickupId) {
+      throw new AppError(
+        422,
+        "Pickup address must be synced to Lorrigo before booking. Use Sync to Lorrigo / Retry Sync on the pickup address."
+      );
+    }
   }
 
   const vendorIdFromPickup = await resolveVendorIdFromPickup(pickup);

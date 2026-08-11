@@ -88,11 +88,23 @@ export function buildEkartTrackingId(opts: {
   return `${padded}${type}${num.slice(0, 10)}`;
 }
 
-/** ShipAmaze order id → Durin client_reference_id (max 15). Not the tracking AWB. */
+/**
+ * ShipAmaze order id → Durin client_reference_id (max 15). Not the tracking AWB.
+ *
+ * Must be unique per shipment. Naive `.slice(0, 15)` collides for long Shopify ids
+ * like `shopify-…-myshopify-com-7193615565079` (all share the same 15-char prefix),
+ * which Durin rejects with HTTP 400.
+ */
 export function buildEkartClientReferenceId(orderId: string): string {
-  return String(orderId ?? "")
-    .trim()
-    .slice(0, 15);
+  const raw = String(orderId ?? "").trim();
+  if (!raw) {
+    return createHash("sha256").update(`ekart-${Date.now()}`).digest("hex").slice(0, 15);
+  }
+  if (raw.length <= 15) return raw;
+  // Prefer trailing numeric id (Shopify / channel order numbers) — unique within 15 chars.
+  const trailingDigits = raw.match(/(\d{10,})$/)?.[1];
+  if (trailingDigits) return trailingDigits.slice(-15);
+  return createHash("sha256").update(raw).digest("hex").slice(0, 15);
 }
 
 function buildAddressBlock(opts: {

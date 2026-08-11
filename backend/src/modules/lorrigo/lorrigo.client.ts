@@ -219,12 +219,19 @@ export async function ensureLorrigoAuth(): Promise<void> {
 }
 
 /** Authenticated JSON request helpers for later phases. */
-export async function lorrigoPost<T>(endpoint: string, body?: unknown): Promise<T> {
-  return getClient().post<T>(endpoint, body);
+export async function lorrigoPost<T>(
+  endpoint: string,
+  body?: unknown,
+  options?: { retryable?: boolean; correlationId?: string }
+): Promise<T> {
+  return getClient().post<T>(endpoint, body, options);
 }
 
-export async function lorrigoGet<T>(endpoint: string): Promise<T> {
-  return getClient().get<T>(endpoint);
+export async function lorrigoGet<T>(
+  endpoint: string,
+  options?: { retryable?: boolean; correlationId?: string }
+): Promise<T> {
+  return getClient().get<T>(endpoint, options);
 }
 
 export function getLorrigoAuthMetrics(): LorrigoAuthMetrics {

@@ -11,11 +11,30 @@ vi.mock("./ekart.config.js", () => ({
   },
 }));
 
-import { buildEkartCreateShipmentPayload } from "./ekart.payload.js";
+import { buildEkartCreateShipmentPayload, buildEkartClientReferenceId } from "./ekart.payload.js";
 import {
   parseEkartCriticalUpdate,
   verifyEkartWebhookSecret,
 } from "./ekart.webhooks.js";
+
+describe("buildEkartClientReferenceId", () => {
+  it("keeps short ids unchanged", () => {
+    expect(buildEkartClientReferenceId("ORD123456789012")).toBe("ORD123456789012");
+  });
+
+  it("uses unique trailing digits for long Shopify-style ids", () => {
+    const a = buildEkartClientReferenceId(
+      "shopify-k7qqag-ph-myshopify-com-7193615565079"
+    );
+    const b = buildEkartClientReferenceId(
+      "shopify-k7qqag-ph-myshopify-com-7193615565080"
+    );
+    expect(a).toBe("7193615565079");
+    expect(b).toBe("7193615565080");
+    expect(a).not.toBe(b);
+    expect(a.length).toBeLessThanOrEqual(15);
+  });
+});
 
 describe("Ekart reverse payload", () => {
   it("builds REVERSE leg with customer as source", () => {

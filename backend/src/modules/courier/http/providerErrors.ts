@@ -95,7 +95,16 @@ export function toClientSafeMessage(
   if (providerStatus === 401 || providerStatus === 403) {
     return "Shipping provider authentication failed.";
   }
-  if (providerStatus >= 500) return "Shipping provider is temporarily unavailable.";
+  if (providerStatus >= 500) {
+    // Many providers misuse 5xx for validation / duplicate errors — surface a short useful body.
+    const looksGeneric =
+      !cleaned ||
+      /^(internal server error|error|ok|failed|null|undefined)$/i.test(cleaned) ||
+      /^[a-z0-9_-]+ error \d{3}$/i.test(cleaned) ||
+      /temporarily unavailable/i.test(cleaned);
+    if (!looksGeneric && cleaned.length <= 180) return cleaned;
+    return "Shipping provider is temporarily unavailable.";
+  }
   if (providerStatus === 504 || /timeout/i.test(cleaned)) {
     return "Shipping provider request timed out.";
   }

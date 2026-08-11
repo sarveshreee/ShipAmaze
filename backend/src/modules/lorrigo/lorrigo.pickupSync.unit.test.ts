@@ -99,7 +99,7 @@ describe("lorrigo pickup sync", () => {
       },
       "fallback@test.com"
     );
-    expect(body.facilityName).toBe("Hub");
+    expect(body.facilityName).toBe("Hub 395003");
     expect(body.email).toBe("fallback@test.com");
     expect(body.pincode).toBe("395003");
     // Lorrigo requires `/` or `-` in address + RTO fields
@@ -146,6 +146,29 @@ describe("lorrigo pickup sync", () => {
     expect(body.address).toContain("-");
     expect(body.facilityName).toContain("NIMA TRADERS");
     expect(body.address.toLowerCase()).toContain("padal road");
+    expect(body.address.length).toBeLessThanOrEqual(121);
+  });
+
+  it("shortens long RIGHT TRADERS style address dumps for Lorrigo only", () => {
+    const long =
+      "BUILDING NO1 FLAT NO - SHOP NO 1 NAME OF PREMISES BUILDING NIHAWALI PARK SR NO 51A/2 ROAD/STREET KALE PADAL ROAD NEAR BY AND LAND MARK BLUE KAMTIGN SOCIETY LOCATION (SUB LOCALITY HADAPSAR HAWELI CIT/TOWN VILLAGE PUNE DIST PUNE STATE MAHARASTRA PIN CODE 411028";
+    const body = pickupToLorrigoPickupPayload(
+      {
+        label: "RIGHT TRADERS Warehouse RIGHT TRADERS",
+        contactName: "RIGHT TRADERS",
+        phone: "7977318291",
+        email: "tradingpallavi@gmail.com",
+        addressLine1: long,
+        city: "PUNE",
+        state: "MAHARASTRA",
+        pincode: "411028",
+      },
+      ""
+    );
+    expect(body.address.length).toBeLessThanOrEqual(121);
+    expect(body.address.toLowerCase()).toMatch(/padal|nihawali|kale|park|road/);
+    expect(body.facilityName).toMatch(/RIGHT TRADERS/i);
+    expect(body.facilityName.length).toBeLessThanOrEqual(50);
   });
 
   it("bypasses sync when LORRIGO_ENABLED=false", async () => {

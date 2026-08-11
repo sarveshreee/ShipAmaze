@@ -37,5 +37,22 @@ describe("providerErrors", () => {
     expect(err.providerError).toBeUndefined();
     expect(err.code).toBe("VALIDATION_FAILED");
   });
+
+  it("surfaces useful 5xx provider messages instead of always saying unavailable", () => {
+    expect(
+      buildProviderAppError({
+        provider: "lorrigo",
+        providerStatus: 500,
+        data: { message: "facilityName already exists" },
+      }).message
+    ).toBe("facilityName already exists");
+    expect(
+      buildProviderAppError({
+        provider: "lorrigo",
+        providerStatus: 503,
+        data: null,
+      }).message
+    ).toBe("Shipping provider is temporarily unavailable.");
+  });
 });
 

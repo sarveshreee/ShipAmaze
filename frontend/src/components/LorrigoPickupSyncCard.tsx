@@ -28,8 +28,9 @@ function formatSyncTime(iso?: string): string {
 export function LorrigoPickupSyncCard({ pickup, onUpdated, showProviderBrand = true }: Props) {
   const [busy, setBusy] = useState(false);
   const status = pickup.lorrigoSyncStatus;
-  const synced = Boolean(pickup.lorrigoPickupId?.trim()) || status === "SUCCESS";
+  const synced = Boolean(pickup.lorrigoPickupId?.trim());
   const failed = status === "FAILED";
+  // Treat SUCCESS-without-id as not synced (booking requires lorrigoPickupId).
   const brand = showProviderBrand ? "Lorrigo" : "alternate couriers";
 
   const badgeClass = synced

@@ -490,7 +490,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   /** Tabs where Process Selected accepts orders without ready_to_ship (backend validates). */
   const RELAXED_PROCESS_TABS = useMemo(
-    () => new Set(["all", "channel", "manual", "reship", "junk", "ready-to-ship"]),
+    () => new Set(["all", "channel", "manual", "reship", "junk", "ready-to-ship", "failed"]),
     []
   );
 

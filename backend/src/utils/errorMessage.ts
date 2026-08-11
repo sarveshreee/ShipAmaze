@@ -40,8 +40,21 @@ export function extractProviderErrorMessage(data: unknown): string {
     const meta = d.meta as Record<string, unknown> | undefined;
     const metaMsg = coerceMessageValue(meta?.message);
     if (metaMsg) return metaMsg;
-    const direct = coerceMessageValue(d.message ?? d.error ?? d.detail ?? d.errors);
+    const direct = coerceMessageValue(
+      d.message ?? d.error ?? d.detail ?? d.error_message ?? d.errorMessage ?? d.errors
+    );
     if (direct) return direct;
+    // Ekart Durin: { response: [{ message, status, status_code }] }
+    if (Array.isArray(d.response) && d.response.length > 0) {
+      const first = d.response[0];
+      if (first && typeof first === "object") {
+        const row = first as Record<string, unknown>;
+        const nested = coerceMessageValue(
+          row.message ?? row.error ?? row.detail ?? row.error_message ?? row.status
+        );
+        if (nested) return nested;
+      }
+    }
   }
   return "";
 }
