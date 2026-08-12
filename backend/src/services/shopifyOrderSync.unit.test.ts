@@ -52,6 +52,35 @@ describe("shopifyOrderSync helpers", () => {
     expect(mapShopifyOrderPayment(tagged)).toBe("COD");
   });
 
+  it("mapShopifyOrderPayment detects COD from manual gateway with pending status", () => {
+    const manual = {
+      id: 4,
+      financial_status: "pending",
+      payment_gateway_names: ["manual"],
+    } as unknown as ShopifyOrder;
+    expect(shopifyOrderIsCod(manual)).toBe(true);
+    expect(mapShopifyOrderPayment(manual)).toBe("COD");
+  });
+
+  it("mapShopifyOrderPayment treats pending + online gateway as Prepaid", () => {
+    const pendingOnline = {
+      id: 5,
+      financial_status: "pending",
+      payment_gateway_names: ["razorpay"],
+    } as unknown as ShopifyOrder;
+    expect(shopifyOrderIsCod(pendingOnline)).toBe(false);
+    expect(mapShopifyOrderPayment(pendingOnline)).toBe("Prepaid");
+  });
+
+  it("mapShopifyOrderPayment defaults unknown pending to COD", () => {
+    const unknownPending = {
+      id: 6,
+      financial_status: "pending",
+      payment_gateway_names: [],
+    } as unknown as ShopifyOrder;
+    expect(mapShopifyOrderPayment(unknownPending)).toBe("COD");
+  });
+
   it("mapShopifyToInternalStatus maps fulfilment and financial hints", () => {
     const base = { id: 1 } as unknown as ShopifyOrder;
     expect(mapShopifyToInternalStatus({ ...base, financial_status: "paid", fulfillment_status: null })).toBe("pending");

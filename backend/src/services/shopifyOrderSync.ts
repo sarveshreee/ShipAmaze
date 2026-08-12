@@ -65,13 +65,33 @@ function collectShopifyGatewayHaystack(so: ShopifyOrder): string {
   return parts.join(" ").toLowerCase();
 }
 
-/** Detect COD from Shopify payment gateways or order tags. */
+/**
+ * Known online/prepaid payment gateways.
+ * If a gateway matches one of these, the order is NOT COD even when financial_status is "pending".
+ */
+const KNOWN_ONLINE_GATEWAYS =
+  /razorpay|payu|paypal|stripe|shopify_payments|cashfree|instamojo|ccavenue|phonepe|paytm|juspay|billdesk|airpay|payubiz|worldline|atom|hdfc|icici|axis|upi|net_?banking|debit|credit|wallet|gpay|google_pay|amazon_?pay/;
+
+/** Detect COD from Shopify payment gateways, tags, or the "manual" gateway (Shopify's built-in COD). */
 export function shopifyOrderIsCod(so: ShopifyOrder): boolean {
   const gateways = collectShopifyGatewayHaystack(so);
+
+  // Explicit COD keywords in gateway names or tags
   if (/cash\s*on\s*delivery|\bcod\b|cash_on_delivery/.test(gateways)) return true;
 
   const tags = String(so.tags ?? "").toLowerCase();
   if (/\bcod\b/.test(tags) || /cash\s*on\s*delivery/.test(tags)) return true;
+
+  // Shopify represents COD as gateway "manual" with financial_status "pending".
+  // Only treat "manual" as COD when no known online gateway is also present.
+  const f = String(so.financial_status ?? "").toLowerCase();
+  if (
+    (f === "pending" || f === "") &&
+    /\bmanual\b/.test(gateways) &&
+    !KNOWN_ONLINE_GATEWAYS.test(gateways)
+  ) {
+    return true;
+  }
 
   return false;
 }
@@ -81,10 +101,17 @@ export function mapShopifyOrderPayment(so: ShopifyOrder): "COD" | "Prepaid" {
   if (shopifyOrderIsCod(so)) return "COD";
 
   const f = String(so.financial_status ?? "").toLowerCase();
+  // "paid" / "partially_paid" means money already received → Prepaid
   if (f === "paid" || f === "partially_paid") return "Prepaid";
   if (f === "refunded" || f === "partially_refunded" || f === "voided") return "Prepaid";
-  if (f === "pending" || f === "authorized") return "Prepaid";
+  // "authorized" means card is authorized (online) → Prepaid
+  if (f === "authorized") return "Prepaid";
 
+  // "pending" with a known online gateway → Prepaid (payment in progress)
+  const gateways = collectShopifyGatewayHaystack(so);
+  if (f === "pending" && KNOWN_ONLINE_GATEWAYS.test(gateways)) return "Prepaid";
+
+  // Default: unknown gateway + pending/empty financial status → COD
   return "COD";
 }
 
