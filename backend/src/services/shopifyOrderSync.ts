@@ -157,7 +157,7 @@ export function buildShopifyOrderPayload(
   const normalizedStatus = mapShopifyToInternalStatus(so);
   const payment = mapShopifyOrderPayment(so);
   const createdDate =
-    typeof so.created_at === "string" && so.created_at.length >= 10 ? so.created_at.slice(0, 10) : "";
+    typeof so.created_at === "string" && so.created_at.trim() ? so.created_at.trim() : "";
 
   const imageMap = enrichment.productImageByProductId;
 
@@ -372,6 +372,8 @@ export function mergeShopifyPayloadIntoOrder(existing: IOrder, mapped: Record<st
   existing.shopifyNote = String(mapped.shopifyNote ?? existing.shopifyNote ?? "");
   existing.shopifyTags = String(mapped.shopifyTags ?? existing.shopifyTags ?? "");
   existing.lastShopifySyncAt = new Date();
+  const mappedDate = String(mapped.date ?? "").trim();
+  if (mappedDate) existing.date = mappedDate;
 
   // Manual junk / reship / cancel must survive Shopify background sync and page reloads.
   if (existing.isJunk || isShopifyProtectedLocalStatus(existing.status)) {

@@ -80,6 +80,21 @@ describe("buildTabQuery", () => {
     expect(JSON.stringify(q)).toContain("Delivered");
   });
 
+  it("delivered matches mixed-case status via case-insensitive regex", () => {
+    const q = buildTabQuery("delivered") as { $or?: unknown[] };
+    const or = q.$or ?? [];
+    const regexes = or.filter((clause) => {
+      const value = Object.values(clause as Record<string, unknown>)[0];
+      return value instanceof RegExp;
+    });
+    expect(regexes.length).toBeGreaterThan(0);
+    const rx = Object.values(regexes[0] as Record<string, unknown>)[0] as RegExp;
+    expect(rx.test("delivered")).toBe(true);
+    expect(rx.test("DELIVERED")).toBe(true);
+    expect(rx.test("Delivered")).toBe(true);
+    expect(rx.test("fulfilled")).toBe(false);
+  });
+
   it("reship excludes junk", () => {
     const q = buildTabQuery("reship");
     expect(q).toMatchObject({ status: "reship", isJunk: { $ne: true } });

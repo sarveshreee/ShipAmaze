@@ -28,6 +28,7 @@ import { trackShipmentPublic } from "@/services/velocityService";
 import type { VelocityTrackingResult } from "@/services/velocityService";
 import { getPublicOrder } from "@/services/orderService";
 import { cn } from "@/lib/utils";
+import { formatDdMmYyyyHms } from "@/lib/dateFormat";
 
 const RECENT_KEY = "shipamaze_recent_tracking";
 
@@ -95,15 +96,8 @@ function toSafeTrackingResult(input: Partial<VelocityTrackingResult> | null | un
 
 function formatDateTime(value: string): string {
   if (!value.trim()) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(parsed);
+  const formatted = formatDdMmYyyyHms(value);
+  return formatted || value;
 }
 
 function formatCurrencyINR(amount?: number): string {

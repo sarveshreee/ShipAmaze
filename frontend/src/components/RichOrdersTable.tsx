@@ -15,6 +15,8 @@ import { discoverRates, type DiscoveredCourier } from "@/services/courierDiscove
 import { providerSupports } from "@/lib/providerCapabilities";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { isOrderReadyToShip } from "@/lib/orderTabFilters";
+import { displayStatusLabel, normalizeTrackingStatus } from "@/lib/orderStatusClassifier";
+import { formatOrderDateTime } from "@/lib/dateFormat";
 import { toast } from "sonner";
 import { printBulkInvoices, printBulkLabels, printShippingLabel } from "@/components/ShippingLabel";
 import { shouldUseVelocityCourierPdf } from "@/lib/labelPrintUtils";
@@ -134,9 +136,9 @@ const POST_READY_TABS = new Set([
 
 function displayShipmentStatusLabel(o: Order): string {
   if (!String(o.awb ?? "").trim()) return "Awaiting shipment";
-  const st = String(o.status ?? "").toLowerCase().replace(/-/g, "_");
-  if (st === "ready_to_ship") return "pending_pickup";
-  return String(o.shipmentStatus || o.status || "Shipped");
+  const st = normalizeTrackingStatus(o.status, o.courierProvider);
+  if (st === "ready_to_ship") return displayStatusLabel("pending_pickup", o.courierProvider);
+  return displayStatusLabel(o.shipmentStatus || o.status || "in_transit", o.courierProvider);
 }
 
 function displayOrderNumber(order: Order): string {
@@ -238,18 +240,13 @@ function latestStatusTime(order: Order, statuses: string[]): Date | null {
   return matches.reduce((latest, date) => (date > latest ? date : latest), matches[0]);
 }
 
-function formatOrderTimestamp(date: Date): string {
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const hrs = date.getHours();
-  const mins = String(date.getMinutes()).padStart(2, "0");
-  const ampm = hrs >= 12 ? "pm" : "am";
-  const h12 = hrs % 12 || 12;
-  return `${date.getDate()} ${months[date.getMonth()]}' ${String(date.getFullYear()).slice(2)} ${h12}:${mins} ${ampm}`;
+function formatOrderTimestamp(date: Date | null): string {
+  return formatOrderDateTime(date) || "—";
 }
 
-function orderTimestampForTab(order: Order, activeTab?: string): { label: string; date: Date } {
+function orderTimestampForTab(order: Order, activeTab?: string): { label: string; date: Date | null } {
   const tab = normalizeStatusKey(activeTab);
-  const createdAt = validDate(order.createdAt) ?? validDate(order.date) ?? validDate(order.updatedAt) ?? new Date();
+  const createdAt = validDate(order.createdAt) ?? validDate(order.date) ?? validDate(order.updatedAt);
 
   if (tab === "pending_pickup") {
     return {
@@ -1071,11 +1068,13 @@ export function RichOrdersTable({
     // Order Details filter
     if (orderDetailsFilter.dateFrom) {
       const orderDate = orderTimestampForTab(o, activeTab).date;
+      if (!orderDate) return false;
       const from = new Date(`${orderDetailsFilter.dateFrom}T00:00:00`);
       if (orderDate < from) return false;
     }
     if (orderDetailsFilter.dateTo) {
       const orderDate = orderTimestampForTab(o, activeTab).date;
+      if (!orderDate) return false;
       const to = new Date(`${orderDetailsFilter.dateTo}T23:59:59.999`);
       if (orderDate > to) return false;
     }

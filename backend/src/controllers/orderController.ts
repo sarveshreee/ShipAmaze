@@ -21,6 +21,8 @@ import {
   type ParsedOrderListQuery,
 } from "../utils/orderFilters.js";
 import { csvRow, exportFilename } from "../utils/reportQuery.js";
+import { formatDdMmYyyyHms, firstRealDate } from "../utils/dateFormat.js";
+import { displayStatusLabel, effectiveInternalStatus } from "../utils/orderStatusClassifier.js";
 import type { IOrder } from "../models/Order.js";
 import { createInAppNotification } from "../services/inAppNotifications.js";
 import { orderWalletUserId } from "../services/walletLedger.js";
@@ -439,6 +441,30 @@ function firstNonEmpty(...values: unknown[]): string {
   return "";
 }
 
+function normalizeStatusKey(raw: unknown): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-\s]+/g, "_");
+}
+
+function latestStatusHistoryAt(row: Record<string, unknown>, statuses: string[]): unknown {
+  const hist = Array.isArray(row.statusHistory) ? row.statusHistory : [];
+  const wanted = new Set(statuses.map(normalizeStatusKey));
+  let latestAt: unknown;
+  let latestMs = Number.NEGATIVE_INFINITY;
+  for (const entry of hist) {
+    if (!entry || typeof entry !== "object") continue;
+    const ev = entry as { status?: unknown; at?: unknown };
+    if (!wanted.has(normalizeStatusKey(ev.status))) continue;
+    const ms = ev.at instanceof Date ? ev.at.getTime() : new Date(String(ev.at ?? "")).getTime();
+    if (!Number.isFinite(ms) || ms < latestMs) continue;
+    latestMs = ms;
+    latestAt = ev.at;
+  }
+  return latestAt;
+}
+
 function orderLineItems(o: Record<string, unknown>): Array<Record<string, unknown>> {
   for (const key of ["products", "orderItems", "items", "shopifyLineItems"]) {
     const v = o[key];
@@ -659,15 +685,23 @@ export const exportOrdersCsv = asyncHandler(async (req: AuthRequest, res: Respon
       return sum + price;
     }, 0);
 
+    const channelOrderAt = firstRealDate(row.date, row.createdAt);
+    const addedOnAt = firstRealDate(row.createdAt, row.date);
+    const deliveredAt = firstRealDate(latestStatusHistoryAt(row, ["delivered"]));
+    const exportStatus = displayStatusLabel(
+      effectiveInternalStatus(row.status, row.shipmentStatus, row.courierProvider as string | undefined),
+      row.courierProvider as string | undefined
+    );
+
     res.write(
       csvRow([
         firstNonEmpty(row.shopifyShopDomain, row.externalSource),
         firstNonEmpty(row.externalOrderName, row.orderId),
         firstNonEmpty(row.externalOrderName, row.shopifyOrderNumericId),
-        firstNonEmpty(row.lastShopifySyncAt, row.date),
+        formatDdMmYyyyHms(channelOrderAt),
         firstNonEmpty(row.awb, row.trackingId),
         firstNonEmpty(row.trackingId),
-        firstNonEmpty(row.date),
+        formatDdMmYyyyHms(firstRealDate(row.date, row.createdAt)),
         firstNonEmpty(row.shopifyOrderNumericId),
         payment,
         "",
@@ -695,9 +729,9 @@ export const exportOrdersCsv = asyncHandler(async (req: AuthRequest, res: Respon
         dims,
         firstNonEmpty(row.weight),
         firstNonEmpty(row.courierName, row.courier),
-        firstNonEmpty(row.shopifyFulfillmentStatus, row.shipmentStatus, row.status),
-        firstNonEmpty(row.createdAt, row.movedToReadyAt, row.updatedAt, row.date),
-        firstNonEmpty(row.edd),
+        exportStatus,
+        formatDdMmYyyyHms(addedOnAt),
+        formatDdMmYyyyHms(deliveredAt),
         "",
         firstNonEmpty(row.externalOrderName, row.shopifyOrderNumericId, row.orderId),
       ])

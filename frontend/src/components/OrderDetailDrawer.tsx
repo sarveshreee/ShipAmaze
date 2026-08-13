@@ -35,6 +35,8 @@ import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { useAuth } from "@/contexts/AuthContext";
 import { ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
 import { getFinalLineItemUnitPrice, formatProductPriceInr } from "@/lib/pricing";
+import { formatOrderDateTime, formatDdMmYyyyHms } from "@/lib/dateFormat";
+import { displayStatusLabel, normalizeTrackingStatus } from "@/lib/orderStatusClassifier";
 
 /** Local warehouses (Mongo) that may carry a linked Velocity pickup id after linkOnly. */
 export interface OrderDetailWarehouseOption {
@@ -211,29 +213,20 @@ export function OrderDetailDrawer({
 
   if (!order) return null;
 
-  const currentStep = statusToStep[order.status] ?? -1;
+  const statusKey = normalizeTrackingStatus(order.status, order.courierProvider);
+  const currentStep = statusToStep[statusKey.replace(/_/g, "-")] ?? statusToStep[order.status] ?? -1;
   const steps = timelineSteps.map((s, i) => {
     // Real timestamps only from statusHistory — never invent dates
     const hist = (order.statusHistory ?? []).find((e) => {
-      const key = String(e.status ?? "")
-        .toLowerCase()
-        .replace(/-/g, "_");
+      const key = normalizeTrackingStatus(e.status, order.courierProvider);
       const labelKey = s.label.toLowerCase().replace(/\s+/g, "_");
       return key.includes(labelKey.replace("order_placed", "draft")) || key === labelKey;
     });
-    const at = hist?.at ? new Date(hist.at) : null;
-    const timestamp =
-      at && !Number.isNaN(at.getTime())
-        ? at.toLocaleString(undefined, {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        : i === 0 && order.date
-          ? order.date
-          : undefined;
+    const timestamp = hist?.at
+      ? formatOrderDateTime(hist.at) || undefined
+      : i === 0
+        ? formatDdMmYyyyHms(order.date || order.createdAt) || undefined
+        : undefined;
     return { ...s, timestamp };
   });
 
@@ -493,7 +486,7 @@ export function OrderDetailDrawer({
             </div>
             <div className="flex-1">
               <SheetTitle className="text-base">Order {order.id}</SheetTitle>
-              <p className="text-xs text-text-muted mt-0.5">{order.date}</p>
+              <p className="text-xs text-text-muted mt-0.5">{formatDdMmYyyyHms(order.date || order.createdAt) || "—"}</p>
             </div>
             <StatusBadge status={order.status} />
           </div>
@@ -636,7 +629,7 @@ export function OrderDetailDrawer({
                   {order.lastShopifySyncAt ? (
                     <div className="flex flex-wrap gap-x-2 gap-y-0.5">
                       <dt className="text-text-muted shrink-0">Last Shopify sync</dt>
-                      <dd>{new Date(order.lastShopifySyncAt).toLocaleString()}</dd>
+                      <dd>{formatDdMmYyyyHms(order.lastShopifySyncAt) || "—"}</dd>
                     </div>
                   ) : null}
                 </dl>
@@ -667,9 +660,9 @@ export function OrderDetailDrawer({
               <ul className="rounded-xl border border-border bg-card p-3 space-y-2 text-xs">
                 {[...order.statusHistory].reverse().map((e, i) => (
                   <li key={i} className="flex justify-between gap-2 border-b border-border/60 last:border-0 pb-2 last:pb-0">
-                    <span className="font-medium text-text-primary capitalize">{e.status.replace(/_/g, " ")}</span>
+                    <span className="font-medium text-text-primary">{displayStatusLabel(e.status, order.courierProvider) || e.status}</span>
                     <span className="text-text-muted shrink-0">
-                      {e.at ? new Date(e.at).toLocaleString() : "—"}
+                      {e.at ? formatDdMmYyyyHms(e.at) || "—" : "—"}
                     </span>
                   </li>
                 ))}
@@ -888,12 +881,7 @@ export function OrderDetailDrawer({
               <p className="text-sm text-text-secondary mb-3">
                 Expected delivery (Velocity):{" "}
                 <span className="font-semibold text-text-primary">
-                  {(() => {
-                    const d = new Date(order.edd);
-                    return Number.isNaN(d.getTime())
-                      ? order.edd
-                      : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-                  })()}
+                  {formatDdMmYyyyHms(order.edd) || order.edd}
                 </span>
               </p>
             ) : (
@@ -906,7 +894,7 @@ export function OrderDetailDrawer({
                   <div key={i} className="px-4 py-3">
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm text-text-primary font-medium">{act.activity}</p>
-                      <span className="text-[10px] text-text-muted whitespace-nowrap">{act.date}</span>
+                      <span className="text-[10px] text-text-muted whitespace-nowrap">{formatDdMmYyyyHms(act.date) || act.date}</span>
                     </div>
                     {act.location && (
                       <p className="text-xs text-text-muted mt-0.5">{act.location}</p>
@@ -1076,7 +1064,7 @@ export function OrderDetailDrawer({
                 <AlertTriangle className="h-4 w-4" /> Raise NDR
               </Button>
 
-              {(order.status === "delivered" || order.status === "ndr") && (
+              {(statusKey === "delivered" || statusKey === "ndr") && (
                 <Button
                   variant="outline"
                   className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30 col-span-2"

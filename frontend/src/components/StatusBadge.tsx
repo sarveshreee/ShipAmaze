@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { OrderStatus, PaymentType } from "@/types/logistics";
+import { displayStatusLabel, normalizeTrackingStatus } from "@/lib/orderStatusClassifier";
 import {
   CheckCircle2, Truck, PackageOpen, AlertTriangle, RotateCcw, Clock, PackageCheck,
   PackageX, XCircle, FileEdit, Loader2, Undo2, LucideIcon
@@ -23,19 +24,12 @@ const statusConfig: Record<OrderStatus, { bg: string; text: string; label: strin
 };
 
 function normalizeStatusKey(rawStatus: string): OrderStatus | null {
-  const normalized = rawStatus.trim().toLowerCase().replace(/_/g, "-");
-  if (normalized in statusConfig) {
-    return normalized as OrderStatus;
-  }
+  const internal = normalizeTrackingStatus(rawStatus);
+  const hyphen = internal.replace(/_/g, "-");
+  if (hyphen in statusConfig) return hyphen as OrderStatus;
+  const lower = rawStatus.trim().toLowerCase().replace(/_/g, "-");
+  if (lower in statusConfig) return lower as OrderStatus;
   return null;
-}
-
-function toTitleCaseStatus(status: string): string {
-  return status
-    .trim()
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/\b\w/g, (match) => match.toUpperCase()) || "Unknown";
 }
 
 export function StatusBadge({ status, className }: { status: OrderStatus | string; className?: string }) {
@@ -45,7 +39,7 @@ export function StatusBadge({ status, className }: { status: OrderStatus | strin
     : {
         bg: "bg-surface-2",
         text: "text-text-secondary",
-        label: toTitleCaseStatus(String(status ?? "")),
+        label: displayStatusLabel(status) || "Unknown",
         icon: Clock,
       };
   const Icon = config.icon;

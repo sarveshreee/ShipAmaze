@@ -410,6 +410,50 @@ export function normalizeTrackingStatus(
   return key;
 }
 
+const INTERNAL_STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  pending: "Pending",
+  ready_to_ship: "Ready to Ship",
+  awaiting_shipment: "Awaiting Shipment",
+  booked: "Booked",
+  manifested: "Manifested",
+  pending_pickup: "Pending Pickup",
+  pickup_scheduled: "Pickup Scheduled",
+  ready_for_pickup: "Ready for Pickup",
+  out_for_pickup: "Out for Pickup",
+  pickup_exception: "Pickup Exception",
+  not_picked: "Not Picked",
+  picked_up: "Picked Up",
+  in_transit: "In Transit",
+  shipped: "In Transit",
+  dispatched: "In Transit",
+  connected: "In Transit",
+  bagged: "In Transit",
+  out_for_delivery: "Out for Delivery",
+  delivered: "Delivered",
+  ndr: "NDR",
+  rto: "RTO",
+  cancelled: "Cancelled",
+  canceled: "Cancelled",
+  reship: "Reship",
+  junk: "Junk",
+  processing_failed: "Processing Failed",
+  pickup_failed: "Pickup Failed",
+  booking_failed: "Booking Failed",
+};
+
+/** Consistent UI/export label so "delivered" / "DELIVERED" filter as one value. */
+export function displayStatusLabel(raw: unknown, provider?: CourierProviderId | string): string {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return "";
+  const key = normalizeTrackingStatus(trimmed, provider);
+  if (INTERNAL_STATUS_LABELS[key]) return INTERNAL_STATUS_LABELS[key]!;
+  return key
+    .split("_")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
 const INTERNAL_PROGRESS_RANK: Record<string, number> = {
   draft: 5,
   pending: 5,

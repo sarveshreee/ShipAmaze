@@ -110,20 +110,39 @@ function channelManualBaseQuery(channelOrManual: "channel" | "manual"): Record<s
   };
 }
 
+/** Case-insensitive exact match for courier strings like delivered / DELIVERED / Delivered. */
+function statusMatchRegex(statuses: string[]): RegExp {
+  const keys = [
+    ...new Set(
+      statuses
+        .map((s) => String(s).trim().toLowerCase().replace(/[-\s]+/g, "_"))
+        .filter(Boolean)
+    ),
+  ];
+  const alts = keys.map((k) => escapeRegex(k).replace(/_/g, "[-_\\s]"));
+  return new RegExp(`^(?:${alts.join("|")})$`, "i");
+}
+
 function statusOrShipmentStatusIn(statuses: string[]): Record<string, unknown> {
+  const unique = [...new Set(statuses.map((s) => String(s).trim()).filter(Boolean))];
+  const rx = statusMatchRegex(unique);
   return {
     $or: [
-      { status: { $in: statuses } },
-      { shipmentStatus: { $in: statuses } },
+      { status: { $in: unique } },
+      { shipmentStatus: { $in: unique } },
+      { status: rx },
+      { shipmentStatus: rx },
     ],
   };
 }
 
 function neitherStatusNorShipmentStatusIn(statuses: string[]): Record<string, unknown> {
+  const unique = [...new Set(statuses.map((s) => String(s).trim()).filter(Boolean))];
+  const rx = statusMatchRegex(unique);
   return {
     $and: [
-      { status: { $nin: statuses } },
-      { shipmentStatus: { $nin: statuses } },
+      { status: { $nin: unique, $not: rx } },
+      { shipmentStatus: { $nin: unique, $not: rx } },
     ],
   };
 }

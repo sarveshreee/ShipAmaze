@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyOrderTab,
+  displayStatusLabel,
   normalizeTrackingStatus,
   orderMatchesTabCategory,
 } from "./orderStatusClassifier.js";
@@ -35,6 +36,12 @@ describe("normalizeTrackingStatus", () => {
   it("maps delivered", () => {
     expect(normalizeTrackingStatus("Delivered", "velocity")).toBe("delivered");
     expect(normalizeTrackingStatus("DELIVERED", "lorrigo")).toBe("delivered");
+  });
+
+  it("displayStatusLabel collapses delivered casing to one label", () => {
+    expect(displayStatusLabel("delivered")).toBe("Delivered");
+    expect(displayStatusLabel("DELIVERED")).toBe("Delivered");
+    expect(displayStatusLabel("Delivered")).toBe("Delivered");
   });
 
   it("maps Lorrigo OUT_FOR_PICKUP to pending_pickup", () => {
