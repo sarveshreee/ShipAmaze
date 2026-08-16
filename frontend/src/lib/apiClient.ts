@@ -1,6 +1,8 @@
 const TOKEN_KEY = "shipamaze_token";
 /** Stashed admin JWT while impersonating another user. */
 const ADMIN_TOKEN_KEY = "adminToken";
+/** Path to restore when admin exits impersonation (e.g. /admin/users). */
+const IMPERSONATION_RETURN_PATH_KEY = "shipamaze_impersonation_return";
 /** Cached user profile for instant session restore (tab-scoped). */
 const USER_KEY = "shipamaze_user";
 
@@ -41,6 +43,20 @@ export function setAdminToken(token: string | null) {
 
 export function clearAdminToken() {
   authStorage().removeItem(ADMIN_TOKEN_KEY);
+}
+
+export function getImpersonationReturnPath(): string | null {
+  return authStorage().getItem(IMPERSONATION_RETURN_PATH_KEY);
+}
+
+export function setImpersonationReturnPath(path: string | null) {
+  const storage = authStorage();
+  if (path && path.trim()) storage.setItem(IMPERSONATION_RETURN_PATH_KEY, path.trim());
+  else storage.removeItem(IMPERSONATION_RETURN_PATH_KEY);
+}
+
+export function clearImpersonationReturnPath() {
+  authStorage().removeItem(IMPERSONATION_RETURN_PATH_KEY);
 }
 
 export class ApiError extends Error {

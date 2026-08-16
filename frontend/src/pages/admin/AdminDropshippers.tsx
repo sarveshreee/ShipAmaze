@@ -119,6 +119,21 @@ export default function AdminDropshippers() {
     }
   };
 
+  const patchOwnPickupProcessing = async (allowOwnPickupProcessing: boolean) => {
+    if (!detailId) return;
+    setSaving(true);
+    try {
+      await adminWorkflowService.adminPatchDropshipper(detailId, { allowOwnPickupProcessing });
+      toast.success(`Own pickup processing ${allowOwnPickupProcessing ? "enabled" : "disabled"}`);
+      await load();
+      setDetail(await adminWorkflowService.adminGetDropshipper(detailId));
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Update failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const user = detail?.user as Record<string, unknown> | undefined;
   const shopify = detail?.shopify as Record<string, unknown> | undefined;
@@ -319,6 +334,27 @@ export default function AdminDropshippers() {
                   <SelectContent>
                     <SelectItem value="on">ALLOW_WAREHOUSE_ACCESS = ON</SelectItem>
                     <SelectItem value="off">ALLOW_WAREHOUSE_ACCESS = OFF</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-md border border-border p-3 space-y-2">
+                <p className="font-medium">Own pickup processing</p>
+                <p className="text-xs text-text-muted">
+                  When enabled, this dropshipper can add orders and process only their own orders using
+                  pickup addresses they added — even if Access type is Restricted. Admin processing and
+                  other dropshippers are unchanged.
+                </p>
+                <Select
+                  value={detail.allowOwnPickupProcessing === true ? "on" : "off"}
+                  onValueChange={(v) => void patchOwnPickupProcessing(v === "on")}
+                  disabled={saving}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="on">ALLOW_OWN_PICKUP_PROCESSING = ON</SelectItem>
+                    <SelectItem value="off">ALLOW_OWN_PICKUP_PROCESSING = OFF</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -54,7 +54,8 @@ export const settingsCache = new TtlCache<unknown>(5 * 60_000);
 export function invalidateUserScopedCaches(userId?: string): void {
   if (userId) {
     authUserCache.delete(`user:${userId}`);
-    dashboardCache.delete(`dash:${userId}`);
+    // Dashboard keys are `dash:${userId}:${role}` — clear all role variants.
+    dashboardCache.deletePrefix(`dash:${userId}`);
     pickupsCache.deletePrefix(`pickups:${userId}`);
     warehousesCache.deletePrefix(`wh:`);
   } else {

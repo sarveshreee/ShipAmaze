@@ -9,6 +9,7 @@ import {
   missingShopifyScopes,
   parseShopifyScopeList,
 } from "../utils/shopifyScopes.js";
+import { registerProductImages } from "./normalizeShopifyImages.js";
 
 export interface ShopifyShop {
   id: number;
@@ -39,6 +40,9 @@ export interface ShopifyOrder {
   email: string;
   phone: string | null;
   total_price: string;
+  current_total_price?: string | null;
+  /** Remaining balance (partial payment apps). */
+  total_outstanding?: string | number | null;
   financial_status: string;
   fulfillment_status: string | null;
   created_at: string;
@@ -48,6 +52,11 @@ export interface ShopifyOrder {
   /** Legacy single gateway field (some API versions / webhooks). */
   gateway?: string | null;
   payment_gateway_names?: string[];
+  transactions?: Array<{
+    kind?: string | null;
+    status?: string | null;
+    amount?: string | number | null;
+  }> | null;
   line_items: ShopifyLineItem[];
   shipping_address?: {
     name: string;
@@ -113,10 +122,18 @@ function formatShopifyErrorBody(text: string): string {
 function shopifyAuthError(status: number, bodyText: string, endpoint: string): AppError {
   const detail = formatShopifyErrorBody(bodyText);
   if (status === 403) {
-    const msg =
-      endpoint.includes("orders") || detail.toLowerCase().includes("order")
-        ? "Shopify denied access to orders. In Shopify Admin → Develop apps → your custom app → Configuration, enable read_orders (and write_orders) under Admin API scopes, save, then reconnect in Channels."
-        : `Shopify denied access. Check your custom app Admin API scopes and reconnect in Channels. (${detail})`;
+    const ep = endpoint.toLowerCase();
+    let msg: string;
+    if (ep.includes("fulfillment_orders") || ep.includes("fulfillments")) {
+      msg =
+        "Shopify denied fulfillment access. In Shopify Admin → Develop apps → Configuration, enable write_fulfillments, " +
+        "read/write_merchant_managed_fulfillment_orders (and third_party if needed), save, then reconnect in Channels.";
+    } else if (ep.includes("orders") || detail.toLowerCase().includes("order")) {
+      msg =
+        "Shopify denied access to orders. In Shopify Admin → Develop apps → your custom app → Configuration, enable read_orders (and write_orders) under Admin API scopes, save, then reconnect in Channels.";
+    } else {
+      msg = `Shopify denied access. Check your custom app Admin API scopes and reconnect in Channels. (${detail})`;
+    }
     return new AppError(502, msg);
   }
   if (status === 401) {
@@ -342,36 +359,6 @@ export async function getProducts(
   return data.products;
 }
 
-function productPrimaryImageUrl(product: ShopifyProduct | undefined): string | undefined {
-  if (!product) return undefined;
-  const direct = product.image?.src?.trim();
-  if (direct) return direct;
-  const fromList = product.images?.find((img) => img?.src?.trim())?.src?.trim();
-  return fromList || undefined;
-}
-
-function registerProductImages(product: ShopifyProduct | undefined, map: Map<string, string>) {
-  if (!product) return;
-  const primary = productPrimaryImageUrl(product);
-  if (primary) {
-    map.set(String(product.id), primary);
-    map.set(`product:${product.id}`, primary);
-  }
-  const imagesById = new Map<number, string>();
-  for (const img of product.images ?? []) {
-    const src = img?.src?.trim();
-    const id = (img as { id?: number }).id;
-    if (src && id != null) imagesById.set(id, src);
-  }
-  for (const variant of product.variants ?? []) {
-    const imageId = variant.image_id;
-    const variantSrc =
-      (imageId != null ? imagesById.get(imageId) : undefined) ||
-      primary;
-    if (variantSrc) map.set(`variant:${variant.id}`, variantSrc);
-  }
-}
-
 /** Paginated map of Shopify product_id → primary image URL for order line-item enrichment. */
 export async function buildShopifyProductImageMap(
   accessToken: string,
@@ -551,7 +538,8 @@ export async function getOrderFulfillments(
 }
 
 /**
- * Attempt C: PUT /fulfillments/{id}.json — update tracking on an existing fulfillment.
+ * Attempt C: POST /fulfillments/{id}/update_tracking.json — update tracking on an existing fulfillment.
+ * Shopify requires POST (PUT returns 406 Not Acceptable).
  * Works with write_fulfillments scope.
  */
 export async function updateFulfillmentTracking(
@@ -566,7 +554,7 @@ export async function updateFulfillmentTracking(
   }
 ): Promise<unknown> {
   return shopifyRequest<unknown>(
-    "PUT",
+    "POST",
     `${shopifyBaseUrl(shop)}/fulfillments/${fulfillmentId}/update_tracking.json`,
     accessToken,
     {

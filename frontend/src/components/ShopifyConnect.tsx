@@ -53,7 +53,11 @@ function errMsg(err: unknown): string {
 const DEFAULT_SHOPIFY_REDIRECT_URI = "https://api.shipamaze.com/api/shopify/callback";
 const DEFAULT_SHOPIFY_APP_URL = "https://shipamaze.com";
 const SHOPIFY_ADMIN_API_SCOPES =
-  "read_customers,write_customers,read_fulfillments,write_fulfillments,write_locations,read_locations,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_orders,write_orders,read_products,write_products";
+  "read_customers,write_customers,read_fulfillments,write_fulfillments,write_locations,read_locations," +
+  "read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders," +
+  "read_third_party_fulfillment_orders,write_third_party_fulfillment_orders," +
+  "read_assigned_fulfillment_orders,write_assigned_fulfillment_orders," +
+  "read_orders,write_orders,read_products,write_products";
 
 function normaliseShopDomain(raw: string): string {
   let normalised = raw.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\/$/, "").toLowerCase();

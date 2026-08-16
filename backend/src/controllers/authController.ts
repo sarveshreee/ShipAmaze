@@ -63,23 +63,31 @@ export async function toPublicUser(user: {
   phone?: string;
   emailVerified?: boolean;
 }) {
-  const profile = await Profile.findOne({ userId: user._id }).lean();
+  const needsDropshipper = user.role === "dropshipper";
+  const needsKyc = user.role === "dropshipper" || user.role === "vendor";
+
+  const [profile, dropshipperDoc, kyc] = await Promise.all([
+    Profile.findOne({ userId: user._id }).lean(),
+    needsDropshipper
+      ? Dropshipper.findOne({ userId: user._id })
+          .select("accessType allowWarehouseAccess allowOwnPickupProcessing kycVerified")
+          .lean()
+      : Promise.resolve(null),
+    needsKyc ? getKycState(user._id) : Promise.resolve(null),
+  ]);
+
   let dropshipperAccessType: "FULL" | "RESTRICTED" | undefined;
   let allowWarehouseAccess: boolean | undefined;
-  if (user.role === "dropshipper") {
-    const { Dropshipper } = await import("../models/Dropshipper.js");
-    const d = await Dropshipper.findOne({ userId: user._id }).select("accessType allowWarehouseAccess kycVerified").lean();
-    dropshipperAccessType = d?.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL";
+  let allowOwnPickupProcessing: boolean | undefined;
+  if (needsDropshipper && dropshipperDoc) {
+    dropshipperAccessType = dropshipperDoc.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL";
     allowWarehouseAccess =
-      typeof d?.allowWarehouseAccess === "boolean" ? d.allowWarehouseAccess : true;
+      typeof dropshipperDoc.allowWarehouseAccess === "boolean"
+        ? dropshipperDoc.allowWarehouseAccess
+        : true;
+    allowOwnPickupProcessing = dropshipperDoc.allowOwnPickupProcessing === true;
   }
-  let kycStatus: string | undefined;
-  let kycVerified: boolean | undefined;
-  if (user.role === "dropshipper" || user.role === "vendor") {
-    const kyc = await getKycState(user._id);
-    kycStatus = kyc.status;
-    kycVerified = kyc.kycVerified;
-  }
+
   return {
     id: String(user._id),
     name: user.name,
@@ -96,8 +104,9 @@ export async function toPublicUser(user: {
       profile?.avatarUrl && String(profile.avatarUrl).trim() ? String(profile.avatarUrl).trim() : null,
     dropshipperAccessType,
     allowWarehouseAccess,
-    kycStatus,
-    kycVerified,
+    allowOwnPickupProcessing,
+    kycStatus: kyc?.status,
+    kycVerified: kyc?.kycVerified,
   };
 }
 
@@ -155,6 +164,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
       kycVerified: false,
       accessType: "RESTRICTED",
       allowWarehouseAccess: true,
+      allowOwnPickupProcessing: false,
       joinDate: new Date(),
     });
     await KycProfile.create({

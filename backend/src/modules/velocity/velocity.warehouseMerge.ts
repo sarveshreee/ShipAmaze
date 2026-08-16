@@ -171,12 +171,12 @@ export async function resolveLiveVelocityWarehouseFromMongoId(
   if (req.user.role === "admin") {
     const pu =
       (await Pickup.findOne({ $and: [{ _id: oid }, { ...PICKUP_NOT_DELETED }] }).lean()) ??
-      (await Pickup.findOne(pickupByIdManageQuery(oid, req.user)).lean());
+      (await Pickup.findOne(await pickupByIdManageQuery(oid, req.user)).lean());
     if (pu) return pickupResolutionFromPickup(pu as Record<string, unknown>);
     return null;
   }
 
-  const puOwned = await Pickup.findOne(pickupByIdManageQuery(oid, req.user)).lean();
+  const puOwned = await Pickup.findOne(await pickupByIdManageQuery(oid, req.user)).lean();
 
   if (req.user.role === "dropshipper") {
     if (puOwned) return pickupResolutionFromPickup(puOwned as Record<string, unknown>);

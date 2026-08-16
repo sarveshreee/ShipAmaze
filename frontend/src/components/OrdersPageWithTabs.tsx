@@ -275,7 +275,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   }, [role, pickupAddresses, platformPickups, vendorWarehouses]);
 
   const isAdmin = role === "admin";
-  const { canProcessOrders } = useDropshipperAccess();
+  const { canProcessOrders, canProcessSelected, isDropshipper } = useDropshipperAccess();
 
   const pickupFilterOptions = useMemo(() => {
     if (role === "admin") return platformPickups.filter((p) => p.isActive !== false);
@@ -356,7 +356,13 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   /** Admin: show Process Selected on every tab including Junk. */
   const ADMIN_PROCESS_TABS = useMemo(() => new Set(tabs.map((t) => t.filter)), []);
-  const showProcessSelected = isAdmin && ADMIN_PROCESS_TABS.has(activeTab);
+  const DROPSHIPPER_PROCESS_TABS = useMemo(
+    () => new Set(["all", "channel", "manual", "reship", "ready-to-ship", "failed"]),
+    []
+  );
+  const showProcessSelected =
+    (isAdmin && ADMIN_PROCESS_TABS.has(activeTab)) ||
+    (isDropshipper && canProcessSelected && DROPSHIPPER_PROCESS_TABS.has(activeTab));
 
   const BULK_MOVE_TO_READY_TABS = new Set(["all", "channel", "manual"]);
   const showBulkMoveToReady = BULK_MOVE_TO_READY_TABS.has(activeTab) && canProcessOrders;
@@ -1423,6 +1429,17 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               }
             } else if (res.skipped.length > 0) {
               toast.info(`All ${res.skipped.length} order(s) were already processed or not eligible`);
+            }
+
+            for (const warning of res.pickupLinkWarnings ?? []) {
+              toast.warning(
+                `Pickup address is not linked to ${warning.provider === "lorrigo" ? "Lorrigo" : "Velocity"}: ${warning.error}`,
+                {
+                  description:
+                    "Orders that can ship via a different courier were still processed. Use Sync / Retry Sync on this pickup address to fix this permanently.",
+                  duration: 10000,
+                }
+              );
             }
 
             if (res.updatedCount > 0 || res.failed.length > 0) {

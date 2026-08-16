@@ -6,6 +6,8 @@
 import type { Types } from "mongoose";
 import type { IOrder } from "../models/Order.js";
 import type { ShopifyOrder, ShopifyLineItem } from "./shopify.service.js";
+import { normalizeShopifyOrderPayment, type NormalizedOrderPayment } from "./normalizeOrderPayment.js";
+import { mergeLineItemsPreservingImages, resolveLineItemImageUrl } from "./normalizeShopifyImages.js";
 
 export type ShopifyOrderEnrichment = {
   shopName?: string;
@@ -16,22 +18,7 @@ function lineItemImageUrl(
   li: ShopifyLineItem,
   imageMap?: Map<string, string>
 ): string | undefined {
-  const inline = (li as { image?: { src?: string } | null }).image?.src?.trim();
-  if (inline) return inline;
-
-  const variantId = (li as { variant_id?: number | null }).variant_id;
-  if (variantId != null) {
-    const variantKey = `variant:${variantId}`;
-    if (imageMap?.has(variantKey)) return imageMap.get(variantKey);
-  }
-
-  const productId = (li as { product_id?: number | null }).product_id;
-  if (productId != null) {
-    const productKey = String(productId);
-    if (imageMap?.has(productKey)) return imageMap.get(productKey);
-    if (imageMap?.has(`product:${productKey}`)) return imageMap.get(`product:${productKey}`);
-  }
-  return undefined;
+  return resolveLineItemImageUrl(li as Parameters<typeof resolveLineItemImageUrl>[0], imageMap);
 }
 
 export type ShopifySyncUserContext = {
@@ -56,72 +43,24 @@ export function shopifyExternalOrderId(shopDomain: string, shopifyNumericId: num
   return `shopify-${safeShopKey(shopDomain)}-${shopifyNumericId}`;
 }
 
-function collectShopifyGatewayHaystack(so: ShopifyOrder): string {
-  const parts: string[] = [];
-  if (Array.isArray(so.payment_gateway_names)) {
-    parts.push(...so.payment_gateway_names.map((g) => String(g)));
-  }
-  if (so.gateway) parts.push(String(so.gateway));
-  return parts.join(" ").toLowerCase();
-}
-
-/**
- * Known online/prepaid payment gateways.
- * If a gateway matches one of these, the order is NOT COD even when financial_status is "pending".
- */
-const KNOWN_ONLINE_GATEWAYS =
-  /razorpay|payu|paypal|stripe|shopify_payments|cashfree|instamojo|ccavenue|phonepe|paytm|juspay|billdesk|airpay|payubiz|worldline|atom|hdfc|icici|axis|upi|net_?banking|debit|credit|wallet|gpay|google_pay|amazon_?pay/;
-
-/** Detect COD from Shopify payment gateways, tags, or the "manual" gateway (Shopify's built-in COD). */
+/** Detect COD via canonical payment normalizer (partial payments included). */
 export function shopifyOrderIsCod(so: ShopifyOrder): boolean {
-  const gateways = collectShopifyGatewayHaystack(so);
-
-  // Explicit COD keywords in gateway names or tags
-  if (/cash\s*on\s*delivery|\bcod\b|cash_on_delivery/.test(gateways)) return true;
-
-  const tags = String(so.tags ?? "").toLowerCase();
-  if (/\bcod\b/.test(tags) || /cash\s*on\s*delivery/.test(tags)) return true;
-
-  // Shopify represents COD as gateway "manual" with financial_status "pending".
-  // Only treat "manual" as COD when no known online gateway is also present.
-  const f = String(so.financial_status ?? "").toLowerCase();
-  if (
-    (f === "pending" || f === "") &&
-    /\bmanual\b/.test(gateways) &&
-    !KNOWN_ONLINE_GATEWAYS.test(gateways)
-  ) {
-    return true;
-  }
-
-  return false;
+  return normalizeShopifyOrderPayment(so).isCOD;
 }
 
 /** Map Shopify order to ShipAmaze payment field (COD vs Prepaid). */
 export function mapShopifyOrderPayment(so: ShopifyOrder): "COD" | "Prepaid" {
-  if (shopifyOrderIsCod(so)) return "COD";
+  return normalizeShopifyOrderPayment(so).payment;
+}
 
-  const f = String(so.financial_status ?? "").toLowerCase();
-  // "paid" / "partially_paid" means money already received → Prepaid
-  if (f === "paid" || f === "partially_paid") return "Prepaid";
-  if (f === "refunded" || f === "partially_refunded" || f === "voided") return "Prepaid";
-  // "authorized" means card is authorized (online) → Prepaid
-  if (f === "authorized") return "Prepaid";
-
-  // "pending" with a known online gateway → Prepaid (payment in progress)
-  const gateways = collectShopifyGatewayHaystack(so);
-  if (f === "pending" && KNOWN_ONLINE_GATEWAYS.test(gateways)) return "Prepaid";
-
-  // Default: unknown gateway + pending/empty financial status → COD
-  return "COD";
+/** Full canonical payment snapshot for persistence + finance consumers. */
+export function normalizePaymentForShopifyOrder(so: ShopifyOrder): NormalizedOrderPayment {
+  return normalizeShopifyOrderPayment(so);
 }
 
 /** @deprecated Use mapShopifyOrderPayment — kept for callers passing financial_status only. */
 export function mapShopifyFinancialToPayment(financial: string | undefined): string {
-  const f = String(financial ?? "").toLowerCase();
-  if (f === "paid" || f === "partially_paid") return "Prepaid";
-  if (f === "refunded" || f === "partially_refunded" || f === "voided") return "Prepaid";
-  if (f === "pending" || f === "authorized") return "Prepaid";
-  return "COD";
+  return normalizeShopifyOrderPayment({ financial_status: financial, total_price: 0 }).payment;
 }
 
 export const SHOPIFY_CANCEL_REMARK = "cancelled from shopify";
@@ -155,7 +94,8 @@ export function buildShopifyOrderPayload(
   const lineItems = Array.isArray(so.line_items) ? so.line_items : [];
   const externalId = shopifyExternalOrderId(shopDomain, so.id);
   const normalizedStatus = mapShopifyToInternalStatus(so);
-  const payment = mapShopifyOrderPayment(so);
+  const payNorm = normalizeShopifyOrderPayment(so);
+  const payment = payNorm.payment;
   const createdDate =
     typeof so.created_at === "string" && so.created_at.trim() ? so.created_at.trim() : "";
 
@@ -215,7 +155,12 @@ export function buildShopifyOrderPayload(
     status: normalizedStatus,
     date: createdDate,
     awb: "",
-    amount: parseFloat(String(so.total_price ?? "0")) || 0,
+    amount: payNorm.orderTotal,
+    amountPaid: payNorm.amountPaid,
+    amountOutstanding: payNorm.amountOutstanding,
+    codCollectableAmount: payNorm.codAmount,
+    paymentNormalizationReason: payNorm.reason,
+    isPartiallyPaid: payNorm.isPartiallyPaid,
     products,
     items: itemBlocks,
     orderItems: itemBlocks,
@@ -347,11 +292,33 @@ export function mergeShopifyPayloadIntoOrder(existing: IOrder, mapped: Record<st
   existing.state = String(mapped.state ?? existing.state ?? "");
   existing.pincode = String(mapped.pincode ?? existing.pincode);
   existing.amount = Number(mapped.amount ?? existing.amount);
-  existing.products = (mapped.products as unknown[]) ?? existing.products;
-  existing.set("items", mapped.items ?? existing.get("items"));
-  existing.set("orderItems", mapped.orderItems ?? existing.get("orderItems"));
+  // Preserve prior imageUrl when resync arrives without enrichment (idempotent image merge).
+  const mergedProducts = mergeLineItemsPreservingImages(
+    mapped.products as Array<{ imageUrl?: string }> | undefined,
+    existing.products as Array<{ imageUrl?: string }> | undefined
+  );
+  const mergedItems = mergeLineItemsPreservingImages(
+    mapped.items as Array<{ imageUrl?: string }> | undefined,
+    existing.get("items") as Array<{ imageUrl?: string }> | undefined
+  );
+  const mergedOrderItems = mergeLineItemsPreservingImages(
+    mapped.orderItems as Array<{ imageUrl?: string }> | undefined,
+    existing.get("orderItems") as Array<{ imageUrl?: string }> | undefined
+  );
+  existing.products = mergedProducts as unknown[];
+  existing.set("items", mergedItems);
+  existing.set("orderItems", mergedOrderItems);
   existing.set("shopifyLineItems", mapped.shopifyLineItems ?? existing.get("shopifyLineItems"));
   existing.payment = String(mapped.payment ?? existing.payment);
+  if (mapped.amountPaid != null) existing.set("amountPaid", Number(mapped.amountPaid));
+  if (mapped.amountOutstanding != null) existing.set("amountOutstanding", Number(mapped.amountOutstanding));
+  if (mapped.codCollectableAmount != null) {
+    existing.set("codCollectableAmount", Number(mapped.codCollectableAmount));
+  }
+  if (mapped.paymentNormalizationReason != null) {
+    existing.set("paymentNormalizationReason", String(mapped.paymentNormalizationReason));
+  }
+  if (mapped.isPartiallyPaid != null) existing.set("isPartiallyPaid", Boolean(mapped.isPartiallyPaid));
   existing.channel = "Shopify";
   existing.externalSource = "shopify";
   existing.set("sourceType", "shopify");

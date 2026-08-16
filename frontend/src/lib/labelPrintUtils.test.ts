@@ -7,20 +7,24 @@ describe("labelPrintUtils", () => {
     expect(isAmazonTransportationOrder({ courier: "Ekart Standard 3Kg", courierName: "Ekart" })).toBe(false);
   });
 
-  it("uses Velocity PDF only for Amazon orders with AWB", () => {
+  it("always uses Velocity PDF for Amazon Transportation (never ShipAmaze HTML)", () => {
     expect(
       shouldUseVelocityCourierPdf({
-        id: "x",
         courier: "Amazon Transportation",
-        awb: "370400004350",
-      } as never)
+        courierName: undefined,
+      })
     ).toBe(true);
     expect(
       shouldUseVelocityCourierPdf({
-        id: "x",
+        courier: "Amazon Transportation",
+        courierName: "Amazon Transportation",
+      })
+    ).toBe(true);
+    expect(
+      shouldUseVelocityCourierPdf({
         courier: "Ekart Standard 3Kg",
-        awb: "MJHC1799065953",
-      } as never)
+        courierName: "Ekart",
+      })
     ).toBe(false);
   });
 });

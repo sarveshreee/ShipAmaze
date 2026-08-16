@@ -46,6 +46,7 @@ export function CreateUserDialog({ open, onOpenChange, onCreated }: CreateUserDi
   const [status, setStatus] = useState<"active" | "inactive">("active");
   const [accessType, setAccessType] = useState<"FULL" | "RESTRICTED">("FULL");
   const [allowWarehouseAccess, setAllowWarehouseAccess] = useState(true);
+  const [allowOwnPickupProcessing, setAllowOwnPickupProcessing] = useState(false);
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -62,6 +63,7 @@ export function CreateUserDialog({ open, onOpenChange, onCreated }: CreateUserDi
     setStatus("active");
     setAccessType("FULL");
     setAllowWarehouseAccess(true);
+    setAllowOwnPickupProcessing(false);
     setSendWelcomeEmail(true);
     setShowPassword(false);
     setShowConfirm(false);
@@ -106,7 +108,7 @@ export function CreateUserDialog({ open, onOpenChange, onCreated }: CreateUserDi
         status,
         sendWelcomeEmail,
         ...(role === "dropshipper"
-          ? { accessType, allowWarehouseAccess }
+          ? { accessType, allowWarehouseAccess, allowOwnPickupProcessing }
           : {}),
       });
       toast.success(`${trimmedName} created successfully`);
@@ -260,6 +262,19 @@ export function CreateUserDialog({ open, onOpenChange, onCreated }: CreateUserDi
                   id="cu-warehouse"
                   checked={allowWarehouseAccess}
                   onCheckedChange={setAllowWarehouseAccess}
+                />
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1 pr-2">
+                  <Label htmlFor="cu-own-pickup">Own pickup processing</Label>
+                  <p className="text-xs text-text-muted">
+                    Process only their own orders using pickup addresses they add.
+                  </p>
+                </div>
+                <Switch
+                  id="cu-own-pickup"
+                  checked={allowOwnPickupProcessing}
+                  onCheckedChange={setAllowOwnPickupProcessing}
                 />
               </div>
             </div>

@@ -7,12 +7,10 @@ export function isAmazonTransportationOrder(order: Pick<Order, "courier" | "cour
 }
 
 /**
- * Amazon / Velocity courier PDFs (official Amazon shipping label).
- * Prefer when we have an AWB or a stored label URL — never invent ShipAmaze HTML for Amazon.
+ * Amazon Transportation must ALWAYS use Velocity's official courier PDF — never ShipAmaze HTML.
+ * Backend resolves cached PDF / labelUrl / Velocity refresh; missing label returns a clear error
+ * instead of falling back to a generic invoice (which caused the recurring wrong-layout bug).
  */
-export function shouldUseVelocityCourierPdf(order: Order): boolean {
-  if (!isAmazonTransportationOrder(order)) return false;
-  const hasAwb = Boolean(String(order.awb ?? order.trackingId ?? "").trim());
-  const hasLabelUrl = Boolean(String(order.labelUrl ?? "").trim());
-  return hasAwb || hasLabelUrl;
+export function shouldUseVelocityCourierPdf(order: Pick<Order, "courier" | "courierName">): boolean {
+  return isAmazonTransportationOrder(order);
 }

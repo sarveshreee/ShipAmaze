@@ -25,6 +25,8 @@ import { getLorrigoNdrSyncIntervalMs } from "./modules/lorrigo/lorrigo.ndrSync.j
 import { getEkartStatusSyncIntervalMs } from "./modules/ekart/ekart.statusSync.js";
 import { isSyncMutexSkipResult } from "./modules/courier/syncMutex.js";
 import { withSyncLock } from "./modules/courier/distributedLock.js";
+import { reconcilePendingWalletDebits } from "./services/walletDebitReconciliation.js";
+import { warnPartnerProductionMisconfiguration } from "./modules/partner/partnerConfig.js";
 
 validateEnv();
 registerCourierProviders();
@@ -52,6 +54,7 @@ async function seedDefaultCouriers() {
 
 async function main() {
   await connectDb(MONGODB_URI);
+  warnPartnerProductionMisconfiguration();
   await seedDefaultCouriers();
   const app = createApp();
   const server = http.createServer(app);
@@ -196,6 +199,24 @@ async function main() {
     }
   }, ekartSyncIntervalMs);
   ekartBgSync.unref();
+
+  const walletDebitReconcileIntervalMs = 3 * 60 * 1000;
+  const walletDebitBgReconcile = setInterval(async () => {
+    try {
+      const r = await withSyncLock("wallet:debit-reconcile", () =>
+        reconcilePendingWalletDebits(50)
+      );
+      if (isSyncMutexSkipResult(r)) return;
+      if (r.scanned > 0) {
+        console.info(
+          `[wallet:debit-reconcile] scanned=${r.scanned} debited=${r.debited} stillPending=${r.stillPending} cleared=${r.cleared}`
+        );
+      }
+    } catch (e: unknown) {
+      console.error("[wallet:debit-reconcile] error", e instanceof Error ? e.message : e);
+    }
+  }, walletDebitReconcileIntervalMs);
+  walletDebitBgReconcile.unref();
 
   if (isEkartEnabledFlag() && isEkartConfigured()) {
     setTimeout(async () => {

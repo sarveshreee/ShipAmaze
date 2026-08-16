@@ -29,7 +29,12 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
       retryable?: boolean;
       requestId?: string;
       correlationId?: string;
+      partnerPayload?: Record<string, unknown>;
     };
+
+    if (anyErr.partnerPayload) {
+      return res.status(err.statusCode).json(anyErr.partnerPayload);
+    }
 
     // Provider failures: never return raw provider bodies / tokens / stack traces.
     if (anyErr.provider) {

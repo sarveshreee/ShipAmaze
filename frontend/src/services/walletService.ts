@@ -3,7 +3,11 @@ import type { Transaction, CODRemittance } from "@/types/logistics";
 
 export type WalletSummary = {
   balance: number;
+  /** Settlement backlog (CodRemittance Pending/Processing/On Hold). */
+  walletPendingRemittanceAmount?: number;
+  /** @deprecated alias of walletPendingRemittanceAmount */
   pendingCod: number;
+  payoutPendingAmount?: number;
   totalCredits?: number;
   totalDebits?: number;
   totalRecharge?: number;
@@ -25,6 +29,9 @@ export async function getWalletSummary(userId?: string): Promise<WalletSummary> 
   const d = unwrapData<WalletSummary>(raw);
   return {
     ...d,
+    pendingCod: d.walletPendingRemittanceAmount ?? d.pendingCod ?? 0,
+    walletPendingRemittanceAmount: d.walletPendingRemittanceAmount ?? d.pendingCod ?? 0,
+    payoutPendingAmount: d.payoutPendingAmount ?? d.walletPendingRemittanceAmount ?? d.pendingCod ?? 0,
     totalCredits: d.totalCredits ?? d.totalRecharge ?? 0,
     totalDebits: d.totalDebits ?? d.totalDeductions ?? 0,
   };

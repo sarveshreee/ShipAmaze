@@ -8,6 +8,7 @@ import { User, type UserRole } from "../models/User.js";
 import {
   clearDefaultPickupsForOwnerDoc,
   pickupListQuery,
+  pickupOwnListQuery,
   pickupOwnerScope,
   PICKUP_ACTIVE,
   PICKUP_NOT_DELETED,
@@ -74,6 +75,11 @@ import {
   processProductImages,
 } from "../services/productImageService.js";
 import { deleteCloudinaryImages, type ProductImageValue } from "../services/cloudinary.service.js";
+import {
+  applyNormalizedCategoriesToBody,
+  bodyTouchesCategories,
+  normalizeProductCategories,
+} from "../services/normalizeProductCategories.js";
 
 /**
  * Returns the _id of the first active admin user.
@@ -111,7 +117,9 @@ async function deletePickupForWarehouse(w: HydratedDocument<IWarehouse>): Promis
 }
 
 /**
- * Auto-sync a Warehouse's address fields to an admin-owned Pickup address.
+ * Auto-sync a Warehouse's address fields to a Pickup address.
+ * Prefer warehouse owner so vendor/dropshipper see it under Pickup Addresses;
+ * admin Process Selected still lists all via scope=platform.
  * Creates on first call; updates in place on subsequent calls.
  * Non-fatal — never throws to callers.
  */
@@ -134,9 +142,14 @@ async function syncWarehouseToPickup(w: HydratedDocument<IWarehouse>): Promise<v
       return;
     }
 
+    const ownerUserId = (w.ownerUserId as Types.ObjectId | undefined) ?? adminUserId;
+    const createdByRole = w.createdByRole ?? "vendor";
+    const dropshipperId =
+      createdByRole === "dropshipper" && w.ownerUserId ? (w.ownerUserId as Types.ObjectId) : undefined;
+
     const vendor = w.vendorId ? await Vendor.findById(w.vendorId).select("name").lean() : null;
     const vendorSuffix = vendor?.name ? ` — ${sanitizeCourierWarehouseName(vendor.name, "")}` : "";
-    const label = `${sanitizeCourierWarehouseName(w.name || "", "Warehouse")} (Warehouse)${vendorSuffix}`;
+    const label = `${sanitizeCourierWarehouseName(w.name || "", "Warehouse")}${vendorSuffix}`;
 
     const notDeletedClause = { $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }] };
 
@@ -148,8 +161,13 @@ async function syncWarehouseToPickup(w: HydratedDocument<IWarehouse>): Promise<v
       pickup = await Pickup.findOne({ sourceWarehouseId: w._id, ...notDeletedClause });
     }
 
-    const pickupFields = {
-      userId: adminUserId,
+    const velocityWarehouseId =
+      typeof w.velocityWarehouseId === "string" && w.velocityWarehouseId.trim()
+        ? w.velocityWarehouseId.trim()
+        : undefined;
+
+    const pickupFields: Record<string, unknown> = {
+      userId: ownerUserId,
       label,
       contactName,
       phone,
@@ -161,9 +179,11 @@ async function syncWarehouseToPickup(w: HydratedDocument<IWarehouse>): Promise<v
       country: "India",
       isActive: w.isActive !== false,
       sourceWarehouseId: w._id,
-      createdByRole: w.createdByRole ?? "vendor",
+      createdByRole,
       vendorId: w.vendorId,
     };
+    if (dropshipperId) pickupFields.dropshipperId = dropshipperId;
+    if (velocityWarehouseId) pickupFields.velocityWarehouseId = velocityWarehouseId;
 
     if (pickup) {
       await Pickup.findByIdAndUpdate(pickup._id, { $set: pickupFields });
@@ -176,6 +196,50 @@ async function syncWarehouseToPickup(w: HydratedDocument<IWarehouse>): Promise<v
     }
   } catch (e) {
     console.warn("[warehouse-pickup-sync] non-fatal error:", e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** Ensure warehouses visible to this user are mirrored into Pickup Addresses. */
+async function ensureAccessibleWarehousesSyncedAsPickups(user: {
+  _id: Types.ObjectId;
+  role: UserRole;
+}): Promise<void> {
+  try {
+    let query: Record<string, unknown>;
+    if (user.role === "vendor") {
+      const vendor = await Vendor.findOne({ userId: user._id }).select("_id").lean();
+      if (!vendor) return;
+      query = {
+        vendorId: vendor._id,
+        $or: [{ isActive: true }, { isActive: { $exists: false } }],
+      };
+    } else if (user.role === "dropshipper") {
+      const vendorIds = await accessibleVendorIdsForDropshipper(user._id);
+      query = {
+        $and: [
+          { $or: [{ isActive: true }, { isActive: { $exists: false } }] },
+          {
+            $or: [
+              { ownerUserId: user._id },
+              { assignedUserIds: user._id },
+              ...(vendorIds.length > 0 ? [{ vendorId: { $in: vendorIds } }] : []),
+            ],
+          },
+        ],
+      };
+    } else {
+      return;
+    }
+
+    const warehouses = await Warehouse.find(query).exec();
+    for (const w of warehouses) {
+      await syncWarehouseToPickup(w as HydratedDocument<IWarehouse>);
+    }
+  } catch (e) {
+    console.warn(
+      "[warehouse-pickup-backfill] non-fatal error:",
+      e instanceof Error ? e.message : String(e)
+    );
   }
 }
 
@@ -728,14 +792,14 @@ export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) =>
     }
   }
 
-  try {
-    const adminScoped = String((req.query as { userId?: string }).userId ?? "").trim();
-    const syncScope =
-      req.user.role === "admin" ? (adminScoped ? uid : undefined) : uid;
-    await syncCodRemittancesFromOrders(syncScope);
-  } catch (err) {
+  // Remittance sync is expensive — never block wallet/topbar on full order scan.
+  // Run async in background; remittance list endpoint still syncs on demand.
+  const adminScoped = String((req.query as { userId?: string }).userId ?? "").trim();
+  const syncScope =
+    req.user.role === "admin" ? (adminScoped ? uid : undefined) : uid;
+  void syncCodRemittancesFromOrders(syncScope).catch((err) => {
     devLog.warn("cod_remittance_sync_failed", { error: err instanceof Error ? err.message : String(err) });
-  }
+  });
 
   let w = await Wallet.findOne({ userId: uid });
   if (!w) {
@@ -783,7 +847,12 @@ export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) =>
     success: true,
     data: {
       balance: Math.max(0, w.balance ?? 0),
+      /** Settlement backlog (CodRemittance Pending/Processing/On Hold). */
+      walletPendingRemittanceAmount: pendingCod,
+      /** @deprecated use walletPendingRemittanceAmount — remittance settlement, NOT undelivered pipeline COD */
       pendingCod,
+      /** Alias for payout UIs */
+      payoutPendingAmount: pendingCod,
       totalCredits,
       totalDebits,
       /** @deprecated use totalCredits — kept for older clients */
@@ -792,6 +861,12 @@ export const getWallet = asyncHandler(async (req: AuthRequest, res: Response) =>
       totalDeductions: totalDebits,
       lastSyncedAt,
       currency: w.currency ?? "INR",
+      metricDefinitions: {
+        walletPendingRemittanceAmount:
+          "Sum of CodRemittance.netPayable for Pending/Processing/On Hold (settlement backlog after delivery).",
+        dashboardUndeliveredCODAmount:
+          "See GET /dashboard/summary — undelivered COD pipeline; different from this wallet field.",
+      },
     },
   });
 });
@@ -1392,9 +1467,19 @@ export const listPickupAddresses = asyncHandler(async (req: AuthRequest, res: Re
   if (!req.user) throw new AppError(401, "Unauthorized");
   assertPickupApiRole(req.user.role);
   const scope = String(req.query.scope ?? "").trim().toLowerCase();
+  const ownership = String(req.query.ownership ?? "").trim().toLowerCase();
+
+  // Backfill: warehouse rows → Pickup Addresses so legacy Warehouse UI data appears here.
+  if (req.user.role === "dropshipper" || req.user.role === "vendor") {
+    await ensureAccessibleWarehousesSyncedAsPickups(req.user);
+  }
+
   let findQuery: Record<string, unknown>;
   if (req.user.role === "admin" && scope === "platform") {
     findQuery = await platformPickupListQuery();
+  } else if (ownership === "own" && req.user.role !== "admin") {
+    // Dropshipper/vendor Process Selected: only addresses this account added.
+    findQuery = pickupOwnListQuery(req.user, { includeInactive: true });
   } else {
     findQuery = await pickupListQuery(req.user, { includeInactive: true });
   }
@@ -1941,6 +2026,15 @@ function normalizeProductVendorSku(body: Record<string, unknown>): void {
   delete body.vendor_sku;
 }
 
+function normalizeProductCategoryFields(body: Record<string, unknown>): void {
+  if (!bodyTouchesCategories(body)) return;
+  const normalized = normalizeProductCategories({
+    category: body.category,
+    categories: body.categories,
+  });
+  applyNormalizedCategoriesToBody(body, normalized);
+}
+
 export const createProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   if (req.user.role === "admin") {
@@ -1950,6 +2044,7 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
   const body = { ...req.body, uploadedBy: req.user._id, uploadedByRole: req.user.role } as Record<string, unknown>;
   normalizeProductCommission(body);
   normalizeProductVendorSku(body);
+  normalizeProductCategoryFields(body);
   if (req.user.role !== "admin") delete body.ourCommission;
   if (vendor) Object.assign(body, { vendorId: vendor._id, vendorName: vendor.name });
   if (req.user.role === "admin" && body.vendorId) {
@@ -1989,6 +2084,7 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   const body = { ...req.body } as Record<string, unknown>;
   normalizeProductCommission(body);
   normalizeProductVendorSku(body);
+  normalizeProductCategoryFields(body);
   if (Object.prototype.hasOwnProperty.call(body, "sku")) {
     const sku = String(body.sku ?? "").trim();
     if (!sku) throw new AppError(400, "SKU cannot be empty");
@@ -1998,8 +2094,17 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   if (req.user.role === "admin") {
     assertProductPermission(req.user, PRODUCT_PERMISSIONS.EDIT);
     const previousImages = Array.isArray(p.images) ? [...(p.images as ProductImageValue[])] : [];
-    const processed = Object.prototype.hasOwnProperty.call(body, "images") && Array.isArray(body.images)
-      ? await processProductImages(
+    const wantsImageUpdate =
+      Object.prototype.hasOwnProperty.call(body, "images") && Array.isArray(body.images);
+    const clearImages = body.clearImages === true || body.clearImages === "true";
+    if (wantsImageUpdate && (body.images as unknown[]).length === 0 && !clearImages) {
+      // Accidental empty array from list-shaped clients must not wipe stored images.
+      delete body.images;
+      delete body.imageMeta;
+    }
+    const processed =
+      wantsImageUpdate && Array.isArray(body.images)
+        ? await processProductImages(
           body.images as ProductImageValue[],
           previousImages,
           Array.isArray(p.get("imageMeta"))
@@ -2039,15 +2144,23 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   } = await import("../controllers/approvalController.js");
 
   const previousImages = Array.isArray(p.images) ? [...(p.images as ProductImageValue[])] : [];
-  const processed = Object.prototype.hasOwnProperty.call(body, "images") && Array.isArray(body.images)
-    ? await processProductImages(
+  const wantsImageUpdate =
+    Object.prototype.hasOwnProperty.call(body, "images") && Array.isArray(body.images);
+  const clearImages = body.clearImages === true || body.clearImages === "true";
+  if (wantsImageUpdate && (body.images as unknown[]).length === 0 && !clearImages) {
+    delete body.images;
+    delete body.imageMeta;
+  }
+  const processed =
+    wantsImageUpdate && Array.isArray(body.images)
+      ? await processProductImages(
         body.images as ProductImageValue[],
         previousImages,
         Array.isArray(p.get("imageMeta"))
           ? (p.get("imageMeta") as import("../services/productImageService.js").ProductImageMeta[])
           : undefined
       )
-    : null;
+      : null;
   if (processed) {
     body.images = processed.images;
     body.imageMeta = processed.imageMeta;

@@ -3,6 +3,7 @@ import { Order } from "../models/Order.js";
 import { CodRemittance } from "../models/CodRemittance.js";
 import { User } from "../models/User.js";
 import { Vendor } from "../models/Vendor.js";
+import { orderCodCollectableAmount } from "./normalizeOrderPayment.js";
 
 const DELIVERED_STATUSES = [
   "delivered",
@@ -70,7 +71,9 @@ export async function syncCodRemittancesFromOrders(scopeUserId?: Types.ObjectId)
   }
 
   const orders = await Order.find(match)
-    .select("orderId amount shippingCharges codCharges rtoCharges ownerUserId dropshipperId createdBy vendorId updatedAt createdAt statusHistory")
+    .select(
+      "orderId amount payment codCollectableAmount amountOutstanding amountPaid shippingCharges codCharges rtoCharges ownerUserId dropshipperId createdBy vendorId updatedAt createdAt statusHistory"
+    )
     .lean()
     .limit(20_000);
 
@@ -104,7 +107,7 @@ export async function syncCodRemittancesFromOrders(scopeUserId?: Types.ObjectId)
           : new Date();
     const week = weekKey(when);
     const key = `${String(uid)}:${week}`;
-    const amount = Number(o.amount ?? 0) || 0;
+    const amount = orderCodCollectableAmount(o as { payment?: string; amount?: number; codCollectableAmount?: number; amountOutstanding?: number });
     const deductions =
       (Number(o.shippingCharges ?? 0) || 0) +
       (Number(o.codCharges ?? 0) || 0) +

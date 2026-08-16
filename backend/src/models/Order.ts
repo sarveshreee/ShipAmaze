@@ -79,6 +79,14 @@ export interface IOrder extends Document {
   statusHistory?: IOrderStatusEvent[];
   externalSource?: string;
   externalOrderName?: string;
+  /** External partner API tenant (sparse — partner-created orders only). */
+  partnerId?: Types.ObjectId;
+  /** Partner's reference id (e.g. ORDER-10001); unique per partner when set. */
+  partnerReferenceId?: string;
+  /** Archived partner reference after a failed unbooked attempt (audit trail). */
+  partnerReferenceArchived?: string;
+  /** API key used when the partner order was created. */
+  partnerApiKeyId?: Types.ObjectId;
   channel?: string;
   shipmentCreated?: boolean;
   /** Atomic booking claim — true while a worker is calling the provider. */
@@ -162,6 +170,13 @@ export interface IOrder extends Document {
   shopifyNote?: string;
   shopifyTags?: string;
   lastShopifySyncAt?: Date;
+  /** Canonical payment snapshot (partial-payment apps). */
+  amountPaid?: number;
+  amountOutstanding?: number;
+  /** Courier collectable / COD remainder after partial prepaid. */
+  codCollectableAmount?: number;
+  paymentNormalizationReason?: string;
+  isPartiallyPaid?: boolean;
   /** Admin-only internal remark shown in orders table. */
   adminRemark?: string;
   /** History of Velocity-sourced failure/cancellation remarks. */
@@ -173,6 +188,10 @@ export interface IOrder extends Document {
   }[];
   /** Last successful/attempted Velocity status poll (fair rotation across batches). */
   lastVelocityStatusSyncedAt?: Date;
+  /** Wallet debit still required after successful provider booking (partner / Lorrigo/Ekart billing). */
+  walletDebitPending?: boolean;
+  /** When a wallet debit attempt last failed for this shipment. */
+  walletDebitFailedAt?: Date;
 }
 
 const trackingActivitySchema = new Schema<ITrackingActivity>(
@@ -255,6 +274,10 @@ const orderSchema = new Schema<IOrder>(
     statusHistory: { type: [statusHistorySchema], default: undefined },
     externalSource: { type: String },
     externalOrderName: { type: String },
+    partnerId: { type: Schema.Types.ObjectId, ref: "Partner", index: true, sparse: true },
+    partnerReferenceId: { type: String, sparse: true },
+    partnerReferenceArchived: { type: String, sparse: true },
+    partnerApiKeyId: { type: Schema.Types.ObjectId, ref: "PartnerApiKey", sparse: true },
     channel: { type: String, default: "Manual" },
     shipmentCreated: { type: Boolean, default: false },
     bookingInProgress: { type: Boolean, default: false, index: true },
@@ -315,10 +338,17 @@ const orderSchema = new Schema<IOrder>(
     shopifyFulfillmentStatus: { type: String },
     shopifyNote: { type: String },
     shopifyTags: { type: String },
+    amountPaid: { type: Number },
+    amountOutstanding: { type: Number },
+    codCollectableAmount: { type: Number },
+    paymentNormalizationReason: { type: String },
+    isPartiallyPaid: { type: Boolean, default: false },
     adminRemark: { type: String },
     remarkHistory: { type: [remarkHistorySchema], default: [] },
     lastShopifySyncAt: { type: Date },
     lastVelocityStatusSyncedAt: { type: Date, index: true },
+    walletDebitPending: { type: Boolean, default: false, index: true },
+    walletDebitFailedAt: { type: Date },
   },
   { timestamps: true }
 );
@@ -344,6 +374,12 @@ orderSchema.index({ isJunk: 1, status: 1, createdAt: -1 });
 orderSchema.index({ pickupAddressId: 1 });
 orderSchema.index({ ownerUserId: 1, createdAt: -1 });
 orderSchema.index({ createdBy: 1, createdAt: -1 });
+orderSchema.index({ partnerId: 1, partnerReferenceId: 1 }, { unique: true, sparse: true });
+orderSchema.index({ partnerId: 1, createdAt: -1 }, { sparse: true });
+orderSchema.index(
+  { walletDebitFailedAt: 1, updatedAt: 1 },
+  { partialFilterExpression: { walletDebitPending: true } }
+);
 
 registerOrderEmailHooks(orderSchema);
 

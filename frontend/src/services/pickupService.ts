@@ -47,8 +47,11 @@ function unwrapOne(body: unknown): PickupAddress {
   return body as PickupAddress;
 }
 
-export async function listPickupAddresses(scope?: "platform") {
-  const suffix = scope === "platform" ? "?scope=platform" : "";
+export async function listPickupAddresses(scope?: "platform", ownership?: "own") {
+  const q = new URLSearchParams();
+  if (scope === "platform") q.set("scope", "platform");
+  if (ownership === "own") q.set("ownership", "own");
+  const suffix = q.toString() ? `?${q.toString()}` : "";
   const raw = await apiClient.get<unknown>(`${BASE}${suffix}`);
   return unwrapList(raw);
 }

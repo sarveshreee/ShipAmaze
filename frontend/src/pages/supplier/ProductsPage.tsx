@@ -148,9 +148,30 @@ export default function ProductsPage() {
   };
 
   const duplicate = async (p: SupplierProduct) => {
-    const { id, created_at, updated_at, ...rest } = p as any;
-    const payload = { ...rest, sku: `${p.sku || "SKU"}-COPY`, name: `${p.name} (Copy)`, status: "draft" };
     try {
+      const full = (await productService.getProductById(p.id)) as Record<string, unknown>;
+      const {
+        id: _id,
+        _id: __id,
+        created_at: _c,
+        updated_at: _u,
+        createdAt: _ca,
+        updatedAt: _ua,
+        ...rest
+      } = full;
+      const categories = Array.isArray(rest.categories)
+        ? rest.categories
+        : rest.category
+          ? [rest.category]
+          : [];
+      const payload = {
+        ...rest,
+        category: categories[0] ?? rest.category,
+        categories,
+        sku: `${String(rest.sku || p.sku || "SKU")}-COPY`,
+        name: `${String(rest.name || p.name)} (Copy)`,
+        status: "draft",
+      };
       await productService.createProduct(payload);
       toast.success("Duplicated");
       refetch();
@@ -252,7 +273,7 @@ export default function ProductsPage() {
     }
     try {
       for (const id of ids) {
-        await productService.updateProduct(id, { category: cat });
+        await productService.updateProduct(id, { category: cat, categories: [cat] });
       }
       toast.success(`Category set on ${ids.length} product${ids.length > 1 ? "s" : ""}`);
     } catch (e: unknown) {

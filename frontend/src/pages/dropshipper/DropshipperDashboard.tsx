@@ -30,6 +30,9 @@ type DashboardSummary = {
   inTransit: number;
   pending: number;
   totalOrderValue: number;
+  /** Undelivered COD pipeline */
+  dashboardUndeliveredCODAmount?: number;
+  /** @deprecated alias */
   codPendingAmount: number;
   deliveryRatePct: number;
   rtoPct: number;
@@ -88,7 +91,7 @@ export default function DropshipperDashboard() {
     inTransit: summary?.inTransit ?? 0,
     pending: summary?.pending ?? 0,
     amountSum: summary?.totalOrderValue ?? 0,
-    codAmt: summary?.codPendingAmount ?? 0,
+    codAmt: summary?.dashboardUndeliveredCODAmount ?? summary?.codPendingAmount ?? 0,
     delivery: Math.round(summary?.deliveryRatePct ?? 0),
     rto: Math.round(summary?.rtoPct ?? 0),
     ndr: Math.round(summary?.ndrPct ?? 0),
@@ -141,7 +144,7 @@ export default function DropshipperDashboard() {
         />
         <KPICard
           icon={Banknote}
-          label="COD Pending"
+          label="Undelivered COD"
           value={stats.codAmt ? `₹${Math.round(stats.codAmt).toLocaleString("en-IN")}` : "—"}
           color="warning"
         />

@@ -20,8 +20,20 @@ describe("shopifyOrderSync helpers", () => {
 
   it("mapShopifyFinancialToPayment maps known values", () => {
     expect(mapShopifyFinancialToPayment("paid")).toBe("Prepaid");
-    expect(mapShopifyFinancialToPayment("pending")).toBe("Prepaid");
+    // Deprecated helper: pending without gateway context defaults to COD (safer for collectable).
+    expect(mapShopifyFinancialToPayment("pending")).toBe("COD");
     expect(mapShopifyFinancialToPayment(undefined)).toBe("COD");
+  });
+
+  it("mapShopifyOrderPayment treats partially_paid as COD for outstanding", () => {
+    const partial = {
+      id: 20,
+      financial_status: "partially_paid",
+      total_price: "1000",
+      total_outstanding: "700",
+      payment_gateway_names: ["Razorpay"],
+    } as unknown as ShopifyOrder;
+    expect(mapShopifyOrderPayment(partial)).toBe("COD");
   });
 
   it("mapShopifyOrderPayment detects COD from payment gateway", () => {
@@ -38,6 +50,7 @@ describe("shopifyOrderSync helpers", () => {
     const prepaid = {
       id: 2,
       financial_status: "paid",
+      total_price: "1000",
       payment_gateway_names: ["Razorpay"],
     } as unknown as ShopifyOrder;
     expect(mapShopifyOrderPayment(prepaid)).toBe("Prepaid");

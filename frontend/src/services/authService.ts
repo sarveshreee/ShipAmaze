@@ -41,6 +41,8 @@ export interface AuthUser {
   dropshipperAccessType?: DropshipperAccessType;
   /** New business toggle for vendor/warehouse management. */
   allowWarehouseAccess?: boolean;
+  /** Admin-gated: process own orders using pickup addresses this dropshipper added. */
+  allowOwnPickupProcessing?: boolean;
   kycStatus?: "pending_kyc" | "pending_approval" | "approved" | "rejected";
   kycVerified?: boolean;
   /** True when the current JWT is an admin impersonation session. */

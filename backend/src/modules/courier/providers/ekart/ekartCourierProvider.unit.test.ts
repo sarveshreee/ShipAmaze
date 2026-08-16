@@ -147,10 +147,10 @@ describe("Ekart provider foundation", () => {
     expect(detail.service_data.source.address.pincode).toBe("560001");
     expect(detail.service_data.return_location.address.pincode).toBe("560001");
     expect(detail.service_data.destination.address.pincode).toBe("700016");
-    // Merchant reference ≠ tracking AWB
-    expect(detail.shipment.client_reference_id).toBe("ORD123456789012"); // max 15
+    // Merchant reference ≠ tracking AWB. Long ids ending in 10+ digits use trailing digits (max 15).
+    expect(detail.shipment.client_reference_id).toBe("123456789012345");
     expect(detail.shipment.tracking_id).toBe("TECP0000000001");
-    expect(built.clientReferenceId).toBe("ORD123456789012");
+    expect(built.clientReferenceId).toBe("123456789012345");
     expect(built.trackingIdSent).toBe("TECP0000000001");
     expect(built.clientReferenceId).not.toBe(built.trackingIdSent);
   });

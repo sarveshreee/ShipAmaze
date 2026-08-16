@@ -88,6 +88,7 @@ export type AdminDropshipperRow = {
   companyName?: string;
   accessType?: "FULL" | "RESTRICTED";
   allowWarehouseAccess?: boolean;
+  allowOwnPickupProcessing?: boolean;
   accountStatus?: string;
   totalOrders: number;
   activeOrders: number;
@@ -113,7 +114,12 @@ export function adminGetDropshipper(id: string) {
 
 export function adminPatchDropshipper(
   id: string,
-  body: { userStatus?: string; accessType?: "FULL" | "RESTRICTED"; allowWarehouseAccess?: boolean }
+  body: {
+    userStatus?: string;
+    accessType?: "FULL" | "RESTRICTED";
+    allowWarehouseAccess?: boolean;
+    allowOwnPickupProcessing?: boolean;
+  }
 ) {
   return apiClient.patch<{ ok: boolean }>(`/admin/dropshippers/${enc(id)}`, body);
 }

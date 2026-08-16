@@ -10,7 +10,7 @@ import { AppError } from "../middleware/errorMiddleware.js";
 import { randomUUID } from "crypto";
 import mongoose from "mongoose";
 import { Pickup } from "../models/Pickup.js";
-import { pickupByIdSelectableQuery } from "../utils/pickupQuery.js";
+import { pickupByIdOwnSelectableQuery, pickupByIdSelectableQuery } from "../utils/pickupQuery.js";
 import { normalizeOrderStatus, isValidStatusTransition } from "../utils/orderStatus.js";
 import {
   buildOrderVisibilityQuery,
@@ -26,6 +26,7 @@ import { displayStatusLabel, effectiveInternalStatus } from "../utils/orderStatu
 import type { IOrder } from "../models/Order.js";
 import { createInAppNotification } from "../services/inAppNotifications.js";
 import { orderWalletUserId } from "../services/walletLedger.js";
+import { orderCodCollectableAmount, resolveManualOrderPaymentFields } from "../services/normalizeOrderPayment.js";
 import { buildPickupSnapshotFromLean } from "../utils/pickupSnapshot.js";
 import { resolveVendorIdFromPickup } from "../utils/pickupVendor.js";
 import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
@@ -37,7 +38,9 @@ import {
   normalizeLineItems,
   syncOrderLineItemArrays,
 } from "../utils/orderLineItems.js";
-import { getDropshipperAccessType } from "../middleware/dropshipperAccessMiddleware.js";
+import {
+  getDropshipperAccessState,
+} from "../middleware/dropshipperAccessMiddleware.js";
 import { resolveRoutingForSku } from "../services/orderSkuRouting.js";
 import { mapToPublicTracking } from "../utils/publicTracking.js";
 import { bookForwardShipmentForOrder, syncLocalOrderEditsToVelocity } from "../modules/velocity/velocity.controller.js";
@@ -155,6 +158,10 @@ function mapOrder(o: {
   date: string;
   awb: string;
   amount: number;
+  amountPaid?: number;
+  amountOutstanding?: number;
+  codCollectableAmount?: number;
+  isPartiallyPaid?: boolean;
   products: unknown[];
   dimensions?: string;
   zone?: string;
@@ -236,6 +243,10 @@ function mapOrder(o: {
     date: o.date,
     awb: o.awb,
     amount: o.amount,
+    amountPaid: o.amountPaid,
+    amountOutstanding: o.amountOutstanding,
+    codCollectableAmount: o.codCollectableAmount,
+    isPartiallyPaid: Boolean(o.isPartiallyPaid),
     products: productsOut,
     dimensions: o.dimensions,
     zone: o.zone,
@@ -675,7 +686,15 @@ export const exportOrdersCsv = asyncHandler(async (req: AuthRequest, res: Respon
     const codCharges = Number(row.codCharges ?? 0) || 0;
     const extraCharges = shipping + codCharges;
     const payment = String(row.payment ?? "");
-    const codAmount = payment.toUpperCase() === "COD" ? totalAmount : codCharges || "";
+    const codAmount =
+      payment.toUpperCase() === "COD"
+        ? orderCodCollectableAmount({
+            payment,
+            amount: totalAmount,
+            codCollectableAmount: row.codCollectableAmount as number | undefined,
+            amountOutstanding: row.amountOutstanding as number | undefined,
+          }) || totalAmount
+        : codCharges || "";
     const dims = firstNonEmpty(
       row.dimensions,
       [row.length, row.breadth ?? row.width, row.height].filter((x) => x != null && String(x) !== "").join("x")
@@ -805,6 +824,14 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
       const sum = sumItemsAmount(goodItems);
       if (amount === 0) amount = sum;
     }
+    const payFields = resolveManualOrderPaymentFields({
+      payment,
+      amount,
+      codCollectableAmount: body.codCollectableAmount as number | undefined,
+      codAmount: body.codAmount as number | undefined,
+      amountPaid: body.amountPaid as number | undefined,
+      amountOutstanding: body.amountOutstanding as number | undefined,
+    });
     const shippingAddress1 = String(body.shippingAddress1 ?? body.addressLine1 ?? body.address ?? "");
     const shippingCity = String(body.shippingCity ?? body.city ?? "");
     const shippingState = String(body.shippingState ?? body.state ?? "");
@@ -819,11 +846,15 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
       pincode: pin,
       weight: String(body.weight ?? "0.5").replace(/[^\d.]/g, "") || "0.5",
       courier: String(body.courier ?? "Delhivery"),
-      payment,
+      payment: payFields.payment,
       status: "draft",
       date: String(body.date ?? new Date().toISOString().slice(0, 10)),
       awb: "",
-      amount,
+      amount: payFields.amount,
+      amountPaid: payFields.amountPaid,
+      amountOutstanding: payFields.amountOutstanding,
+      codCollectableAmount: payFields.codCollectableAmount,
+      isPartiallyPaid: payFields.isPartiallyPaid,
       products: goodItems.length ? goodItems : lineItems,
       items: goodItems.length ? goodItems : lineItems,
       orderItems: goodItems.length ? goodItems : lineItems,
@@ -877,11 +908,20 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     throw new AppError(400, "pickupAddressId is required and must belong to your account");
   }
 
-  let amount = Number(body.amount ?? body.codAmount ?? body.invoiceValue ?? 0);
+  let amount = Number(body.amount ?? body.invoiceValue ?? 0);
   const computed = sumItemsAmount(lineItems);
   if (!Number.isFinite(amount) || amount < 0) amount = computed;
-  if (payment === "COD" && amount === 0 && computed > 0) amount = computed;
+  if (amount === 0 && computed > 0) amount = computed;
   if (amount < 0) throw new AppError(400, "Order amount cannot be negative");
+
+  const payFields = resolveManualOrderPaymentFields({
+    payment,
+    amount,
+    codCollectableAmount: body.codCollectableAmount as number | undefined,
+    codAmount: body.codAmount as number | undefined,
+    amountPaid: body.amountPaid as number | undefined,
+    amountOutstanding: body.amountOutstanding as number | undefined,
+  });
 
   const isManualOrder =
     String(body.channel ?? "Manual").toLowerCase() !== "shopify" &&
@@ -907,11 +947,15 @@ export const createOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     breadth: rawWidth > 0 ? rawWidth : undefined,
     height: rawHeight > 0 ? rawHeight : undefined,
     courier: String(body.courier ?? "Delhivery"),
-    payment,
+    payment: payFields.payment,
     status: statusStored,
     date: String(body.date ?? new Date().toISOString().slice(0, 10)),
     awb: String(body.awb ?? "").trim(),
-    amount,
+    amount: payFields.amount,
+    amountPaid: payFields.amountPaid,
+    amountOutstanding: payFields.amountOutstanding,
+    codCollectableAmount: payFields.codCollectableAmount,
+    isPartiallyPaid: payFields.isPartiallyPaid,
     products: lineItems,
     items: lineItems,
     orderItems: lineItems,
@@ -1150,6 +1194,38 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     order.payment = p;
   }
 
+  const touchesPaymentFields =
+    body.payment !== undefined ||
+    body.codCollectableAmount !== undefined ||
+    body.codAmount !== undefined ||
+    body.amountPaid !== undefined ||
+    body.amountOutstanding !== undefined ||
+    amtOnly !== undefined ||
+    hasLineItemsUpdate;
+  if (touchesPaymentFields) {
+    const payFields = resolveManualOrderPaymentFields({
+      payment: String(order.payment ?? "Prepaid"),
+      amount: Number(order.amount ?? 0),
+      codCollectableAmount:
+        body.codCollectableAmount !== undefined
+          ? (body.codCollectableAmount as number)
+          : order.codCollectableAmount,
+      codAmount: body.codAmount as number | undefined,
+      amountPaid:
+        body.amountPaid !== undefined ? (body.amountPaid as number) : order.amountPaid,
+      amountOutstanding:
+        body.amountOutstanding !== undefined
+          ? (body.amountOutstanding as number)
+          : order.amountOutstanding,
+    });
+    order.payment = payFields.payment;
+    order.amount = payFields.amount;
+    order.amountPaid = payFields.amountPaid;
+    order.amountOutstanding = payFields.amountOutstanding;
+    order.codCollectableAmount = payFields.codCollectableAmount;
+    order.isPartiallyPaid = payFields.isPartiallyPaid;
+  }
+
   await order.save();
 
   const shouldSyncVelocity =
@@ -1369,8 +1445,10 @@ const BLOCKED_BULK_MOVE_TO_READY = new Set([
 export const bulkMoveOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
   if (req.user.role === "dropshipper") {
-    const access = await getDropshipperAccessType(req.user._id);
-    if (access === "RESTRICTED") throw new AppError(403, "Restricted account cannot process orders");
+    const access = await getDropshipperAccessState(req.user._id);
+    if (access.accessType === "RESTRICTED" && !access.allowOwnPickupProcessing) {
+      throw new AppError(403, "Restricted account cannot process orders");
+    }
   }
   const body = req.body as { orderIds?: unknown; targetStatus?: unknown };
   const orderIds = body.orderIds;
@@ -1710,6 +1788,13 @@ type ProcessSelectedPrep = {
   pickupSnapshot: ReturnType<typeof buildPickupSnapshotFromLean>["snapshot"];
   velocityWarehouseId: string;
   lorrigoPickupId: string;
+  /**
+   * Best-effort sync failure reasons captured once per batch — never blocks the whole
+   * request. Surfaced in per-order failure messages so admins see the real root cause
+   * (e.g. "why can't this pickup address book Velocity?") instead of a generic error.
+   */
+  velocityLinkError: string | undefined;
+  lorrigoLinkError: string | undefined;
   vendorIdFromPickup: Types.ObjectId | undefined;
   now: Date;
   /** Loaded once per bulk request (priority mode). */
@@ -1918,7 +2003,7 @@ async function listMultiProviderServiceableForOrder(
           lengthCm,
           widthCm,
           heightCm,
-          codValue: paymentMode === "cod" ? Number(o.amount ?? 0) : undefined,
+          codValue: paymentMode === "cod" ? orderCodCollectableAmount(o) : undefined,
           shipmentType: "forward",
         },
         { mode: "both" }
@@ -1961,12 +2046,11 @@ async function bookPriorityResolvedCourier(
         : "velocity";
 
   if (provider === "lorrigo") {
-    if (!prep.lorrigoPickupId) {
-      throw new AppError(
-        422,
-        "Pickup address must be synced to Lorrigo before booking a Lorrigo courier from Priority Selection."
-      );
-    }
+    // Do NOT hard-block on prep.lorrigoPickupId here — it is only a snapshot taken once at
+    // batch start. bookLorrigoShipment → validateLorrigoBooking re-reads the pickup live and
+    // retries the Lorrigo sync on demand (with its own simplified-name + existing-hub fallback),
+    // so a transient sync failure at batch start never permanently locks Lorrigo out of every
+    // order in this batch — each attempt gets a fresh chance to link.
     const w = Number(prep.weight ?? o.weight);
     const L = Number(prep.length ?? o.length ?? 10);
     const W = Number(prep.width ?? o.width ?? o.breadth ?? 10);
@@ -2009,9 +2093,10 @@ async function bookPriorityResolvedCourier(
   }
 
   if (!prep.velocityWarehouseId) {
+    const detail = prep.velocityLinkError ? ` Reason: ${prep.velocityLinkError}` : "";
     throw new AppError(
       422,
-      "Pickup address must be linked to Velocity before booking a Velocity courier from Priority Selection."
+      `Pickup address must be linked to Velocity before booking a Velocity courier from Priority Selection.${detail}`
     );
   }
   const booking = await bookForwardShipmentForOrder(req, o, {
@@ -2196,6 +2281,14 @@ async function processOneSelectedOrder(
       }
     }
 
+    if (attemptErrors.length === 0) {
+      const linkNotes: string[] = [];
+      if (prep.velocityLinkError) linkNotes.push(`Velocity: ${prep.velocityLinkError}`);
+      if (prep.lorrigoLinkError) linkNotes.push(`Lorrigo: ${prep.lorrigoLinkError}`);
+      if (linkNotes.length > 0) {
+        attemptErrors.push(`Pickup address link issue — ${linkNotes.join("; ")}`);
+      }
+    }
     return failProcessSelectedOrder(
       o,
       req.user._id,
@@ -2240,11 +2333,12 @@ async function processOneSelectedOrder(
         carrier: booking.courierName || prep.courierName,
       };
     } catch (err: unknown) {
-      return failProcessSelectedOrder(
-        o,
-        req.user._id,
-        formatErrorMessage(err, "Lorrigo booking failed")
-      );
+      const base = formatErrorMessage(err, "Lorrigo booking failed");
+      const detail =
+        !prep.lorrigoPickupId && prep.lorrigoLinkError && !base.includes(prep.lorrigoLinkError)
+          ? ` Reason: ${prep.lorrigoLinkError}`
+          : "";
+      return failProcessSelectedOrder(o, req.user._id, `${base}${detail}`);
     }
   }
 
@@ -2293,21 +2387,31 @@ async function processOneSelectedOrder(
       carrier: booking.carrier_name,
     };
   } catch (err: unknown) {
-    return failProcessSelectedOrder(
-      o,
-      req.user._id,
-      formatErrorMessage(err, "Velocity booking failed")
-    );
+    const base = formatErrorMessage(err, "Velocity booking failed");
+    const detail =
+      !prep.velocityWarehouseId && prep.velocityLinkError && !base.includes(prep.velocityLinkError)
+        ? ` Reason: ${prep.velocityLinkError}`
+        : "";
+    return failProcessSelectedOrder(o, req.user._id, `${base}${detail}`);
   }
 }
 
 /**
- * Admin-only: Assign shipment processing details and move orders directly to Pending Pickup.
- * Orders do not need to be in Ready to Ship first — early statuses (e.g. pending/draft) are accepted.
+ * Admin, or dropshipper with own-pickup processing enabled: assign pickup + book shipments.
+ * Dropshippers may only process their own orders using pickup addresses they added.
+ * Admin processing is unchanged. Orders do not need to be in Ready to Ship first.
  */
 export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
+  const actor = req.user;
+  const isDropshipperSelfProcess = actor.role === "dropshipper";
+  if (actor.role !== "admin" && !isDropshipperSelfProcess) throw new AppError(403, "Forbidden");
+  if (isDropshipperSelfProcess) {
+    const access = await getDropshipperAccessState(actor._id);
+    if (!access.allowOwnPickupProcessing) {
+      throw new AppError(403, "Own pickup processing is disabled for this dropshipper. Contact admin to enable it.");
+    }
+  }
 
   const body = req.body as {
     orderIds?: unknown;
@@ -2423,40 +2527,40 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
       );
     }
   } else {
-    // Priority mode may mix providers.
-    if (priorityNeedsVelocity) {
-      if (!isVelocityEnabledFlag()) {
-        throw new AppError(503, "Velocity is disabled (VELOCITY_ENABLED=false).");
-      }
-      if (!isVelocityConfigured()) {
-        throw new AppError(
-          503,
-          "Velocity courier credentials are not configured. Set VELOCITY_USERNAME and VELOCITY_PASSWORD to book real AWBs."
-        );
-      }
+    // Priority mode may mix providers. A single disabled/misconfigured provider must never
+    // block the whole batch — orders whose priority courier resolves to a *different*,
+    // healthy provider must still be booked. Unusable providers are simply skipped per-order
+    // (discovery already excludes unconfigured providers; booking calls throw a clear,
+    // catchable per-order error otherwise), so every priority candidate still gets a fair try
+    // and only orders with literally no usable courier land on the Failed tab.
+    if (priorityNeedsVelocity && (!isVelocityEnabledFlag() || !isVelocityConfigured())) {
+      devLog.warn(
+        "[process-selected] Velocity is in the priority list but disabled/misconfigured — skipping Velocity candidates for this batch"
+      );
     }
     if (priorityNeedsLorrigo) {
-      if (!isLorrigoEnabledFlag()) {
-        throw new AppError(503, "Lorrigo is disabled (LORRIGO_ENABLED is not true).");
-      }
       const lorrigo = getCourierProvider("lorrigo");
-      if (!providerSupports(lorrigo.capabilities, "booking") || !lorrigo.isConfigured()) {
-        throw new AppError(503, "Lorrigo booking is not available (provider not configured).");
+      if (
+        !isLorrigoEnabledFlag() ||
+        !providerSupports(lorrigo.capabilities, "booking") ||
+        !lorrigo.isConfigured()
+      ) {
+        devLog.warn(
+          "[process-selected] Lorrigo is in the priority list but disabled/misconfigured — skipping Lorrigo candidates for this batch"
+        );
       }
     }
     if (priorityNeedsEkart) {
-      if (!isEkartEnabledFlag()) {
-        throw new AppError(503, "Ekart is disabled (EKART_ENABLED is not true).");
-      }
-      if (!isEkartConfigured()) {
-        throw new AppError(
-          503,
-          "Ekart credentials are not configured. Set EKART_AUTHORIZATION and EKART_MERCHANT_CODE."
-        );
-      }
       const ekart = getCourierProvider("ekart");
-      if (!providerSupports(ekart.capabilities, "booking") || !ekart.isConfigured()) {
-        throw new AppError(503, "Ekart booking is not available (provider not configured).");
+      if (
+        !isEkartEnabledFlag() ||
+        !isEkartConfigured() ||
+        !providerSupports(ekart.capabilities, "booking") ||
+        !ekart.isConfigured()
+      ) {
+        devLog.warn(
+          "[process-selected] Ekart is in the priority list but disabled/misconfigured — skipping Ekart candidates for this batch"
+        );
       }
     }
   }
@@ -2475,12 +2579,22 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     if (v !== undefined && (!(v > 0) || !Number.isFinite(v))) throw new AppError(400, `${k} must be > 0`);
   }
 
-  const pickup = await Pickup.findOne(await pickupByIdSelectableQuery(pickupAddressId, req.user))
+  const pickupQuery = isDropshipperSelfProcess
+    ? pickupByIdOwnSelectableQuery(pickupAddressId, actor)
+    : await pickupByIdSelectableQuery(pickupAddressId, actor);
+  const pickup = await Pickup.findOne(pickupQuery)
     .select(
       "label contactName phone alternatePhone email addressLine1 addressLine2 landmark city state pincode country gstin velocityWarehouseId lorrigoPickupId lorrigoSyncStatus vendorId createdByRole userId"
     )
     .lean();
-  if (!pickup) throw new AppError(404, "Pickup address not found");
+  if (!pickup) {
+    throw new AppError(
+      404,
+      isDropshipperSelfProcess
+        ? "Pickup address not found. You can only process orders with a pickup address you added."
+        : "Pickup address not found"
+    );
+  }
 
   const lorrigoPickupIdExisting = String(
     (pickup as { lorrigoPickupId?: string }).lorrigoPickupId ?? ""
@@ -2493,45 +2607,51 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   const needLorrigoLink =
     (courierSelectionMode === "courier" && courierProvider === "lorrigo") || priorityNeedsLorrigo;
 
+  // IMPORTANT: sync failures here must NEVER throw and abort the whole batch. A single pickup
+  // address that can't link to Velocity/Lorrigo (bad address data, transient provider error,
+  // etc.) previously threw a 422 before a single order was even looked at — every order for
+  // that address landed nowhere (not booked, not Failed, just a blocked request), and any order
+  // that could have shipped via a *different* courier (e.g. Ekart, which needs no warehouse
+  // link) never got the chance. We now always attempt a best-effort sync, record the reason on
+  // failure, and let per-order booking decide: orders with a usable courier still get a real
+  // AWB and move to Pending Pickup; only orders with truly no usable courier land on the
+  // Failed tab, carrying this exact reason so admins know why.
+  let velocityLinkError: string | undefined;
+  let lorrigoLinkError: string | undefined;
+
   if (needVelocityLink) {
-    const syncResult = await syncPickupToVelocity(pickupAddressId);
+    const syncResult = await syncPickupToVelocity(pickupAddressId).catch((e) => ({
+      linked: false as const,
+      error: e instanceof Error ? e.message : String(e),
+    }));
     if ("error" in syncResult && syncResult.error) {
-      throw new AppError(422, `Pickup address is not linked to Velocity: ${syncResult.error}`);
+      velocityLinkError = syncResult.error;
+      velocityWarehouseId = String(pickup.velocityWarehouseId ?? "").trim();
+    } else {
+      velocityWarehouseId =
+        ("warehouse_id" in syncResult && syncResult.warehouse_id?.trim()) ||
+        String(pickup.velocityWarehouseId ?? "").trim();
     }
-    velocityWarehouseId =
-      ("warehouse_id" in syncResult && syncResult.warehouse_id?.trim()) ||
-      String(pickup.velocityWarehouseId ?? "").trim();
-    if (!velocityWarehouseId) {
-      throw new AppError(
-        422,
-        "Pickup address must be linked to a Velocity warehouse before booking shipments. Sync the pickup in Admin settings."
-      );
+    if (!velocityWarehouseId && !velocityLinkError) {
+      velocityLinkError =
+        "Pickup address must be linked to a Velocity warehouse before booking shipments. Sync the pickup in Admin settings.";
     }
   } else {
     velocityWarehouseId = String(pickup.velocityWarehouseId ?? "").trim();
   }
 
-  if (needLorrigoLink) {
-    if (!lorrigoPickupId) {
-      // Mirror Velocity: attempt sync on demand before blocking the whole batch.
-      const syncResult = await syncPickupToLorrigo(pickupAddressId, { force: true }).catch((e) => ({
-        synced: false as const,
-        error: e instanceof Error ? e.message : String(e),
-      }));
-      if (syncResult && "synced" in syncResult && syncResult.synced && syncResult.pickupId) {
-        lorrigoPickupId = syncResult.pickupId;
-      } else if (syncResult && "error" in syncResult && syncResult.error) {
-        throw new AppError(
-          422,
-          `Pickup address could not be synced to Lorrigo: ${syncResult.error}. Use Retry Sync on the pickup address.`
-        );
-      }
-    }
-    if (!lorrigoPickupId) {
-      throw new AppError(
-        422,
-        "Pickup address must be synced to Lorrigo before booking. Use Sync to Lorrigo / Retry Sync on the pickup address."
-      );
+  if (needLorrigoLink && !lorrigoPickupId) {
+    // Mirror Velocity: attempt sync on demand, but never block the whole batch — bookLorrigoShipment
+    // retries this exact sync per order attempt (with its own simplified-name/existing-hub
+    // fallbacks), so a failure captured here is only used for messaging, never as a hard gate.
+    const syncResult = await syncPickupToLorrigo(pickupAddressId, { force: true }).catch((e) => ({
+      synced: false as const,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+    if (syncResult && "synced" in syncResult && syncResult.synced && syncResult.pickupId) {
+      lorrigoPickupId = syncResult.pickupId;
+    } else if (syncResult && "error" in syncResult && syncResult.error) {
+      lorrigoLinkError = syncResult.error;
     }
   }
 
@@ -2544,6 +2664,15 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
 
   const orders = await Order.find({ orderId: { $in: ids } }).exec();
   if (orders.length !== ids.length) throw new AppError(404, "One or more orders were not found");
+  if (isDropshipperSelfProcess) {
+    for (const o of orders) {
+      try {
+        await assertOrderAccess(actor, o);
+      } catch {
+        throw new AppError(403, "You can only process your own orders.");
+      }
+    }
+  }
 
   const missingSkuOrders = orders.filter((o) => orderMissingSku(o));
   if (missingSkuOrders.length > 0) {
@@ -2574,6 +2703,8 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     pickupSnapshot,
     velocityWarehouseId,
     lorrigoPickupId,
+    velocityLinkError,
+    lorrigoLinkError,
     vendorIdFromPickup: vendorIdFromPickup ?? undefined,
     now: new Date(),
     priorities,
@@ -2599,6 +2730,10 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     }
   }
 
+  const pickupLinkWarnings: { provider: "velocity" | "lorrigo"; error: string }[] = [];
+  if (velocityLinkError) pickupLinkWarnings.push({ provider: "velocity", error: velocityLinkError });
+  if (lorrigoLinkError) pickupLinkWarnings.push({ provider: "lorrigo", error: lorrigoLinkError });
+
   res.json({
     success: failed.length === 0,
     updatedCount: updated.length,
@@ -2606,6 +2741,9 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
     failed,
     skipped,
     total: ids.length,
+    // Non-fatal sync issues for this pickup address, surfaced for admin visibility even when
+    // some/all orders still booked successfully via a different courier.
+    pickupLinkWarnings,
   });
 });
 

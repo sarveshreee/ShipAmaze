@@ -396,7 +396,17 @@ function EditProductModal({ open, onClose, order, onSave }: EditProductModalProp
       }));
       if (prods.length === 0) prods.push({ name: "", price: "", qty: "1", sku: "" });
       setProducts(prods);
-      setCodAmount(String(order.amount || 0));
+      setCodAmount(
+        String(
+          Number(order.codCollectableAmount) > 0
+            ? order.codCollectableAmount
+            : Number(order.amountOutstanding) > 0
+              ? order.amountOutstanding
+              : order.payment === "COD"
+                ? order.amount || 0
+                : 0
+        )
+      );
     }
   }, [open, order]);
 
@@ -496,7 +506,17 @@ function EditPriceModal({ open, onClose, order, onSave }: { open: boolean; onClo
   useEffect(() => {
     if (open && order) {
       setOrderAmount(String(order.amount || 0));
-      setCodAmount(String(order.amount || 0));
+      setCodAmount(
+        String(
+          Number(order.codCollectableAmount) > 0
+            ? order.codCollectableAmount
+            : Number(order.amountOutstanding) > 0
+              ? order.amountOutstanding
+              : order.payment === "COD"
+                ? order.amount || 0
+                : 0
+        )
+      );
     }
   }, [open, order]);
 
@@ -942,7 +962,16 @@ export function RichOrdersTable({
       to: pin,
       weight,
       payment_mode: payment as "cod" | "prepaid",
-      cod_value: payment === "cod" ? Number(shipmentModalOrder.amount ?? 0) : undefined,
+      cod_value:
+        payment === "cod"
+          ? Number(
+              Number(shipmentModalOrder.codCollectableAmount) > 0
+                ? shipmentModalOrder.codCollectableAmount
+                : Number(shipmentModalOrder.amountOutstanding) > 0
+                  ? shipmentModalOrder.amountOutstanding
+                  : shipmentModalOrder.amount ?? 0
+            )
+          : undefined,
     })
       .then((res) => {
         if (cancelled) return;
@@ -1130,11 +1159,25 @@ export function RichOrdersTable({
   }, [onOrdersChanged]);
 
   const handleEditProductSave = async (orderId: string, products: any[], codAmount: number) => {
+    const order = orders.find((o) => o.id === orderId);
+    const invoiceFromLines = products.reduce(
+      (sum, p) => sum + (Number(p.price) || 0) * (Number(p.qty) || 1),
+      0
+    );
+    const invoice = invoiceFromLines > 0 ? invoiceFromLines : Number(order?.amount ?? 0);
+    const isCod = String(order?.payment ?? "").toUpperCase() === "COD";
     const updated = await orderService.updateOrder(orderId, {
       products,
       orderItems: products,
       items: products,
-      amount: codAmount,
+      amount: invoice,
+      ...(isCod
+        ? {
+            payment: "COD" as const,
+            codCollectableAmount: Number(codAmount) || 0,
+            codAmount: Number(codAmount) || 0,
+          }
+        : { codCollectableAmount: 0 }),
     });
     reportVelocitySync(updated);
     await refreshOrders();
@@ -1144,8 +1187,14 @@ export function RichOrdersTable({
     const order = orders.find((o) => o.id === orderId);
     const isCod = order?.payment === "COD";
     const updated = await orderService.updateOrder(orderId, {
-      amount: isCod ? codAmount : amount,
-      ...(isCod ? { payment: "COD" as const } : {}),
+      amount,
+      ...(isCod
+        ? {
+            payment: "COD" as const,
+            codCollectableAmount: Number(codAmount) || 0,
+            codAmount: Number(codAmount) || 0,
+          }
+        : { payment: "Prepaid" as const, codCollectableAmount: 0 }),
     });
     reportVelocitySync(updated);
     await refreshOrders();
@@ -2320,9 +2369,14 @@ export function RichOrdersTable({
                           o.payment === "COD"
                             ? "bg-warning-light text-warning-dark"
                             : "bg-success-light text-success-dark"
-                        )}>{o.payment}</span>
+                        )}>{o.payment}{o.isPartiallyPaid ? " · PARTIAL" : ""}</span>
                         {o.payment === "COD" && (
-                          <p className="text-[11px] text-text-muted">COD: ₹{o.amount.toFixed(2)}</p>
+                          <p className="text-[11px] text-text-muted">
+                            COD: ₹{(Number(o.codCollectableAmount) > 0 ? Number(o.codCollectableAmount) : o.amount).toFixed(2)}
+                            {o.isPartiallyPaid && Number(o.amountPaid) > 0
+                              ? ` (paid ₹${Number(o.amountPaid).toFixed(2)})`
+                              : ""}
+                          </p>
                         )}
                       </div>
                     </div>

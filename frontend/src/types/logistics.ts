@@ -58,6 +58,12 @@ export interface Order {
   date: string;
   awb: string;
   amount: number;
+  /** Partial payment: amount already received online. */
+  amountPaid?: number;
+  amountOutstanding?: number;
+  /** Courier collectable COD (remainder after partial prepaid). */
+  codCollectableAmount?: number;
+  isPartiallyPaid?: boolean;
   products: { name: string; productName?: string; qty: number; price: number; weight: string; sku?: string; productCode?: string; imageUrl?: string }[];
   /** Line items (alias of products / orderItems from API) */
   items?: {

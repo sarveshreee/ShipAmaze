@@ -180,6 +180,9 @@ export async function applyBillableShippingToOrder(
   }
 
   if (opts.velocityFreightCost != null && Number(opts.velocityFreightCost) > 0) {
+    console.warn(
+      `[billable-shipping] No admin rate card match for order ${order.orderId} courier="${opts.courierName}" — using provider freight ₹${Number(opts.velocityFreightCost)} as shippingCharges (intentional fallback when rate card missing)`
+    );
     order.shippingCharges = Number(opts.velocityFreightCost);
   }
 

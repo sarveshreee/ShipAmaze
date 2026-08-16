@@ -1,6 +1,7 @@
 import type { PipelineStage } from "mongoose";
 
-const CLOUDINARY_PRODUCT_IMAGE_REGEX = "^https://res\\.cloudinary\\.com/";
+const LISTABLE_PRODUCT_IMAGE_REGEX =
+  "^(https://res\\.cloudinary\\.com/|https://|http://|/api/media/|/media/)";
 
 const productListImagesProjection = {
   $let: {
@@ -77,7 +78,7 @@ const productListImagesProjection = {
                     {
                       $regexMatch: {
                         input: "$$primaryUrl",
-                        regex: CLOUDINARY_PRODUCT_IMAGE_REGEX,
+                        regex: LISTABLE_PRODUCT_IMAGE_REGEX,
                       },
                     },
                     ["$$primaryUrl"],

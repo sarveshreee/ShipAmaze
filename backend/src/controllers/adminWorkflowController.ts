@@ -23,6 +23,11 @@ import { assertProductPermission, PRODUCT_PERMISSIONS } from "../utils/productPe
 import { auditLog, devLog } from "../utils/devLog.js";
 import { buildProductListPipeline } from "../utils/productListPayload.js";
 import { decrypt, encrypt } from "../utils/crypto.js";
+import {
+  applyNormalizedCategoriesToBody,
+  bodyTouchesCategories,
+  normalizeProductCategories,
+} from "../services/normalizeProductCategories.js";
 import { signToken } from "../utils/jwt.js";
 import { isOwnerAdmin } from "../utils/staffPermissions.js";
 import { parseClientContext } from "../services/requestContext.js";
@@ -69,6 +74,7 @@ const adminCreateUserSchema = z.object({
   sendWelcomeEmail: z.boolean().optional(),
   accessType: z.enum(["FULL", "RESTRICTED"]).optional(),
   allowWarehouseAccess: z.boolean().optional(),
+  allowOwnPickupProcessing: z.boolean().optional(),
 });
 
 const adminPatchUserSchema = z.object({
@@ -79,6 +85,7 @@ const adminPatchUserSchema = z.object({
   permissions: z.array(z.string().max(80)).max(50).optional(),
   accessType: z.enum(["FULL", "RESTRICTED"]).optional(),
   allowWarehouseAccess: z.boolean().optional(),
+  allowOwnPickupProcessing: z.boolean().optional(),
 });
 
 const adminResetPasswordSchema = z.object({
@@ -118,7 +125,11 @@ function mapAdminUserRow(u: {
 
 async function createRoleSideRecords(
   user: { _id: unknown; role: UserRole; name: string; companyName?: string },
-  opts?: { accessType?: "FULL" | "RESTRICTED"; allowWarehouseAccess?: boolean }
+  opts?: {
+    accessType?: "FULL" | "RESTRICTED";
+    allowWarehouseAccess?: boolean;
+    allowOwnPickupProcessing?: boolean;
+  }
 ) {
   await Profile.create({ userId: user._id });
   await Wallet.create({ userId: user._id, balance: 0, currency: "INR" });
@@ -137,6 +148,7 @@ async function createRoleSideRecords(
     const accessType = opts?.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL";
     const allowWarehouseAccess =
       typeof opts?.allowWarehouseAccess === "boolean" ? opts.allowWarehouseAccess : true;
+    const allowOwnPickupProcessing = opts?.allowOwnPickupProcessing === true;
     await Dropshipper.create({
       userId: user._id,
       totalOrders: 0,
@@ -145,6 +157,7 @@ async function createRoleSideRecords(
       joinDate: new Date(),
       accessType,
       allowWarehouseAccess,
+      allowOwnPickupProcessing,
     });
   }
 }
@@ -175,6 +188,7 @@ export const adminCreateUser = asyncHandler(async (req: AuthRequest, res: Respon
   await createRoleSideRecords(user, {
     accessType: body.accessType,
     allowWarehouseAccess: body.allowWarehouseAccess,
+    allowOwnPickupProcessing: body.allowOwnPickupProcessing,
   });
 
   if (body.sendWelcomeEmail !== false) {
@@ -240,16 +254,21 @@ export const adminGetUser = asyncHandler(async (req: AuthRequest, res: Response)
   const u = await User.findById(id).select("-passwordHash +adminPasswordEncrypted").lean();
   if (!u) throw new AppError(404, "User not found");
 
-  let dropshipperMeta: { accessType: string; allowWarehouseAccess: boolean } | null = null;
+  let dropshipperMeta: {
+    accessType: string;
+    allowWarehouseAccess: boolean;
+    allowOwnPickupProcessing: boolean;
+  } | null = null;
   if (u.role === "dropshipper") {
-    const d = await Dropshipper.findOne({ userId: u._id }).select("accessType allowWarehouseAccess").lean();
+    const d = await Dropshipper.findOne({ userId: u._id })
+      .select("accessType allowWarehouseAccess allowOwnPickupProcessing")
+      .lean();
     if (d) {
       dropshipperMeta = {
         accessType: d.accessType === "RESTRICTED" ? "RESTRICTED" : "FULL",
         allowWarehouseAccess:
-          typeof d.allowWarehouseAccess === "boolean"
-            ? d.allowWarehouseAccess
-            : true,
+          typeof d.allowWarehouseAccess === "boolean" ? d.allowWarehouseAccess : true,
+        allowOwnPickupProcessing: d.allowOwnPickupProcessing === true,
       };
     }
   }
@@ -275,11 +294,19 @@ export const adminPatchUser = asyncHandler(async (req: AuthRequest, res: Respons
 
   await user.save();
 
-  if (user.role === "dropshipper" && (body.accessType !== undefined || body.allowWarehouseAccess !== undefined)) {
+  if (
+    user.role === "dropshipper" &&
+    (body.accessType !== undefined ||
+      body.allowWarehouseAccess !== undefined ||
+      body.allowOwnPickupProcessing !== undefined)
+  ) {
     const d = await Dropshipper.findOne({ userId: user._id });
     if (d) {
       if (body.accessType === "FULL" || body.accessType === "RESTRICTED") d.accessType = body.accessType;
       if (typeof body.allowWarehouseAccess === "boolean") d.allowWarehouseAccess = body.allowWarehouseAccess;
+      if (typeof body.allowOwnPickupProcessing === "boolean") {
+        d.allowOwnPickupProcessing = body.allowOwnPickupProcessing;
+      }
       await d.save();
     }
   }
@@ -408,7 +435,9 @@ export const adminListCatalogueProducts = asyncHandler(async (req: AuthRequest, 
   }
 
   const category = String(req.query.category ?? "").trim();
-  if (category) q.category = category;
+  if (category) {
+    q.$or = [{ category }, { categories: category }];
+  }
 
   const vendorId = String(req.query.vendorId ?? "").trim();
   if (vendorId && mongoose.isValidObjectId(vendorId)) q.vendorId = new mongoose.Types.ObjectId(vendorId);
@@ -525,10 +554,30 @@ export const adminPatchCatalogueProduct = asyncHandler(async (req: AuthRequest, 
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const body = req.body as Record<string, unknown>;
   if (body.vendor_sku !== undefined && body.vendorSku === undefined) body.vendorSku = body.vendor_sku;
-  const allowed = ["status", "name", "sku", "vendorSku", "category", "price", "sellingPrice", "shippingCharge", "ourCommission", "stock", "isFeatured"];
+  const allowed = [
+    "status",
+    "name",
+    "sku",
+    "vendorSku",
+    "category",
+    "categories",
+    "price",
+    "sellingPrice",
+    "shippingCharge",
+    "ourCommission",
+    "stock",
+    "isFeatured",
+  ];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) {
     if (body[k] !== undefined) patch[k] = body[k];
+  }
+  if (bodyTouchesCategories(patch)) {
+    const normalized = normalizeProductCategories({
+      category: patch.category,
+      categories: patch.categories,
+    });
+    applyNormalizedCategoriesToBody(patch, normalized);
   }
   if (body.status !== undefined) {
     assertProductPermission(req.user!, PRODUCT_PERMISSIONS.APPROVE);
@@ -835,6 +884,7 @@ export const adminListDropshippers = asyncHandler(async (req: AuthRequest, res: 
           typeof d.allowWarehouseAccess === "boolean"
             ? d.allowWarehouseAccess
             : true,
+        allowOwnPickupProcessing: d.allowOwnPickupProcessing === true,
         accountStatus: u?.status,
         totalOrders: d.totalOrders,
         activeOrders: d.activeOrders,
@@ -882,6 +932,7 @@ export const adminGetDropshipper = asyncHandler(async (req: AuthRequest, res: Re
       typeof d.allowWarehouseAccess === "boolean"
         ? d.allowWarehouseAccess
         : true,
+    allowOwnPickupProcessing: d.allowOwnPickupProcessing === true,
     totalOrders: d.totalOrders,
     activeOrders: d.activeOrders,
     kycVerified: d.kycVerified,
@@ -913,7 +964,12 @@ export const adminPatchDropshipper = asyncHandler(async (req: AuthRequest, res: 
   if (!mongoose.isValidObjectId(id)) throw new AppError(400, "Invalid id");
   const d = await Dropshipper.findById(id);
   if (!d) throw new AppError(404, "Dropshipper not found");
-  const body = req.body as { userStatus?: string; accessType?: string; allowWarehouseAccess?: boolean };
+  const body = req.body as {
+    userStatus?: string;
+    accessType?: string;
+    allowWarehouseAccess?: boolean;
+    allowOwnPickupProcessing?: boolean;
+  };
 
   if (body.userStatus === "active" || body.userStatus === "inactive" || body.userStatus === "blocked") {
     const u = await User.findById(d.userId);
@@ -929,6 +985,10 @@ export const adminPatchDropshipper = asyncHandler(async (req: AuthRequest, res: 
 
   if (typeof body.allowWarehouseAccess === "boolean") {
     d.allowWarehouseAccess = body.allowWarehouseAccess;
+  }
+
+  if (typeof body.allowOwnPickupProcessing === "boolean") {
+    d.allowOwnPickupProcessing = body.allowOwnPickupProcessing;
   }
 
   await d.save();

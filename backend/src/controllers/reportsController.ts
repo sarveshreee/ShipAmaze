@@ -10,6 +10,7 @@ import { User } from "../models/User.js";
 import mongoose from "mongoose";
 import { buildReportOrdersQuery, csvRow, exportFilename } from "../utils/reportQuery.js";
 import { dashboardCache } from "../utils/ttlCache.js";
+import { mongoCodCollectableExpr } from "../services/codMetrics.js";
 
 const EXPORT_MAX_ROWS = 10_000;
 
@@ -418,6 +419,22 @@ export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Re
           $sum: { $cond: [{ $in: ["$status", DASHBOARD_NDR_STATUSES] }, 1, 0] },
         },
         totalOrderValue: { $sum: { $ifNull: ["$amount", 0] } },
+        // Undelivered COD pipeline — prefer codCollectableAmount (partial payments).
+        dashboardUndeliveredCODAmount: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: [{ $toUpper: { $ifNull: ["$payment", ""] } }, "COD"] },
+                  { $not: [{ $in: ["$status", DASHBOARD_DELIVERED_STATUSES] }] },
+                ],
+              },
+              mongoCodCollectableExpr(),
+              0,
+            ],
+          },
+        },
+        /** @deprecated alias — use dashboardUndeliveredCODAmount */
         codPendingAmount: {
           $sum: {
             $cond: [
@@ -427,7 +444,7 @@ export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Re
                   { $not: [{ $in: ["$status", DASHBOARD_DELIVERED_STATUSES] }] },
                 ],
               },
-              { $ifNull: ["$amount", 0] },
+              mongoCodCollectableExpr(),
               0,
             ],
           },
@@ -672,12 +689,15 @@ export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Re
     rtoCount: 0,
     ndrCount: 0,
     totalOrderValue: 0,
+    dashboardUndeliveredCODAmount: 0,
     codPendingAmount: 0,
   };
   const totalOrders = totals.totalOrders ?? 0;
   const deliveredCount = totals.deliveredCount ?? 0;
   const rtoCount = totals.rtoCount ?? 0;
   const ndrCount = totals.ndrCount ?? 0;
+  const undeliveredCod =
+    totals.dashboardUndeliveredCODAmount ?? totals.codPendingAmount ?? 0;
 
   const payload: Record<string, unknown> = {
     role,
@@ -689,7 +709,10 @@ export const getDashboardSummary = asyncHandler(async (req: AuthRequest, res: Re
     ndrPct: pct(ndrCount, totalOrders),
     deliveryRatePct: pct(deliveredCount, totalOrders),
     totalOrderValue: totals.totalOrderValue ?? 0,
-    codPendingAmount: totals.codPendingAmount ?? 0,
+    /** Undelivered COD pipeline (not remittance settlement). */
+    dashboardUndeliveredCODAmount: undeliveredCod,
+    /** @deprecated use dashboardUndeliveredCODAmount */
+    codPendingAmount: undeliveredCod,
     deliveredToday,
     toProcess: countStatuses(byStatusAgg, DASHBOARD_TO_PROCESS_STATUSES),
     pickupsPending: countStatuses(byStatusAgg, DASHBOARD_PENDING_PICKUP_STATUSES),

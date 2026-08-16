@@ -16,6 +16,7 @@ import {
 } from "../courier/statusNormalize.js";
 import { isEkartConfigured, isEkartEnabledFlag } from "./ekart.config.js";
 import { recordEkartStatusSyncPoll } from "./ekart.statusSyncMetrics.js";
+import { markWalletDebitPendingIfBookedWithoutDebit } from "../../services/walletDebitReconciliation.js";
 
 export type EkartStatusSyncResult = {
   processed: number;
@@ -168,6 +169,7 @@ export async function syncEkartActiveShipmentStatuses(
 
       order.lastProviderStatusSyncedAt = new Date();
       await order.save();
+      await markWalletDebitPendingIfBookedWithoutDebit(order);
       result.updated += 1;
     } catch (err) {
       result.errors += 1;

@@ -129,7 +129,10 @@ async function fetchCourierLabelPdfBlob(order: Order): Promise<Blob> {
     } catch {
       if (text) msg = text.slice(0, 200);
     }
-    throw new Error(msg);
+    throw new Error(
+      `${msg} — Amazon Transportation always uses the official Velocity PDF (same as Velocity panel). ` +
+        "Re-process or open the label once in Velocity if the S3 URL expired."
+    );
   }
   return res.blob();
 }
@@ -286,6 +289,13 @@ export async function downloadShippingLabelPdf(order: Order, settings?: LabelInv
 }
 
 export async function downloadInvoicePdf(order: Order, settings?: LabelInvoiceSettings) {
+  // Amazon Transportation → official Velocity courier PDF (same design as Velocity panel).
+  // Never generate ShipAmaze HTML for Amazon — that was the recurring wrong-invoice bug.
+  if (shouldUseVelocityCourierPdf(order)) {
+    const blob = await fetchCourierLabelPdfBlob(order);
+    downloadPdfFile(blob, `amazon-invoice-${displayOrderNumber(order)}.pdf`);
+    return;
+  }
   const { base, logos } = await resolveSettingsForOrders([order], settings);
   const s = settingsForOrder(base, order, logos);
   await downloadOrderLabelPdf(order, s, `invoice-${order.id}.pdf`, "Invoice");

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { usePickupAddresses } from "@/hooks/useApiData";
+import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import { indianStates } from "@/constants/indianStates";
 import { MapPin, Plus, Edit, Trash2, Star, Phone, User, Mail, AlertTriangle, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { usePincodeValidation } from "@/hooks/usePincodeValidation";
@@ -62,6 +63,7 @@ const emptyForm = {
 function notifyPickupRefetch() {
   window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses"));
   window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses_platform"));
+  window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses_own"));
 }
 
 interface Props {
@@ -73,6 +75,7 @@ interface Props {
 
 export default function PickupAddressesPanel({ breadcrumb, subtitle, showProviderBrand = true }: Props) {
   const { data: pickupAddresses = [], isLoading, refetch } = usePickupAddresses();
+  const { isDropshipper, allowOwnPickupProcessing } = useDropshipperAccess();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -285,6 +288,16 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
   return (
     <div className="animate-fade-in-up space-y-6">
       <PageHeader title="Pickup Addresses" breadcrumb={breadcrumb} />
+
+      {isDropshipper && (
+        <Alert className={allowOwnPickupProcessing ? "border-primary/30 bg-primary/5" : "border-border"}>
+          <AlertDescription className="text-sm text-text-secondary">
+            {allowOwnPickupProcessing
+              ? "Own pickup processing is enabled. Add your pickup address here, then process only your own orders from the Orders page using that address. Addresses previously saved under Warehouses also appear here."
+              : "Add and manage pickup locations for shipments here. Addresses previously saved under Warehouses also appear here. Processing your own orders with these addresses is enabled by admin for selected dropshippers."}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-text-secondary">

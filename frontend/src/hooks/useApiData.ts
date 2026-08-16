@@ -694,14 +694,21 @@ export function useGstRecords(opts?: { enabled?: boolean }) {
   );
 }
 
-export function usePickupAddresses(opts?: { scope?: "platform"; enabled?: boolean }) {
+export function usePickupAddresses(opts?: { scope?: "platform"; ownership?: "own"; enabled?: boolean }) {
   const { userId } = useAuth();
   const scope = opts?.scope;
-  const cacheKey = scope === "platform" ? "pickup_addresses_platform" : "pickup_addresses";
+  const ownership = opts?.ownership;
+  const cacheScope = scope === "platform" ? "platform" : ownership === "own" ? "own" : "default";
+  const cacheKey =
+    cacheScope === "platform"
+      ? "pickup_addresses_platform"
+      : cacheScope === "own"
+        ? "pickup_addresses_own"
+        : "pickup_addresses";
   return useApiQuery<PickupAddress>(
     cacheKey,
-    queryKeys.pickups(userId, scope),
-    async () => pickupService.listPickupAddresses(scope),
+    queryKeys.pickups(userId, cacheScope),
+    async () => pickupService.listPickupAddresses(scope, ownership),
     { enabled: opts?.enabled ?? true, staleTime: 5 * 60 * 1000 }
   );
 }

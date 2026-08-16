@@ -14,8 +14,11 @@
     "migrate:product-images": "tsx src/scripts/migrateProductImages.ts",
     "migrate:cloudinary": "tsx scripts/migrateExistingImagesToCloudinary.ts",
     "typecheck": "tsc --noEmit",
+    "staging:gate": "tsx src/scripts/stagingInfrastructureGate.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:unit": "vitest run --exclude '**/integration/**'",
+    "test:integration:partner": "vitest run src/integration/partner.api.security.integration.test.ts src/integration/partner.api.idempotency.integration.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

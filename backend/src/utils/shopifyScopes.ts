@@ -8,10 +8,20 @@ export const DEFAULT_SHOPIFY_OAUTH_SCOPES = [
   "read_locations",
   "read_merchant_managed_fulfillment_orders",
   "write_merchant_managed_fulfillment_orders",
+  "read_third_party_fulfillment_orders",
+  "write_third_party_fulfillment_orders",
+  "read_assigned_fulfillment_orders",
+  "write_assigned_fulfillment_orders",
   "read_orders",
   "write_orders",
   "read_products",
   "write_products",
+] as const;
+
+/** Minimum scopes required to mark Shopify orders Fulfilled after AWB booking. */
+export const SHOPIFY_FULFILLMENT_WRITE_SCOPES = [
+  "write_fulfillments",
+  "write_merchant_managed_fulfillment_orders",
 ] as const;
 
 export function shopifyOAuthScopesString(): string {

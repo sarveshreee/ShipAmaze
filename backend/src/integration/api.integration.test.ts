@@ -3,8 +3,9 @@ import request from "supertest";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import { applyDefaultTestEnv } from "../test/testEnv.js";
+import { prepareCleanIntegrationTestDb } from "../test/mongoIntegrationSetup.js";
 import { createApp } from "../app.js";
-import { connectDb, disconnectDb } from "../config/db.js";
+import { disconnectDb } from "../config/db.js";
 import { User } from "../models/User.js";
 import { EmailVerificationOtp } from "../models/EmailVerificationOtp.js";
 import { PasswordResetOtp } from "../models/PasswordResetOtp.js";
@@ -23,7 +24,7 @@ describe.skipIf(!hasMongo())("API integration (MONGODB_URI_TEST)", () => {
   beforeAll(async () => {
     applyDefaultTestEnv();
     if (!mongoUri) return;
-    await connectDb(mongoUri, { maxAttempts: 3 });
+    await prepareCleanIntegrationTestDb(mongoUri);
   });
 
   afterAll(async () => {
@@ -448,6 +449,7 @@ describe.skipIf(!hasMongo())("API integration (MONGODB_URI_TEST)", () => {
     expect(dsLogin.status).toBe(200);
     expect(dsLogin.body.user.role).toBe("dropshipper");
     expect(dsLogin.body.user.dropshipperAccessType).toBe("RESTRICTED");
+    expect(dsLogin.body.user.allowOwnPickupProcessing).toBe(false);
 
     const vendorToken = vendorLogin.body.token as string;
     const forbidden = await request(app)

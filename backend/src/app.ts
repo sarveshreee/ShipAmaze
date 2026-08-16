@@ -31,6 +31,7 @@ import velocityRouter from "./modules/velocity/velocity.routes.js";
 import lorrigoRouter from "./modules/lorrigo/lorrigo.routes.js";
 import ekartRouter from "./modules/ekart/ekart.routes.js";
 import courierDiscoveryRouter from "./modules/courier/discovery.routes.js";
+import { partnerRouter, partnerAdminRouter } from "./modules/partner/index.js";
 import { registerCourierProviders } from "./modules/courier/index.js";
 import * as debugController from "./controllers/debugController.js";
 import * as walletController from "./controllers/walletController.js";
@@ -40,6 +41,7 @@ import * as loginActivityController from "./controllers/loginActivityController.
 import * as userActivityController from "./controllers/userActivityController.js";
 import * as approvalController from "./controllers/approvalController.js";
 import * as reportsController from "./controllers/reportsController.js";
+import * as financeReconciliationController from "./controllers/financeReconciliationController.js";
 import * as invoiceController from "./controllers/invoiceController.js";
 import * as labelInvoiceSettingsController from "./controllers/labelInvoiceSettingsController.js";
 import * as profitCalculatorSettingsController from "./controllers/profitCalculatorSettingsController.js";
@@ -47,6 +49,7 @@ import * as courierPriorityController from "./controllers/courierPriorityControl
 import * as bulkCourierPriorityController from "./controllers/bulkCourierPriorityController.js";
 import * as courierRateController from "./controllers/courierRateController.js";
 import {
+  requireDropshipperOwnPickupProcessing,
   requireDropshipperWarehouseAccess,
   requireFullDropshipper,
 } from "./middleware/dropshipperAccessMiddleware.js";
@@ -229,11 +232,20 @@ export function createApp() {
   const api = express.Router();
 
   api.get("/health", (_req, res) => {
+    // Infrastructure metadata for staging gates only — not financial/business fields.
+    const deploymentEnvironment =
+      process.env.DEPLOYMENT_ENV?.trim() || process.env.APP_ENV?.trim() || null;
     res.json({
       ok: true,
       service: "shipamaze-api",
       gitCommit: process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? null,
+      environment: deploymentEnvironment,
+      nodeEnv: process.env.NODE_ENV ?? null,
       imageRoute: true,
+      mongo: {
+        readyState: mongoose.connection.readyState,
+        dbName: mongoose.connection.name || null,
+      },
     });
   });
 
@@ -246,6 +258,7 @@ export function createApp() {
       service: "shipamaze-api",
       mongo: mongoReady ? "connected" : "disconnected",
       readyState: mongoose.connection.readyState,
+      dbName: mongoose.connection.name || null,
     });
   });
 
@@ -299,7 +312,13 @@ export function createApp() {
   api.post("/orders/bulk", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_CREATE), orderController.createOrdersBulk);
   api.post("/orders/bulk-move", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.bulkMoveOrders);
   api.post("/orders/create-shipment", authMiddleware, requireFullDropshipper, orderController.createShipment);
-  api.post("/orders/process-selected", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT), orderController.processSelectedOrders);
+  api.post(
+    "/orders/process-selected",
+    authMiddleware,
+    requireStaffPermission(STAFF_PERMISSIONS.ORDERS_EDIT),
+    requireDropshipperOwnPickupProcessing,
+    orderController.processSelectedOrders
+  );
   api.patch(
     "/orders/:orderId/line-items/:lineIndex/sku",
     authMiddleware,
@@ -723,6 +742,13 @@ export function createApp() {
   );
 
   api.get("/dashboard/summary", authMiddleware, reportsController.getDashboardSummary);
+  api.get("/finance/cod-metric-definitions", authMiddleware, financeReconciliationController.getCodMetricDefinitions);
+  api.get(
+    "/finance/orders/:orderId/snapshot",
+    authMiddleware,
+    requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW),
+    financeReconciliationController.getOrderFinanceSnapshot
+  );
   api.get("/reports/summary", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ANALYTICS_VIEW), reportsController.getReportsSummary);
   api.get("/reports/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ANALYTICS_VIEW), reportsController.getReportsOrders);
   api.get("/exports/csv", authMiddleware, requireOwnerAdmin, reportsController.exportCsv);
@@ -848,6 +874,17 @@ export function createApp() {
 
   // Multi-provider serviceability / rates discovery (Velocity + Lorrigo)
   api.use("/courier", courierDiscoveryRouter);
+
+  // External partner courier API (API key auth — separate from dashboard JWT)
+  api.use("/partner/v1", partnerRouter);
+
+  api.use(
+    "/admin/partners",
+    authMiddleware,
+    requireRoles("admin"),
+    requireOwnerAdmin,
+    partnerAdminRouter
+  );
 
   app.use("/api", apiTimingLogger, api);
   // Backward compatibility for older clients still using /api/v1/*.

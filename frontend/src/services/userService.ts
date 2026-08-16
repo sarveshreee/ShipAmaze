@@ -27,7 +27,11 @@ export type AdminUserRow = {
 };
 
 export type AdminUserDetail = AdminUserRow & {
-  dropshipper?: { accessType: "FULL" | "RESTRICTED"; allowWarehouseAccess: boolean } | null;
+  dropshipper?: {
+    accessType: "FULL" | "RESTRICTED";
+    allowWarehouseAccess: boolean;
+    allowOwnPickupProcessing: boolean;
+  } | null;
 };
 
 export type Paginated<T> = { items: T[]; total: number; page: number; limit: number };
@@ -44,6 +48,7 @@ export type CreateAdminUserBody = {
   sendWelcomeEmail?: boolean;
   accessType?: "FULL" | "RESTRICTED";
   allowWarehouseAccess?: boolean;
+  allowOwnPickupProcessing?: boolean;
 };
 
 export type PatchAdminUserBody = {
@@ -54,6 +59,7 @@ export type PatchAdminUserBody = {
   permissions?: string[];
   accessType?: "FULL" | "RESTRICTED";
   allowWarehouseAccess?: boolean;
+  allowOwnPickupProcessing?: boolean;
 };
 
 export async function listUsersByRole(role: Exclude<UserRole, "admin">) {

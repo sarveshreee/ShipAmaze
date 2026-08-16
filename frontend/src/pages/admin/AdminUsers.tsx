@@ -166,6 +166,7 @@ export default function AdminUsers() {
   const patchDropshipperAccess = async (patch: {
     accessType?: "FULL" | "RESTRICTED";
     allowWarehouseAccess?: boolean;
+    allowOwnPickupProcessing?: boolean;
   }) => {
     if (!detailId) return;
     setSaving(true);
@@ -585,6 +586,20 @@ export default function AdminUsers() {
                     <Switch
                       checked={detail.dropshipper.allowWarehouseAccess}
                       onCheckedChange={(v) => void patchDropshipperAccess({ allowWarehouseAccess: v })}
+                      disabled={saving}
+                    />
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1 pr-3">
+                      <Label>Own pickup processing</Label>
+                      <p className="text-xs text-text-muted">
+                        Works even when Access type is Restricted. Lets this dropshipper add orders and process
+                        only their own orders with pickup addresses they added.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={detail.dropshipper.allowOwnPickupProcessing === true}
+                      onCheckedChange={(v) => void patchDropshipperAccess({ allowOwnPickupProcessing: v })}
                       disabled={saving}
                     />
                   </div>

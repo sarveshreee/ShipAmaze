@@ -22,6 +22,31 @@ export const PICKUP_ACTIVE: Record<string, unknown> = {
 };
 
 /**
+ * Pickups this account added themselves (not assigned-vendor / platform mirrors).
+ * Used when a dropshipper processes shipments with their own pickup addresses.
+ */
+export function pickupOwnListQuery(
+  user: IUser,
+  opts?: { includeInactive?: boolean }
+): Record<string, unknown> {
+  const parts: Record<string, unknown>[] = [pickupOwnerScope(user._id, user.role), { ...PICKUP_NOT_DELETED }];
+  if (!opts?.includeInactive) {
+    parts.push({ ...PICKUP_ACTIVE });
+  }
+  return { $and: parts };
+}
+
+/**
+ * Selectable own-pickup by id: must belong to this account, be active, and not deleted.
+ * Stricter than pickupByIdSelectableQuery — excludes vendor-linked pickups a dropshipper can see.
+ */
+export function pickupByIdOwnSelectableQuery(pickupId: string, user: IUser): Record<string, unknown> {
+  return {
+    $and: [{ _id: pickupId }, pickupOwnerScope(user._id, user.role), { ...PICKUP_NOT_DELETED }, { ...PICKUP_ACTIVE }],
+  };
+}
+
+/**
  * Build find query for a pickup id that the user may use on an order (owned, active, not deleted).
  */
 export async function pickupByIdSelectableQuery(pickupId: string, user: IUser): Promise<Record<string, unknown>> {

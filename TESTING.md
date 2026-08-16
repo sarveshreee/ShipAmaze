@@ -44,7 +44,19 @@ npm run test:backend
 
 ### Test database
 
-Set `MONGODB_URI_TEST` to a dedicated database (for example `mongodb://127.0.0.1:27017/shipamaze_test`). Do **not** point this at production data.
+Set `MONGODB_URI_TEST` to a **dedicated** database (for example `mongodb://127.0.0.1:27017/shipamaze_test`). Do **not** point this at development or production data.
+
+The database name must contain `test` (e.g. `shipamaze_test`). Integration tests call `prepareCleanIntegrationTestDb()`, which **drops the entire test database** before syncing indexes — only when `MONGODB_URI_TEST` is set and validated.
+
+If a polluted test database prevented `Order.syncIndexes()` (duplicate `{ partnerId, partnerReferenceId: null }` rows), drop the test database manually or let the integration harness recreate it on the next run.
+
+Partner integration tests:
+
+```bash
+cd backend
+export MONGODB_URI_TEST=mongodb://127.0.0.1:27017/shipamaze_test
+npm run test:integration:partner
+```
 
 ### Order list filters (search / dates)
 

@@ -37,10 +37,11 @@ import type {
 } from "./velocity.types.js";
 import {
   assertWalletBalanceAtLeast,
-  debitShipmentChargeIfApplicable,
   orderWalletUserId,
   orderShouldDebitWallet,
 } from "../../services/walletLedger.js";
+import { attemptAndTrackShipmentWalletDebit } from "../../services/shipmentWallet.js";
+import { orderCodCollectableAmount } from "../../services/normalizeOrderPayment.js";
 import { resolvePreferredCourierName } from "../../services/courierPriorityService.js";
 import { Courier } from "../../models/Courier.js";
 import {
@@ -111,10 +112,11 @@ async function forwardShipmentWalletPayload(
 ): Promise<Record<string, unknown>> {
   if (!localOrder) return {};
   const charge = Number(localOrder.shippingCharges);
-  const r = await debitShipmentChargeIfApplicable({
-    order: localOrder,
-    shippingCharges: Number.isFinite(charge) && charge > 0 ? charge : velocityShippingCharges,
-  });
+  const r = await attemptAndTrackShipmentWalletDebit(
+    localOrder,
+    Number.isFinite(charge) && charge > 0 ? charge : Number(velocityShippingCharges),
+    { provider: "velocity" }
+  );
   return { walletDeduction: r };
 }
 
@@ -436,7 +438,7 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
   const oid = new mongoose.Types.ObjectId(mongoId);
 
   if (unlink) {
-    const pickupOwned = await Pickup.findOne(pickupByIdManageQuery(oid, req.user)).lean();
+    const pickupOwned = await Pickup.findOne(await pickupByIdManageQuery(oid, req.user)).lean();
     await devLogVelocityLinkPickup(req, oid, pickupOwned);
 
     if (pickupOwned) {
@@ -483,7 +485,7 @@ export const createWarehouse = asyncHandler(async (req: AuthRequest, res: Respon
     );
   }
 
-  const pickupOwned = await Pickup.findOne(pickupByIdManageQuery(oid, req.user)).lean();
+  const pickupOwned = await Pickup.findOne(await pickupByIdManageQuery(oid, req.user)).lean();
   await devLogVelocityLinkPickup(req, oid, pickupOwned);
 
   if (pickupOwned) {
@@ -1087,6 +1089,11 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
 
   const result = await velocityService.cancelShipment({ awbs: uniqueAwbs });
 
+  // CANCEL → WALLET: no automatic refund.
+  // TODO(product-decision): Confirm whether cancel/RTO should creditWallet with
+  // referenceId `refund:shipment:{orderId}`. Do NOT auto-refund until confirmed.
+  // See CANCEL_SHIPMENT_WALLET_REFUND_POLICY in modules/courier/courierArchitecture.ts
+
   if (orderId && result.success) {
     const localOrder = await Order.findOne({ orderId });
     if (localOrder) {
@@ -1584,7 +1591,7 @@ function buildForwardPayload(
       (localOrder?.payment?.toLowerCase() === "cod" ? "cod" : "prepaid")) as "cod" | "prepaid",
     cod_amount:
       (body.cod_amount as number) ??
-      (localOrder?.payment?.toLowerCase() === "cod" ? localOrder?.amount : undefined),
+      (localOrder ? orderCodCollectableAmount(localOrder) || undefined : undefined),
     order_amount: (body.order_amount as number) ?? (localOrder?.amount ?? 0),
     weight,
     length,

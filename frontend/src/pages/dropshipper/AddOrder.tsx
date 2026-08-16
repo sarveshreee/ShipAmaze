@@ -179,7 +179,15 @@ export default function AddOrder() {
         ...prev,
         orderId: editId,
         paymentType: String(d.payment ?? "Prepaid"),
-        codAmount: d.payment === "COD" ? String(d.amount ?? 0) : "0",
+        codAmount: d.payment === "COD"
+          ? String(
+              Number(d.codCollectableAmount) > 0
+                ? d.codCollectableAmount
+                : Number(d.amountOutstanding) > 0
+                  ? d.amountOutstanding
+                  : d.amount ?? 0
+            )
+          : "0",
       }));
 
       // Step 4: Package Details from weight/dimensions
@@ -295,7 +303,12 @@ export default function AddOrder() {
           width: Number(first.width) || 10,
           height: Number(first.height) || 10,
           payment_mode: payMode,
-          cod_value: payMode === "cod" ? totalAmount : undefined,
+          cod_value:
+            payMode === "cod"
+              ? Number(shipment.codAmount) > 0
+                ? Number(shipment.codAmount)
+                : totalAmount
+              : undefined,
         });
         if (!cancelled) setVelocityRates(res.data ?? []);
       } catch {
@@ -313,6 +326,7 @@ export default function AddOrder() {
     consignee.pincode,
     packageDetails,
     shipment.paymentType,
+    shipment.codAmount,
     totalAmount,
   ]);
 
@@ -495,6 +509,12 @@ export default function AddOrder() {
         date: new Date().toISOString().split("T")[0],
         awb: "",
         amount: totalAmount,
+        ...(shipment.paymentType === "COD"
+          ? {
+              codAmount: Number(shipment.codAmount) || totalAmount,
+              codCollectableAmount: Number(shipment.codAmount) || totalAmount,
+            }
+          : { codCollectableAmount: 0, codAmount: 0 }),
         products: products
           .filter((p) => p.name)
           .map((p) => ({

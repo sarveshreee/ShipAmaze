@@ -16,6 +16,7 @@ import {
 } from "../courier/statusNormalize.js";
 import { recordStatusSyncPoll } from "./lorrigo.statusSyncMetrics.js";
 import { isLorrigoEnabledFlag, isLorrigoConfigured } from "./lorrigo.config.js";
+import { markWalletDebitPendingIfBookedWithoutDebit } from "../../services/walletDebitReconciliation.js";
 
 export type LorrigoStatusSyncResult = {
   processed: number;
@@ -226,6 +227,7 @@ export async function syncLorrigoActiveShipmentStatuses(
 
       order.lastProviderStatusSyncedAt = new Date();
       await order.save();
+      await markWalletDebitPendingIfBookedWithoutDebit(order);
       result.updated += 1;
     } catch (err) {
       result.errors += 1;

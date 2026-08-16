@@ -1,13 +1,14 @@
 ﻿import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { clearImpersonationReturnPath } from "@/lib/apiClient";
 import { Button } from "@/components/ui/button";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 /** Persistent bar shown while an admin is impersonating another user. */
 export function ImpersonationBanner() {
-  const { isImpersonating, user, stopImpersonation } = useAuth();
+  const { isImpersonating, user, stopImpersonation, getImpersonationReturnPath } = useAuth();
   const navigate = useNavigate();
   const [returning, setReturning] = useState(false);
 
@@ -18,14 +19,19 @@ export function ImpersonationBanner() {
   const handleReturn = async () => {
     setReturning(true);
     try {
+      const returnPath = getImpersonationReturnPath();
       const adminUser = await stopImpersonation();
       if (!adminUser) {
         toast.error("Could not restore admin session. Please log in again.");
+        clearImpersonationReturnPath();
         navigate("/login", { replace: true });
         return;
       }
       toast.success("Returned to admin session");
-      navigate("/admin/dashboard", { replace: true });
+      const target =
+        returnPath && returnPath.startsWith("/admin") ? returnPath : "/admin/users";
+      clearImpersonationReturnPath();
+      navigate(target, { replace: true });
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to return to admin");
     } finally {

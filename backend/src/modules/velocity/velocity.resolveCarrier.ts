@@ -4,6 +4,7 @@ import type { IOrder } from "../../models/Order.js";
 import { Pickup } from "../../models/Pickup.js";
 import { AppError } from "../../middleware/errorMiddleware.js";
 import { resolveCourierPriorityForOrder } from "../../services/courierPriorityService.js";
+import { orderCodCollectableAmount } from "../../services/normalizeOrderPayment.js";
 import * as velocityService from "./velocity.service.js";
 import { normalizePincode } from "./velocity.payload.js";
 import type { VelocityCarrier } from "./velocity.types.js";
@@ -130,7 +131,7 @@ export async function resolveVelocityCarrierId(
       height,
       payment_mode: lane.payment,
       shipment_type: "forward",
-      cod_value: lane.payment === "cod" ? Number(order.amount ?? 0) : undefined,
+      cod_value: lane.payment === "cod" ? orderCodCollectableAmount(order) : undefined,
     });
     const match = pickCarrierFromList(rates.data ?? [], name);
     if (match?.carrier_id != null && String(match.carrier_id).trim()) {
@@ -342,7 +343,7 @@ export async function resolveServiceableCarrierForOrder(
       height,
       payment_mode: lane.payment,
       shipment_type: "forward",
-      cod_value: lane.payment === "cod" ? Number(order.amount ?? 0) : undefined,
+      cod_value: lane.payment === "cod" ? orderCodCollectableAmount(order) : undefined,
     });
     const first = rates.data?.[0];
     if (first) return carrierRowToResolved(first, String(first.carrier_name ?? "Auto"));

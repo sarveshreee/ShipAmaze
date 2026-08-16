@@ -38,7 +38,7 @@ export const debugMyPickups = asyncHandler(async (req: AuthRequest, res: Respons
   const uid = req.user._id;
 
   const pickupsReturnedByNormalApi = await Pickup.find({
-    $and: [getPickupOwnerFilterForUser(req.user), { ...PICKUP_NOT_DELETED }, { ...PICKUP_ACTIVE }],
+    $and: [await getPickupOwnerFilterForUser(req.user), { ...PICKUP_NOT_DELETED }, { ...PICKUP_ACTIVE }],
   })
     .sort({ createdAt: -1 })
     .lean();

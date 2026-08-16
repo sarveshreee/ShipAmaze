@@ -12,8 +12,20 @@ export function useDropshipperAccess() {
   const isKycPending = (isDropshipper || isVendor) && !kycVerified;
   /** RESTRICTED access type only — separate from KYC (staff/admin toggle). */
   const isRestricted = isDropshipper && accessType === "RESTRICTED";
-  const allowWarehouseAccess =
-    !isDropshipper ? true : (user?.allowWarehouseAccess ?? true) && accessType !== "RESTRICTED";
+  /**
+   * Admin toggles unlock features even when accessType is RESTRICTED.
+   * RESTRICTED alone only blocks features that are not explicitly enabled.
+   */
+  const allowWarehouseAccess = !isDropshipper
+    ? true
+    : isRestricted
+      ? user?.allowWarehouseAccess === true
+      : (user?.allowWarehouseAccess ?? true);
+  const allowOwnPickupProcessing =
+    isDropshipper && user?.allowOwnPickupProcessing === true;
+  /** Create/process orders: FULL access, or RESTRICTED with own-pickup processing enabled. */
+  const canOperateOrders =
+    !isDropshipper || !isRestricted || allowOwnPickupProcessing;
 
   return {
     isDropshipper,
@@ -24,8 +36,10 @@ export function useDropshipperAccess() {
     kycStatus,
     isFull: !isDropshipper || accessType === "FULL",
     allowWarehouseAccess,
+    allowOwnPickupProcessing,
     hasWarehouseAccess: role === "admin" || role === "vendor" || allowWarehouseAccess,
-    canProcessOrders: role === "admin" || role === "vendor" || (isDropshipper && !isRestricted),
+    canProcessOrders: role === "admin" || role === "vendor" || canOperateOrders,
+    canProcessSelected: role === "admin" || allowOwnPickupProcessing,
     canEditSku: role === "admin",
   };
 }

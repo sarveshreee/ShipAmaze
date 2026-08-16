@@ -46,7 +46,10 @@ export function invalidatePickupOwnerVendorCache(userId?: string): void {
  *
  * Pickup rows auto-mirrored from a vendor's Warehouse are stored under the platform admin's
  * userId (so every admin can see/use them), but they also carry the originating `vendorId`.
- * We include that here so the vendor who created the warehouse — and any dropshipper who is
+ * Vendor addresses created directly in Pickup Addresses stay under the vendor's userId
+ * (with createdByRole=vendor and preferably vendorId). Admin Process Selected uses
+ * scope=platform which lists ALL non-deleted pickups so either creation path appears.
+ * We include vendorId here so the vendor who created the warehouse — and any dropshipper who is
  * allowed to operate on that vendor's behalf — can still see/select their own address when
  * creating orders or processing shipments, not just admins.
  */

@@ -29,6 +29,24 @@ Copy from `backend/.env.example`. **Never commit real `.env` files.**
 
 Optional tuning: `MONGODB_CONNECT_RETRIES`, `RATE_LIMIT_*` (see `.env.example`).
 
+### Partner API (when enabled)
+
+| Variable | Production value |
+|----------|------------------|
+| `PARTNER_API_ENABLED` | `true` when API is live |
+| `PARTNER_WALLET_BILLING_ENABLED` | `true` for Lorrigo/Ekart wallet debit |
+| `PARTNER_RATE_LIMIT_STORE` | `mongo` (never `memory` on multi-instance) |
+| `PARTNER_RATE_LIMIT_PASS_ON_STORE_ERROR` | `true` (default) |
+
+Confirm Atlas indexes before live partners:
+
+- `orders.partnerId_1_partnerReferenceId_1` — unique + sparse
+- `partneridempotencyrecords.partnerId_1_idempotencyKey_1` — unique
+- `partneridempotencyrecords.expiresAt_1` — TTL `expireAfterSeconds: 0`
+- `transactions` unique partial on `userId + referenceType + referenceId`
+
+See `docs/partner-api-runbook.md` and `docs/partner-api-limitations.md`.
+
 ### Frontend (Vercel)
 
 | Variable | Notes |

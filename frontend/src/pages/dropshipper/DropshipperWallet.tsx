@@ -127,9 +127,9 @@ export default function DropshipperWallet() {
         </div>
 
         <div className="rounded-xl border border-border bg-card p-5 shadow-card">
-          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Pending COD</p>
-          {loading ? <Skeleton className="mt-2 h-8 w-28" /> : <p className="mt-2 text-2xl font-semibold tabular-nums">{formatInr(summary?.pendingCod ?? 0)}</p>}
-          <p className="mt-2 text-xs text-text-muted">From remittances in pending or processing state.</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Pending remittance</p>
+          {loading ? <Skeleton className="mt-2 h-8 w-28" /> : <p className="mt-2 text-2xl font-semibold tabular-nums">{formatInr(summary?.walletPendingRemittanceAmount ?? summary?.pendingCod ?? 0)}</p>}
+          <p className="mt-2 text-xs text-text-muted">COD settlement backlog (delivered, not yet paid out). Not the same as undelivered pipeline COD.</p>
         </div>
 
         <div className="rounded-xl border border-border bg-card p-5 shadow-card">

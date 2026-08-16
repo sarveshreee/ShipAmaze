@@ -15,4 +15,5 @@ export function applyDefaultTestEnv(): void {
   process.env.SHOPIFY_SCOPES ??= "read_orders";
   process.env.VELOCITY_ENABLED ??= "false";
   process.env.LORRIGO_ENABLED ??= "false";
+  process.env.PARTNER_API_ENABLED ??= "true";
 }

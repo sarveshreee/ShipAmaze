@@ -60,7 +60,7 @@ export const listVelocityCarriersForLane = asyncHandler(async (req: AuthRequest,
     : ("prepaid" as const);
 
   if (!fromPin && pickupAddressId) {
-    const pickup = await Pickup.findOne(pickupByIdSelectableQuery(pickupAddressId, req.user))
+    const pickup = await Pickup.findOne(await pickupByIdSelectableQuery(pickupAddressId, req.user))
       .select("pincode")
       .lean();
     if (pickup?.pincode) fromPin = normalizePincode(String(pickup.pincode));

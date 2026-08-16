@@ -8,6 +8,11 @@ export interface IDropshipper extends Document {
   accessType: DropshipperAccessType;
   /** New business toggle: when false, warehouse/vendor management APIs are blocked. */
   allowWarehouseAccess: boolean;
+  /**
+   * Admin-gated: when true, this dropshipper may process only their own orders
+   * using pickup addresses they added. Default false so existing admin processing is unchanged.
+   */
+  allowOwnPickupProcessing: boolean;
   totalOrders: number;
   activeOrders: number;
   kycVerified: boolean;
@@ -28,6 +33,7 @@ const dropshipperSchema = new Schema<IDropshipper>(
       default: "FULL",
     },
     allowWarehouseAccess: { type: Boolean, default: true },
+    allowOwnPickupProcessing: { type: Boolean, default: false },
     totalOrders: { type: Number, default: 0 },
     activeOrders: { type: Number, default: 0 },
     kycVerified: { type: Boolean, default: false },

@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import type { Order } from "@/types/logistics";
 import type { LabelInvoiceSettings, LabelSizePreset } from "@/types/labelInvoice";
 import { getFinalLineItemUnitPrice, getFinalLineItemRowTotal } from "@/lib/pricing";
+import { isAmazonTransportationOrder } from "@/lib/labelPrintUtils";
 
 type Line = Record<string, unknown>;
 
@@ -57,6 +58,10 @@ function lineInvoiceRowTotal(line: Line): string {
 }
 
 function orderCollectableTotal(order: Order): number {
+  const explicit = Number(order.codCollectableAmount);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit * 100) / 100;
+  const outstanding = Number(order.amountOutstanding);
+  if (Number.isFinite(outstanding) && outstanding > 0) return Math.round(outstanding * 100) / 100;
   const productTotal = orderLines(order).reduce((sum, line) => sum + getFinalLineItemRowTotal(line), 0);
   const amount = Number(order.amount ?? 0);
   const base = productTotal > 0 ? productTotal : Number.isFinite(amount) && amount > 0 ? amount : 0;
@@ -586,7 +591,7 @@ export function createOrderLabelElement(
   importantBox.appendChild(importantBody);
   frame.appendChild(importantBox);
 
-  // ── COD collectible + Order ID QR (side by side) ──────────────────
+  // ── COD collectible + AWB QR (side by side) ───────────────────────
   const codCollectibleAmount = pay === "COD" ? collectable : 0;
   const totals = boxedCell({
     border: "none",
@@ -622,15 +627,17 @@ export function createOrderLabelElement(
     textAlign: "center",
     padding: "1.2mm",
   });
-  const orderQrPayload =
-    visibleOrderNumber !== "—"
-      ? String(visibleOrderNumber)
-      : String(order.id || "ShipAmaze");
-  const qrSrc = qrPngDataUrl(orderQrPayload, 320);
+  const awbQrPayload =
+    awbVal !== "—"
+      ? String(awbVal)
+      : visibleOrderNumber !== "—"
+        ? String(visibleOrderNumber)
+        : String(order.id || "ShipAmaze");
+  const qrSrc = qrPngDataUrl(awbQrPayload, 320);
   if (qrSrc) {
     const qimg = document.createElement("img");
     qimg.src = qrSrc;
-    qimg.alt = "Order ID QR";
+    qimg.alt = "AWB QR";
     qimg.style.width = "18mm";
     qimg.style.height = "18mm";
     qimg.style.objectFit = "contain";
@@ -641,7 +648,7 @@ export function createOrderLabelElement(
   qrBox.appendChild(
     el("div", {
       style: { fontWeight: "800", fontSize: "6.5px", marginTop: "0.6mm", wordBreak: "break-all", lineHeight: "1.15" },
-      text: `Order Id: ${dash(visibleOrderNumber)}`,
+      text: `AWB: ${awbVal}`,
     })
   );
   totals.appendChild(qrBox);
@@ -930,6 +937,11 @@ export function createAmazonTransportationLabelElement(order: Order): HTMLElemen
 }
 
 export function openPrintWindowForLabel(order: Order, settings: LabelInvoiceSettings, title: string): void {
+  if (isAmazonTransportationOrder(order)) {
+    throw new Error(
+      "Amazon Transportation must use the official Velocity label PDF. Use Labels / Invoice actions (not the ShipAmaze HTML template)."
+    );
+  }
   openPrintWindowForLabelNodes([createOrderLabelElement(order, settings, { documentTitle: title })], settings, title);
 }
 
@@ -1142,6 +1154,11 @@ export async function downloadOrderLabelPdf(
   filename: string,
   documentTitle = "Label"
 ): Promise<void> {
+  if (isAmazonTransportationOrder(order)) {
+    throw new Error(
+      "Amazon Transportation must use the official Velocity label PDF. Use Download Invoice / Label from order actions."
+    );
+  }
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
   const labelEl = createOrderLabelElement(order, settings, { documentTitle });
   const px = labelPixelBox(settings.labelSize);

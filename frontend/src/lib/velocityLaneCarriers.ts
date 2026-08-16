@@ -97,13 +97,19 @@ export function isGenericCourierPriorityName(name: string): boolean {
   return GENERIC_COURIER_NAMES.has(String(name ?? "").trim().toLowerCase());
 }
 
+/**
+ * Only auto-populate the priority list from live discovery when the admin has never saved one
+ * (first-time setup). A saved, non-empty list is the admin's explicit ranking — e.g. picking
+ * "Ekart" as Priority #1 — and must NEVER be silently discarded/reordered just because an entry
+ * has a generic name (like "Ekart") or briefly lacks a carrierId. Previously this replaced the
+ * whole saved order with whatever the discovery API happened to return whenever the modal was
+ * reopened, which is why a saved top-priority courier would stop being respected the next time
+ * Priority Selection was opened and saved. Entries missing metadata are still enriched in place
+ * (see the `enriched` mapping in CourierPriorityConfigModal) without touching rank/order.
+ */
 export function shouldReplaceSavedPrioritiesWithVelocity(
   saved: { courierName: string; carrierId?: string }[],
   velocityItems: VelocityLaneCarrier[]
 ): boolean {
-  if (velocityItems.length === 0) return false;
-  if (saved.length === 0) return true;
-  return saved.some(
-    (p) => !String(p.carrierId ?? "").trim() || isGenericCourierPriorityName(p.courierName)
-  );
+  return velocityItems.length > 0 && saved.length === 0;
 }

@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, UserCog, ChevronRight, Activity,
+  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, UserCog, ChevronRight, Activity, KeyRound,
   type LucideIcon,
 } from "lucide-react";
 import { ShipAmazeLogo, SidebarBrand } from "@/components/brand/ShipAmazeLogo";
@@ -82,6 +82,7 @@ const adminNav: NavGroup[] = [
     { label: "Dropshippers", icon: Users, path: "/admin/dropshippers", ownerOnly: true },
     { label: "Vendors", icon: Warehouse, path: "/admin/vendors", ownerOnly: true },
     { label: "Users", icon: UserCog, path: "/admin/users", ownerOnly: true },
+    { label: "Partner API", icon: KeyRound, path: "/admin/partners", ownerOnly: true },
     { label: "Approvals", icon: ClipboardList, path: "/admin/approvals", ownerOnly: true },
     { label: "KYC Approvals", icon: Shield, path: "/admin/kyc", ownerOnly: true },
     { label: "Pickup Addresses", icon: MapPin, path: "/admin/pickup-addresses", ownerOnly: true },
@@ -114,7 +115,6 @@ const vendorNav: NavGroup[] = [
   ]},
   { title: "ORDERS", items: [{ label: "Orders", icon: Package, path: "/vendor/orders", tabKey: "orders" }] },
   { title: "LOGISTICS", items: [
-    { label: "Warehouse", icon: Warehouse, path: "/vendor/warehouse", tabKey: "warehouse" },
     { label: "Pickup Addresses", icon: MapPin, path: "/vendor/pickup-addresses", tabKey: "addresses" },
   ]},
   { title: "FINANCE", items: [
@@ -149,7 +149,6 @@ const dropshipperNav: NavGroup[] = [
   ]},
   { title: "OPERATIONS", items: [
     { label: "Vendors", icon: Users, path: "/dropshipper/vendors", requiresWarehouseAccess: true },
-    { label: "Warehouses", icon: Warehouse, path: "/dropshipper/warehouses", requiresWarehouseAccess: true },
   ]},
   { title: "FINANCE", items: [
     { label: "Wallet", icon: Wallet, path: "/dropshipper/wallet", tabKey: "wallet" },
@@ -294,7 +293,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const { isTabEnabled } = useTabPermissions();
   const { isOwnerAdmin, hasAny } = useStaffPermissions();
-  const { isRestricted, allowWarehouseAccess, isKycPending, kycStatus } = useDropshipperAccess();
+  const { isRestricted, allowWarehouseAccess, allowOwnPickupProcessing, isKycPending, kycStatus } = useDropshipperAccess();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -385,7 +384,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // Filter nav items based on permissions
   const nav = useMemo(() => {
     const allowItem = (item: NavItem & { children?: NavItem[] }) => {
-      if (isRestricted && item.requiresFullAccess) return false;
+      // RESTRICTED hides full-access items unless admin unlocked own-pickup processing
+      // (Add Order / Bulk Upload needed to create orders they can then process).
+      if (isRestricted && item.requiresFullAccess && !allowOwnPickupProcessing) return false;
       if (!allowWarehouseAccess && item.requiresWarehouseAccess) return false;
       if (item.tabKey && !isTabEnabled(item.tabKey)) return false;
       if (role === "admin" && !isOwnerAdmin) {
@@ -421,7 +422,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           ),
       }))
       .filter((group) => group.items.length > 0);
-  }, [rawNav, role, isTabEnabled, isRestricted, allowWarehouseAccess, isOwnerAdmin, hasAny]);
+  }, [rawNav, role, isTabEnabled, isRestricted, allowOwnPickupProcessing, allowWarehouseAccess, isOwnerAdmin, hasAny]);
 
   const unread = notifUnread;
 
@@ -942,8 +943,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <div className="border-b border-border p-4 space-y-1">
                 <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Available balance</p>
                 <p className="text-xl font-semibold tabular-nums text-text-primary">{formatInrTop(displayBalance)}</p>
-                <p className="text-xs font-medium uppercase tracking-wide text-text-muted pt-3">Pending COD</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-text-muted pt-3">Pending remittance</p>
                 <p className="text-sm font-medium tabular-nums text-text-primary">{formatInrTop(pendingCod)}</p>
+                <p className="text-[10px] text-text-muted">Settlement backlog — not undelivered COD</p>
               </div>
               <div className="flex flex-col gap-0.5 p-2">
                 {!import.meta.env.PROD && (role === "vendor" || role === "dropshipper") && (

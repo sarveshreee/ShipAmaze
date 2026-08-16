@@ -7,6 +7,9 @@ import {
   clearAdminToken,
   getStoredUserJson,
   setStoredUserJson,
+  setImpersonationReturnPath,
+  getImpersonationReturnPath,
+  clearImpersonationReturnPath,
   ApiError,
 } from "@/lib/apiClient";
 import { clearUserScopedQueries, queryClient, queryKeys, resetSessionQueries } from "@/lib/queryClient";
@@ -39,13 +42,16 @@ interface AuthContextType {
   /**
    * Switch into a target user session. Stashes the current admin JWT as adminToken,
    * installs the impersonation token, and updates auth state — no login page.
+   * @param returnPath Admin URL to restore when exiting impersonation (defaults to current path).
    */
-  startImpersonation: (token: string, user: AuthUser) => void;
+  startImpersonation: (token: string, user: AuthUser, returnPath?: string) => void;
   /**
    * Restore the stashed admin JWT, refresh auth state, and return to admin dashboard.
    * Returns the restored admin user (or null if restore failed).
    */
   stopImpersonation: () => Promise<AuthUser | null>;
+  /** Path saved when impersonation started — used by Return to Admin. */
+  getImpersonationReturnPath: () => string | null;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -63,6 +69,7 @@ const AuthContext = createContext<AuthContextType>({
   refreshUser: async () => {},
   startImpersonation: () => {},
   stopImpersonation: async () => null,
+  getImpersonationReturnPath: () => null,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -195,6 +202,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setStoredUserJson(null);
       setIsImpersonating(false);
+      clearAdminToken();
+      clearImpersonationReturnPath();
       const pathOnly = window.location.pathname;
       if (!/^\/(login|signup|verify-email)(\/|$)/i.test(pathOnly)) {
         window.location.replace(`${window.location.origin}/login`);
@@ -223,11 +232,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const startImpersonation = useCallback((token: string, nextUser: AuthUser) => {
+  const startImpersonation = useCallback((token: string, nextUser: AuthUser, returnPath?: string) => {
     const current = getStoredToken();
     if (!current) {
       throw new Error("No admin session to stash for impersonation");
     }
+    const pathToRestore =
+      (returnPath && returnPath.trim()) ||
+      (typeof window !== "undefined"
+        ? `${window.location.pathname}${window.location.search}${window.location.hash}`
+        : "/admin/users");
+    setImpersonationReturnPath(
+      pathToRestore.startsWith("/admin") ? pathToRestore : "/admin/users"
+    );
     setAdminToken(current);
     setStoredToken(token);
     clearUserScopedQueries();
@@ -240,6 +257,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const adminJwt = getAdminToken();
     if (!adminJwt) {
       setIsImpersonating(false);
+      clearImpersonationReturnPath();
       return null;
     }
     setStoredToken(adminJwt);
@@ -273,6 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshUser,
     startImpersonation,
     stopImpersonation,
+    getImpersonationReturnPath,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

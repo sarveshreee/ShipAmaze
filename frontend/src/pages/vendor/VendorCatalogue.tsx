@@ -54,7 +54,9 @@ export default function VendorCatalogue() {
     setSaving(true);
     try {
       const data = {
-        name: form.name, sku: form.sku || null, vendorSku: form.vendorSku || null, category: form.category || null,
+        name: form.name, sku: form.sku || null, vendorSku: form.vendorSku || null,
+        category: form.category || null,
+        categories: form.category ? [form.category] : [],
         weight: form.weight || null, price: parseFloat(form.price) || 0,
         selling_price: parseFloat(form.sellingPrice) || 0, stock: parseInt(form.stock) || 0,
         hsn: form.hsn || null, dimensions: form.dimensions || null,

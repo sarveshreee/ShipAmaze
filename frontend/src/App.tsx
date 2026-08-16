@@ -51,6 +51,7 @@ const AdminKyc = lazy(() => import("@/pages/admin/AdminKyc"));
 const AdminCategories = lazy(() => import("@/pages/admin/AdminCategories"));
 const AdminPermissions = lazy(() => import("@/pages/admin/AdminPermissions"));
 const AdminUsers = lazy(() => import("@/pages/admin/AdminUsers"));
+const AdminPartners = lazy(() => import("@/pages/admin/AdminPartners"));
 
 // Vendor
 const VendorDashboard = lazy(() => import("@/pages/vendor/VendorDashboard"));
@@ -59,7 +60,6 @@ const VendorTeam = lazy(() => import("@/pages/vendor/VendorTeam"));
 const VendorSettings = lazy(() => import("@/pages/vendor/VendorSettings"));
 const VendorCatalogue = lazy(() => import("@/pages/vendor/VendorCatalogue"));
 const VendorPayouts = lazy(() => import("@/pages/vendor/VendorPayouts"));
-const VendorWarehouse = lazy(() => import("@/pages/vendor/VendorWarehouse"));
 const VendorPickupAddresses = lazy(() => import("@/pages/vendor/VendorPickupAddresses"));
 const VendorProducts = lazy(() => import("@/pages/vendor/VendorProducts"));
 const VendorSupport = lazy(() => import("@/pages/vendor/VendorSupport"));
@@ -129,10 +129,12 @@ function RoleProtectedRoute({ children, allow }: { children: React.ReactNode; al
   return <AppLayout>{children}</AppLayout>;
 }
 
-/** Blocks RESTRICTED dropshippers from add-order / bulk-upload (not KYC). */
+/** Allows FULL dropshippers, or RESTRICTED ones with own-pickup processing enabled. */
 function FullDropshipperRoute({ children }: { children: React.ReactNode }) {
-  const { isRestricted } = useDropshipperAccess();
-  if (isRestricted) return <Navigate to="/dropshipper/orders" replace />;
+  const { isRestricted, allowOwnPickupProcessing } = useDropshipperAccess();
+  if (isRestricted && !allowOwnPickupProcessing) {
+    return <Navigate to="/dropshipper/orders" replace />;
+  }
   return <>{children}</>;
 }
 
@@ -221,6 +223,7 @@ function AppRoutes() {
       <Route path="/admin/channels" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute permission="channels.view"><AdminChannels /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/permissions" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminPermissions /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/users" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminUsers /></AdminStaffRoute></RoleProtectedRoute>} />
+      <Route path="/admin/partners" element={<RoleProtectedRoute allow={["admin"]}><AdminStaffRoute ownerOnly><AdminPartners /></AdminStaffRoute></RoleProtectedRoute>} />
       <Route path="/admin/profile" element={<RoleProtectedRoute allow={["admin"]}><ProfilePage /></RoleProtectedRoute>} />
       <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
 
@@ -231,7 +234,7 @@ function AppRoutes() {
       <Route path="/vendor/team" element={<RoleProtectedRoute allow={["vendor"]}><VendorTeam /></RoleProtectedRoute>} />
       <Route path="/vendor/settings" element={<RoleProtectedRoute allow={["vendor"]}><VendorSettings /></RoleProtectedRoute>} />
       <Route path="/vendor/payouts" element={<RoleProtectedRoute allow={["vendor"]}><VendorPayouts /></RoleProtectedRoute>} />
-      <Route path="/vendor/warehouse" element={<RoleProtectedRoute allow={["vendor"]}><VendorWarehouse /></RoleProtectedRoute>} />
+      <Route path="/vendor/warehouse" element={<RoleProtectedRoute allow={["vendor"]}><Navigate to="/vendor/pickup-addresses" replace /></RoleProtectedRoute>} />
       <Route path="/vendor/pickup-addresses" element={<RoleProtectedRoute allow={["vendor"]}><VendorPickupAddresses /></RoleProtectedRoute>} />
       <Route path="/vendor/support" element={<RoleProtectedRoute allow={["vendor"]}><VendorSupport /></RoleProtectedRoute>} />
       <Route path="/vendor/profile" element={<RoleProtectedRoute allow={["vendor"]}><ProfilePage /></RoleProtectedRoute>} />
@@ -245,7 +248,7 @@ function AppRoutes() {
       <Route path="/dropshipper/bulk-upload" element={<RoleProtectedRoute allow={["dropshipper"]}><FullDropshipperRoute><BulkUpload /></FullDropshipperRoute></RoleProtectedRoute>} />
       <Route path="/dropshipper/channels" element={<RoleProtectedRoute allow={["dropshipper"]}><ChannelConnect /></RoleProtectedRoute>} />
       <Route path="/dropshipper/vendors" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><DropshipperVendors /></WarehouseAccessRoute></RoleProtectedRoute>} />
-      <Route path="/dropshipper/warehouses" element={<RoleProtectedRoute allow={["dropshipper"]}><WarehouseAccessRoute><VendorWarehouse /></WarehouseAccessRoute></RoleProtectedRoute>} />
+      <Route path="/dropshipper/warehouses" element={<RoleProtectedRoute allow={["dropshipper"]}><Navigate to="/dropshipper/pickup-addresses" replace /></RoleProtectedRoute>} />
       <Route path="/dropshipper/wallet" element={<RoleProtectedRoute allow={["dropshipper"]}><DropshipperWallet /></RoleProtectedRoute>} />
       <Route path="/dropshipper/payouts" element={<RoleProtectedRoute allow={["dropshipper"]}><VendorPayouts /></RoleProtectedRoute>} />
       <Route path="/vendor/wallet" element={<RoleProtectedRoute allow={["vendor"]}><DropshipperWallet /></RoleProtectedRoute>} />

@@ -1,6 +1,8 @@
 /**
- * Provider-agnostic shipment create (Lorrigo via orchestrator).
- * Velocity single-order create remains on /api/velocity/forward/create.
+ * Provider-agnostic shipment create (Lorrigo / Ekart via orchestrator).
+ *
+ * Velocity intentionally bypasses this HTTP path — see courierArchitecture.ts.
+ * Shared rules (COD collectable, wallet debit, booking claim) still apply on the Velocity path.
  */
 
 import type { Response } from "express";
@@ -22,6 +24,7 @@ import { getLorrigoNdrMetrics } from "../lorrigo/lorrigo.ndrMetrics.js";
 import { getEkartBookingMetrics, getEkartTrackingMetrics } from "../ekart/ekart.metrics.js";
 import { getEkartAuthMetrics } from "../ekart/ekart.client.js";
 import { getEkartStatusSyncMetrics } from "../ekart/ekart.statusSyncMetrics.js";
+import { VELOCITY_BOOKING_BYPASS_REASON } from "./courierArchitecture.js";
 
 function assertBookingOrderAccess(
   user: NonNullable<AuthRequest["user"]>,
@@ -66,7 +69,7 @@ export const createShipment = asyncHandler(async (req: AuthRequest, res: Respons
   if (provider === "velocity") {
     throw new AppError(
       400,
-      "Velocity shipments must be created via POST /api/velocity/forward/create (unchanged Velocity booking path)."
+      `Velocity shipments must be created via POST /api/velocity/forward/create. ${VELOCITY_BOOKING_BYPASS_REASON}`
     );
   }
 

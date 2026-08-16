@@ -30,11 +30,18 @@ import {
   claimOrderForBooking,
   releaseBookingClaim,
 } from "./bookingClaim.js";
+import type { AuthRequest } from "../../middleware/authMiddleware.js";
+import { bookForwardShipmentForOrder } from "../velocity/velocity.controller.js";
 import {
   syncPickupToLorrigo,
   buildLorrigoFacilityName,
   buildLorrigoStreetAddress,
 } from "../lorrigo/lorrigo.pickupSync.js";
+import {
+  mirrorShopifyFulfillmentStatus,
+  pushShopifyFulfillmentUpdate,
+} from "../../services/shopifyFulfillmentMirror.js";
+import { orderCodCollectableAmount } from "../../services/normalizeOrderPayment.js";
 
 export type BookShipmentInput = {
   order: IOrder;
@@ -143,9 +150,10 @@ export async function validateLorrigoBooking(input: BookShipmentInput): Promise<
   }
 
   const pay = paymentModeOf(order);
-  if (pay === "cod" && !(Number(order.amount) > 0)) {
+  const collectable = orderCodCollectableAmount(order);
+  if (pay === "cod" && !(collectable > 0)) {
     recordBookingValidationFailure();
-    throw new AppError(400, "COD orders require a positive amount");
+    throw new AppError(400, "COD orders require a positive collectable amount");
   }
 
   const pickup = await Pickup.findById(input.pickupAddressId).lean();
@@ -196,7 +204,7 @@ export async function validateLorrigoBooking(input: BookShipmentInput): Promise<
         lengthCm: input.lengthCm,
         widthCm: input.widthCm,
         heightCm: input.heightCm,
-        collectableAmount: pay === "cod" ? Number(order.amount) : undefined,
+        collectableAmount: pay === "cod" ? orderCodCollectableAmount(order) : undefined,
       },
       { mode: "lorrigo" }
     );
@@ -398,7 +406,7 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
     pickupId: lorrigoPickupId,
     paymentMode: pay,
     orderAmount: Number(order.amount ?? 0) || 0,
-    codAmount: pay === "cod" ? Number(order.amount ?? 0) : undefined,
+    codAmount: pay === "cod" ? orderCodCollectableAmount(order) : undefined,
     weightKg: input.weightKg,
     lengthCm: input.lengthCm,
     widthCm: input.widthCm,
@@ -597,6 +605,10 @@ export async function bookLorrigoShipment(input: BookShipmentInput): Promise<Boo
     bookingInProgress: false,
   });
 
+  mirrorShopifyFulfillmentStatus(order);
+  await order.save().catch(() => undefined);
+  void pushShopifyFulfillmentUpdate(order);
+
   recordBookingSuccess(Date.now() - started);
   return {
     awb: result.awb,
@@ -622,8 +634,81 @@ export async function bookShipmentViaProvider(
   }
   throw new AppError(
     501,
-    "Use the existing Velocity booking path for Velocity shipments (bookForwardShipmentForOrder)."
+    "Use bookOrderViaProviderRegistry for Velocity shipments."
   );
+}
+
+/**
+ * Unified registry entry for booking — routes Velocity via existing forward path,
+ * Lorrigo/Ekart via orchestrators. Partner API and future callers should use this.
+ */
+export async function bookOrderViaProviderRegistry(
+  input: BookShipmentInput,
+  opts?: { velocityAuthReq?: AuthRequest }
+): Promise<BookShipmentResult> {
+  if (input.provider === "velocity") {
+    if (!opts?.velocityAuthReq?.user) {
+      throw new AppError(500, "Velocity booking requires authenticated user context");
+    }
+
+    const correlationId = ensureCorrelationId(input.order);
+    const claim = await claimOrderForBooking({
+      orderId: input.order.orderId,
+      provider: "velocity",
+      idempotencyKey: input.idempotencyKey,
+      correlationId,
+    });
+
+    const order = claim.order;
+    input.order = order;
+
+    if (claim.reusedExisting && (order.shipmentCreated || String(order.awb || "").trim())) {
+      return {
+        awb: String(order.awb ?? ""),
+        providerOrderId: String(order.velocityOrderId ?? order.awb ?? ""),
+        providerShipmentId: order.velocityShipmentId,
+        courierId: order.courierCompanyId != null ? String(order.courierCompanyId) : undefined,
+        courierName: order.courierName,
+        labelUrl: order.labelUrl,
+        freightCharge: order.shippingCharges,
+        status: order.shipmentStatus ?? order.status,
+      };
+    }
+
+    const body: Record<string, unknown> = {
+      warehouseId: input.pickupAddressId,
+      pickupAddressId: input.pickupAddressId,
+      carrier_id: input.courierId,
+      courier_name: input.courierName,
+      weight: input.weightKg,
+      length: input.lengthCm,
+      width: input.widthCm,
+      height: input.heightCm,
+      skip_serviceability: input.skipServiceability,
+    };
+
+    try {
+      const result = await bookForwardShipmentForOrder(opts.velocityAuthReq, order, body);
+      const refreshed = await Order.findOne({ orderId: order.orderId });
+      if (!refreshed) {
+        throw new AppError(500, "Order not found after Velocity booking");
+      }
+      return {
+        awb: String(result.awb_code ?? refreshed.awb ?? ""),
+        providerOrderId: String(refreshed.velocityOrderId ?? result.awb_code ?? ""),
+        providerShipmentId: result.shipment_id,
+        courierId: result.carrier_id != null ? String(result.carrier_id) : input.courierId,
+        courierName: result.carrier_name ?? input.courierName,
+        labelUrl: result.label_url ?? refreshed.labelUrl,
+        freightCharge: refreshed.shippingCharges,
+        status: refreshed.shipmentStatus ?? refreshed.status,
+      };
+    } catch (err) {
+      await releaseBookingClaim(order.orderId);
+      throw err;
+    }
+  }
+  return bookShipmentViaProvider(input);
 }
 
 /**
@@ -668,9 +753,9 @@ export async function validateEkartBooking(input: BookShipmentInput): Promise<{
   }
 
   const pay = paymentModeOf(order);
-  if (pay === "cod" && !(Number(order.amount) > 0)) {
+  if (pay === "cod" && !(orderCodCollectableAmount(order) > 0)) {
     recordEkartBookingValidationFailure();
-    throw new AppError(400, "COD orders require a positive amount");
+    throw new AppError(400, "COD orders require a positive collectable amount");
   }
 
   const pickup = await Pickup.findById(input.pickupAddressId).lean();
@@ -700,7 +785,7 @@ export async function validateEkartBooking(input: BookShipmentInput): Promise<{
         lengthCm: input.lengthCm,
         widthCm: input.widthCm,
         heightCm: input.heightCm,
-        collectableAmount: pay === "cod" ? Number(order.amount) : undefined,
+        collectableAmount: pay === "cod" ? orderCodCollectableAmount(order) : undefined,
       },
       { mode: "ekart" }
     );
@@ -838,7 +923,7 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
     pickupId: input.pickupAddressId,
     paymentMode: pay,
     orderAmount: Number(order.amount ?? 0) || 0,
-    codAmount: pay === "cod" ? Number(order.amount ?? 0) : undefined,
+    codAmount: pay === "cod" ? orderCodCollectableAmount(order) : undefined,
     weightKg: input.weightKg,
     lengthCm: input.lengthCm,
     widthCm: input.widthCm,
@@ -891,21 +976,72 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
   try {
     result = await provider.createShipment(createInput);
   } catch (err) {
-    await releaseBookingClaim(order.orderId);
-    appendProviderEvent(order, {
-      provider: "ekart",
-      type: "BOOKING_FAILED",
-      status: "FAILED",
-      durationMs: Date.now() - started,
-      correlationId,
-      message: err instanceof Error ? err.message.slice(0, 300) : String(err),
-    });
-    try {
-      await order.save();
-    } catch {
-      /* ignore */
+    const maybeAcked =
+      err instanceof AppError &&
+      (err.statusCode === 504 || isTransientNetworkMessage(err.message));
+
+    if (maybeAcked) {
+      try {
+        const partialAwb = String(order.ekartTrackingId ?? order.awb ?? "").trim();
+        const recovered = partialAwb
+          ? await provider.getShipment({ awb: partialAwb })
+          : null;
+        if (recovered?.awb) {
+          result = recovered;
+        } else if (isSafePreAckNetworkFailure(err)) {
+          result = await provider.createShipment(createInput);
+        } else {
+          order.bookingReconciliationRequired = true;
+          appendProviderEvent(order, {
+            provider: "ekart",
+            type: "BOOKING_FAILED",
+            status: "FAILED",
+            durationMs: Date.now() - started,
+            correlationId,
+            message: "Uncertain booking state after provider timeout — reconcile required",
+          });
+          await order.save().catch(() => undefined);
+          await releaseBookingClaim(order.orderId);
+          recordBookingFailure(Date.now() - started);
+          throw Object.assign(
+            new AppError(
+              504,
+              "Shipment booking timed out. Do not retry blindly — check order status or contact support."
+            ),
+            {
+              provider: "ekart",
+              code: "BOOKING_UNCERTAIN",
+              retryable: false,
+              correlationId,
+            }
+          );
+        }
+      } catch (inner) {
+        if (inner instanceof AppError && (inner as { code?: string }).code === "BOOKING_UNCERTAIN") {
+          throw inner;
+        }
+        await releaseBookingClaim(order.orderId);
+        recordBookingFailure(Date.now() - started);
+        throw err;
+      }
+    } else {
+      recordBookingFailure(Date.now() - started);
+      appendProviderEvent(order, {
+        provider: "ekart",
+        type: "BOOKING_FAILED",
+        status: "FAILED",
+        durationMs: Date.now() - started,
+        correlationId,
+        message: err instanceof Error ? err.message.slice(0, 300) : String(err),
+      });
+      try {
+        await order.save();
+      } catch {
+        /* ignore */
+      }
+      await releaseBookingClaim(order.orderId);
+      throw err;
     }
-    throw err;
   }
 
   applyEkartShipmentToOrder(order, result, input, pickupLean, {
@@ -960,6 +1096,10 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
     correlationId: order.correlationId,
     bookingInProgress: false,
   });
+
+  mirrorShopifyFulfillmentStatus(order);
+  await order.save().catch(() => undefined);
+  void pushShopifyFulfillmentUpdate(order);
 
   return {
     awb: result.awb,

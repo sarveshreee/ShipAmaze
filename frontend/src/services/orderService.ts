@@ -312,6 +312,8 @@ export type ProcessSelectedResult = {
   failed: { orderId: string; error: string }[];
   skipped: { orderId: string; reason: string }[];
   total: number;
+  /** Non-fatal pickup → courier sync issues for this batch's pickup address (e.g. Velocity/Lorrigo link failed). */
+  pickupLinkWarnings?: { provider: "velocity" | "lorrigo"; error: string }[];
 };
 
 export async function processSelectedOrders(payload: ProcessSelectedPayload) {
@@ -339,6 +341,7 @@ export async function processSelectedOrdersBatched(
     failed: [],
     skipped: [],
     total: allIds.length,
+    pickupLinkWarnings: [],
   };
 
   const batches: string[][] = [];
@@ -358,6 +361,11 @@ export async function processSelectedOrdersBatched(
       aggregated.skipped.push(...res.skipped);
       aggregated.updatedCount += res.updatedCount;
       if (res.failed.length > 0) aggregated.success = false;
+      for (const w of res.pickupLinkWarnings ?? []) {
+        if (!aggregated.pickupLinkWarnings!.some((x) => x.provider === w.provider && x.error === w.error)) {
+          aggregated.pickupLinkWarnings!.push(w);
+        }
+      }
     }
     processed += wave.reduce((n, b) => n + b.length, 0);
     onProgress?.(Math.min(processed, allIds.length), allIds.length);

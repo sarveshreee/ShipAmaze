@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Save, Loader2, Package, Settings2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { usePickupAddresses } from "@/hooks/useApiData";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -86,8 +87,13 @@ export function ProcessSelectedModal({
   onProcess,
 }: Props) {
   const { role } = useAuth();
+  const isAdmin = role === "admin";
   const { data: userPickups = [] } = usePickupAddresses(
-    role === "admin" ? { scope: "platform", enabled: open } : { enabled: open }
+    role === "admin"
+      ? { scope: "platform", enabled: open }
+      : role === "dropshipper"
+        ? { ownership: "own", enabled: open }
+        : { enabled: open }
   );
   const activePickups = useMemo(() => userPickups.filter((a) => a.isActive !== false), [userPickups]);
 
@@ -136,11 +142,12 @@ export function ProcessSelectedModal({
       return items.every((item, lineIndex) => {
         const existing = String(item.sku ?? "").trim();
         if (existing) return true;
+        if (!isAdmin) return false;
         const key = `${order.id}:${lineIndex}`;
         return Boolean(skuDrafts[key]?.trim());
       });
     });
-  }, [selectedOrders, skuDrafts]);
+  }, [selectedOrders, skuDrafts, isAdmin]);
 
   useEffect(() => {
     if (!open) {
@@ -199,6 +206,8 @@ export function ProcessSelectedModal({
   );
   /** Booking requires a real Lorrigo pickup id — not just a SUCCESS badge. */
   const lorrigoPickupReady = Boolean(selectedPickup?.lorrigoPickupId?.trim());
+  /** Velocity booking requires a linked Velocity warehouse on the selected pickup. */
+  const velocityPickupReady = Boolean(selectedPickup?.velocityWarehouseId?.trim());
 
   const destPincode = useMemo(() => {
     for (const o of referenceOrders) {
@@ -293,8 +302,11 @@ export function ProcessSelectedModal({
     }
     return serviceableCouriers
       .filter((c) => {
+        const provider = c.provider || "velocity";
         // Hide Lorrigo couriers until the selected pickup has a real lorrigoPickupId.
-        if ((c.provider || "velocity") === "lorrigo" && !lorrigoPickupReady) return false;
+        if (provider === "lorrigo" && !lorrigoPickupReady) return false;
+        // Hide Velocity couriers until the selected pickup is linked to a Velocity warehouse.
+        if (provider === "velocity" && !velocityPickupReady) return false;
         return true;
       })
       .map((c) => {
@@ -311,7 +323,7 @@ export function ProcessSelectedModal({
           price,
         };
       });
-  }, [serviceableCouriers, fixedCourierFromFilter, lorrigoPickupReady]);
+  }, [serviceableCouriers, fixedCourierFromFilter, lorrigoPickupReady, velocityPickupReady]);
 
   const courierSections = useMemo(
     () => groupCouriersByProvider(displayCouriers),
@@ -338,6 +350,17 @@ export function ProcessSelectedModal({
           : "Some couriers are hidden until this pickup address is synced. Use Sync / Retry Sync on Pickup Addresses."
       );
     }
+    if (
+      pickupAddr &&
+      !velocityPickupReady &&
+      serviceableCouriers.some((c) => (c.provider || "velocity") === "velocity")
+    ) {
+      msgs.push(
+        role === "admin"
+          ? "Velocity couriers are hidden until this pickup address is linked to a Velocity warehouse (use Sync warehouse on Pickup Addresses)."
+          : "Velocity couriers are hidden until this pickup address is synced. Open Pickup Addresses and click Sync warehouse."
+      );
+    }
     return msgs;
   }, [
     open,
@@ -346,6 +369,7 @@ export function ProcessSelectedModal({
     pickupAddr,
     hasPickupPin,
     lorrigoPickupReady,
+    velocityPickupReady,
     serviceableCouriers,
     role,
   ]);
@@ -376,6 +400,14 @@ export function ProcessSelectedModal({
       setSelectedCarrierProvider("velocity");
     }
   }, [lorrigoPickupReady, selectedCarrierProvider]);
+
+  // Drop a selected Velocity courier if the pickup is not linked to a Velocity warehouse.
+  useEffect(() => {
+    if (!velocityPickupReady && selectedCarrierProvider === "velocity" && selectedCarrierId) {
+      setSelectedCarrierId("");
+      setSelectedCarrierName("");
+    }
+  }, [velocityPickupReady, selectedCarrierProvider, selectedCarrierId]);
 
   const handleSubmit = async () => {
     if (orderIds.length === 0) {
@@ -418,6 +450,14 @@ export function ProcessSelectedModal({
         toast.error("Selected courier provider does not support booking yet.");
         return;
       }
+      if (selectedCarrierProvider === "velocity" && !velocityPickupReady) {
+        toast.error("Sync this pickup address to Velocity before booking a Velocity courier.");
+        return;
+      }
+      if (selectedCarrierProvider === "lorrigo" && !lorrigoPickupReady) {
+        toast.error("Sync this pickup address to Lorrigo before booking a Lorrigo courier.");
+        return;
+      }
     }
 
     if (!allSkusReady) {
@@ -426,11 +466,13 @@ export function ProcessSelectedModal({
     }
 
     try {
-      for (const task of skuTasks) {
-        const key = `${task.order.id}:${task.lineIndex}`;
-        const sku = skuDrafts[key]?.trim();
-        if (sku) {
-          await orderService.patchOrderLineItemSku(task.order.id, task.lineIndex, sku);
+      if (isAdmin) {
+        for (const task of skuTasks) {
+          const key = `${task.order.id}:${task.lineIndex}`;
+          const sku = skuDrafts[key]?.trim();
+          if (sku) {
+            await orderService.patchOrderLineItemSku(task.order.id, task.lineIndex, sku);
+          }
         }
       }
     } catch (e) {
@@ -482,9 +524,18 @@ export function ProcessSelectedModal({
               </DialogTitle>
             </DialogHeader>
             <p className="text-sm text-text-muted mt-2 pr-4">
-              Orders are booked via the selected courier provider (Velocity, Lorrigo, or Ekart when enabled)
-              with a real AWB. Dropshippers are charged your admin Rate Card price (Rates &amp; Shipping),
-              not the provider&apos;s actual freight.
+              {role === "dropshipper" ? (
+                <>
+                  You can process only your own orders, using pickup addresses you added.
+                  Couriers are booked with a real AWB and charged at the admin rate card.
+                </>
+              ) : (
+                <>
+                  Orders are booked via the selected courier provider (Velocity, Lorrigo, or Ekart when enabled)
+                  with a real AWB. Dropshippers are charged your admin Rate Card price (Rates &amp; Shipping),
+                  not the provider&apos;s actual freight.
+                </>
+              )}
               {fixedCourierFromFilter && (
                 <>
                   {" "}
@@ -536,6 +587,14 @@ export function ProcessSelectedModal({
                     ))}
                   </SelectContent>
                 </Select>
+                {role === "dropshipper" && activePickups.length === 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-1.5">
+                    Add a pickup address first.{" "}
+                    <Link to="/dropshipper/pickup-addresses" className="underline font-medium">
+                      Open Pickup Addresses
+                    </Link>
+                  </p>
+                )}
               </div>
               <div>
                 <Label className="text-sm font-medium">
@@ -744,9 +803,12 @@ export function ProcessSelectedModal({
           {skuTasks.length > 0 && (
             <div className="mx-6 mb-4 rounded-lg border-2 border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
               <p className="text-sm font-semibold text-amber-200">
-                SKU required — enter SKU for each line item before processing
+                {isAdmin
+                  ? "SKU required — enter SKU for each line item before processing"
+                  : "SKU is missing on some orders. Ask admin to add SKU before you can process."}
               </p>
-              {skuTasks.map((task) => {
+              {isAdmin &&
+                skuTasks.map((task) => {
                 const key = `${task.order.id}:${task.lineIndex}`;
                 return (
                   <div key={key} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
@@ -779,7 +841,7 @@ export function ProcessSelectedModal({
           )}
 
           <DialogFooter className="flex-col sm:flex-row gap-3 sm:gap-3 px-6 py-4 border-t border-border/60 bg-surface-2/30">
-            {!fixedCourierFromFilter && (
+            {!fixedCourierFromFilter && isAdmin && (
               <Button
                 type="button"
                 variant="outline"
@@ -815,14 +877,16 @@ export function ProcessSelectedModal({
         </DialogContent>
       </Dialog>
 
-      <CourierPriorityConfigModal
-        open={priorityConfigOpen}
-        onClose={() => setPriorityConfigOpen(false)}
-        pickupAddressId={pickupAddr || undefined}
-        fromPin={pickupPincode || undefined}
-        destPincode={destPincode || undefined}
-        paymentMode={referencePayment}
-      />
+      {isAdmin && (
+        <CourierPriorityConfigModal
+          open={priorityConfigOpen}
+          onClose={() => setPriorityConfigOpen(false)}
+          pickupAddressId={pickupAddr || undefined}
+          fromPin={pickupPincode || undefined}
+          destPincode={destPincode || undefined}
+          paymentMode={referencePayment}
+        />
+      )}
     </>
   );
 }
