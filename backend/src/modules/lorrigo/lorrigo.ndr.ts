@@ -151,17 +151,20 @@ export async function performLorrigoNdrAction(
 
   const started = Date.now();
   const actionType = toLorrigoActionType(input.action);
+  const meta = (input.metadata ?? {}) as Record<string, unknown>;
+  // Prefer the Lorrigo internal order ID if stored; AWB is the fallback identifier.
+  const ndrId = (meta.lorrigoOrderId as string | undefined) || awb;
   const body: Record<string, unknown> = {
-    ndrId: awb,
+    ndrId,
+    awb,
     actionType,
     comment: input.remarks ?? "",
     alt_mobile: input.phone ?? "",
-    address: "",
-    customer_name: "",
+    address: (meta.address as string | undefined) ?? "",
+    customer_name: (meta.customerName as string | undefined) ?? "",
     nextAttemptDate: input.nextAttemptDate ?? "",
     proof_audio_url: "",
     proof_image_url: "",
-    ...(input.metadata ?? {}),
   };
 
   try {

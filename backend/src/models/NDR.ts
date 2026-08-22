@@ -25,6 +25,8 @@ export interface INDR extends Document {
   recommendedAction?: string;
   /** Fingerprint for duplicate NDR_RECEIVED suppression. */
   lastNdrFingerprint?: string;
+  /** Lorrigo internal order id — used as ndrId when submitting NDR actions. */
+  lorrigoOrderId?: string;
   /** Order value / COD amount */
   amount?: number;
   actionStatus?: string;
@@ -58,6 +60,7 @@ const ndrSchema = new Schema<INDR>(
     actionRequired: { type: Boolean, default: true },
     recommendedAction: { type: String, default: "" },
     lastNdrFingerprint: { type: String, default: "" },
+    lorrigoOrderId: { type: String, default: "" },
     amount: { type: Number },
     actionStatus: { type: String, default: "" },
     actionMessage: { type: String, default: "" },

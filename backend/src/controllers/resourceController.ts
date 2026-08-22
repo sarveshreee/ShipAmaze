@@ -1125,6 +1125,7 @@ export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
         actionStatus: n.actionStatus ?? "",
         actionMessage: n.actionMessage ?? "",
         lastActionAt: n.lastActionAt,
+        actionHistory: Array.isArray(n.actionHistory) ? n.actionHistory : [],
       };
     })
   );
@@ -1192,6 +1193,10 @@ export const submitNdrAction = asyncHandler(async (req: AuthRequest, res: Respon
     phone: ndr.phone || order?.phone,
     remarks,
     nextAttemptDate: String((req.body as Record<string, unknown>).nextAttemptDate ?? "").trim() || undefined,
+    metadata: {
+      lorrigoOrderId: ndr.lorrigoOrderId || undefined,
+      customerName: ndr.customer || undefined,
+    },
   });
 
   const now = new Date();

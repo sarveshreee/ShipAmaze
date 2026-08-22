@@ -67,6 +67,10 @@ export async function upsertNdrFromLorrigoRecord(
         actionRequired: rec.actionRequired !== false,
         recommendedAction: rec.recommendedAction ?? "reattempt",
         lastNdrFingerprint: fp,
+        lorrigoOrderId:
+          (rec.metadata?.lorrigoOrderId as string | undefined) ??
+          existing?.lorrigoOrderId ??
+          "",
         amount: rec.amount ?? existing?.amount,
       },
     },
@@ -168,11 +172,65 @@ export async function syncNdrFromLorrigo(opts?: {
     page += 1;
   }
 
+  try {
+    result.closed = await closeResolvedLorrigoNdrRecords();
+  } catch {
+    // Non-fatal
+  }
+
   console.info(
     `[lorrigo:ndr-sync] fetched=${result.fetched} upserted=${result.upserted} ` +
-      `dupes=${result.duplicatesSuppressed} ordersUpdated=${result.ordersUpdated} errors=${result.errors}`
+      `dupes=${result.duplicatesSuppressed} ordersUpdated=${result.ordersUpdated} ` +
+      `closed=${result.closed} errors=${result.errors}`
   );
   return result;
+}
+
+/**
+ * Close Lorrigo NDR records whose associated orders have moved to terminal statuses
+ * (delivered, rto_delivered, cancelled). Called after sync.
+ */
+export async function closeResolvedLorrigoNdrRecords(): Promise<number> {
+  const TERMINAL = ["delivered", "rto_delivered", "cancelled", "lost", "rto"];
+  const activeNdrs = await NDR.find({ courierProvider: "lorrigo", status: "Active" })
+    .select("awb orderId")
+    .lean();
+  if (!activeNdrs.length) return 0;
+
+  const awbs = activeNdrs.map((n) => n.awb).filter(Boolean);
+  const orderIds = activeNdrs.map((n) => n.orderId).filter(Boolean);
+
+  const resolvedOrders = await Order.find({
+    $or: [
+      { awb: { $in: awbs }, courierProvider: "lorrigo", status: { $in: TERMINAL } },
+      { orderId: { $in: orderIds }, courierProvider: "lorrigo", status: { $in: TERMINAL } },
+    ],
+  })
+    .select("awb trackingId orderId status")
+    .lean();
+
+  const resolvedAwbs = new Set<string>();
+  for (const o of resolvedOrders) {
+    if (o.awb) resolvedAwbs.add(String(o.awb));
+    if (o.trackingId) resolvedAwbs.add(String(o.trackingId));
+    if (o.orderId) {
+      const match = activeNdrs.find((n) => n.orderId === String(o.orderId));
+      if (match) resolvedAwbs.add(match.awb);
+    }
+  }
+
+  if (!resolvedAwbs.size) return 0;
+
+  const result = await NDR.updateMany(
+    { awb: { $in: [...resolvedAwbs] }, courierProvider: "lorrigo", status: { $ne: "Closed" } },
+    { $set: { status: "Closed", actionRequired: false, lastUpdate: formatLastUpdate(new Date()) } }
+  );
+
+  const closed = result.modifiedCount ?? 0;
+  if (closed > 0) {
+    console.info(`[lorrigo:ndr-sync] closed=${closed} resolved Lorrigo NDR records`);
+  }
+  return closed;
 }
 
 export function getLorrigoNdrSyncIntervalMs(): number {

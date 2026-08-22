@@ -507,6 +507,7 @@ export type NdrRow = {
   actionStatus?: string;
   actionMessage?: string;
   lastActionAt?: string;
+  actionHistory?: Array<{ action: string; status: string; message?: string; at: string }>;
 };
 
 export function useNdrOrders(opts?: { enabled?: boolean }) {
@@ -552,6 +553,9 @@ export function useNdrOrders(opts?: { enabled?: boolean }) {
           actionStatus: String(n.actionStatus ?? ""),
           actionMessage: String(n.actionMessage ?? ""),
           lastActionAt: String(n.lastActionAt ?? ""),
+          actionHistory: Array.isArray(n.actionHistory)
+            ? (n.actionHistory as Array<{ action: string; status: string; message?: string; at: string }>)
+            : [],
         };
       });
     },
