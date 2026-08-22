@@ -404,6 +404,21 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     }
     add("dateFrom", `From: ${af.dateFrom}`);
     add("dateTo", `To: ${af.dateTo}`);
+    if (af.dateType?.trim() && af.dateType !== "choose") {
+      const label =
+        af.dateType === "pickup"
+          ? "Pickup"
+          : af.dateType === "delivered"
+            ? "Delivered"
+            : af.dateType === "placed"
+              ? "Placed"
+              : af.dateType;
+      tags.push({
+        id: "dateType",
+        label: `Date type: ${label}`,
+        onRemove: () => setAdvancedFilters((p) => ({ ...p, dateType: undefined })),
+      });
+    }
     add("customerCity", `Customer city: ${af.customerCity}`);
     add("customerState", `Customer state: ${af.customerState}`);
     add("pickupCity", `Pickup city: ${af.pickupCity}`);
@@ -755,6 +770,36 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
               />
             </div>
             <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-primary/80 block mb-1">
+                  Date Type
+                </Label>
+                <Select
+                  value={advancedFilters.dateType?.trim() ? advancedFilters.dateType : "choose"}
+                  onValueChange={(v) =>
+                    setAdvancedFilters((p) => ({
+                      ...p,
+                      dateType:
+                        v === "choose"
+                          ? undefined
+                          : (v as "placed" | "pickup" | "delivered"),
+                    }))
+                  }
+                >
+                  <SelectTrigger
+                    className="h-9 w-[130px] text-sm border-secondary/25 bg-background/80"
+                    aria-label="Date type"
+                  >
+                    <SelectValue placeholder="Choose" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover text-popover-foreground">
+                    <SelectItem value="choose">Choose</SelectItem>
+                    <SelectItem value="placed">Placed</SelectItem>
+                    <SelectItem value="pickup">Pickup</SelectItem>
+                    <SelectItem value="delivered">Delivered</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div>
                 <Label className="text-[11px] font-semibold uppercase tracking-wide text-primary/80 block mb-1">From</Label>
                 <Input
@@ -1304,6 +1349,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           onMoveToReady={activeTab === "ready-to-ship" ? undefined : handleMoveToReady}
           onExport={handleExport}
           activeTab={activeTab}
+          dateType={advancedFilters.dateType}
           showProcessSelected={showProcessSelected}
           processSelectedDisabled={selected.size === 0 || !canProcessSelectedSelection}
           showBulkMoveToReady={showBulkMoveToReady}

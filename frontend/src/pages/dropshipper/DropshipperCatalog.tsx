@@ -79,7 +79,19 @@ export default function DropshipperCatalog() {
       ) : view === "grid" ? (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map((p) => (
-            <div key={p.id} className="rounded-xl border border-border bg-card overflow-hidden shadow-card flex flex-col">
+            <div
+              key={p.id}
+              role="link"
+              tabIndex={0}
+              className="rounded-xl border border-border bg-card overflow-hidden shadow-card flex flex-col cursor-pointer transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              onClick={() => navigate(`/dropshipper/home/product/${p.id}`)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate(`/dropshipper/home/product/${p.id}`);
+                }
+              }}
+            >
               <div className="aspect-square bg-muted relative overflow-hidden">
                 <ProductThumbnail
                   productId={p.id}
@@ -94,15 +106,27 @@ export default function DropshipperCatalog() {
               <div className="p-3 flex flex-col flex-1">
                 <p className="text-sm font-semibold line-clamp-2 text-text-primary">{p.name}</p>
                 <p className="text-lg font-bold text-primary mt-1">{formatProductPriceInr(getFinalProductPrice(p))}</p>
-                <p className="text-[11px] text-text-muted mt-0.5">Cost + shipping · {p.category || "General"}</p>
+                <p className="text-[11px] text-text-muted mt-0.5">{p.category || "General"}</p>
                 <div className="flex items-center gap-2 mt-2 text-xs text-text-muted">
                   <Package className="h-3 w-3" /> Stock: {p.stock}
                 </div>
                 <div className="grid grid-cols-2 gap-2 mt-3 mt-auto pt-2">
                   <Button size="sm" variant="outline" className="h-8 text-xs" asChild>
-                    <Link to={`/dropshipper/home/product/${p.id}`}><Eye className="h-3 w-3 mr-1" />View</Link>
+                    <Link
+                      to={`/dropshipper/home/product/${p.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Eye className="h-3 w-3 mr-1" />View
+                    </Link>
                   </Button>
-                  <Button size="sm" className="h-8 text-xs" onClick={() => navigate(`/dropshipper/create-order?product=${p.id}`)}>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/dropshipper/create-order?product=${p.id}`);
+                    }}
+                  >
                     <ShoppingBag className="h-3 w-3 mr-1" />Sell
                   </Button>
                 </div>
@@ -144,7 +168,7 @@ export default function DropshipperCatalog() {
       )}
 
       <p className={cn("text-xs text-text-muted")}>
-        Prices shown include product cost plus shipping. Pending vendor price changes are not visible until admin approval.
+        Pending vendor price changes are not visible until admin approval.
       </p>
     </div>
   );

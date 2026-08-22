@@ -152,6 +152,55 @@ describe("courierNameMatches", () => {
     expect(courierNameMatches("Delhivery Standard", "Delhivery Standard")).toBe(true);
     expect(courierNameMatches("Amazon Standard 250G", "Amazon Transportation")).toBe(true);
   });
+
+  it("matches BlueDart / Blue Dart to Bluedart Surface without hardcoding", () => {
+    expect(courierNameMatches("BlueDart", "Bluedart Surface")).toBe(true);
+    expect(courierNameMatches("Blue Dart", "Bluedart Surface")).toBe(true);
+    expect(courierNameMatches("Bluedart Surface", "BlueDart")).toBe(true);
+  });
+});
+
+describe("pickPriorityServiceableCourier Lorrigo Blue Dart", () => {
+  it("picks Lorrigo Bluedart Surface via fuzzy name when provider=lorrigo", () => {
+    const picked = pickPriorityServiceableCourier(
+      [{ courierName: "Blue Dart", provider: "lorrigo", rank: 1 }],
+      [
+        {
+          carrier_id: "bd-surface",
+          carrier_name: "Bluedart Surface",
+          provider: "lorrigo",
+        },
+        {
+          carrier_id: "dlv",
+          carrier_name: "Delhivery Spcl 500 gm",
+          provider: "lorrigo",
+        },
+      ]
+    );
+    expect(picked?.provider).toBe("lorrigo");
+    expect(picked?.carrier_id).toBe("bd-surface");
+  });
+
+  it("still prefers carrierId over fuzzy name for future couriers", () => {
+    const picked = pickPriorityServiceableCourier(
+      [
+        {
+          courierName: "New Courier Express",
+          carrierId: "new-c-1",
+          provider: "lorrigo",
+          rank: 1,
+        },
+      ],
+      [
+        {
+          carrier_id: "new-c-1",
+          carrier_name: "New Courier Express Plus",
+          provider: "lorrigo",
+        },
+      ]
+    );
+    expect(picked?.carrier_id).toBe("new-c-1");
+  });
 });
 
 describe("normalizeForwardOrderResponse AWB fields", () => {

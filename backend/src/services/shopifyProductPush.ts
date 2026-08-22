@@ -5,6 +5,7 @@ import { ShopifyStoreConnection } from "../models/ShopifyStoreConnection.js";
 import { AppError } from "../middleware/errorMiddleware.js";
 import { decrypt } from "../utils/crypto.js";
 import { getFinalProductPrice } from "../utils/productPricing.js";
+import { productImageUrl, type ProductImageValue } from "./cloudinary.service.js";
 import * as shopifyService from "./shopify.service.js";
 import type { ShopifyProductInput } from "./shopify.service.js";
 
@@ -31,32 +32,72 @@ function mimeToExtension(mime: string): string {
   return map[mime.toLowerCase().trim()] ?? "jpg";
 }
 
+function publicApiBase(): string {
+  return (
+    process.env.PUBLIC_BACKEND_URL?.trim() ||
+    process.env.API_PUBLIC_URL?.trim() ||
+    process.env.BACKEND_PUBLIC_URL?.trim() ||
+    ""
+  ).replace(/\/$/, "");
+}
+
+function extractImageSrc(raw: unknown): string {
+  if (typeof raw === "string") return raw.trim();
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return productImageUrl(raw as ProductImageValue)?.trim() ?? "";
+  }
+  return "";
+}
+
+function pushDataOrHttpImage(src: string, out: ShopifyImageObject[]): boolean {
+  if (src.startsWith("data:")) {
+    const match = src.match(/^data:([^;]+);base64,(.+)$/s);
+    if (match) {
+      const mime = match[1];
+      const base64Data = match[2].trim();
+      const ext = mimeToExtension(mime);
+      out.push({ attachment: base64Data, filename: `product-image.${ext}` });
+      return true;
+    }
+    return false;
+  }
+  if (/^https?:\/\//i.test(src)) {
+    out.push({ src });
+    return true;
+  }
+  return false;
+}
+
 /**
  * Convert product images into Shopify image objects.
- * - data: URLs → { attachment, filename } so Shopify stores them directly (no proxy needed)
- * - http(s) URLs → { src } for Shopify to fetch
+ * Supports string URLs, Cloudinary `{ publicId, secureUrl }` objects, data URLs,
+ * relative media paths, and a public image-proxy fallback so Shopify can fetch bytes.
  */
-export function resolveShopifyImages(rawImages: unknown): ShopifyImageObject[] {
+export function resolveShopifyImages(
+  rawImages: unknown,
+  opts?: { productId?: string }
+): ShopifyImageObject[] {
   if (!Array.isArray(rawImages)) return [];
   const out: ShopifyImageObject[] = [];
-  for (const raw of rawImages) {
-    const src = String(raw ?? "").trim();
-    if (!src) continue;
-    if (src.startsWith("data:")) {
-      const match = src.match(/^data:([^;]+);base64,(.+)$/s);
-      if (match) {
-        const mime = match[1];
-        const base64Data = match[2].trim();
-        const ext = mimeToExtension(mime);
-        out.push({ attachment: base64Data, filename: `product-image.${ext}` });
-      }
-      continue;
+  const base = publicApiBase();
+  const productId = opts?.productId?.trim();
+
+  rawImages.forEach((raw, index) => {
+    const src = extractImageSrc(raw);
+    if (src && pushDataOrHttpImage(src, out)) return;
+
+    if (src.startsWith("/") && base) {
+      out.push({ src: `${base}${src}` });
+      return;
     }
-    if (/^https?:\/\//i.test(src)) {
-      out.push({ src });
-      continue;
+
+    // Cloudinary/object images without a usable URL, or relative-only storage:
+    // expose via the public Shopify image proxy so Shopify can download them.
+    if (productId && base && (src || raw != null)) {
+      out.push({ src: `${base}/api/shopify/product-image/${productId}/${index}` });
     }
-  }
+  });
+
   return out;
 }
 
@@ -75,7 +116,9 @@ export function buildShopifyProductPayload(
   variantId?: string,
   _productId?: string
 ): ShopifyProductInput {
-  const images = resolveShopifyImages(product.images);
+  const images = resolveShopifyImages(product.images, {
+    productId: _productId ? String(_productId) : undefined,
+  });
   const tags = Array.isArray(product.tags) ? (product.tags as string[]).filter(Boolean).join(", ") : "";
   const description = String(
     product.long_description ??
@@ -196,7 +239,8 @@ export async function pushProductToShopifyStore(
   const payload = buildShopifyProductPayload(
     product as Record<string, unknown>,
     sellingPrice,
-    existing?.shopifyVariantId ?? undefined
+    existing?.shopifyVariantId ?? undefined,
+    String(product._id)
   );
 
   let shopifyProduct: shopifyService.ShopifyProductResult;

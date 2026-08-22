@@ -11,9 +11,19 @@ export function courierNameMatches(selected: string, velocityName: string): bool
   const b = velocityName.trim().toLowerCase();
   if (!a || !b) return false;
   if (a === b) return true;
+
+  const compact = (s: string) => s.replace(/[^a-z0-9]/g, "");
+  const ac = compact(a);
+  const bc = compact(b);
+  if (ac && bc && Math.min(ac.length, bc.length) >= 4) {
+    if (ac === bc || bc.startsWith(ac) || ac.startsWith(bc) || bc.includes(ac) || ac.includes(bc)) {
+      return true;
+    }
+  }
+
   const aToken = a.split(/\s+/)[0] ?? a;
   const bToken = b.split(/\s+/)[0] ?? b;
-  return b.includes(a) || a.includes(b) || bToken === aToken;
+  return b.includes(a) || a.includes(b) || bToken === aToken || compact(aToken) === compact(bToken);
 }
 
 export function carrierMatchesSelection(

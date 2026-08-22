@@ -681,6 +681,15 @@ export const AFTER_OUT_FOR_DELIVERY_MATCH_VALUES = variantsForKeys([
   "canceled",
 ]);
 
+/** Higher-priority / conflicting statuses that must not appear under Delivered. */
+export const AFTER_DELIVERED_MATCH_VALUES = variantsForKeys([
+  ...PROCESSING_FAILED_INTERNAL_KEYS,
+  ...NDR_INTERNAL_KEYS,
+  ...RTO_INTERNAL_KEYS,
+  "cancelled",
+  "canceled",
+]);
+
 export const AFTER_FAILED_MATCH_VALUES = variantsForKeys([
   ...DELIVERED_INTERNAL_KEYS,
   ...RTO_INTERNAL_KEYS,

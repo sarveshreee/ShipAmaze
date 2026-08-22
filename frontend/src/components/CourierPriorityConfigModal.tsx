@@ -39,6 +39,8 @@ import {
 
 } from "@/lib/velocityLaneCarriers";
 
+import { courierNameMatches } from "@/lib/orderServiceabilityFilter";
+
 
 
 const REFERENCE_DEST_PIN = "110001";
@@ -236,9 +238,9 @@ export function CourierPriorityConfigModal({
           }
 
           const byName = velocityItems.find(
-
-            (c) => c.carrier_name.toLowerCase() === p.courierName.toLowerCase()
-
+            (c) =>
+              c.carrier_name.toLowerCase() === p.courierName.toLowerCase() ||
+              courierNameMatches(p.courierName, c.carrier_name)
           );
 
           if (byName) {

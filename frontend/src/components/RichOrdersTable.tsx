@@ -244,14 +244,56 @@ function formatOrderTimestamp(date: Date | null): string {
   return formatOrderDateTime(date) || "—";
 }
 
-function orderTimestampForTab(order: Order, activeTab?: string): { label: string; date: Date | null } {
-  const tab = normalizeStatusKey(activeTab);
+function orderTimestampForTab(
+  order: Order,
+  activeTab?: string,
+  dateType?: "placed" | "pickup" | "delivered" | "choose"
+): { label: string; date: Date | null } {
   const createdAt = validDate(order.createdAt) ?? validDate(order.date) ?? validDate(order.updatedAt);
+
+  // Explicit Date Type filter overrides tab-implied timestamps so users can still
+  // see when an order was placed / picked up after later statuses overwrite the UI.
+  // "choose" (or unset) keeps the tab-default timeline.
+  if (dateType === "placed") {
+    return { label: "Placed", date: createdAt };
+  }
+  if (dateType === "pickup") {
+    // Prefer process/booking time first — status history keys vary by provider.
+    return {
+      label: "Pickup",
+      date:
+        validDate(order.assignedDateTime) ??
+        validDate(order.pickupDate) ??
+        latestStatusTime(order, [
+          "pending_pickup",
+          "pending-pickup",
+          "pickup_scheduled",
+          "pickup-scheduled",
+          "ready_for_pickup",
+          "not_picked",
+          "picked_up",
+          "picked-up",
+          "ready_to_ship",
+          "ready-to-ship",
+        ]) ??
+        validDate(order.movedToReadyAt) ??
+        null,
+    };
+  }
+  if (dateType === "delivered") {
+    return {
+      label: "Delivered",
+      date: latestStatusTime(order, ["delivered"]) ?? null,
+    };
+  }
+
+  const tab = normalizeStatusKey(activeTab);
 
   if (tab === "pending_pickup") {
     return {
       label: "Pending Pickup",
       date:
+        validDate(order.assignedDateTime) ??
         latestStatusTime(order, [
           "pending_pickup",
           "pending-pickup",
@@ -260,7 +302,6 @@ function orderTimestampForTab(order: Order, activeTab?: string): { label: string
           "ready_for_pickup",
           "not_picked",
         ]) ??
-        validDate(order.assignedDateTime) ??
         validDate(order.movedToReadyAt) ??
         createdAt,
     };
@@ -272,6 +313,7 @@ function orderTimestampForTab(order: Order, activeTab?: string): { label: string
       date:
         latestStatusTime(order, ["in_transit", "in-transit", "picked_up", "picked-up"]) ??
         validDate(order.pickupDate) ??
+        validDate(order.assignedDateTime) ??
         createdAt,
     };
   }
@@ -795,6 +837,8 @@ interface Props {
   /** Background refresh — keeps rows visible while new tab data loads. */
   isRefreshing?: boolean;
   activeTab?: string;
+  /** Override which event timestamp is shown / used for column date filters. "choose" = tab default. */
+  dateType?: "choose" | "placed" | "pickup" | "delivered";
   onToggleSidebar?: () => void;
   showProcessSelected?: boolean;
   /** When true, Process Selected is visible but disabled (e.g. selection includes non–Ready-to-Ship orders). */
@@ -815,7 +859,7 @@ interface Props {
     velocityWarehouseId?: string;
     carrier_id?: string | number | "";
     courier_name?: string;
-    provider?: "velocity" | "lorrigo";
+    provider?: "velocity" | "lorrigo" | "ekart";
   }) => Promise<{
     success: boolean;
     data: {
@@ -857,6 +901,7 @@ export function RichOrdersTable({
   loading,
   isRefreshing = false,
   activeTab,
+  dateType,
   onToggleSidebar,
   showProcessSelected = true,
   processSelectedDisabled = false,
@@ -1096,13 +1141,13 @@ export function RichOrdersTable({
     if (addressFilter.selectedCities.size > 0 && !addressFilter.selectedCities.has(pickupMeta.city)) return false;
     // Order Details filter
     if (orderDetailsFilter.dateFrom) {
-      const orderDate = orderTimestampForTab(o, activeTab).date;
+      const orderDate = orderTimestampForTab(o, activeTab, dateType).date;
       if (!orderDate) return false;
       const from = new Date(`${orderDetailsFilter.dateFrom}T00:00:00`);
       if (orderDate < from) return false;
     }
     if (orderDetailsFilter.dateTo) {
-      const orderDate = orderTimestampForTab(o, activeTab).date;
+      const orderDate = orderTimestampForTab(o, activeTab, dateType).date;
       if (!orderDate) return false;
       const to = new Date(`${orderDetailsFilter.dateTo}T23:59:59.999`);
       if (orderDate > to) return false;
@@ -2176,7 +2221,7 @@ export function RichOrdersTable({
             ) : filteredOrders.map(o => {
               const products = o.products || [];
               const orderEmail = (o as any).email || `${(o.customer || '').toLowerCase().replace(/\s/g, '')}@email.com`;
-              const orderTimestamp = orderTimestampForTab(o, activeTab);
+              const orderTimestamp = orderTimestampForTab(o, activeTab, dateType);
               const visibleOrderNumber = displayOrderNumber(o);
               const shopifyOrderLabel = displayShopifyOrderLabel(o);
               return (
@@ -2912,11 +2957,14 @@ export function RichOrdersTable({
                 }
                 const selectedPickup = warehouses.find((w) => w.id === selectedWarehouseId);
                 const courierPick = selectedCourierId || "";
-                let provider: "velocity" | "lorrigo" = "velocity";
+                let provider: "velocity" | "lorrigo" | "ekart" = "velocity";
                 let carrierRaw = courierPick;
                 if (courierPick.startsWith("lorrigo:")) {
                   provider = "lorrigo";
                   carrierRaw = courierPick.slice("lorrigo:".length);
+                } else if (courierPick.startsWith("ekart:")) {
+                  provider = "ekart";
+                  carrierRaw = courierPick.slice("ekart:".length);
                 } else if (courierPick.startsWith("velocity:")) {
                   provider = "velocity";
                   carrierRaw = courierPick.slice("velocity:".length);
@@ -2926,6 +2974,8 @@ export function RichOrdersTable({
                     toast.error("Selected pickup is not synced to Lorrigo");
                     return;
                   }
+                } else if (provider === "ekart") {
+                  // Ekart uses the same pickup record; booking validates provider-side.
                 } else if (!selectedPickup?.velocityWarehouseId?.trim()) {
                   toast.error(
                     showProviderBrand

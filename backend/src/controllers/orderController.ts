@@ -28,6 +28,14 @@ import { createInAppNotification } from "../services/inAppNotifications.js";
 import { orderWalletUserId } from "../services/walletLedger.js";
 import { orderCodCollectableAmount, resolveManualOrderPaymentFields } from "../services/normalizeOrderPayment.js";
 import { buildPickupSnapshotFromLean } from "../utils/pickupSnapshot.js";
+
+/** Newest processed first; fall back through ready/move/update/create times for unprocessed rows. */
+const ORDER_LIST_SORT = {
+  assignedDateTime: -1 as const,
+  movedToReadyAt: -1 as const,
+  updatedAt: -1 as const,
+  createdAt: -1 as const,
+};
 import { resolveVendorIdFromPickup } from "../utils/pickupVendor.js";
 import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
 import { devLog } from "../utils/devLog.js";
@@ -179,6 +187,7 @@ function mapOrder(o: {
   junkedAt?: Date;
   junkReason?: string;
   shipmentStatus?: string;
+  assignedDateTime?: Date;
   movedToReadyAt?: Date;
   customerEmail?: string;
   customerPhone?: string;
@@ -264,6 +273,12 @@ function mapOrder(o: {
     junkedAt: o.junkedAt,
     junkReason: o.junkReason,
     shipmentStatus: o.shipmentStatus,
+    assignedDateTime:
+      o.assignedDateTime instanceof Date
+        ? o.assignedDateTime.toISOString()
+        : o.assignedDateTime
+          ? String(o.assignedDateTime)
+          : undefined,
     movedToReadyAt: o.movedToReadyAt,
     customerEmail: o.customerEmail,
     customerPhone: o.customerPhone,
@@ -503,7 +518,7 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
     // Cap legacy list — full unbounded scan was a major perf hotspot (command palette / analytics)
     const rows = await Order.find(query)
       .select(ORDER_LIST_EXCLUDE)
-      .sort({ createdAt: -1 })
+      .sort(ORDER_LIST_SORT)
       .limit(500)
       .lean();
     res.json(rows.map((o) => mapOrder(o)));
@@ -557,7 +572,7 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
 
   const skip = (pq.page - 1) * pq.pageSize;
   const [rows, total] = await Promise.all([
-    Order.find(query).select(ORDER_LIST_EXCLUDE).sort({ createdAt: -1 }).skip(skip).limit(pq.pageSize).lean(),
+    Order.find(query).select(ORDER_LIST_EXCLUDE).sort(ORDER_LIST_SORT).skip(skip).limit(pq.pageSize).lean(),
     Order.countDocuments(query),
   ]);
 
@@ -601,7 +616,7 @@ export const listOrderIds = asyncHandler(async (req: AuthRequest, res: Response)
     Math.max(1, parseInt(String((req.query as { limit?: string }).limit ?? ORDER_IDS_MAX), 10) || ORDER_IDS_MAX)
   );
   const total = await Order.countDocuments(query);
-  const rows = await Order.find(query).sort({ createdAt: -1 }).select("orderId").limit(limit).lean();
+  const rows = await Order.find(query).sort(ORDER_LIST_SORT).select("orderId").limit(limit).lean();
   res.json({
     ids: rows.map((r) => String(r.orderId)),
     total,
@@ -669,7 +684,7 @@ export const exportOrdersCsv = asyncHandler(async (req: AuthRequest, res: Respon
 
   let count = 0;
   let truncated = false;
-  const cursor = Order.find(query).sort({ createdAt: -1 }).lean().cursor();
+  const cursor = Order.find(query).sort(ORDER_LIST_SORT).lean().cursor();
   for await (const o of cursor) {
     if (count >= ORDER_EXPORT_MAX_ROWS) {
       truncated = true;

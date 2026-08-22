@@ -13,15 +13,26 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Match user-facing name (e.g. "Ekart") to Velocity carrier label (e.g. "Ekart Standard"). */
+/** Match user-facing name (e.g. "Ekart", "Blue Dart") to provider labels (e.g. "Ekart Standard", "Bluedart Surface"). */
 export function courierNameMatches(selected: string, velocityName: string): boolean {
   const a = selected.trim().toLowerCase();
   const b = velocityName.trim().toLowerCase();
   if (!a || !b) return false;
   if (a === b) return true;
+
+  // Collapse spaces/punctuation so "Blue Dart" ↔ "BlueDart" ↔ "Bluedart Surface"
+  const compact = (s: string) => s.replace(/[^a-z0-9]/g, "");
+  const ac = compact(a);
+  const bc = compact(b);
+  if (ac && bc && Math.min(ac.length, bc.length) >= 4) {
+    if (ac === bc || bc.startsWith(ac) || ac.startsWith(bc) || bc.includes(ac) || ac.includes(bc)) {
+      return true;
+    }
+  }
+
   const aToken = a.split(/\s+/)[0] ?? a;
   const bToken = b.split(/\s+/)[0] ?? b;
-  return b.includes(a) || a.includes(b) || bToken === aToken;
+  return b.includes(a) || a.includes(b) || bToken === aToken || compact(aToken) === compact(bToken);
 }
 
 export function pickCarrierFromList(
@@ -276,12 +287,20 @@ export function pickPriorityServiceableCourier(
       );
     }
 
-    // Fuzzy name only within Velocity (legacy brand aliases). Never fuzzy-match Lorrigo→Velocity.
-    const velocityPool = poolForProvider(serviceable, "velocity");
-    if (!providerHint || providerHint === "velocity") {
-      const fuzzy = pickCarrierFromList(velocityPool as VelocityCarrier[], candidate.courierName);
-      const resolved = fuzzy ? carrierRowToResolved(fuzzy, candidate.courierName, "velocity") : undefined;
-      if (resolved) return resolved;
+    // Fuzzy name within the same provider pool so new Lorrigo/Ekart services
+    // (e.g. "Bluedart Surface") match priority entries like "BlueDart" / "Blue Dart"
+    // without hardcoding courier names. When no provider hint, keep Velocity-only
+    // fuzzy to avoid cross-provider false positives.
+    const fuzzyPool = providerHint
+      ? (pool as VelocityCarrier[])
+      : (poolForProvider(serviceable, "velocity") as VelocityCarrier[]);
+    const fuzzy = pickCarrierFromList(fuzzyPool, candidate.courierName);
+    if (fuzzy) {
+      return carrierRowToResolved(
+        fuzzy,
+        candidate.courierName,
+        providerHint ?? ("provider" in fuzzy ? (fuzzy as PriorityServiceableCourier).provider : undefined) ?? "velocity"
+      );
     }
   }
   return undefined;

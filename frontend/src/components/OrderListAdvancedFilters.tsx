@@ -51,6 +51,7 @@ const emptyDraft: OrderListFilterValues = {
   source: "",
   dateFrom: "",
   dateTo: "",
+  dateType: "choose",
   customerCity: "",
   customerState: "",
   pickupCity: "",
@@ -103,6 +104,7 @@ export function OrderListAdvancedFilters({
         source: value.source ?? "",
         dateFrom: value.dateFrom ?? "",
         dateTo: value.dateTo ?? "",
+        dateType: value.dateType ?? "choose",
         customerCity: value.customerCity ?? "",
         customerState: value.customerState ?? "",
         pickupCity: value.pickupCity ?? "",
@@ -124,7 +126,11 @@ export function OrderListAdvancedFilters({
   };
 
   const handleApply = () => {
-    onApply(draft);
+    const next: OrderListFilterValues = {
+      ...draft,
+      dateType: draft.dateType === "choose" || !draft.dateType ? undefined : draft.dateType,
+    };
+    onApply(next);
     onOpenChange(false);
   };
 
@@ -240,6 +246,29 @@ export function OrderListAdvancedFilters({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Date Type</Label>
+              <Select
+                value={draft.dateType || "choose"}
+                onValueChange={(v) =>
+                  setField(
+                    "dateType",
+                    (v === "choose" ? "choose" : v) as OrderListFilterValues["dateType"]
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="choose">Choose</SelectItem>
+                  <SelectItem value="placed">Placed</SelectItem>
+                  <SelectItem value="pickup">Pickup</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

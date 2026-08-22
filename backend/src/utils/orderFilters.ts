@@ -21,6 +21,7 @@ import {
   PROCESSING_FAILED_MATCH_VALUES,
   READY_TO_SHIP_MATCH_VALUES,
   RTO_MATCH_VALUES,
+  AFTER_DELIVERED_MATCH_VALUES,
 } from "./orderStatusClassifier.js";
 
 /** Role-scoped base filter (before junk/view/tab). */
@@ -222,7 +223,13 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
     };
   }
   if (t === "delivered") {
-    return { isJunk: { $ne: true }, ...statusOrShipmentStatusIn(DELIVERED_MATCH_VALUES) };
+    return {
+      isJunk: { $ne: true },
+      $and: [
+        statusOrShipmentStatusIn(DELIVERED_MATCH_VALUES),
+        neitherStatusNorShipmentStatusIn(AFTER_DELIVERED_MATCH_VALUES),
+      ],
+    };
   }
   if (t === "reship") {
     return { isJunk: { $ne: true }, status: "reship" };
@@ -342,6 +349,8 @@ export type ParsedOrderListQuery = {
   shipmentCreated?: "yes" | "no";
   dropshipperId?: string;
   vendorId?: string;
+  /** Which timestamp dateFrom/dateTo apply to: placed | pickup | delivered */
+  dateType?: "placed" | "pickup" | "delivered";
 };
 
 export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderListQuery {
@@ -384,6 +393,12 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
   const dateFrom = parseYmdStart(q.dateFrom ?? q.fromDate);
   const dateTo = parseYmdEnd(q.dateTo ?? q.toDate);
 
+  const dateTypeRaw = clip(String(q.dateType ?? ""), 20).toLowerCase();
+  const dateType =
+    dateTypeRaw === "pickup" || dateTypeRaw === "delivered" || dateTypeRaw === "placed"
+      ? (dateTypeRaw as "placed" | "pickup" | "delivered")
+      : undefined;
+
   return {
     page,
     pageSize,
@@ -395,6 +410,7 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
     fulfillment,
     dateFrom,
     dateTo,
+    dateType,
     tab,
     counts,
     customerCity,
@@ -493,7 +509,50 @@ export async function buildOrderListFiltersQuery(
     const range: Record<string, unknown> = {};
     if (pq.dateFrom) range.$gte = pq.dateFrom;
     if (pq.dateTo) range.$lte = pq.dateTo;
-    parts.push({ createdAt: range });
+    const dateType = pq.dateType ?? "placed";
+    if (dateType === "pickup") {
+      // Processed / pickup timeline — prefer assignedDateTime, then pickupDate / movedToReadyAt
+      parts.push({
+        $or: [
+          { assignedDateTime: range },
+          { pickupDate: range },
+          { movedToReadyAt: range },
+          {
+            statusHistory: {
+              $elemMatch: {
+                status: {
+                  $regex:
+                    /^(pending[_\s-]?pickup|pickup[_\s-]?scheduled|ready[_\s-]?for[_\s-]?pickup|picked[_\s-]?up)$/i,
+                },
+                at: range,
+              },
+            },
+          },
+        ],
+      });
+    } else if (dateType === "delivered") {
+      parts.push({
+        $or: [
+          {
+            statusHistory: {
+              $elemMatch: {
+                status: { $regex: /^delivered$/i },
+                at: range,
+              },
+            },
+          },
+          // Fallback when history is missing but order is currently delivered
+          {
+            $and: [
+              statusOrShipmentStatusIn(DELIVERED_MATCH_VALUES),
+              { updatedAt: range },
+            ],
+          },
+        ],
+      });
+    } else {
+      parts.push({ createdAt: range });
+    }
   }
   if (pq.customerCity) {
     const rx = new RegExp(escapeRegex(pq.customerCity), "i");

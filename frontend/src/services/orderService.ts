@@ -18,6 +18,8 @@ export type OrderListFilterValues = {
   source?: string;
   dateFrom?: string;
   dateTo?: string;
+  /** Which event timestamp dateFrom/dateTo (and timeline display) use. omit / choose = tab default */
+  dateType?: "choose" | "placed" | "pickup" | "delivered";
   customerCity?: string;
   customerState?: string;
   pickupCity?: string;
@@ -64,6 +66,9 @@ function buildQueryString(params: ListOrdersParams): string {
   if (params.fulfillment) sp.set("fulfillment", params.fulfillment);
   setIfTrim(sp, "dateFrom", params.dateFrom);
   setIfTrim(sp, "dateTo", params.dateTo);
+  if (params.dateType && params.dateType !== "choose") {
+    setIfTrim(sp, "dateType", params.dateType);
+  }
   if (params.tab) sp.set("tab", params.tab);
   if (params.counts) sp.set("counts", "1");
   setIfTrim(sp, "customerCity", params.customerCity);
