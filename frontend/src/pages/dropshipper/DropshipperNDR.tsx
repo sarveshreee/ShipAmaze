@@ -204,11 +204,21 @@ function NdrActionModal({
                   &ldquo;{ndr.customerRemarks}&rdquo;
                 </p>
               )}
-              <div className="mt-2 flex flex-wrap gap-3 text-xs text-text-muted">
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
                 <span>AWB: {ndr.awb}</span>
+                {ndr.orderId ? <span className="truncate max-w-[160px]">Order: {ndr.orderId}</span> : null}
+                {ndr.payment ? <span>{ndr.payment}</span> : null}
                 <span>Attempts: {ndr.attempts}</span>
-                {ndr.amount != null && <span>COD: {formatCurrency(ndr.amount)}</span>}
+                {ndr.amount != null && <span>Amount: {formatCurrency(ndr.amount)}</span>}
               </div>
+              {(ndr.address || ndr.city || ndr.pincode) && (
+                <p className="mt-1 text-[11px] text-text-muted leading-snug">
+                  {[ndr.address, ndr.city, ndr.state, ndr.pincode].filter(Boolean).join(", ")}
+                </p>
+              )}
+              {ndr.seller ? (
+                <p className="mt-1 text-[11px] text-text-muted">Seller: {ndr.seller}</p>
+              ) : null}
             </div>
           </DialogDescription>
         </DialogHeader>
@@ -335,6 +345,14 @@ function NdrCard({ ndr, onManage }: { ndr: NdrRow; onManage: (n: NdrRow) => void
               {ndr.phone}
             </a>
           )}
+          {(ndr.address || ndr.city || ndr.pincode) && (
+            <p className="mt-1 text-[11px] text-text-muted leading-snug line-clamp-2">
+              {[ndr.address, ndr.city, ndr.state, ndr.pincode].filter(Boolean).join(", ")}
+            </p>
+          )}
+          {ndr.seller ? (
+            <p className="mt-1 text-[11px] text-text-muted">Seller: {ndr.seller}</p>
+          ) : null}
         </div>
 
         <div className="flex flex-col items-end gap-1.5">
@@ -364,6 +382,7 @@ function NdrCard({ ndr, onManage }: { ndr: NdrRow; onManage: (n: NdrRow) => void
       {/* Meta */}
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
         <span>Attempt{ndr.attempts !== 1 ? "s" : ""}: <strong className="text-text-primary">{ndr.attempts}</strong></span>
+        {ndr.payment ? <span>{ndr.payment}</span> : null}
         <span>Updated: {ndr.lastUpdate}</span>
         {ndr.actionStatus === "provider_synced" && (
           <span className="flex items-center gap-1 text-success">
@@ -504,14 +523,19 @@ export default function DropshipperNDR() {
   const handleExport = () => {
     downloadCSV(
       "ndr_export",
-      ["AWB", "Order ID", "Customer", "Phone", "Courier", "Provider", "Reason", "Attempts", "Amount", "Status", "Last Update"],
+      ["AWB", "Order ID", "Customer", "Phone", "Address", "City", "Pincode", "Seller", "Courier", "Provider", "Payment", "Reason", "Attempts", "Amount", "Status", "Last Update"],
       filtered.map((n) => [
         n.awb,
         n.orderId ?? "",
         n.customer,
         n.phone,
+        n.address ?? "",
+        n.city ?? "",
+        n.pincode ?? "",
+        n.seller,
         n.carrier ?? "",
         n.courierProvider ?? "velocity",
+        n.payment ?? "",
         n.reason,
         n.attempts,
         n.amount ?? "",

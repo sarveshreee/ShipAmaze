@@ -204,9 +204,14 @@ function ActionModal({
             <span className="font-mono text-sm font-normal text-text-muted">{ndr.awb}</span>
           </DialogTitle>
           <DialogDescription asChild>
-            <div className="mt-2 rounded-lg border border-border bg-surface-2/50 p-3 text-left">
+            <div className="mt-2 rounded-lg border border-border bg-surface-2/50 p-3 text-left space-y-2">
               <div className="flex items-start justify-between gap-4">
                 <div>
+                  {ndr.orderId ? (
+                    <p className="font-mono text-[11px] text-text-muted truncate max-w-[220px]" title={ndr.orderId}>
+                      {ndr.orderId}
+                    </p>
+                  ) : null}
                   <p className="font-medium text-text-primary">{ndr.customer || "—"}</p>
                   {ndr.phone && (
                     <a
@@ -239,14 +244,21 @@ function ActionModal({
                   </p>
                 </div>
               </div>
+              {(ndr.address || ndr.city || ndr.pincode) && (
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  {[ndr.address, ndr.city, ndr.state, ndr.pincode].filter(Boolean).join(", ")}
+                </p>
+              )}
               {ndr.customerRemarks && (
-                <p className="mt-2 text-xs text-text-secondary italic">
+                <p className="text-xs text-text-secondary italic">
                   &ldquo;{ndr.customerRemarks}&rdquo;
                 </p>
               )}
-              <div className="mt-2 flex gap-4 text-xs text-text-muted">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+                {ndr.seller ? <span>Seller: {ndr.seller}</span> : null}
+                {ndr.payment ? <span>{ndr.payment}</span> : null}
                 <span>Attempts: {ndr.attempts}</span>
-                {ndr.amount != null && <span>COD: {formatCurrency(ndr.amount)}</span>}
+                {ndr.amount != null && <span>Amount: {formatCurrency(ndr.amount)}</span>}
                 <span>Updated: {ndr.lastUpdate}</span>
               </div>
             </div>
@@ -428,7 +440,7 @@ export default function AdminNDR() {
     if (providerFilter !== "all" && n.courierProvider !== providerFilter) return false;
     const q = search.trim().toLowerCase();
     if (!q) return true;
-    return [n.awb, n.customer, n.phone, n.seller, n.reason, n.nextAction, n.orderId, n.carrier]
+    return [n.awb, n.customer, n.phone, n.seller, n.reason, n.nextAction, n.orderId, n.carrier, n.address, n.city, n.pincode]
       .some((v) => String(v ?? "").toLowerCase().includes(q));
   });
 
@@ -442,9 +454,14 @@ export default function AdminNDR() {
         "AWB",
         "Customer",
         "Phone",
+        "Address",
+        "City",
+        "State",
+        "Pincode",
         "Seller",
         "Courier",
         "Provider",
+        "Payment",
         "Reason",
         "Customer Remarks",
         "Attempts",
@@ -458,9 +475,14 @@ export default function AdminNDR() {
         n.awb,
         n.customer,
         n.phone,
+        n.address ?? "",
+        n.city ?? "",
+        n.state ?? "",
+        n.pincode ?? "",
         n.seller,
         n.carrier ?? "",
         n.courierProvider ?? "velocity",
+        n.payment ?? "",
         n.reason,
         n.customerRemarks ?? "",
         n.attempts,
@@ -621,7 +643,7 @@ export default function AdminNDR() {
                   Order / AWB
                 </th>
                 <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  Customer
+                  Customer / Address
                 </th>
                 <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-text-muted">
                   Courier
@@ -633,7 +655,7 @@ export default function AdminNDR() {
                   Attempts
                 </th>
                 <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  Amount
+                  Payment
                 </th>
                 <th className="p-3 text-left text-xs font-semibold uppercase tracking-wide text-text-muted">
                   Last Update
@@ -653,19 +675,21 @@ export default function AdminNDR() {
                   <td className="p-3">
                     {n.orderId ? (
                       <p
-                        className="font-mono text-[11px] text-text-secondary truncate max-w-[140px]"
+                        className="font-mono text-[11px] text-text-secondary truncate max-w-[160px]"
                         title={n.orderId}
                       >
                         {n.orderId}
                       </p>
-                    ) : null}
+                    ) : (
+                      <p className="text-[11px] text-text-muted">No order id</p>
+                    )}
                     <p className="font-mono text-xs font-medium text-primary">{n.awb}</p>
                     {n.seller ? (
-                      <p className="mt-0.5 text-[11px] text-text-muted">{n.seller}</p>
+                      <p className="mt-0.5 text-[11px] text-text-muted">Seller: {n.seller}</p>
                     ) : null}
                   </td>
 
-                  {/* Customer */}
+                  {/* Customer / Address */}
                   <td className="p-3">
                     <p className="font-medium text-text-primary">{n.customer || "—"}</p>
                     {n.phone ? (
@@ -676,7 +700,17 @@ export default function AdminNDR() {
                         <Phone className="h-3 w-3" />
                         {n.phone}
                       </a>
-                    ) : null}
+                    ) : (
+                      <p className="text-[11px] text-text-muted">No phone</p>
+                    )}
+                    {(n.address || n.city || n.pincode) && (
+                      <p
+                        className="mt-1 max-w-[220px] text-[11px] text-text-muted leading-snug line-clamp-2"
+                        title={[n.address, n.city, n.state, n.pincode].filter(Boolean).join(", ")}
+                      >
+                        {[n.address, n.city, n.state, n.pincode].filter(Boolean).join(", ")}
+                      </p>
+                    )}
                   </td>
 
                   {/* Courier */}
@@ -726,8 +760,11 @@ export default function AdminNDR() {
                     </span>
                   </td>
 
-                  {/* Amount */}
+                  {/* Payment / Amount */}
                   <td className="p-3 text-text-secondary">
+                    {n.payment ? (
+                      <p className="text-xs font-medium text-text-primary">{n.payment}</p>
+                    ) : null}
                     {formatCurrency(n.amount) ?? (
                       <span className="text-text-muted">—</span>
                     )}

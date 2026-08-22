@@ -4,13 +4,15 @@
 
 import { createHash } from "crypto";
 import { NDR } from "../../models/NDR.js";
-import { Order } from "../../models/Order.js";
+import { Order, type IOrder } from "../../models/Order.js";
+import { Vendor } from "../../models/Vendor.js";
 import { appendProviderEvent } from "../courier/providerEvents.js";
 import { ensureCorrelationId } from "../courier/correlation.js";
 import type { ProviderNdrRecord } from "../courier/types.js";
 import { fetchLorrigoNdr } from "./lorrigo.ndr.js";
 import { recordNdrDuplicateSuppressed } from "./lorrigo.ndrMetrics.js";
 import { isLorrigoConfigured, isLorrigoEnabledFlag } from "./lorrigo.config.js";
+import type { HydratedDocument } from "mongoose";
 
 export type LorrigoNdrSyncResult = {
   fetched: number;
@@ -31,6 +33,61 @@ function fingerprint(rec: ProviderNdrRecord): string {
   return createHash("sha1").update(raw).digest("hex").slice(0, 16);
 }
 
+function metaStr(meta: Record<string, unknown> | undefined, key: string): string {
+  const v = meta?.[key];
+  return typeof v === "string" && v.trim() ? v.trim() : "";
+}
+
+async function findLocalOrderForLorrigoNdr(
+  awb: string,
+  rec: ProviderNdrRecord
+): Promise<HydratedDocument<IOrder> | null> {
+  const lorrigoOrderId = metaStr(rec.metadata as Record<string, unknown> | undefined, "lorrigoOrderId");
+  const or: Record<string, unknown>[] = [{ awb }, { trackingId: awb }];
+  if (rec.orderId) or.push({ orderId: rec.orderId });
+  if (lorrigoOrderId) or.push({ lorrigoOrderId });
+
+  // Prefer Lorrigo-tagged orders, but fall back to any AWB match (older rows may lack provider).
+  const preferred = await Order.findOne({ $or: or, courierProvider: "lorrigo" });
+  if (preferred) return preferred;
+  return Order.findOne({ $or: or });
+}
+
+async function resolveSellerFromOrder(order: HydratedDocument<IOrder> | null): Promise<string> {
+  if (!order) return "";
+  if (order.vendorId) {
+    const vendor = await Vendor.findById(order.vendorId).select("name").lean();
+    if (vendor?.name) return String(vendor.name);
+  }
+  const pickup = order.pickupAddress;
+  if (pickup && typeof pickup === "object" && pickup.label) return String(pickup.label);
+  return String(order.channel ?? order.shopifyStoreName ?? "").trim();
+}
+
+function orderAddressParts(order: HydratedDocument<IOrder> | null) {
+  if (!order) {
+    return { address: "", city: "", state: "", pincode: "", payment: "" };
+  }
+  return {
+    address: String(order.shippingAddress1 || order.address || "").trim(),
+    city: String(order.shippingCity || order.city || "").trim(),
+    state: String(order.shippingState || order.state || "").trim(),
+    pincode: String(order.shippingPincode || order.pincode || "").trim(),
+    payment: String(order.payment || "").trim(),
+  };
+}
+
+/**
+ * Prefer provider values, then existing NDR, then local ShipAmaze order.
+ */
+function prefer(...vals: Array<string | undefined | null>): string {
+  for (const v of vals) {
+    const s = String(v ?? "").trim();
+    if (s) return s;
+  }
+  return "";
+}
+
 export async function upsertNdrFromLorrigoRecord(
   rec: ProviderNdrRecord
 ): Promise<{ upserted: boolean; duplicate: boolean; orderUpdated: boolean }> {
@@ -39,49 +96,88 @@ export async function upsertNdrFromLorrigoRecord(
 
   const fp = fingerprint(rec);
   const existing = await NDR.findOne({ awb });
-  if (existing && existing.lastNdrFingerprint === fp && existing.status === "Active") {
+  const order = await findLocalOrderForLorrigoNdr(awb, rec);
+  const meta = (rec.metadata ?? {}) as Record<string, unknown>;
+  const fromOrder = orderAddressParts(order);
+  const seller = await resolveSellerFromOrder(order);
+
+  const customer = prefer(rec.customerName, existing?.customer, order?.customer);
+  const phone = prefer(rec.phone, existing?.phone, order?.phone, order?.customerPhone);
+  const orderId = prefer(rec.orderId, existing?.orderId, order?.orderId);
+  const address = prefer(metaStr(meta, "address"), existing?.address, fromOrder.address);
+  const city = prefer(metaStr(meta, "city"), existing?.city, fromOrder.city);
+  const state = prefer(metaStr(meta, "state"), existing?.state, fromOrder.state);
+  const pincode = prefer(metaStr(meta, "pincode"), existing?.pincode, fromOrder.pincode);
+  const payment = prefer(existing?.payment, fromOrder.payment);
+  const amount =
+    rec.amount ??
+    existing?.amount ??
+    (order && Number.isFinite(Number(order.amount)) ? Number(order.amount) : undefined);
+  const carrier = prefer(rec.carrier, existing?.carrier, order?.courierName, order?.courier);
+  const lorrigoOrderId = prefer(
+    metaStr(meta, "lorrigoOrderId"),
+    existing?.lorrigoOrderId,
+    order?.lorrigoOrderId
+  );
+
+  // Same fingerprint + already Active: skip full rewrite unless we can fill missing details.
+  const needsEnrichment =
+    !customer ||
+    !phone ||
+    !orderId ||
+    !address ||
+    !(existing?.seller ?? "").trim() ||
+    !(existing?.lorrigoOrderId ?? "").trim();
+
+  if (existing && existing.lastNdrFingerprint === fp && existing.status === "Active" && !needsEnrichment) {
     recordNdrDuplicateSuppressed();
     return { upserted: false, duplicate: true, orderUpdated: false };
   }
 
   const now = new Date();
+  const preserveStatus =
+    existing?.status === "Initiated" || existing?.status === "Closed" ? existing.status : "Active";
+
   await NDR.findOneAndUpdate(
     { awb },
     {
       $set: {
         awb,
-        customer: rec.customerName ?? existing?.customer ?? "",
-        seller: existing?.seller ?? "",
-        reason: rec.reason,
+        customer,
+        seller: prefer(seller, existing?.seller),
+        reason: rec.reason || existing?.reason || "NDR",
         attempts: rec.attempts ?? existing?.attempts ?? 1,
         lastUpdate: formatLastUpdate(now),
-        status: existing?.status === "Initiated" ? "Initiated" : "Active",
-        phone: rec.phone ?? existing?.phone ?? "",
-        nextAction: rec.recommendedAction === "return" ? "Force RTO" : "Re-attempt",
-        orderId: rec.orderId ?? existing?.orderId ?? "",
-        carrier: rec.carrier ?? existing?.carrier ?? "",
+        status: preserveStatus,
+        phone,
+        nextAction:
+          existing?.status === "Initiated"
+            ? existing.nextAction
+            : rec.recommendedAction === "return"
+              ? "Force RTO"
+              : "Re-attempt",
+        orderId,
+        carrier,
         courierProvider: "lorrigo",
         providerStatus: rec.providerStatus ?? "NDR",
         velocityStatus: rec.providerStatus ?? "NDR",
-        customerRemarks: rec.customerRemarks ?? "",
+        customerRemarks: prefer(rec.customerRemarks, existing?.customerRemarks),
         actionRequired: rec.actionRequired !== false,
-        recommendedAction: rec.recommendedAction ?? "reattempt",
+        recommendedAction: rec.recommendedAction ?? existing?.recommendedAction ?? "reattempt",
         lastNdrFingerprint: fp,
-        lorrigoOrderId:
-          (rec.metadata?.lorrigoOrderId as string | undefined) ??
-          existing?.lorrigoOrderId ??
-          "",
-        amount: rec.amount ?? existing?.amount,
+        lorrigoOrderId,
+        address,
+        city,
+        state,
+        pincode,
+        payment,
+        amount,
       },
     },
     { upsert: true, new: true }
   );
 
   let orderUpdated = false;
-  const order = await Order.findOne({
-    $or: [{ awb }, { trackingId: awb }, { orderId: rec.orderId }],
-    courierProvider: "lorrigo",
-  });
   if (order) {
     const correlationId = ensureCorrelationId(order);
     const isDupEvent =
@@ -108,10 +204,9 @@ export async function upsertNdrFromLorrigoRecord(
 
     if (order.status !== "ndr") {
       const prev = order.statusHistory ?? [];
-      order.statusHistory = [
-        ...prev,
-        { status: "ndr", at: now, note: "lorrigo_ndr_sync" },
-      ].slice(-50);
+      order.statusHistory = [...prev, { status: "ndr", at: now, note: "lorrigo_ndr_sync" }].slice(
+        -50
+      );
       order.status = "ndr";
       order.shipmentStatus = rec.providerStatus ?? "NDR";
       orderUpdated = true;

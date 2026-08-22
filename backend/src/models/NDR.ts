@@ -27,6 +27,13 @@ export interface INDR extends Document {
   lastNdrFingerprint?: string;
   /** Lorrigo internal order id — used as ndrId when submitting NDR actions. */
   lorrigoOrderId?: string;
+  /** Delivery address snapshot (from linked ShipAmaze order). */
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  /** Payment mode: COD / Prepaid */
+  payment?: string;
   /** Order value / COD amount */
   amount?: number;
   actionStatus?: string;
@@ -61,6 +68,11 @@ const ndrSchema = new Schema<INDR>(
     recommendedAction: { type: String, default: "" },
     lastNdrFingerprint: { type: String, default: "" },
     lorrigoOrderId: { type: String, default: "" },
+    address: { type: String, default: "" },
+    city: { type: String, default: "" },
+    state: { type: String, default: "" },
+    pincode: { type: String, default: "" },
+    payment: { type: String, default: "" },
     amount: { type: Number },
     actionStatus: { type: String, default: "" },
     actionMessage: { type: String, default: "" },

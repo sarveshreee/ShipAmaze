@@ -52,26 +52,50 @@ function extractOrderRows(raw: unknown): Record<string, unknown>[] {
 
 export function mapLorrigoOrderToNdrRecord(row: Record<string, unknown>): ProviderNdrRecord | null {
   const shipment = asRecord(row.shipment) ?? asRecord(row.Shipment) ?? {};
-  const delivery = asRecord(row.deliveryDetails) ?? asRecord(row.delivery) ?? {};
+  const delivery =
+    asRecord(row.deliveryDetails) ??
+    asRecord(row.delivery) ??
+    asRecord(row.consignee) ??
+    asRecord(row.shippingAddress) ??
+    asRecord(row.customer) ??
+    asRecord(shipment.deliveryDetails) ??
+    asRecord(shipment.consignee) ??
+    {};
+  const customerObj = asRecord(row.customer) ?? {};
   const awb =
     pickString(row, ["awb", "awbNumber", "awb_code", "trackingId", "trackingNumber"]) ??
     pickString(shipment, ["awb", "awbNumber", "trackingId"]);
   if (!awb) return null;
 
   const reason =
-    pickString(row, ["ndrReason", "reason", "failureReason", "undeliveredReason"]) ??
-    pickString(shipment, ["ndrReason", "reason"]) ??
+    pickString(row, ["ndrReason", "ndr_reason", "reason", "failureReason", "undeliveredReason", "failure_reason"]) ??
+    pickString(shipment, ["ndrReason", "ndr_reason", "reason", "failureReason"]) ??
     "NDR";
   const providerStatus =
-    pickString(row, ["status", "orderStatus", "shipmentStatus"]) ??
+    pickString(row, ["status", "orderStatus", "shipmentStatus", "ndrStatus"]) ??
     pickString(shipment, ["status"]) ??
     "NDR";
-  const customerRemarks = pickString(row, [
-    "customerRemarks",
-    "customerRemark",
-    "remarks",
-    "comment",
-  ]);
+  const customerRemarks =
+    pickString(row, [
+      "customerRemarks",
+      "customerRemark",
+      "customer_remarks",
+      "remarks",
+      "comment",
+      "ndrRemark",
+      "ndrRemarks",
+    ]) ??
+    pickString(shipment, ["customerRemarks", "remarks", "comment"]);
+
+  const customerName =
+    pickString(delivery, ["fullName", "name", "customerName", "consigneeName", "recipientName"]) ??
+    pickString(customerObj, ["fullName", "name", "customerName"]) ??
+    pickString(row, ["customerName", "customer", "consigneeName", "buyerName"]);
+
+  const phone =
+    pickString(delivery, ["mobileNumber", "phone", "mobile", "phoneNumber", "contactNumber"]) ??
+    pickString(customerObj, ["mobileNumber", "phone", "mobile"]) ??
+    pickString(row, ["phone", "mobile", "mobileNumber", "customerPhone"]);
 
   return {
     provider: "lorrigo",
@@ -81,24 +105,30 @@ export function mapLorrigoOrderToNdrRecord(row: Record<string, unknown>): Provid
     recommendedAction: "reattempt",
     providerStatus,
     customerRemarks,
-    customerName:
-      pickString(delivery, ["fullName", "name", "customerName"]) ??
-      pickString(row, ["customerName", "customer"]),
-    phone:
-      pickString(delivery, ["mobileNumber", "phone", "mobile"]) ??
-      pickString(row, ["phone", "mobile"]),
-    orderId: pickString(row, ["orderId", "order_id", "merchantOrderId"]),
-    carrier: pickString(row, ["courierName", "courier_name", "courier"]),
+    customerName,
+    phone,
+    orderId: pickString(row, ["orderId", "order_id", "merchantOrderId", "referenceId", "channelOrderId"]),
+    carrier:
+      pickString(row, ["courierName", "courier_name", "courier"]) ??
+      pickString(shipment, ["courierName", "courier"]),
     amount: (() => {
-      const n = Number(row.amountToCollect ?? row.subTotal ?? row.amount);
+      const n = Number(row.amountToCollect ?? row.subTotal ?? row.amount ?? row.codAmount);
       return Number.isFinite(n) ? n : undefined;
     })(),
     attempts: (() => {
-      const n = Number(row.attempts ?? row.ndrAttempts ?? 1);
+      const n = Number(row.attempts ?? row.ndrAttempts ?? row.attemptCount ?? 1);
       return Number.isFinite(n) && n > 0 ? n : 1;
     })(),
     metadata: {
-      lorrigoOrderId: pickString(row, ["id", "_id", "orderId"]),
+      lorrigoOrderId: pickString(row, ["id", "_id"]) ?? pickString(row, ["orderId"]),
+      address:
+        pickString(delivery, ["address", "address1", "addressLine1", "fullAddress"]) ??
+        pickString(row, ["address", "shippingAddress"]),
+      city: pickString(delivery, ["city", "district"]) ?? pickString(row, ["city"]),
+      state: pickString(delivery, ["state"]) ?? pickString(row, ["state"]),
+      pincode:
+        pickString(delivery, ["pincode", "pinCode", "zip", "postalCode"]) ??
+        pickString(row, ["pincode", "pinCode"]),
       rawKeys: Object.keys(row).slice(0, 20),
     },
   };

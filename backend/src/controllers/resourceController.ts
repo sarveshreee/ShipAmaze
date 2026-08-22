@@ -1099,21 +1099,104 @@ export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
     q = { awb: { $in: awbs } };
   }
   const rows = await NDR.find(q).sort({ updatedAt: -1, createdAt: -1 }).lean();
+
+  // Enrich incomplete NDR rows from local ShipAmaze orders (Lorrigo often omits customer).
+  const awbs = rows.map((n) => String(n.awb ?? "").trim()).filter(Boolean);
+  const orderIds = rows.map((n) => String(n.orderId ?? "").trim()).filter(Boolean);
+  const linkedOrders =
+    awbs.length === 0
+      ? []
+      : await Order.find({
+          $or: [
+            { awb: { $in: awbs } },
+            { trackingId: { $in: awbs } },
+            ...(orderIds.length ? [{ orderId: { $in: orderIds } }] : []),
+          ],
+        })
+          .select(
+            "orderId awb trackingId customer phone customerPhone address city state pincode shippingAddress1 shippingCity shippingState shippingPincode payment amount courier courierName channel shopifyStoreName vendorId pickupAddress"
+          )
+          .lean();
+
+  const orderByAwb = new Map<string, (typeof linkedOrders)[number]>();
+  const orderByOrderId = new Map<string, (typeof linkedOrders)[number]>();
+  for (const o of linkedOrders) {
+    if (o.awb) orderByAwb.set(String(o.awb).trim(), o);
+    if (o.trackingId) orderByAwb.set(String(o.trackingId).trim(), o);
+    if (o.orderId) orderByOrderId.set(String(o.orderId).trim(), o);
+  }
+
+  const vendorIds = [
+    ...new Set(
+      linkedOrders
+        .map((o) => (o.vendorId ? String(o.vendorId) : ""))
+        .filter(Boolean)
+    ),
+  ];
+  const vendors =
+    vendorIds.length === 0
+      ? []
+      : await Vendor.find({ _id: { $in: vendorIds } }).select("name").lean();
+  const vendorNameById = new Map(vendors.map((v) => [String(v._id), String(v.name ?? "")]));
+
+  const pick = (...vals: Array<string | undefined | null>) => {
+    for (const v of vals) {
+      const s = String(v ?? "").trim();
+      if (s) return s;
+    }
+    return "";
+  };
+
   res.json(
     rows.map((n) => {
       const courierProvider = resolveNdrProviderId(n.courierProvider);
+      const order =
+        orderByAwb.get(String(n.awb ?? "").trim()) ??
+        (n.orderId ? orderByOrderId.get(String(n.orderId).trim()) : undefined);
+
+      const pickupLabel =
+        order?.pickupAddress && typeof order.pickupAddress === "object"
+          ? String((order.pickupAddress as { label?: string }).label ?? "")
+          : "";
+      const seller = pick(
+        n.seller,
+        order?.vendorId ? vendorNameById.get(String(order.vendorId)) : "",
+        pickupLabel,
+        order?.shopifyStoreName,
+        order?.channel
+      );
+      const customer = pick(n.customer, order?.customer);
+      const phone = pick(n.phone, order?.phone, order?.customerPhone);
+      const address = pick(
+        n.address,
+        order?.shippingAddress1,
+        order?.address
+      );
+      const city = pick(n.city, order?.shippingCity, order?.city);
+      const state = pick(n.state, order?.shippingState, order?.state);
+      const pincode = pick(n.pincode, order?.shippingPincode, order?.pincode);
+      const payment = pick(n.payment, order?.payment);
+      const orderId = pick(n.orderId, order?.orderId);
+      const carrier = pick(n.carrier, order?.courierName, order?.courier);
+      const amount =
+        n.amount != null && Number.isFinite(Number(n.amount))
+          ? Number(n.amount)
+          : order?.amount != null && Number.isFinite(Number(order.amount))
+            ? Number(order.amount)
+            : undefined;
+
       return {
         awb: n.awb,
-        customer: n.customer,
-        seller: n.seller,
+        customer,
+        seller,
         reason: n.reason,
         attempts: n.attempts,
         lastUpdate: n.lastUpdate,
         status: n.status,
-        phone: n.phone,
+        phone,
         nextAction: n.nextAction,
-        orderId: n.orderId ?? "",
-        carrier: n.carrier ?? "",
+        orderId,
+        carrier,
         velocityStatus: n.velocityStatus ?? "",
         courierProvider,
         providerStatus: n.providerStatus ?? n.velocityStatus ?? "",
@@ -1121,7 +1204,12 @@ export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
         actionRequired: n.actionRequired !== false,
         recommendedAction: n.recommendedAction ?? "",
         supportedActions: supportedNdrActions(courierProvider),
-        amount: n.amount,
+        amount,
+        address,
+        city,
+        state,
+        pincode,
+        payment,
         actionStatus: n.actionStatus ?? "",
         actionMessage: n.actionMessage ?? "",
         lastActionAt: n.lastActionAt,

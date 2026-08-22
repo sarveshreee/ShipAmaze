@@ -504,6 +504,11 @@ export type NdrRow = {
   recommendedAction?: string;
   supportedActions?: Array<"reattempt" | "return" | "fake-attempt">;
   amount?: number;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  payment?: string;
   actionStatus?: string;
   actionMessage?: string;
   lastActionAt?: string;
@@ -550,6 +555,11 @@ export function useNdrOrders(opts?: { enabled?: boolean }) {
                 ? (["reattempt", "return", "fake-attempt"] as Array<"reattempt" | "return" | "fake-attempt">)
                 : (["reattempt", "return"] as Array<"reattempt" | "return" | "fake-attempt">),
           amount: n.amount != null ? Number(n.amount) : undefined,
+          address: String(n.address ?? ""),
+          city: String(n.city ?? ""),
+          state: String(n.state ?? ""),
+          pincode: String(n.pincode ?? ""),
+          payment: String(n.payment ?? ""),
           actionStatus: String(n.actionStatus ?? ""),
           actionMessage: String(n.actionMessage ?? ""),
           lastActionAt: String(n.lastActionAt ?? ""),
