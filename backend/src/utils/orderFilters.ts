@@ -510,19 +510,35 @@ export async function buildOrderListFiltersQuery(
     if (pq.dateFrom) range.$gte = pq.dateFrom;
     if (pq.dateTo) range.$lte = pq.dateTo;
     const dateType = pq.dateType ?? "placed";
-    if (dateType === "pickup") {
-      // Processed / pickup timeline — prefer assignedDateTime, then pickupDate / movedToReadyAt
+    if (dateType === "placed") {
+      // First process / AWB generation time
       parts.push({
         $or: [
           { assignedDateTime: range },
-          { pickupDate: range },
           { movedToReadyAt: range },
           {
             statusHistory: {
               $elemMatch: {
                 status: {
                   $regex:
-                    /^(pending[_\s-]?pickup|pickup[_\s-]?scheduled|ready[_\s-]?for[_\s-]?pickup|picked[_\s-]?up)$/i,
+                    /^(pending[_\s-]?pickup|shipment[_\s-]?booked|pickup[_\s-]?scheduled|ready[_\s-]?for[_\s-]?pickup)$/i,
+                },
+                at: range,
+              },
+            },
+          },
+        ],
+      });
+    } else if (dateType === "pickup") {
+      // Actual courier pick-up time (not process/AWB time)
+      parts.push({
+        $or: [
+          { pickupDate: range },
+          {
+            statusHistory: {
+              $elemMatch: {
+                status: {
+                  $regex: /^(picked[_\s-]?up|in[_\s-]?transit)$/i,
                 },
                 at: range,
               },

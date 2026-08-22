@@ -240,6 +240,44 @@ function latestStatusTime(order: Order, statuses: string[]): Date | null {
   return matches.reduce((latest, date) => (date > latest ? date : latest), matches[0]);
 }
 
+function earliestStatusTime(order: Order, statuses: string[]): Date | null {
+  const wanted = new Set(statuses.map(normalizeStatusKey));
+  const matches = (order.statusHistory ?? [])
+    .filter((event) => wanted.has(normalizeStatusKey(event.status)))
+    .map((event) => validDate(event.at))
+    .filter((date): date is Date => Boolean(date));
+  if (matches.length === 0) return null;
+  return matches.reduce((earliest, date) => (date < earliest ? date : earliest), matches[0]);
+}
+
+/** First process / AWB generation time (Date Type → Placed). */
+function orderProcessedAt(order: Order): Date | null {
+  return (
+    validDate(order.assignedDateTime) ??
+    earliestStatusTime(order, [
+      "pending_pickup",
+      "pending-pickup",
+      "shipment_booked",
+      "pickup_scheduled",
+      "pickup-scheduled",
+      "ready_for_pickup",
+    ]) ??
+    validDate(order.movedToReadyAt) ??
+    null
+  );
+}
+
+/** Actual courier pick-up time (Date Type → Pickup). */
+function orderPickedUpAt(order: Order): Date | null {
+  return (
+    validDate(order.pickupDate) ??
+    earliestStatusTime(order, ["picked_up", "picked-up"]) ??
+    // Some providers jump straight to in_transit when the package is collected.
+    earliestStatusTime(order, ["in_transit", "in-transit"]) ??
+    null
+  );
+}
+
 function formatOrderTimestamp(date: Date | null): string {
   return formatOrderDateTime(date) || "—";
 }
@@ -251,34 +289,15 @@ function orderTimestampForTab(
 ): { label: string; date: Date | null } {
   const createdAt = validDate(order.createdAt) ?? validDate(order.date) ?? validDate(order.updatedAt);
 
-  // Explicit Date Type filter overrides tab-implied timestamps so users can still
-  // see when an order was placed / picked up after later statuses overwrite the UI.
+  // Explicit Date Type filter overrides tab-implied timestamps.
   // "choose" (or unset) keeps the tab-default timeline.
   if (dateType === "placed") {
-    return { label: "Placed", date: createdAt };
+    // When the order was first processed / AWB generated — not order createdAt.
+    return { label: "Placed", date: orderProcessedAt(order) };
   }
   if (dateType === "pickup") {
-    // Prefer process/booking time first — status history keys vary by provider.
-    return {
-      label: "Pickup",
-      date:
-        validDate(order.assignedDateTime) ??
-        validDate(order.pickupDate) ??
-        latestStatusTime(order, [
-          "pending_pickup",
-          "pending-pickup",
-          "pickup_scheduled",
-          "pickup-scheduled",
-          "ready_for_pickup",
-          "not_picked",
-          "picked_up",
-          "picked-up",
-          "ready_to_ship",
-          "ready-to-ship",
-        ]) ??
-        validDate(order.movedToReadyAt) ??
-        null,
-    };
+    // When the courier actually picked up the package.
+    return { label: "Pickup", date: orderPickedUpAt(order) };
   }
   if (dateType === "delivered") {
     return {
@@ -293,7 +312,7 @@ function orderTimestampForTab(
     return {
       label: "Pending Pickup",
       date:
-        validDate(order.assignedDateTime) ??
+        orderProcessedAt(order) ??
         latestStatusTime(order, [
           "pending_pickup",
           "pending-pickup",
@@ -302,7 +321,6 @@ function orderTimestampForTab(
           "ready_for_pickup",
           "not_picked",
         ]) ??
-        validDate(order.movedToReadyAt) ??
         createdAt,
     };
   }
@@ -310,11 +328,7 @@ function orderTimestampForTab(
   if (tab === "in_transit") {
     return {
       label: "In Transit",
-      date:
-        latestStatusTime(order, ["in_transit", "in-transit", "picked_up", "picked-up"]) ??
-        validDate(order.pickupDate) ??
-        validDate(order.assignedDateTime) ??
-        createdAt,
+      date: orderPickedUpAt(order) ?? createdAt,
     };
   }
 
