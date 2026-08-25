@@ -34,8 +34,15 @@ function statusHistoryTimeExpr(pattern: string, mode: "max" | "min"): Record<str
   };
 }
 
+/** Nested $ifNull chain (MongoDB $ifNull only accepts 2 args). */
 function coalesce(...exprs: unknown[]): Record<string, unknown> {
-  return { $ifNull: exprs.length === 2 ? exprs : [exprs[0], coalesce(...exprs.slice(1))] };
+  if (exprs.length < 2) {
+    return { $ifNull: [exprs[0] ?? null, null] };
+  }
+  if (exprs.length === 2) {
+    return { $ifNull: [exprs[0], exprs[1]] };
+  }
+  return { $ifNull: [exprs[0], coalesce(...exprs.slice(1))] };
 }
 
 /** Processed / AWB time — Date Type "placed" & pending-pickup tab. */
@@ -121,3 +128,13 @@ export const ORDER_LIST_SORT_FIELDS = {
   createdAt: -1 as const,
   _id: -1 as const,
 };
+
+/** Heavy fields excluded from order list payloads. */
+export const ORDER_LIST_UNSET_FIELDS = [
+  "_listSortAt",
+  "labelPdfBase64",
+  "providerBookingRaw",
+  "providerEvents",
+  "trackingActivities",
+  "remarkHistory",
+] as const;
