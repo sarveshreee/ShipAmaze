@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
   LayoutDashboard, Package, AlertTriangle, ShoppingBag, Calculator, Truck, Users, Warehouse, IndianRupee, BarChart3, Headphones, Settings, LogOut, Bell, Menu, X,
-  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, UserCog, ChevronRight, Activity, KeyRound,
+  Upload, Link2, Wallet, MapPin, Plus, Scale, Undo2, FileText, Receipt, ClipboardList, Sun, Moon, Shield, ChevronDown, ChevronUp, Home, User, UserCog, ChevronRight, Activity, KeyRound, PanelLeft,
   type LucideIcon,
 } from "lucide-react";
 import { ShipAmazeLogo, SidebarBrand } from "@/components/brand/ShipAmazeLogo";
@@ -298,8 +298,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarHovered, setSidebarHovered] = useState(false);
+  const [sidebarPinned, setSidebarPinned] = useState(false);
   const [collapsedFlyout, setCollapsedFlyout] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarHoverOpenTimer = useRef<number>();
+  const sidebarHoverCloseTimer = useRef<number>();
   const [sidebarAccountOpen, setSidebarAccountOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<notificationService.NotificationItem[]>([]);
@@ -344,15 +347,23 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     [qc, userId]
   );
 
-  // Prefetch unread count once; full list only when popover opens
+  // Prefetch unread count only; full list when the bell opens
   useEffect(() => {
     setNotifications([]);
     setNotifUnread(0);
     setNotifTotal(0);
     notifLoadedOnce.current = false;
     if (!user) return;
-    void fetchNotifications({ page: 1, append: false });
-  }, [user, userId, fetchNotifications]);
+    void (async () => {
+      try {
+        const r = await notificationService.listNotifications(1, 1, { summary: true });
+        setNotifUnread(r.unreadCount ?? 0);
+        setNotifTotal(r.total ?? 0);
+      } catch {
+        setNotifUnread(0);
+      }
+    })();
+  }, [user, userId]);
 
   useEffect(() => {
     const handler = () => void fetchNotifications({ page: 1, append: false, force: true });
@@ -361,13 +372,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }, [fetchNotifications]);
 
   useEffect(() => {
-    if (notifications.length > 0 || notifUnread > 0) notifLoadedOnce.current = true;
-  }, [notifications.length, notifUnread]);
-
-  useEffect(() => {
-    if (notifOpen && user && notifLoadedOnce.current === false) {
-      void fetchNotifications({ page: 1, append: false });
-    }
+    if (!notifOpen || !user || notifLoadedOnce.current) return;
+    notifLoadedOnce.current = true;
+    void fetchNotifications({ page: 1, append: false });
   }, [notifOpen, user, fetchNotifications]);
 
   const toggleMenu = (label: string) => {
@@ -482,12 +489,35 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     };
   }, [sidebarOpen, isLgScreen]);
 
-  const isDesktopCollapsed = isLgScreen && !sidebarHovered;
+  const isDesktopCollapsed = isLgScreen && !sidebarHovered && !sidebarPinned;
 
   useEffect(() => {
     const width = !isLgScreen ? "0px" : SIDEBAR_RAIL_WIDTH;
     document.documentElement.style.setProperty("--sidebar-width", width);
   }, [isLgScreen]);
+
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(sidebarHoverOpenTimer.current);
+      window.clearTimeout(sidebarHoverCloseTimer.current);
+    };
+  }, []);
+
+  const onSidebarEnter = () => {
+    if (!isLgScreen || sidebarPinned) return;
+    window.clearTimeout(sidebarHoverCloseTimer.current);
+    sidebarHoverOpenTimer.current = window.setTimeout(() => setSidebarHovered(true), 90);
+  };
+
+  const onSidebarLeave = () => {
+    if (!isLgScreen || sidebarPinned) return;
+    window.clearTimeout(sidebarHoverOpenTimer.current);
+    sidebarHoverCloseTimer.current = window.setTimeout(() => {
+      setSidebarHovered(false);
+      setCollapsedFlyout(null);
+      setSidebarAccountOpen(false);
+    }, 160);
+  };
 
   const wrapNavTooltip = (label: string, node: ReactNode) => {
     if (!isDesktopCollapsed) return node;
@@ -511,20 +541,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         />
       )}
 
-      <TooltipProvider delayDuration={0} skipDelayDuration={0}>
+      <TooltipProvider delayDuration={400} skipDelayDuration={200}>
         <aside
           ref={sidebarRef}
-          onMouseEnter={() => isLgScreen && setSidebarHovered(true)}
-          onMouseLeave={() => {
-            if (!isLgScreen) return;
-            setSidebarHovered(false);
-            setCollapsedFlyout(null);
-            setSidebarAccountOpen(false);
-          }}
+          onMouseEnter={onSidebarEnter}
+          onMouseLeave={onSidebarLeave}
           className={cn(
-            "fixed inset-y-0 left-0 z-50 flex w-[min(280px,88vw)] flex-col border-r border-sidebar-border bg-gradient-to-b from-sidebar via-sidebar to-sidebar/95 shadow-xl transition-[width,transform] duration-200 ease-out",
+            "fixed inset-y-0 left-0 z-50 flex w-[min(280px,88vw)] flex-col border-r border-sidebar-border bg-gradient-to-b from-sidebar via-sidebar to-sidebar/95 shadow-xl transition-[width,transform] duration-150 ease-out will-change-[width,transform]",
             sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
-            isLgScreen && (sidebarHovered ? "lg:w-60" : "lg:w-[4.5rem]"),
+            isLgScreen && (sidebarHovered || sidebarPinned ? "lg:w-60" : "lg:w-[4.5rem]"),
           )}
         >
           <div
@@ -545,6 +570,22 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <SidebarBrand showText={!isDesktopCollapsed} compact={isDesktopCollapsed} />
             </Link>
 
+            <button
+              type="button"
+              className="hidden rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white lg:inline-flex"
+              onClick={() => {
+                setSidebarPinned((p) => {
+                  const next = !p;
+                  if (next) setSidebarHovered(true);
+                  else setSidebarHovered(false);
+                  return next;
+                });
+              }}
+              aria-label={sidebarPinned ? "Collapse sidebar" : "Pin sidebar open"}
+              title={sidebarPinned ? "Collapse sidebar" : "Pin sidebar open"}
+            >
+              <PanelLeft className={cn("h-4 w-4", sidebarPinned && "text-primary")} />
+            </button>
             <button
               type="button"
               className="rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white lg:hidden"

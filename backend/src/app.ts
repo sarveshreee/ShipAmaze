@@ -137,6 +137,47 @@ export function createApp() {
 
   app.set("trust proxy", 1);
   app.set("etag", "weak");
+
+  const corsOptions: cors.CorsOptions = {
+    origin(origin, callback) {
+      if (!isProd && corsAllowed.length === 0) {
+        return callback(null, origin || true);
+      }
+      if (!isProd && origin && isLocalDevOrigin(origin)) {
+        return callback(null, true);
+      }
+      if (isProd) {
+        if (!origin) {
+          return callback(null, false);
+        }
+        if (corsAllowed.includes(origin)) {
+          return callback(null, true);
+        }
+        console.warn(`[cors] blocked origin=${origin} allowed=${corsAllowed.join(",") || "none"}`);
+        return callback(null, false);
+      }
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (corsAllowed.length === 0 || corsAllowed.includes(origin)) {
+        return callback(null, true);
+      }
+      if (origin && isLocalDevOrigin(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    credentials: true,
+    maxAge: 86400,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
+    optionsSuccessStatus: 204,
+  };
+
+  // CORS first so OPTIONS preflight never waits on helmet/compression/JSON.
+  app.use(cors(corsOptions));
+  app.options("*", cors(corsOptions));
+
   app.use(helmet());
   // Prefer brotli when available via Accept-Encoding; compression() negotiates gzip/deflate/br
   app.use(
@@ -144,6 +185,7 @@ export function createApp() {
       threshold: 1024,
       level: 6,
       filter: (req, res) => {
+        if (req.method === "OPTIONS") return false;
         if (req.headers["x-no-compression"]) return false;
         return compression.filter(req, res);
       },
@@ -165,40 +207,6 @@ export function createApp() {
   app.get("/health", (_req, res) => {
     res.json({ ok: true, service: "shipamaze-api", uptimeSeconds: Math.floor(process.uptime()) });
   });
-
-  app.use(
-    cors({
-      origin(origin, callback) {
-        if (!isProd && corsAllowed.length === 0) {
-          return callback(null, origin || true);
-        }
-        if (!isProd && origin && isLocalDevOrigin(origin)) {
-          return callback(null, true);
-        }
-        if (isProd) {
-          if (!origin) {
-            return callback(null, false);
-          }
-          if (corsAllowed.includes(origin)) {
-            return callback(null, true);
-          }
-          console.warn(`[cors] blocked origin=${origin} allowed=${corsAllowed.join(",") || "none"}`);
-          return callback(null, false);
-        }
-        if (!origin) {
-          return callback(null, true);
-        }
-        if (corsAllowed.length === 0 || corsAllowed.includes(origin)) {
-          return callback(null, true);
-        }
-        if (origin && isLocalDevOrigin(origin)) {
-          return callback(null, true);
-        }
-        return callback(null, false);
-      },
-      credentials: true,
-    })
-  );
 
   /** Shopify webhooks require raw body for HMAC verification (must be before express.json). */
   app.post(

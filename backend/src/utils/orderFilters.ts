@@ -337,6 +337,7 @@ export type ParsedOrderListQuery = {
   dateTo?: Date;
   tab?: string;
   counts: boolean;
+  countsOnly: boolean;
   customerCity?: string;
   customerState?: string;
   pickupCity?: string;
@@ -369,6 +370,8 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
   const fulfillment = clip(String(q.fulfillment ?? ""), 40).toLowerCase() || undefined;
   const tab = clip(String(q.tab ?? ""), 40) || undefined;
   const counts = String(q.counts ?? "").toLowerCase() === "1" || String(q.counts ?? "") === "true";
+  const countsOnly =
+    String(q.countsOnly ?? "").toLowerCase() === "1" || String(q.countsOnly ?? "") === "true";
 
   const customerCity = clip(String(q.customerCity ?? ""), 120) || undefined;
   const customerState = clip(String(q.customerState ?? ""), 120) || undefined;
@@ -413,6 +416,7 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
     dateType,
     tab,
     counts,
+    countsOnly,
     customerCity,
     customerState,
     pickupCity,

@@ -46,6 +46,7 @@ describe("createApp (no database)", () => {
     expect(res.status).toBe(204);
     expect(res.headers["access-control-allow-origin"]).toBe("https://shipamaze.com");
     expect(res.headers["access-control-allow-credentials"]).toBe("true");
+    expect(res.headers["access-control-max-age"]).toBe("86400");
   });
 
   it("keeps production CORS blocked for unconfigured origins", async () => {

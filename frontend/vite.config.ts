@@ -30,7 +30,23 @@ export default defineConfig(({ mode }) => {
       overlay: false,
     },
   },
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "api-preconnect",
+      transformIndexHtml(html) {
+        const raw = process.env.VITE_API_BASE_URL?.trim();
+        if (!raw) return html;
+        try {
+          const origin = new URL(raw.replace(/\/api\/?$/i, "")).origin;
+          const tags = `<link rel="preconnect" href="${origin}" crossorigin /><link rel="dns-prefetch" href="${origin}" />`;
+          return html.replace("</head>", `${tags}</head>`);
+        } catch {
+          return html;
+        }
+      },
+    },
+  ],
   build: {
     cssCodeSplit: true,
     sourcemap: false,

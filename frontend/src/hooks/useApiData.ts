@@ -303,8 +303,10 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
   };
 
   const advKey = stableAdvKey(adv);
-  const listKey = `${view ?? "default"}:${page}:${pageSize}:${q ?? ""}:${tab ?? ""}:${payment ?? ""}:${fulfillment ?? ""}:${counts ? 1 : 0}:${advKey}`;
+  const listKey = `${view ?? "default"}:${page}:${pageSize}:${q ?? ""}:${tab ?? ""}:${payment ?? ""}:${fulfillment ?? ""}:${advKey}`;
+  const countsKey = `${view ?? "default"}:${q ?? ""}:${payment ?? ""}:${fulfillment ?? ""}:${advKey}`;
   const queryKey = queryKeys.ordersList(userId, listKey);
+  const countsQueryKey = queryKeys.ordersTabCounts(userId, countsKey);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -322,36 +324,18 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
   const qResult = useQuery({
     queryKey,
     enabled,
-    queryFn: async () => {
-      const res = await orderService.listOrders({
-        view,
-        page,
-        pageSize,
-        q,
-        tab: view === "junk" ? undefined : tab,
-        payment,
-        fulfillment,
-        counts,
-        ...adv,
-      });
-      if (Array.isArray(res)) {
-        const mapped = (res as unknown as Record<string, unknown>[]).map(mapOrderRow);
-        return { orders: mapped, total: mapped.length, tabCounts: undefined as Record<string, number> | undefined };
+    staleTime: 30 * 1000,
+    refetchOnMount: true,
+    retry: (failureCount, error) => {
+      if (error instanceof Error && "status" in error) {
+        const status = Number((error as { status?: number }).status);
+        if (status >= 400 && status < 500) return false;
       }
-      const meta = res as OrdersListMeta;
-      const mapped = (meta.orders as unknown as Record<string, unknown>[]).map(mapOrderRow);
-      return {
-        orders: mapped,
-        total: meta.total,
-        tabCounts: counts ? meta.tabCounts : undefined,
-      };
+      return failureCount < 2;
     },
-  });
-
-  const refetch = useCallback(
-    async (override?: { includeCounts?: boolean }): Promise<Order[]> => {
-      if (override?.includeCounts != null && override.includeCounts !== counts) {
-        const res = await orderService.listOrders({
+    queryFn: async ({ signal }) => {
+      const res = await orderService.listOrders(
+        {
           view,
           page,
           pageSize,
@@ -359,27 +343,62 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
           tab: view === "junk" ? undefined : tab,
           payment,
           fulfillment,
-          counts: override.includeCounts,
+          counts: false,
           ...adv,
-        });
-        if (Array.isArray(res)) {
-          const mapped = (res as unknown as Record<string, unknown>[]).map(mapOrderRow);
-          qc.setQueryData(queryKey, { orders: mapped, total: mapped.length, tabCounts: undefined });
-          return mapped;
-        }
-        const meta = res as OrdersListMeta;
-        const mapped = (meta.orders as unknown as Record<string, unknown>[]).map(mapOrderRow);
-        qc.setQueryData(queryKey, {
-          orders: mapped,
-          total: meta.total,
-          tabCounts: override.includeCounts ? meta.tabCounts : qResult.data?.tabCounts,
-        });
-        return mapped;
+        },
+        { signal }
+      );
+      if (Array.isArray(res)) {
+        const mapped = (res as unknown as Record<string, unknown>[]).map(mapOrderRow);
+        return { orders: mapped, total: mapped.length };
+      }
+      const meta = res as OrdersListMeta;
+      const mapped = (meta.orders as unknown as Record<string, unknown>[]).map(mapOrderRow);
+      return {
+        orders: mapped,
+        total: meta.total,
+      };
+    },
+  });
+
+  const countsResult = useQuery({
+    queryKey: countsQueryKey,
+    enabled: enabled && counts,
+    staleTime: 60 * 1000,
+    refetchOnMount: true,
+    queryFn: async ({ signal }) => {
+      const res = await orderService.listOrders(
+        {
+          view,
+          page: 1,
+          pageSize: 1,
+          q,
+          tab: view === "junk" ? undefined : "all",
+          payment,
+          fulfillment,
+          counts: true,
+          countsOnly: true,
+          ...adv,
+        },
+        { signal }
+      );
+      if (Array.isArray(res)) return undefined as Record<string, number> | undefined;
+      return (res as OrdersListMeta).tabCounts;
+    },
+  });
+
+  const refetch = useCallback(
+    async (override?: { includeCounts?: boolean }): Promise<Order[]> => {
+      if (override?.includeCounts) {
+        void qc.invalidateQueries({ queryKey: countsQueryKey });
       }
       const result = await qResult.refetch();
+      if (override?.includeCounts !== false) {
+        void countsResult.refetch();
+      }
       return result.data?.orders ?? [];
     },
-    [adv, counts, page, pageSize, q, qResult, qc, queryKey, tab, fulfillment, payment, view]
+    [countsQueryKey, countsResult, qResult, qc]
   );
 
   return useMemo(
@@ -388,13 +407,13 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
       total: qResult.data?.total ?? 0,
       page,
       pageSize,
-      tabCounts: qResult.data?.tabCounts,
+      tabCounts: countsResult.data,
       error: qResult.error ? toError(qResult.error) : null,
       isLoading: qResult.isLoading,
       isFetching: qResult.isFetching,
       refetch,
     }),
-    [qResult.data, qResult.error, qResult.isLoading, qResult.isFetching, page, pageSize, refetch]
+    [qResult.data, qResult.error, qResult.isLoading, qResult.isFetching, countsResult.data, page, pageSize, refetch]
   );
 }
 

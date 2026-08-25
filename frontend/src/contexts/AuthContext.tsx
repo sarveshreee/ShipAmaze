@@ -12,6 +12,7 @@ import {
   clearImpersonationReturnPath,
   ApiError,
 } from "@/lib/apiClient";
+import { restoreSharedSession, startSessionShareListener, notifyTabsLoggedOut } from "@/lib/authSession";
 import { clearUserScopedQueries, queryClient, queryKeys, resetSessionQueries } from "@/lib/queryClient";
 import * as authService from "@/services/authService";
 import type { AuthUser, SignupRole, UserRole } from "@/services/authService";
@@ -105,17 +106,27 @@ async function prefetchDashboard(userId: string) {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(() => parseStoredUser());
-  const [isLoading, setIsLoading] = useState(() => !!getStoredToken() && !parseStoredUser());
+  const [isLoading, setIsLoading] = useState(() => !parseStoredUser());
   const [isImpersonating, setIsImpersonating] = useState(() => !!getAdminToken());
 
   useEffect(() => {
-    if (!getStoredToken()) {
-      setIsLoading(false);
-      setIsImpersonating(!!getAdminToken());
-      return;
-    }
     let cancelled = false;
     (async () => {
+      await restoreSharedSession();
+      if (cancelled) return;
+
+      const stored = parseStoredUser();
+      if (stored) setUser(stored);
+      setIsImpersonating(!!getAdminToken() || !!stored?.isImpersonation);
+
+      if (!getStoredToken()) {
+        setIsLoading(false);
+        return;
+      }
+
+      startSessionShareListener();
+      if (stored) setIsLoading(false);
+
       try {
         const { user: u } = await authService.getCurrentUser();
         if (!cancelled) {
@@ -153,6 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearAdminToken();
       setIsImpersonating(false);
       const { user: u } = await authService.login(email, password);
+      startSessionShareListener();
       clearUserScopedQueries();
       queryClient.setQueryData(queryKeys.profile(u.id), { user: u });
       setUser(u);
@@ -198,6 +210,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     void authService.logout().finally(() => {
+      notifyTabsLoggedOut();
       resetSessionQueries();
       setUser(null);
       setStoredUserJson(null);

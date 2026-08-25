@@ -43,6 +43,8 @@ export type ListOrdersParams = OrderListFilterValues & {
   fulfillment?: string;
   tab?: string;
   counts?: boolean;
+  /** Return tab badge counts only — skip the order list aggregation. */
+  countsOnly?: boolean;
   /** Use legacy array-only response from API */
   legacy?: boolean;
 };
@@ -71,6 +73,7 @@ function buildQueryString(params: ListOrdersParams): string {
   }
   if (params.tab) sp.set("tab", params.tab);
   if (params.counts) sp.set("counts", "1");
+  if (params.countsOnly) sp.set("countsOnly", "1");
   setIfTrim(sp, "customerCity", params.customerCity);
   setIfTrim(sp, "customerState", params.customerState);
   setIfTrim(sp, "pickupCity", params.pickupCity);
@@ -88,12 +91,15 @@ function buildQueryString(params: ListOrdersParams): string {
 }
 
 /** Paginated list (default). Use legacy: true for raw Order[] during migration. */
-export async function listOrders(params: ListOrdersParams = {}): Promise<OrdersListMeta | Order[]> {
+export async function listOrders(
+  params: ListOrdersParams = {},
+  init?: { signal?: AbortSignal }
+): Promise<OrdersListMeta | Order[]> {
   const qs = buildQueryString(params);
   if (params.legacy) {
-    return apiClient.get<Order[]>(`/orders${qs}`);
+    return apiClient.get<Order[]>(`/orders${qs}`, { signal: init?.signal });
   }
-  return apiClient.get<OrdersListMeta>(`/orders${qs}`);
+  return apiClient.get<OrdersListMeta>(`/orders${qs}`, { signal: init?.signal });
 }
 
 /** Full order rows for selected IDs (bulk labels/invoices across pages). */

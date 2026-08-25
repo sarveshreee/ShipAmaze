@@ -240,7 +240,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError(403, "Please verify your email before logging in.");
   }
 
-  const sessionId = await startLoginSession(user, req);
+  const sessionId = startLoginSession(user, req);
   const token = signToken({ sub: String(user._id), role: user.role, sid: sessionId });
   const publicUser = await toPublicUser(user);
   recordUserActivity({

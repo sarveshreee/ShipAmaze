@@ -60,6 +60,8 @@ export const queryKeys = {
     ["orders", "legacy", userId ?? "anon", view ?? "default"] as const,
   ordersList: (userId: string | null | undefined, key: string) =>
     ["orders", "list", userId ?? "anon", key] as const,
+  ordersTabCounts: (userId: string | null | undefined, key: string) =>
+    ["orders", "tab-counts", userId ?? "anon", key] as const,
   manifests: (userId?: string | null) => ["manifests", userId ?? "anon"] as const,
   invoices: (userId?: string | null) => ["invoices", userId ?? "anon"] as const,
   weightDisputes: (userId?: string | null) => ["weight_disputes", userId ?? "anon"] as const,

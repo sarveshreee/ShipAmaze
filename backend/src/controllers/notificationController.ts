@@ -8,6 +8,17 @@ const PAGE_LIMIT_MAX = 100;
 
 export const listMyNotifications = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  const summary =
+    String(req.query.summary ?? "").toLowerCase() === "1" || String(req.query.summary ?? "") === "true";
+  if (summary) {
+    const [unreadCount, total] = await Promise.all([
+      Notification.countDocuments({ userId: req.user._id, read: false }),
+      Notification.countDocuments({ userId: req.user._id }),
+    ]);
+    res.json({ items: [], total, page: 1, limit: 0, unreadCount });
+    return;
+  }
+
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(PAGE_LIMIT_MAX, Math.max(1, Number(req.query.limit) || 20));
   const skip = (page - 1) * limit;

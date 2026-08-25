@@ -129,12 +129,37 @@ export const ORDER_LIST_SORT_FIELDS = {
   _id: -1 as const,
 };
 
+export const ORDER_LIST_CREATED_AT_SORT = {
+  createdAt: -1 as const,
+  _id: -1 as const,
+};
+
 /** Heavy fields excluded from order list payloads. */
 export const ORDER_LIST_UNSET_FIELDS = [
   "_listSortAt",
   "labelPdfBase64",
+  "labelPdf",
   "providerBookingRaw",
   "providerEvents",
   "trackingActivities",
   "remarkHistory",
+  "rawWebhook",
+  "shopifyRawPayload",
 ] as const;
+
+/** Status-history $filter sort is only needed for shipment-timeline tabs / date types. */
+export function orderListNeedsComputedSort(tab?: string, dateType?: ListDateType): boolean {
+  if (dateType === "placed" || dateType === "pickup" || dateType === "delivered") return true;
+  const t = String(tab ?? "")
+    .toLowerCase()
+    .replace(/_/g, "-");
+  return (
+    t === "pending-pickup" ||
+    t === "in-transit" ||
+    t === "out-for-delivery" ||
+    t === "delivered" ||
+    t === "failed" ||
+    t === "ndr" ||
+    t === "rto"
+  );
+}

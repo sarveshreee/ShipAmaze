@@ -8,15 +8,15 @@ export function createSessionToken(): string {
   return crypto.randomBytes(24).toString("hex");
 }
 
-export async function startLoginSession(
+export function startLoginSession(
   user: { _id: Types.ObjectId | unknown; name: string; email: string; role: string },
   req: Request
-): Promise<string> {
+): string {
   const ctx = parseClientContext(req);
   const sessionToken = createSessionToken();
   const now = new Date();
 
-  await LoginSession.create({
+  void LoginSession.create({
     userId: user._id,
     userName: user.name,
     email: user.email,
@@ -31,6 +31,8 @@ export async function startLoginSession(
     location: ctx.location ?? "",
     userAgent: ctx.userAgent,
     isActive: true,
+  }).catch((e) => {
+    console.warn("[auth] login session persist failed", e instanceof Error ? e.message : e);
   });
 
   return sessionToken;

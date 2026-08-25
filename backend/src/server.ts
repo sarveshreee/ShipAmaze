@@ -52,99 +52,63 @@ async function seedDefaultCouriers() {
   }
 }
 
-async function main() {
-  await connectDb(MONGODB_URI);
-  warnPartnerProductionMisconfiguration();
-  await seedDefaultCouriers();
-  const app = createApp();
-  const server = http.createServer(app);
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
-  // Render / reverse-proxy friendly keep-alive (reduce connection churn + cold TLS)
-  server.keepAliveTimeout = 65_000;
-  server.headersTimeout = 70_000;
-  server.requestTimeout = 120_000;
-
-  let _retrying = false;
-  server.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EADDRINUSE") {
-      if (_retrying) return;
-      _retrying = true;
-      devLog.warn(`[server] Port ${PORT} in use, retrying in 1.5 s…`);
-      setTimeout(() => {
-        _retrying = false;
-        server.close();
-        server.listen(PORT);
-      }, 1500);
+function logBootBanner() {
+  const mailMode = getMailTransportStatus();
+  if (mailMode === "brevo") {
+    const key = process.env.BREVO_API_KEY?.trim() ?? "";
+    const hint = brevoApiKeyHint(key);
+    if (hint) {
+      devLog.warn(`[server] Brevo email: ${hint}`);
+    } else if (!isLikelyBrevoV3ApiKey(key)) {
+      devLog.warn("[server] Brevo email: API key format could not be validated.");
     } else {
-      console.error("[server] Unhandled server error", err);
-      process.exit(1);
+      devLog.info("[server] Transactional email: Brevo HTTP API (Render-compatible)");
     }
-  });
-
-  server.listen(PORT, () => {
-    const mongoSafe = redactMongoUri(MONGODB_URI);
-    devLog.info(`[server] listening on port ${PORT}`);
-    devLog.info(`[server] MongoDB: ${mongoSafe}`);
-    devLog.info(`[server] CORS origins: ${process.env.CORS_ORIGIN ?? "(dev: permissive if unset)"}`);
-    devLog.info(`[server] JWT: ${process.env.JWT_SECRET?.trim() ? "configured" : "missing (dev fallback may apply)"}`);
-    devLog.info(
-      `[server] ENCRYPTION_SECRET: ${process.env.ENCRYPTION_SECRET?.trim() ? "configured" : "missing (dev may use JWT for key derivation)"}`
+  } else if (mailMode === "resend") {
+    devLog.info("[server] Transactional email: Resend HTTP API (Render-compatible)");
+  } else if (mailMode === "gmail") {
+    devLog.info("[server] Transactional email: Gmail SMTP (works locally; blocked on Render free tier)");
+  } else if (mailMode === "smtp") {
+    devLog.info("[server] Transactional email: custom SMTP (blocked on Render free tier)");
+  } else {
+    devLog.warn(
+      "[server] Transactional email: not configured. For Render production set BREVO_API_KEY or RESEND_API_KEY. For local dev use EMAIL_FROM + EMAIL_PASS."
     );
-    const mailMode = getMailTransportStatus();
-    if (mailMode === "brevo") {
-      const key = process.env.BREVO_API_KEY?.trim() ?? "";
-      const hint = brevoApiKeyHint(key);
-      if (hint) {
-        devLog.warn(`[server] Brevo email: ${hint}`);
-      } else if (!isLikelyBrevoV3ApiKey(key)) {
-        devLog.warn("[server] Brevo email: API key format could not be validated.");
-      } else {
-        devLog.info("[server] Transactional email: Brevo HTTP API (Render-compatible)");
-      }
-    } else if (mailMode === "resend") {
-      devLog.info("[server] Transactional email: Resend HTTP API (Render-compatible)");
-    } else if (mailMode === "gmail") {
-      devLog.info("[server] Transactional email: Gmail SMTP (works locally; blocked on Render free tier)");
-    } else if (mailMode === "smtp") {
-      devLog.info("[server] Transactional email: custom SMTP (blocked on Render free tier)");
-    } else {
-      devLog.warn(
-        "[server] Transactional email: not configured. For Render production set BREVO_API_KEY or RESEND_API_KEY. For local dev use EMAIL_FROM + EMAIL_PASS."
-      );
-    }
-    devLog.info(`[server] Shopify OAuth redirect: ${process.env.SHOPIFY_REDIRECT_URI?.trim() ? "configured" : "(set SHOPIFY_REDIRECT_URI)"} (merchants use their own app Client ID/Secret)`);
-    if (isVelocityEnabledFlag()) {
-      devLog.info(`[server] Velocity: enabled (credentials ${process.env.VELOCITY_USERNAME?.trim() ? "set" : "missing"})`);
-    } else {
-      devLog.info(`[server] Velocity: disabled (VELOCITY_ENABLED=false — kill switch; no register/sync/booking)`);
-    }
-    if (isLorrigoEnabledFlag()) {
-      devLog.info(
-        `[server] Lorrigo: enabled (credentials ${isLorrigoConfigured() ? "set" : "missing"})`
-      );
-    } else {
-      devLog.info(`[server] Lorrigo: disabled (set LORRIGO_ENABLED=true to activate)`);
-    }
-    if (isEkartEnabledFlag()) {
-      devLog.info(
-        `[server] Ekart: enabled (credentials ${isEkartConfigured() ? "set" : "missing"})`
-      );
-    } else {
-      devLog.info(`[server] Ekart: disabled (set EKART_ENABLED=true to activate)`);
-    }
-    if (process.env.NODE_ENV === "production") {
-      console.info(`[server] ShipAmaze API ready on port ${PORT}`);
-    }
-  });
+  }
+  devLog.info(`[server] Shopify OAuth redirect: ${process.env.SHOPIFY_REDIRECT_URI?.trim() ? "configured" : "(set SHOPIFY_REDIRECT_URI)"} (merchants use their own app Client ID/Secret)`);
+  if (isVelocityEnabledFlag()) {
+    devLog.info(`[server] Velocity: enabled (credentials ${process.env.VELOCITY_USERNAME?.trim() ? "set" : "missing"})`);
+  } else {
+    devLog.info(`[server] Velocity: disabled (VELOCITY_ENABLED=false — kill switch; no register/sync/booking)`);
+  }
+  if (isLorrigoEnabledFlag()) {
+    devLog.info(
+      `[server] Lorrigo: enabled (credentials ${isLorrigoConfigured() ? "set" : "missing"})`
+    );
+  } else {
+    devLog.info(`[server] Lorrigo: disabled (set LORRIGO_ENABLED=true to activate)`);
+  }
+  if (isEkartEnabledFlag()) {
+    devLog.info(
+      `[server] Ekart: enabled (credentials ${isEkartConfigured() ? "set" : "missing"})`
+    );
+  } else {
+    devLog.info(`[server] Ekart: disabled (set EKART_ENABLED=true to activate)`);
+  }
+}
 
-  // Background Velocity shipment status sync — only when VELOCITY_ENABLED + credentials.
+function startBackgroundJobs() {
   const velocityBgSync = setInterval(async () => {
     try {
       if (!isVelocityActive()) return;
       const velocity = getCourierProvider("velocity");
       if (!velocity.isConfigured()) return;
       const r = await withSyncLock("velocity:status", () =>
-        velocity.syncStatus({ batchSize: 150 })
+        velocity.syncStatus({ batchSize: 80 })
       );
       if (isSyncMutexSkipResult(r)) return;
       const errorDetails = Array.isArray(r.errorDetails) ? r.errorDetails : [];
@@ -158,7 +122,6 @@ async function main() {
   }, 5 * 60 * 1000);
   velocityBgSync.unref();
 
-  // Lorrigo status sync — separate loop; does not affect Velocity booking/sync.
   const lorrigoSyncIntervalMs = getLorrigoStatusSyncIntervalMs();
   const lorrigoBgSync = setInterval(async () => {
     try {
@@ -166,7 +129,7 @@ async function main() {
       const lorrigo = getCourierProvider("lorrigo");
       if (!lorrigo.isConfigured()) return;
       const r = await withSyncLock("lorrigo:status", () =>
-        lorrigo.syncStatus({ batchSize: 100 })
+        lorrigo.syncStatus({ batchSize: 80 })
       );
       if (isSyncMutexSkipResult(r)) return;
       console.info(
@@ -179,7 +142,6 @@ async function main() {
   }, lorrigoSyncIntervalMs);
   lorrigoBgSync.unref();
 
-  // Ekart status sync — only when EKART_ENABLED; no pickup sync.
   const ekartSyncIntervalMs = getEkartStatusSyncIntervalMs();
   const ekartBgSync = setInterval(async () => {
     try {
@@ -187,7 +149,7 @@ async function main() {
       const ekart = getCourierProvider("ekart");
       if (!ekart.isConfigured()) return;
       const r = await withSyncLock("ekart:status", () =>
-        ekart.syncStatus({ batchSize: 100 })
+        ekart.syncStatus({ batchSize: 80 })
       );
       if (isSyncMutexSkipResult(r)) return;
       console.info(
@@ -200,7 +162,6 @@ async function main() {
   }, ekartSyncIntervalMs);
   ekartBgSync.unref();
 
-  const walletDebitReconcileIntervalMs = 3 * 60 * 1000;
   const walletDebitBgReconcile = setInterval(async () => {
     try {
       const r = await withSyncLock("wallet:debit-reconcile", () =>
@@ -215,7 +176,7 @@ async function main() {
     } catch (e: unknown) {
       console.error("[wallet:debit-reconcile] error", e instanceof Error ? e.message : e);
     }
-  }, walletDebitReconcileIntervalMs);
+  }, 3 * 60 * 1000);
   walletDebitBgReconcile.unref();
 
   if (isEkartEnabledFlag() && isEkartConfigured()) {
@@ -223,7 +184,7 @@ async function main() {
       try {
         const ekart = getCourierProvider("ekart");
         const r = await withSyncLock("ekart:status", () =>
-          ekart.syncStatus({ batchSize: 100 })
+          ekart.syncStatus({ batchSize: 80 })
         );
         if (isSyncMutexSkipResult(r)) return;
         console.info(
@@ -233,7 +194,7 @@ async function main() {
       } catch (e: unknown) {
         console.error("[ekart:startup-sync] error", e instanceof Error ? e.message : e);
       }
-    }, 50_000).unref();
+    }, 90_000).unref();
   }
 
   if (isLorrigoEnabledFlag() && isLorrigoConfigured()) {
@@ -241,7 +202,7 @@ async function main() {
       try {
         const lorrigo = getCourierProvider("lorrigo");
         const r = await withSyncLock("lorrigo:status", () =>
-          lorrigo.syncStatus({ batchSize: 100 })
+          lorrigo.syncStatus({ batchSize: 80 })
         );
         if (isSyncMutexSkipResult(r)) return;
         console.info(
@@ -250,16 +211,15 @@ async function main() {
       } catch (e: unknown) {
         console.error("[lorrigo:startup-sync] error", e instanceof Error ? e.message : e);
       }
-    }, 45_000).unref();
+    }, 75_000).unref();
   }
 
-  // Run an initial sync 30 seconds after startup so statuses are fresh on first page load.
   if (isVelocityActive()) {
     setTimeout(async () => {
       try {
         const velocity = getCourierProvider("velocity");
         const r = await withSyncLock("velocity:status", () =>
-          velocity.syncStatus({ batchSize: 150 })
+          velocity.syncStatus({ batchSize: 80 })
         );
         if (!isSyncMutexSkipResult(r)) {
           const errorDetails = Array.isArray(r.errorDetails) ? r.errorDetails : [];
@@ -284,10 +244,9 @@ async function main() {
       } catch (e: unknown) {
         devLog.warn("[velocity:ndr-startup-sync] error", e instanceof Error ? e.message : e);
       }
-    }, 30_000).unref();
+    }, 90_000).unref();
   }
 
-  // Background NDR sync — Velocity every 10 minutes; Lorrigo on its own interval.
   const velocityNdrSync = setInterval(async () => {
     try {
       if (!isVelocityActive()) return;
@@ -341,10 +300,9 @@ async function main() {
       } catch (e: unknown) {
         console.error("[lorrigo:ndr-startup-sync] error", e instanceof Error ? e.message : e);
       }
-    }, 50_000).unref();
+    }, 120_000).unref();
   }
 
-  // Velocity failure remark sync — keeps order Remarks populated from courier reasons
   const velocityRemarkSync = setInterval(async () => {
     try {
       if (!isVelocityActive()) return;
@@ -356,23 +314,86 @@ async function main() {
   }, 10 * 60 * 1000);
   velocityRemarkSync.unref();
 
-  // Background Shopify order sync — runs every 5 minutes as a fallback for any webhook misses
   const shopifyBgSync = setInterval(async () => {
     try {
-      const connections = await ShopifyStoreConnection.find({ isActive: true }).lean();
-      devLog.info(`[shopify:bg-sync] running for ${connections.length} active connection(s)`);
-      for (const conn of connections) {
-        await performShopifyOrderSyncForUser(conn.ownerUserId, conn.role as "vendor" | "dropshipper" | "admin", {
-          shopDomain: conn.shopDomain,
-        }).catch((e: unknown) => {
-          devLog.warn("[shopify:bg-sync] sync failed for", String(conn.ownerUserId), e instanceof Error ? e.message : e);
-        });
-      }
+      const r = await withSyncLock("shopify:orders", async () => {
+        const connections = await ShopifyStoreConnection.find({ isActive: true }).lean();
+        devLog.info(`[shopify:bg-sync] running for ${connections.length} active connection(s)`);
+        for (const conn of connections) {
+          await performShopifyOrderSyncForUser(conn.ownerUserId, conn.role as "vendor" | "dropshipper" | "admin", {
+            shopDomain: conn.shopDomain,
+          }).catch((e: unknown) => {
+            devLog.warn("[shopify:bg-sync] sync failed for", String(conn.ownerUserId), e instanceof Error ? e.message : e);
+          });
+          await sleep(250);
+        }
+      });
+      if (isSyncMutexSkipResult(r)) return;
     } catch (e: unknown) {
       devLog.warn("[shopify:bg-sync] background sync error", e instanceof Error ? e.message : e);
     }
-  }, 5 * 60 * 1000);
+  }, 10 * 60 * 1000);
   shopifyBgSync.unref();
+}
+
+async function main() {
+  const app = createApp();
+  const server = http.createServer(app);
+
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 70_000;
+  server.requestTimeout = 120_000;
+
+  let _retrying = false;
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      if (_retrying) return;
+      _retrying = true;
+      devLog.warn(`[server] Port ${PORT} in use, retrying in 1.5 s…`);
+      setTimeout(() => {
+        _retrying = false;
+        server.close();
+        server.listen(PORT);
+      }, 1500);
+    } else {
+      console.error("[server] Unhandled server error", err);
+      process.exit(1);
+    }
+  });
+
+  // Listen before Mongo so CORS preflight /health never wait on DB connect.
+  server.listen(PORT, () => {
+    devLog.info(`[server] listening on port ${PORT}`);
+    devLog.info(`[server] CORS origins: ${process.env.CORS_ORIGIN ?? "(dev: permissive if unset)"}`);
+    devLog.info(`[server] JWT: ${process.env.JWT_SECRET?.trim() ? "configured" : "missing (dev fallback may apply)"}`);
+    devLog.info(
+      `[server] ENCRYPTION_SECRET: ${process.env.ENCRYPTION_SECRET?.trim() ? "configured" : "missing (dev may use JWT for key derivation)"}`
+    );
+    logBootBanner();
+    if (process.env.NODE_ENV === "production") {
+      console.info(`[server] ShipAmaze API ready on port ${PORT}`);
+    }
+  });
+
+  try {
+    await connectDb(MONGODB_URI);
+    warnPartnerProductionMisconfiguration();
+    await seedDefaultCouriers();
+    devLog.info(`[server] MongoDB: ${redactMongoUri(MONGODB_URI)}`);
+    startBackgroundJobs();
+  } catch (e) {
+    console.error("[server] MongoDB connect failed — HTTP is up for /health and CORS, retrying in 15s", e);
+    setTimeout(() => {
+      void connectDb(MONGODB_URI)
+        .then(async () => {
+          warnPartnerProductionMisconfiguration();
+          await seedDefaultCouriers();
+          startBackgroundJobs();
+          devLog.info(`[server] MongoDB recovered: ${redactMongoUri(MONGODB_URI)}`);
+        })
+        .catch((err) => console.error("[server] MongoDB retry failed", err));
+    }, 15_000).unref();
+  }
 
   const shutdown = (signal: string) => {
     devLog.info(`[server] ${signal} received, shutting down…`);

@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { roleDashboardPath, resendEmailVerificationOtp } from "@/services/authService";
 import { ApiError } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
+import { warmupApi } from "@/lib/apiWarmup";
 
 const inputClass = authInputClass;
 
@@ -29,6 +30,10 @@ export default function LoginPage() {
   const { loginWithEmail } = useAuth();
   const navigate = useNavigate();
   const [verifyHint, setVerifyHint] = useState(false);
+
+  useEffect(() => {
+    warmupApi();
+  }, []);
 
   useEffect(() => {
     const hint = searchParams.get("unverified");

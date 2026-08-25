@@ -116,7 +116,7 @@ export function useServiceableOrdersFilter(orders: Order[], filter: Serviceabili
 
   const filteredOrders = useMemo(() => {
     if (!active || !filter) return orders;
-    if (loading) return [];
+    if (loading) return orders;
 
     const fromPin = filter.pickupPincode;
     return orders.filter((o) => {

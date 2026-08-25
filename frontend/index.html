@@ -28,6 +28,17 @@
       content="ShipAmaze is an AI-powered shipping and dropshipping platform for managing orders, couriers, payouts, catalogues, and Shopify integrations."
     />
     <meta name="twitter:image" content="/brand/og-image.png" />
+    <script>
+      try {
+        if (localStorage.getItem("shipflow_theme") === "dark") {
+          document.documentElement.classList.add("dark");
+        }
+      } catch (e) {}
+    </script>
+    <style>
+      html, body, #root { margin: 0; min-height: 100%; background: hsl(210 40% 98%); }
+      html.dark, html.dark body, html.dark #root { background: hsl(222 47% 8%); }
+    </style>
   </head>
 
   <body>

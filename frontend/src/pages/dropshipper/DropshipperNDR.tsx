@@ -502,8 +502,15 @@ export default function DropshipperNDR() {
 
   useEffect(() => {
     if (autoSynced || isLoading) return;
-    setAutoSynced(true);
-    void runSync(true);
+    const t = window.setTimeout(() => {
+      if (document.visibilityState !== "visible") {
+        setAutoSynced(true);
+        return;
+      }
+      setAutoSynced(true);
+      void runSync(true);
+    }, 12_000);
+    return () => window.clearTimeout(t);
   }, [autoSynced, isLoading, runSync]);
 
   const filtered = ndrOrders.filter((n) => {

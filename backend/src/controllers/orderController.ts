@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import type { Types } from "mongoose";
+import type { PipelineStage, Types } from "mongoose";
 import type { AuthRequest } from "../middleware/authMiddleware.js";
 import { Order } from "../models/Order.js";
 import { Courier } from "../models/Courier.js";
@@ -31,7 +31,9 @@ import { buildPickupSnapshotFromLean } from "../utils/pickupSnapshot.js";
 import { resolveVendorIdFromPickup } from "../utils/pickupVendor.js";
 import {
   orderListSortAtExpr,
+  orderListNeedsComputedSort,
   ORDER_LIST_SORT_FIELDS,
+  ORDER_LIST_CREATED_AT_SORT,
   ORDER_LIST_UNSET_FIELDS,
 } from "../utils/orderListSort.js";
 import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
@@ -433,7 +435,13 @@ function sumItemsAmount(items: unknown[]): number {
 async function buildOrdersListMongoQuery(
   user: NonNullable<AuthRequest["user"]>,
   queryParams: Record<string, unknown>
-): Promise<{ query: Record<string, unknown>; pq: ParsedOrderListQuery; view: string }> {
+): Promise<{
+  query: Record<string, unknown>;
+  pq: ParsedOrderListQuery;
+  view: string;
+  visibility: Record<string, unknown>;
+  listFilters: Record<string, unknown> | undefined;
+}> {
   const view = String(queryParams.view ?? "").toLowerCase();
   const pq = parseOrderListQuery(queryParams);
   const visibility = await buildOrderVisibilityQuery(user);
@@ -452,7 +460,7 @@ async function buildOrdersListMongoQuery(
 
   const listFilters = await buildOrderListFiltersQuery(pq);
   if (listFilters) query = mergeQueries(query, listFilters);
-  return { query, pq, view };
+  return { query, pq, view, visibility, listFilters };
 }
 
 function firstNonEmpty(...values: unknown[]): string {
@@ -503,6 +511,47 @@ function joinProductField(items: Array<Record<string, unknown>>, keys: string[])
     .join(" | ");
 }
 
+async function computeOrderTabCounts(
+  visibility: Record<string, unknown>,
+  listFilters: Record<string, unknown> | undefined
+): Promise<Record<string, number>> {
+  const tabList = [
+    "all",
+    "channel",
+    "manual",
+    "ready-to-ship",
+    "pending-pickup",
+    "in-transit",
+    "out-for-delivery",
+    "delivered",
+    "reship",
+    "failed",
+    "ndr",
+    "rto",
+  ];
+  const tabCounts: Record<string, number> = {};
+  const countEntries = await Promise.all(
+    tabList.map(async (tab) => {
+      let q2: Record<string, unknown> = { ...visibility };
+      if (tab !== "all") {
+        q2 = mergeQueries(q2, { isJunk: { $ne: true } });
+      }
+      const tq = buildTabQuery(tab);
+      if (tq) q2 = mergeQueries(q2, tq);
+      if (listFilters) q2 = mergeQueries(q2, listFilters);
+      const n = await Order.countDocuments(q2).maxTimeMS(8_000);
+      return [tab, n] as const;
+    })
+  );
+  for (const [tab, n] of countEntries) {
+    tabCounts[tab] = n;
+  }
+  tabCounts.junk = await Order.countDocuments(
+    mergeQueries({ ...visibility, isJunk: true }, listFilters ?? {})
+  ).maxTimeMS(8_000);
+  return tabCounts;
+}
+
 export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 
@@ -512,75 +561,56 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
     let query: Record<string, unknown> = { ...visibility };
     if (view === "junk") query = mergeQueries(query, { isJunk: true });
     else query = mergeQueries(query, { isJunk: { $ne: true } });
-    // Cap legacy list — full unbounded scan was a major perf hotspot (command palette / analytics)
     const rows = await Order.aggregate([
       { $match: query },
-      { $addFields: { _listSortAt: orderListSortAtExpr(undefined, undefined) } },
-      { $sort: ORDER_LIST_SORT_FIELDS },
+      { $sort: ORDER_LIST_CREATED_AT_SORT },
       { $limit: 500 },
       { $unset: [...ORDER_LIST_UNSET_FIELDS] },
-    ]);
+    ]).option({ maxTimeMS: 12_000, allowDiskUse: true });
     res.json(rows.map((o) => mapOrder(o)));
     return;
   }
 
-  const { query, pq } = await buildOrdersListMongoQuery(
+  const { query, pq, visibility, listFilters } = await buildOrdersListMongoQuery(
     req.user,
     req.query as Record<string, unknown>
   );
-  const visibility = await buildOrderVisibilityQuery(req.user);
-  const listFilters = await buildOrderListFiltersQuery(pq);
 
-  let tabCounts: Record<string, number> | undefined;
-  if (pq.counts) {
-    const tabList = [
-      "all",
-      "channel",
-      "manual",
-      "ready-to-ship",
-      "pending-pickup",
-      "in-transit",
-      "out-for-delivery",
-      "delivered",
-      "reship",
-      "failed",
-      "ndr",
-      "rto",
-    ];
-    tabCounts = {};
-    const countEntries = await Promise.all(
-      tabList.map(async (tab) => {
-        let q2: Record<string, unknown> = { ...visibility };
-        if (tab !== "all") {
-          q2 = mergeQueries(q2, { isJunk: { $ne: true } });
-        }
-        const tq = buildTabQuery(tab);
-        if (tq) q2 = mergeQueries(q2, tq);
-        if (listFilters) q2 = mergeQueries(q2, listFilters);
-        const n = await Order.countDocuments(q2);
-        return [tab, n] as const;
-      })
-    );
-    for (const [tab, n] of countEntries) {
-      tabCounts[tab] = n;
-    }
-    tabCounts.junk = await Order.countDocuments(
-      mergeQueries({ ...visibility, isJunk: true }, listFilters ?? {})
-    );
+  const wantCounts = pq.counts || pq.countsOnly;
+  const countsPromise = wantCounts ? computeOrderTabCounts(visibility, listFilters) : Promise.resolve(undefined);
+
+  if (pq.countsOnly) {
+    const tabCounts = await countsPromise;
+    res.json({
+      orders: [],
+      total: 0,
+      page: pq.page,
+      pageSize: pq.pageSize,
+      ...(tabCounts ? { tabCounts } : {}),
+    });
+    return;
   }
 
   const skip = (pq.page - 1) * pq.pageSize;
-  const sortAt = orderListSortAtExpr(pq.tab, pq.dateType);
-  const [rows, total] = await Promise.all([
-    Order.aggregate([
-      { $match: query },
-      { $addFields: { _listSortAt: sortAt } },
-      { $sort: ORDER_LIST_SORT_FIELDS },
-      { $skip: skip },
-      { $limit: pq.pageSize },
-      { $unset: [...ORDER_LIST_UNSET_FIELDS] },
-    ]),
-    Order.countDocuments(query),
+  const useComputedSort = orderListNeedsComputedSort(pq.tab, pq.dateType);
+  const listPipeline: PipelineStage[] = [{ $match: query }];
+  if (useComputedSort) {
+    listPipeline.push({ $addFields: { _listSortAt: orderListSortAtExpr(pq.tab, pq.dateType) } });
+    listPipeline.push({ $sort: ORDER_LIST_SORT_FIELDS });
+  } else {
+    listPipeline.push({ $sort: ORDER_LIST_CREATED_AT_SORT });
+  }
+  listPipeline.push(
+    { $skip: skip },
+    { $limit: pq.pageSize },
+    { $unset: [...ORDER_LIST_UNSET_FIELDS] },
+    { $addFields: { statusHistory: { $slice: [{ $ifNull: ["$statusHistory", []] }, -12] } } }
+  );
+
+  const [rows, total, tabCounts] = await Promise.all([
+    Order.aggregate(listPipeline).option({ maxTimeMS: 12_000, allowDiskUse: true }),
+    Order.countDocuments(query).maxTimeMS(8_000),
+    countsPromise,
   ]);
 
   const mappedRows = rows.map((o) => mapOrder(o));

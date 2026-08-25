@@ -18,8 +18,9 @@ export type NotificationsPage = {
   unreadCount: number;
 };
 
-export function listNotifications(page = 1, limit = 20) {
+export function listNotifications(page = 1, limit = 20, opts?: { summary?: boolean }) {
   const q = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (opts?.summary) q.set("summary", "1");
   return apiClient.get<NotificationsPage>(`/notifications?${q.toString()}`);
 }
 

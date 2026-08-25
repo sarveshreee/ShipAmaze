@@ -11,7 +11,7 @@ import { useCartSync } from "@/hooks/useCartSync";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import { useStaffPermissions, type StaffPermission } from "@/hooks/useStaffPermissions";
 
-const LoginPage = lazy(() => import("@/pages/LoginPage"));
+import LoginPage from "@/pages/LoginPage";
 const SignupPage = lazy(() => import("@/pages/SignupPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
 const VerifyEmailPage = lazy(() => import("@/pages/VerifyEmailPage"));

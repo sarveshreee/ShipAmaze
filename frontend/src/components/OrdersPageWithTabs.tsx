@@ -136,29 +136,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const listView = activeTab === "junk" ? "junk" : undefined;
 
   const advancedFiltersKey = useMemo(() => JSON.stringify(advancedFilters), [advancedFilters]);
-
-  const listFilterKey = useMemo(
-    () =>
-      JSON.stringify({
-        debouncedSearch,
-        advancedFiltersKey,
-        channelPayment,
-        channelFulfillment,
-        serviceabilityPickupId,
-        serviceabilityCourierId,
-      }),
-    [
-      debouncedSearch,
-      advancedFiltersKey,
-      channelPayment,
-      channelFulfillment,
-      serviceabilityPickupId,
-      serviceabilityCourierId,
-    ]
-  );
-
-  const [countsFilterKey, setCountsFilterKey] = useState(listFilterKey);
-  const [cachedTabCounts, setCachedTabCounts] = useState<Record<string, number> | undefined>();
+  const [switchingTab, setSwitchingTab] = useState(false);
 
   const effectivePayment = useMemo(() => {
     if (activeTab === "channel") return channelPayment ?? advancedFilters.payment;
@@ -202,7 +180,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     ...advancedFilters,
     payment: effectivePayment,
     fulfillment: activeTab === "channel" ? channelFulfillment : undefined,
-    counts: countsFilterKey !== listFilterKey || !cachedTabCounts,
+    counts: true,
   });
 
   // Refresh list when order status is updated from /order-detail (new tab) or sibling windows.
@@ -228,11 +206,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   }, [refetch]);
 
   useEffect(() => {
-    if (tabCounts) {
-      setCachedTabCounts(tabCounts);
-      setCountsFilterKey(listFilterKey);
-    }
-  }, [tabCounts, listFilterKey]);
+    if (!isFetching && !loading) setSwitchingTab(false);
+  }, [isFetching, loading, activeTab, orders]);
   const { data: couriers = [] } = useCouriers();
   const { data: pickupAddresses = [] } = usePickupAddresses();
   const { data: platformPickups = [] } = usePickupAddresses({ scope: "platform" });
@@ -555,12 +530,12 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const getCount = useCallback(
     (filter: string) => {
-      const counts = tabCounts ?? cachedTabCounts;
-      if (counts && counts[filter] != null) return counts[filter];
+      if (tabCounts && tabCounts[filter] != null) return tabCounts[filter];
       return orders.filter((o) => orderMatchesTab(o, filter)).length;
     },
-    [tabCounts, cachedTabCounts, orders]
+    [tabCounts, orders]
   );
+  const showOrdersSkeleton = switchingTab || (loading && orders.length === 0);
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -1136,7 +1111,11 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                 <button
                   key={tab.filter}
                   type="button"
-                  onClick={() => setActiveTab(tab.filter)}
+                  onClick={() => {
+                    if (tab.filter === activeTab) return;
+                    setSwitchingTab(true);
+                    setActiveTab(tab.filter);
+                  }}
                   className={cn(
                     "flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-semibold transition-all rounded-lg border-b-2",
                     activeTab === tab.filter
@@ -1171,8 +1150,18 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         hidePayment={activeTab === "channel"}
       />
 
-      {isMobile ? (
-        (loading && orders.length === 0) || serviceabilityLoading ? <OrderCardSkeleton /> : (
+      {ordersError && !showOrdersSkeleton ? (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-danger/30 bg-danger/5 px-6 py-12 text-center">
+          <p className="font-semibold text-text-primary">Couldn’t load orders</p>
+          <p className="max-w-md text-sm text-text-secondary">
+            {ordersError.message || "The request timed out or failed. Retry without reloading the page."}
+          </p>
+          <Button type="button" onClick={() => void refetch({ includeCounts: true })}>
+            Retry
+          </Button>
+        </div>
+      ) : isMobile ? (
+        showOrdersSkeleton ? <OrderCardSkeleton /> : (
           filtered.length === 0 ? (
             <EmptyState
               icon={Package}
@@ -1379,8 +1368,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                 }
               : undefined
           }
-          loading={(loading && orders.length === 0) || serviceabilityLoading}
-          isRefreshing={isFetching && orders.length > 0}
+          loading={showOrdersSkeleton}
+          isRefreshing={isFetching && orders.length > 0 && !switchingTab}
           emptyDescription={
             serviceabilityFilterActive
               ? "No orders on this page are serviceable for the selected courier from this pickup."
