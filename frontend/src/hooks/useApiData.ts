@@ -25,7 +25,7 @@ import type {
 } from "@/types/logistics";
 import type { WalletSummary } from "@/services/walletService";
 import { useAuth } from "@/contexts/AuthContext";
-import { queryKeys } from "@/lib/queryClient";
+import { queryClient, queryKeys } from "@/lib/queryClient";
 
 type QueryStatus = "pending" | "success" | "error";
 
@@ -236,6 +236,81 @@ function stableAdvKey(f: OrderListFilterValues): string {
   return entries.map(([k, v]) => `${k}=${String(v)}`).join("&");
 }
 
+const ORDERS_STALE_MS = 60 * 1000;
+const DEFAULT_ORDERS_TABS = [
+  "all",
+  "channel",
+  "manual",
+  "ready-to-ship",
+  "pending-pickup",
+  "in-transit",
+  "out-for-delivery",
+  "delivered",
+  "reship",
+  "failed",
+  "ndr",
+  "rto",
+] as const;
+
+function defaultOrdersListKey(tab: string) {
+  return `default:1:50::${tab}:::`;
+}
+
+async function loadMappedOrdersList(
+  params: Parameters<typeof orderService.listOrders>[0],
+  signal?: AbortSignal
+) {
+  const res = await orderService.listOrders({ ...params, counts: false }, { signal });
+  if (Array.isArray(res)) {
+    const mapped = (res as unknown as Record<string, unknown>[]).map(mapOrderRow);
+    return { orders: mapped, total: mapped.length };
+  }
+  const meta = res as OrdersListMeta;
+  const mapped = (meta.orders as unknown as Record<string, unknown>[]).map(mapOrderRow);
+  return { orders: mapped, total: meta.total };
+}
+
+/** Warm All + other tabs so the first Orders visit is a cache hit. */
+export function prefetchOrdersWorkspace(userId: string) {
+  void (async () => {
+    await queryClient.prefetchQuery({
+      queryKey: queryKeys.ordersList(userId, defaultOrdersListKey("all")),
+      staleTime: ORDERS_STALE_MS,
+      queryFn: () => loadMappedOrdersList({ page: 1, pageSize: 50, tab: "all" }),
+    });
+    void queryClient.prefetchQuery({
+      queryKey: queryKeys.ordersTabCounts(userId, "default::::"),
+      staleTime: ORDERS_STALE_MS,
+      queryFn: async () => {
+        const res = await orderService.listOrders({
+          page: 1,
+          pageSize: 1,
+          tab: "all",
+          counts: true,
+          countsOnly: true,
+        });
+        if (Array.isArray(res)) return undefined;
+        return (res as OrdersListMeta).tabCounts;
+      },
+    });
+    for (const tab of DEFAULT_ORDERS_TABS) {
+      if (tab === "all") continue;
+      await new Promise((r) => window.setTimeout(r, 120));
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.ordersList(userId, defaultOrdersListKey(tab)),
+        staleTime: ORDERS_STALE_MS,
+        queryFn: () => loadMappedOrdersList({ page: 1, pageSize: 50, tab }),
+      });
+    }
+    await new Promise((r) => window.setTimeout(r, 120));
+    void queryClient.prefetchQuery({
+      queryKey: queryKeys.ordersList(userId, "junk:1:50:::::"),
+      staleTime: ORDERS_STALE_MS,
+      queryFn: () => loadMappedOrdersList({ page: 1, pageSize: 50, view: "junk" }),
+    });
+  })();
+}
+
 export interface OrdersQueryState {
   data: Order[];
   total: number;
@@ -324,7 +399,7 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
   const qResult = useQuery({
     queryKey,
     enabled,
-    staleTime: 30 * 1000,
+    staleTime: ORDERS_STALE_MS,
     refetchOnMount: true,
     retry: (failureCount, error) => {
       if (error instanceof Error && "status" in error) {
@@ -334,7 +409,7 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
       return failureCount < 2;
     },
     queryFn: async ({ signal }) => {
-      const res = await orderService.listOrders(
+      return loadMappedOrdersList(
         {
           view,
           page,
@@ -343,28 +418,17 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
           tab: view === "junk" ? undefined : tab,
           payment,
           fulfillment,
-          counts: false,
           ...adv,
         },
-        { signal }
+        signal
       );
-      if (Array.isArray(res)) {
-        const mapped = (res as unknown as Record<string, unknown>[]).map(mapOrderRow);
-        return { orders: mapped, total: mapped.length };
-      }
-      const meta = res as OrdersListMeta;
-      const mapped = (meta.orders as unknown as Record<string, unknown>[]).map(mapOrderRow);
-      return {
-        orders: mapped,
-        total: meta.total,
-      };
     },
   });
 
   const countsResult = useQuery({
     queryKey: countsQueryKey,
     enabled: enabled && counts,
-    staleTime: 60 * 1000,
+    staleTime: ORDERS_STALE_MS,
     refetchOnMount: true,
     queryFn: async ({ signal }) => {
       const res = await orderService.listOrders(

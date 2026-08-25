@@ -206,8 +206,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   }, [refetch]);
 
   useEffect(() => {
-    if (!isFetching && !loading) setSwitchingTab(false);
-  }, [isFetching, loading, activeTab, orders]);
+    if (orders.length > 0 || (!loading && !isFetching)) setSwitchingTab(false);
+  }, [isFetching, loading, activeTab, orders.length]);
   const { data: couriers = [] } = useCouriers();
   const { data: pickupAddresses = [] } = usePickupAddresses();
   const { data: platformPickups = [] } = usePickupAddresses({ scope: "platform" });
@@ -535,7 +535,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     },
     [tabCounts, orders]
   );
-  const showOrdersSkeleton = switchingTab || (loading && orders.length === 0);
+  const showOrdersSkeleton = (switchingTab && orders.length === 0) || (loading && orders.length === 0);
   const openOrder = (order: Order) => { setSelectedOrder(order); setDrawerOpen(true); };
   const toggleSelect = (id: string) => {
     setSelected((prev) => {

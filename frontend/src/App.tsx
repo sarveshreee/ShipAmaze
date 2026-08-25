@@ -7,11 +7,14 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { BrandingProvider } from "@/contexts/BrandingContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import AppLayout from "@/components/AppLayout";
+import LoginPage from "@/pages/LoginPage";
+import AdminOrders from "@/pages/admin/AdminOrders";
+import VendorOrders from "@/pages/vendor/VendorOrders";
+import DropshipperOrders from "@/pages/dropshipper/DropshipperOrders";
 import { useCartSync } from "@/hooks/useCartSync";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import { useStaffPermissions, type StaffPermission } from "@/hooks/useStaffPermissions";
 
-import LoginPage from "@/pages/LoginPage";
 const SignupPage = lazy(() => import("@/pages/SignupPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
 const VerifyEmailPage = lazy(() => import("@/pages/VerifyEmailPage"));
@@ -25,7 +28,6 @@ const ProductPreview = lazy(() => import("@/pages/ProductPreview"));
 
 // Admin
 const AdminDashboard = lazy(() => import("@/pages/admin/AdminDashboard"));
-const AdminOrders = lazy(() => import("@/pages/admin/AdminOrders"));
 const AdminNDR = lazy(() => import("@/pages/admin/AdminNDR"));
 const AdminRates = lazy(() => import("@/pages/admin/AdminRates"));
 const AdminCouriers = lazy(() => import("@/pages/admin/AdminCouriers"));
@@ -55,7 +57,6 @@ const AdminPartners = lazy(() => import("@/pages/admin/AdminPartners"));
 
 // Vendor
 const VendorDashboard = lazy(() => import("@/pages/vendor/VendorDashboard"));
-const VendorOrders = lazy(() => import("@/pages/vendor/VendorOrders"));
 const VendorTeam = lazy(() => import("@/pages/vendor/VendorTeam"));
 const VendorSettings = lazy(() => import("@/pages/vendor/VendorSettings"));
 const VendorCatalogue = lazy(() => import("@/pages/vendor/VendorCatalogue"));
@@ -66,7 +67,6 @@ const VendorSupport = lazy(() => import("@/pages/vendor/VendorSupport"));
 
 // Dropshipper
 const DropshipperDashboard = lazy(() => import("@/pages/dropshipper/DropshipperDashboard"));
-const DropshipperOrders = lazy(() => import("@/pages/dropshipper/DropshipperOrders"));
 const CreateOrder = lazy(() => import("@/pages/dropshipper/CreateOrder"));
 const AddOrder = lazy(() => import("@/pages/dropshipper/AddOrder"));
 const BulkUpload = lazy(() => import("@/pages/dropshipper/BulkUpload"));
@@ -94,39 +94,31 @@ const MarketplaceProductDetail = lazy(() => import("@/pages/marketplace/Marketpl
 import type { UserRole } from "@/services/authService";
 import { roleDashboardPath } from "@/services/authService";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
-import { ShipAmazeLogo } from "@/components/brand/ShipAmazeLogo";
 import { AccessDenied } from "@/components/AccessDenied";
 
-function AuthLoadingScreen() {
+/** Content-area placeholder only — never a full-page logo splash. */
+function PageSkeleton() {
   return (
-    <div className="relative flex h-screen flex-col items-center justify-center gap-10 overflow-hidden bg-gradient-to-b from-background via-background to-primary/[0.06]">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-40"
-        aria-hidden
-        style={{
-          background:
-            "radial-gradient(ellipse 60% 50% at 50% 40%, hsl(24 95% 53% / 0.12), transparent 70%)",
-        }}
-      />
-      <div className="relative animate-fade-in-up">
-        <ShipAmazeLogo placement="loading" />
-      </div>
-      <div className="relative flex flex-col items-center gap-4">
-        <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-primary/15 border-t-primary shadow-[0_0_20px_hsl(24_95%_53%/0.25)]" />
-        <p className="text-sm font-medium tracking-wide text-muted-foreground">Loading your workspace…</p>
-      </div>
+    <div className="space-y-3 p-4 sm:p-6">
+      <div className="h-8 w-48 animate-pulse rounded-md bg-muted" />
+      <div className="h-24 animate-pulse rounded-xl bg-muted/80" />
+      <div className="h-64 animate-pulse rounded-xl bg-muted/60" />
     </div>
   );
 }
 
 function RoleProtectedRoute({ children, allow }: { children: React.ReactNode; allow: UserRole[] }) {
   const { isAuthenticated, isLoading, user } = useAuth();
-  if (isLoading) return <AuthLoadingScreen />;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (!user || !allow.includes(user.role)) {
-    return <Navigate to={roleDashboardPath(user?.role ?? "admin")} replace />;
+  if (!isLoading && !isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isLoading && user && !allow.includes(user.role)) {
+    return <Navigate to={roleDashboardPath(user.role)} replace />;
   }
-  return <AppLayout>{children}</AppLayout>;
+  if (!user) return <PageSkeleton />;
+  return (
+    <AppLayout>
+      <Suspense fallback={<PageSkeleton />}>{children}</Suspense>
+    </AppLayout>
+  );
 }
 
 /** Allows FULL dropshippers, or RESTRICTED ones with own-pickup processing enabled. */
@@ -166,15 +158,13 @@ function AdminStaffRoute({
 }
 
 function LoginGate() {
-  const { isAuthenticated, isLoading, user } = useAuth();
-  if (isLoading) return <AuthLoadingScreen />;
+  const { isAuthenticated, user } = useAuth();
   if (isAuthenticated && user) return <Navigate to={roleDashboardPath(user.role)} replace />;
   return <LoginPage />;
 }
 
 function SignupGate() {
-  const { isAuthenticated, isLoading, user } = useAuth();
-  if (isLoading) return <AuthLoadingScreen />;
+  const { isAuthenticated, user } = useAuth();
   if (isAuthenticated && user) return <Navigate to={roleDashboardPath(user.role)} replace />;
   return <SignupPage />;
 }
@@ -309,10 +299,6 @@ function AppRoutes() {
   );
 }
 
-function LazyFallback() {
-  return <AuthLoadingScreen />;
-}
-
 const App = () => (
   <TooltipProvider>
     <Toaster />
@@ -321,7 +307,7 @@ const App = () => (
         <Sonner />
         <BrandingProvider>
           <AuthProvider>
-            <Suspense fallback={<LazyFallback />}>
+            <Suspense fallback={<PageSkeleton />}>
               <AppRoutes />
             </Suspense>
           </AuthProvider>

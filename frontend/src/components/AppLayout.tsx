@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useTabPermissions } from "@/hooks/useTabPermissions";
 import { useStaffPermissions, type StaffPermission } from "@/hooks/useStaffPermissions";
-import { useWalletSummary } from "@/hooks/useApiData";
+import { useWalletSummary, prefetchOrdersWorkspace } from "@/hooks/useApiData";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
@@ -364,6 +364,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       }
     })();
   }, [user, userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    prefetchOrdersWorkspace(userId);
+  }, [userId]);
 
   useEffect(() => {
     const handler = () => void fetchNotifications({ page: 1, append: false, force: true });

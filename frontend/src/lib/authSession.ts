@@ -16,7 +16,7 @@ const AUTH_KEYS = [
 const CHANNEL = "shipamaze-auth";
 const REQUEST_KEY = "shipamaze_session_request";
 const RESPONSE_KEY = "shipamaze_session_response";
-const RESTORE_MS = 220;
+const RESTORE_MS = 80;
 
 type SessionKeys = Partial<Record<(typeof AUTH_KEYS)[number], string>>;
 
