@@ -28,15 +28,12 @@ import { createInAppNotification } from "../services/inAppNotifications.js";
 import { orderWalletUserId } from "../services/walletLedger.js";
 import { orderCodCollectableAmount, resolveManualOrderPaymentFields } from "../services/normalizeOrderPayment.js";
 import { buildPickupSnapshotFromLean } from "../utils/pickupSnapshot.js";
-
-/** Newest processed first; fall back through ready/move/update/create times for unprocessed rows. */
-const ORDER_LIST_SORT = {
-  assignedDateTime: -1 as const,
-  movedToReadyAt: -1 as const,
-  updatedAt: -1 as const,
-  createdAt: -1 as const,
-};
 import { resolveVendorIdFromPickup } from "../utils/pickupVendor.js";
+import {
+  orderListSortAtExpr,
+  ORDER_LIST_SORT_FIELDS,
+  ORDER_LIST_UNSET_FIELDS,
+} from "../utils/orderListSort.js";
 import { OrderSkuAudit } from "../models/OrderSkuAudit.js";
 import { devLog } from "../utils/devLog.js";
 import { ACTIVITY_ACTIONS, recordUserActivity } from "../services/userActivityService.js";
@@ -516,11 +513,13 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
     if (view === "junk") query = mergeQueries(query, { isJunk: true });
     else query = mergeQueries(query, { isJunk: { $ne: true } });
     // Cap legacy list — full unbounded scan was a major perf hotspot (command palette / analytics)
-    const rows = await Order.find(query)
-      .select(ORDER_LIST_EXCLUDE)
-      .sort(ORDER_LIST_SORT)
-      .limit(500)
-      .lean();
+    const rows = await Order.aggregate([
+      { $match: query },
+      { $addFields: { _listSortAt: orderListSortAtExpr(undefined, undefined) } },
+      { $sort: ORDER_LIST_SORT_FIELDS },
+      { $limit: 500 },
+      { $unset: [...ORDER_LIST_UNSET_FIELDS] },
+    ]);
     res.json(rows.map((o) => mapOrder(o)));
     return;
   }
@@ -571,8 +570,16 @@ export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) =
   }
 
   const skip = (pq.page - 1) * pq.pageSize;
+  const sortAt = orderListSortAtExpr(pq.tab, pq.dateType);
   const [rows, total] = await Promise.all([
-    Order.find(query).select(ORDER_LIST_EXCLUDE).sort(ORDER_LIST_SORT).skip(skip).limit(pq.pageSize).lean(),
+    Order.aggregate([
+      { $match: query },
+      { $addFields: { _listSortAt: sortAt } },
+      { $sort: ORDER_LIST_SORT_FIELDS },
+      { $skip: skip },
+      { $limit: pq.pageSize },
+      { $unset: [...ORDER_LIST_UNSET_FIELDS] },
+    ]),
     Order.countDocuments(query),
   ]);
 
@@ -610,13 +617,19 @@ export const getOrdersByIds = asyncHandler(async (req: AuthRequest, res: Respons
 /** Order IDs matching the same filters as the list (capped for bulk select / process). */
 export const listOrderIds = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const { query } = await buildOrdersListMongoQuery(req.user, req.query as Record<string, unknown>);
+  const { query, pq } = await buildOrdersListMongoQuery(req.user, req.query as Record<string, unknown>);
   const limit = Math.min(
     ORDER_IDS_MAX,
     Math.max(1, parseInt(String((req.query as { limit?: string }).limit ?? ORDER_IDS_MAX), 10) || ORDER_IDS_MAX)
   );
   const total = await Order.countDocuments(query);
-  const rows = await Order.find(query).sort(ORDER_LIST_SORT).select("orderId").limit(limit).lean();
+  const rows = await Order.aggregate([
+    { $match: query },
+    { $addFields: { _listSortAt: orderListSortAtExpr(pq.tab, pq.dateType) } },
+    { $sort: ORDER_LIST_SORT_FIELDS },
+    { $limit: limit },
+    { $project: { orderId: 1 } },
+  ]);
   res.json({
     ids: rows.map((r) => String(r.orderId)),
     total,
@@ -634,11 +647,16 @@ export const exportOrdersCsv = asyncHandler(async (req: AuthRequest, res: Respon
     : [];
 
   let query: Record<string, unknown>;
+  let sortTab: string | undefined;
+  let sortDateType: import("../utils/orderListSort.js").ListDateType;
   if (bodyIds.length > 0) {
     const visibility = await buildOrderVisibilityQuery(req.user);
     query = mergeQueries(visibility, { orderId: { $in: [...new Set(bodyIds)].slice(0, ORDER_EXPORT_MAX_ROWS) } });
   } else {
-    ({ query } = await buildOrdersListMongoQuery(req.user, req.query as Record<string, unknown>));
+    const built = await buildOrdersListMongoQuery(req.user, req.query as Record<string, unknown>);
+    query = built.query;
+    sortTab = built.pq.tab;
+    sortDateType = built.pq.dateType;
   }
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -684,7 +702,12 @@ export const exportOrdersCsv = asyncHandler(async (req: AuthRequest, res: Respon
 
   let count = 0;
   let truncated = false;
-  const cursor = Order.find(query).sort(ORDER_LIST_SORT).lean().cursor();
+  const cursor = Order.aggregate([
+    { $match: query },
+    { $addFields: { _listSortAt: orderListSortAtExpr(sortTab, sortDateType) } },
+    { $sort: ORDER_LIST_SORT_FIELDS },
+  ])
+    .cursor({ batchSize: 100 });
   for await (const o of cursor) {
     if (count >= ORDER_EXPORT_MAX_ROWS) {
       truncated = true;

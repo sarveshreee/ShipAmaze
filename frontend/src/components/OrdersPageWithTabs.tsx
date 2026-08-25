@@ -8,6 +8,7 @@ import { ProcessSelectedModal } from "@/components/ProcessSelectedModal";
 import { RichOrdersTable } from "@/components/RichOrdersTable";
 import { useCouriers, useOrdersQuery, usePickupAddresses } from "@/hooks/useApiData";
 import type { Order } from "@/types/logistics";
+import { sortOrdersNewestFirst } from "@/lib/orderListTimestamp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -505,7 +506,17 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
 
   const filterByTab = (o: Order, tab: string) => orderMatchesTab(o, tab);
 
-  const filtered = serviceabilityFilterActive ? serviceabilityFilteredOrders : orders;
+  /** Newest timestamp for this tab/date-type first (date, then time) — matches row clock. */
+  const filtered = useMemo(() => {
+    const list = serviceabilityFilterActive ? serviceabilityFilteredOrders : orders;
+    return sortOrdersNewestFirst(list, activeTab, advancedFilters.dateType);
+  }, [
+    serviceabilityFilterActive,
+    serviceabilityFilteredOrders,
+    orders,
+    activeTab,
+    advancedFilters.dateType,
+  ]);
 
   const selectedOrders = useMemo(() => filtered.filter((o) => selected.has(o.id)), [filtered, selected]);
 

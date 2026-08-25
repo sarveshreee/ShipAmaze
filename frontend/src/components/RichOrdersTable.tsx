@@ -17,6 +17,7 @@ import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { isOrderReadyToShip } from "@/lib/orderTabFilters";
 import { displayStatusLabel, normalizeTrackingStatus } from "@/lib/orderStatusClassifier";
 import { formatOrderDateTime } from "@/lib/dateFormat";
+import { orderTimestampForTab, type OrderDateType } from "@/lib/orderListTimestamp";
 import { toast } from "sonner";
 import { printBulkInvoices, printBulkLabels, printShippingLabel } from "@/components/ShippingLabel";
 import { shouldUseVelocityCourierPdf } from "@/lib/labelPrintUtils";
@@ -220,140 +221,8 @@ const COURIER_FILTER_TABS = new Set([
   "delivered",
 ]);
 
-function normalizeStatusKey(status: unknown): string {
-  return String(status ?? "").toLowerCase().replace(/[-\s]+/g, "_");
-}
-
-function validDate(value: unknown): Date | null {
-  if (value == null || value === "") return null;
-  const d = new Date(String(value));
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function latestStatusTime(order: Order, statuses: string[]): Date | null {
-  const wanted = new Set(statuses.map(normalizeStatusKey));
-  const matches = (order.statusHistory ?? [])
-    .filter((event) => wanted.has(normalizeStatusKey(event.status)))
-    .map((event) => validDate(event.at))
-    .filter((date): date is Date => Boolean(date));
-  if (matches.length === 0) return null;
-  return matches.reduce((latest, date) => (date > latest ? date : latest), matches[0]);
-}
-
-function earliestStatusTime(order: Order, statuses: string[]): Date | null {
-  const wanted = new Set(statuses.map(normalizeStatusKey));
-  const matches = (order.statusHistory ?? [])
-    .filter((event) => wanted.has(normalizeStatusKey(event.status)))
-    .map((event) => validDate(event.at))
-    .filter((date): date is Date => Boolean(date));
-  if (matches.length === 0) return null;
-  return matches.reduce((earliest, date) => (date < earliest ? date : earliest), matches[0]);
-}
-
-/** First process / AWB generation time (Date Type → Placed). */
-function orderProcessedAt(order: Order): Date | null {
-  return (
-    validDate(order.assignedDateTime) ??
-    earliestStatusTime(order, [
-      "pending_pickup",
-      "pending-pickup",
-      "shipment_booked",
-      "pickup_scheduled",
-      "pickup-scheduled",
-      "ready_for_pickup",
-    ]) ??
-    validDate(order.movedToReadyAt) ??
-    null
-  );
-}
-
-/** Actual courier pick-up time (Date Type → Pickup). */
-function orderPickedUpAt(order: Order): Date | null {
-  return (
-    validDate(order.pickupDate) ??
-    earliestStatusTime(order, ["picked_up", "picked-up"]) ??
-    // Some providers jump straight to in_transit when the package is collected.
-    earliestStatusTime(order, ["in_transit", "in-transit"]) ??
-    null
-  );
-}
-
 function formatOrderTimestamp(date: Date | null): string {
   return formatOrderDateTime(date) || "—";
-}
-
-function orderTimestampForTab(
-  order: Order,
-  activeTab?: string,
-  dateType?: "placed" | "pickup" | "delivered" | "choose"
-): { label: string; date: Date | null } {
-  const createdAt = validDate(order.createdAt) ?? validDate(order.date) ?? validDate(order.updatedAt);
-
-  // Explicit Date Type filter overrides tab-implied timestamps.
-  // "choose" (or unset) keeps the tab-default timeline.
-  if (dateType === "placed") {
-    // When the order was first processed / AWB generated — not order createdAt.
-    return { label: "Placed", date: orderProcessedAt(order) };
-  }
-  if (dateType === "pickup") {
-    // When the courier actually picked up the package.
-    return { label: "Pickup", date: orderPickedUpAt(order) };
-  }
-  if (dateType === "delivered") {
-    return {
-      label: "Delivered",
-      date: latestStatusTime(order, ["delivered"]) ?? null,
-    };
-  }
-
-  const tab = normalizeStatusKey(activeTab);
-
-  if (tab === "pending_pickup") {
-    return {
-      label: "Pending Pickup",
-      date:
-        orderProcessedAt(order) ??
-        latestStatusTime(order, [
-          "pending_pickup",
-          "pending-pickup",
-          "pickup_scheduled",
-          "pickup-scheduled",
-          "ready_for_pickup",
-          "not_picked",
-        ]) ??
-        createdAt,
-    };
-  }
-
-  if (tab === "in_transit") {
-    return {
-      label: "In Transit",
-      date: orderPickedUpAt(order) ?? createdAt,
-    };
-  }
-
-  if (tab === "out_for_delivery") {
-    return {
-      label: "Out For Delivery",
-      date: latestStatusTime(order, ["out_for_delivery", "out-for-delivery"]) ?? createdAt,
-    };
-  }
-
-  if (tab === "delivered") {
-    return {
-      label: "Delivered",
-      date: latestStatusTime(order, ["delivered"]) ?? createdAt,
-    };
-  }
-
-  if (tab === "failed") {
-    return {
-      label: "Failed",
-      date: latestStatusTime(order, ["failed", "rto", "ndr", "cancelled"]) ?? createdAt,
-    };
-  }
-
-  return { label: "Created", date: createdAt };
 }
 
 interface FilterPopoverProps {
@@ -852,7 +721,7 @@ interface Props {
   isRefreshing?: boolean;
   activeTab?: string;
   /** Override which event timestamp is shown / used for column date filters. "choose" = tab default. */
-  dateType?: "choose" | "placed" | "pickup" | "delivered";
+  dateType?: OrderDateType;
   onToggleSidebar?: () => void;
   showProcessSelected?: boolean;
   /** When true, Process Selected is visible but disabled (e.g. selection includes non–Ready-to-Ship orders). */
