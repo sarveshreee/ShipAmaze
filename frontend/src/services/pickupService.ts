@@ -22,6 +22,8 @@ export type PickupAddressPayload = {
   gstin?: string;
   isDefault?: boolean;
   isActive?: boolean;
+  /** Ekart Elite pickup location_code */
+  ekartLocationCode?: string;
   /** Admin only — target vendor/dropshipper user id */
   userId?: string;
   /** Opt-in provider sync on create/update — nothing syncs unless listed */

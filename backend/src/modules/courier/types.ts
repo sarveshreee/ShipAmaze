@@ -159,6 +159,7 @@ export interface ProviderCreateShipmentInput {
   customer: ProviderCustomer;
   items: ProviderOrderItem[];
   courierId?: string;
+  courierName?: string;
   /** Escape hatch for Velocity orchestration fields not yet normalized. */
   providerPayload?: Record<string, unknown>;
 }

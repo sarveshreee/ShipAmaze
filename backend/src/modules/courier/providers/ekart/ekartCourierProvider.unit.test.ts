@@ -8,6 +8,7 @@ vi.mock("../../../ekart/ekart.config.js", () => ({
     baseUrl: "https://api.ekartlogistics.com",
     authorization: "Basic dGVzdDp0ZXN0",
     merchantCode: "TEC",
+    defaultLocationCode: "",
     serviceCode: "REGULAR",
     goodsCategory: "NON_ESSENTIAL",
     authEndpoint: "/auth/token",
@@ -187,6 +188,7 @@ describe("Ekart provider foundation", () => {
     });
     const detail = (built.body.services as any)[0].service_details[0];
     expect(detail.service_data.source).toEqual({ location_code: "TEC_BLR_01" });
+    expect(detail.service_data.dispatch_date).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   });
 
   it("passes selected ECONOMY service_code from courierId", () => {

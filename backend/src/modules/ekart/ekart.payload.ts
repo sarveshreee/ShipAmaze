@@ -59,6 +59,30 @@ function line(raw: unknown, fallback = ""): string {
   return s || fallback;
 }
 
+/** Durin rejects non-ASCII in names/address with 400; also strips characters Elite cannot index. */
+function asciiLine(raw: unknown, fallback = ""): string {
+  const s = line(raw, fallback)
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return s || fallback;
+}
+
+function ekartDispatchDate(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
+
 /** Durin rejects address_line1/address_line2 over 255 chars with a 400 — hard cap outbound only. */
 const EKART_ADDRESS_LINE_MAX = 255;
 
@@ -134,12 +158,12 @@ function buildAddressBlock(opts: {
 
   return {
     address: {
-      first_name: line(opts.firstName, "Customer"),
-      address_line1: line1,
-      address_line2: line2,
+      first_name: asciiLine(opts.firstName, "Customer"),
+      address_line1: asciiLine(line1, "Address"),
+      address_line2: asciiLine(line2),
       pincode: pin6(opts.pincode),
-      city: line(opts.city, "City"),
-      state: line(opts.state, "State"),
+      city: asciiLine(opts.city, "City"),
+      state: asciiLine(opts.state, "State"),
       primary_contact_number: phone10(opts.phone),
       ...(opts.email?.trim() ? { email_id: opts.email.trim() } : {}),
     },
@@ -147,11 +171,12 @@ function buildAddressBlock(opts: {
 }
 
 function buildSourceOrReturn(pickup: EkartPickupLean) {
-  const locationCode = String(pickup.ekartLocationCode ?? "").trim();
+  const locationCode =
+    String(pickup.ekartLocationCode ?? "").trim() || ekartConfig.defaultLocationCode;
   if (locationCode) {
     return { location_code: locationCode };
   }
-  const contact = line(pickup.contactName, line(pickup.label, "Pickup"));
+  const contact = asciiLine(pickup.contactName, asciiLine(pickup.label, "Pickup"));
   const line1 = line(pickup.addressLine1, "Address");
   const line2 = [pickup.addressLine2, pickup.landmark]
     .map((s) => String(s ?? "").trim())
@@ -267,6 +292,14 @@ export function buildEkartCreateShipmentPayload(input: {
     ? ekartConfig.reverseServiceCode
     : resolveEkartServiceCode(input.serviceCode || input.courierId);
 
+  const usedLocationCode =
+    String(input.pickup.ekartLocationCode ?? "").trim() || ekartConfig.defaultLocationCode;
+  if (!usedLocationCode && !isReverse) {
+    console.warn(
+      "[ekart] create without location_code — Durin accepts address-only but Elite typically lists only registered pickup locations. Set Pickup.ekartLocationCode or EKART_DEFAULT_LOCATION_CODE."
+    );
+  }
+
   const body: Record<string, unknown> = {
     client_name: merchant,
     goods_category: ekartConfig.goodsCategory,
@@ -280,6 +313,7 @@ export function buildEkartCreateShipmentPayload(input: {
               vendor_name: "Ekart",
               amount_to_collect: String(amountToCollect),
               delivery_type: "SMALL",
+              dispatch_date: ekartDispatchDate(),
               source,
               destination,
               ...(isReverse ? {} : { return_location: returnLocation }),
@@ -296,7 +330,7 @@ export function buildEkartCreateShipmentPayload(input: {
               },
               shipment_items: items.map((it, idx) => ({
                 product_id: String(it.sku ?? `SKU${idx + 1}`).slice(0, 64),
-                product_title: line(it.name, "Item").slice(0, 200),
+                product_title: asciiLine(it.name, "Item").slice(0, 200),
                 quantity: Math.max(1, Math.round(it.qty) || 1),
                 cost: {
                   total_sale_value: String(Math.max(0, Number(it.price) || 0)),
@@ -304,7 +338,7 @@ export function buildEkartCreateShipmentPayload(input: {
                   tax_breakup: { cgst: 0, sgst: 0, igst: 0 },
                 },
                 seller_details: {
-                  seller_reg_name: line(input.pickup.label, merchant),
+                  seller_reg_name: asciiLine(input.pickup.label, merchant),
                 },
                 item_attributes: [
                   { name: "order_id", value: String(input.orderId) },

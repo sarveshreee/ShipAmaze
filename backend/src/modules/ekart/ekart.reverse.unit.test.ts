@@ -5,6 +5,7 @@ vi.mock("./ekart.config.js", () => ({
   isEkartConfigured: vi.fn(() => true),
   ekartConfig: {
     merchantCode: "TEC",
+    defaultLocationCode: "",
     serviceCode: "REGULAR",
     reverseServiceCode: "RETURNS_SMART_CHECK",
     goodsCategory: "NON_ESSENTIAL",

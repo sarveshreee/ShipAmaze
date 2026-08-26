@@ -1500,12 +1500,13 @@ function mapPickupDoc(a: {
   state: string;
   pincode: string;
   country?: string;
-  gstin?: string;
-  isDefault?: boolean;
-  isActive?: boolean;
-  deletedAt?: Date;
-  velocityWarehouseId?: string;
-  lorrigoPickupId?: string;
+    gstin?: string;
+    isDefault?: boolean;
+    isActive?: boolean;
+    deletedAt?: Date;
+    velocityWarehouseId?: string;
+    ekartLocationCode?: string;
+    lorrigoPickupId?: string;
   lorrigoSyncStatus?: "SUCCESS" | "FAILED" | "SKIPPED";
   lorrigoLastSyncAt?: Date | string;
   lorrigoSyncError?: string;
@@ -1537,6 +1538,10 @@ function mapPickupDoc(a: {
     velocityWarehouseId:
       typeof a.velocityWarehouseId === "string" && a.velocityWarehouseId.trim()
         ? a.velocityWarehouseId.trim()
+        : undefined,
+    ekartLocationCode:
+      typeof a.ekartLocationCode === "string" && a.ekartLocationCode.trim()
+        ? a.ekartLocationCode.trim()
         : undefined,
     lorrigoPickupId:
       typeof a.lorrigoPickupId === "string" && a.lorrigoPickupId.trim()
@@ -1700,6 +1705,7 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     pincode,
     country,
     gstin: gstinRaw || undefined,
+    ekartLocationCode: trimStr(b.ekartLocationCode) || undefined,
     addressFingerprint: fp,
     isDefault: makeDefault,
     isActive,
@@ -1824,6 +1830,7 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   if (b.pincode !== undefined) patch.pincode = normalizePincodeIndia(trimStr(b.pincode));
   if (b.country !== undefined) patch.country = trimStr(b.country) || "India";
   if (b.gstin !== undefined) patch.gstin = trimStr(b.gstin).toUpperCase();
+  if (b.ekartLocationCode !== undefined) patch.ekartLocationCode = trimStr(b.ekartLocationCode);
   if (b.isActive !== undefined) patch.isActive = Boolean(b.isActive);
 
   if (b.isDefault === true) {
@@ -1890,6 +1897,9 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   existing.alternatePhone = alternatePhone || undefined;
   existing.email = email || "";
   existing.gstin = gstinVal || undefined;
+  if (b.ekartLocationCode !== undefined) {
+    existing.ekartLocationCode = trimStr(b.ekartLocationCode) || undefined;
+  }
   existing.addressFingerprint = fp;
 
   await existing.save();

@@ -270,6 +270,8 @@ export interface PickupAddress {
   gstin?: string;
   isDefault: boolean;
   isActive?: boolean;
+  /** Ekart Elite registered location_code (source.location_code on Durin create). */
+  ekartLocationCode?: string;
   /** Set after linking to Velocity dashboard warehouse */
   velocityWarehouseId?: string;
   /** Present when API exposes explicit link flag */

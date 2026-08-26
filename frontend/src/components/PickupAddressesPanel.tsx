@@ -56,6 +56,7 @@ const emptyForm = {
   pincode: "",
   country: "India",
   gstin: "",
+  ekartLocationCode: "",
   isDefault: false,
   isActive: true,
 };
@@ -145,6 +146,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
       pincode: a.pincode,
       country: a.country || "India",
       gstin: a.gstin ?? "",
+      ekartLocationCode: a.ekartLocationCode ?? "",
       isDefault: a.isDefault,
       isActive: a.isActive !== false,
     });
@@ -200,6 +202,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
         pincode: pinDigits,
         country: form.country.trim() || "India",
         gstin: form.gstin.trim() || undefined,
+        ekartLocationCode: form.ekartLocationCode.trim() || undefined,
         isDefault: form.isDefault,
         isActive: form.isActive,
         syncProviders,
@@ -599,6 +602,18 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
             <div className="sm:col-span-2">
               <Label>GST (optional)</Label>
               <Input className="mt-1" value={form.gstin} onChange={(e) => setForm((f) => ({ ...f, gstin: e.target.value.toUpperCase() }))} maxLength={15} />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Ekart location code (Elite)</Label>
+              <Input
+                className="mt-1"
+                value={form.ekartLocationCode}
+                onChange={(e) => setForm((f) => ({ ...f, ekartLocationCode: e.target.value.trim() }))}
+                placeholder="e.g. TEC_SUR_01"
+              />
+              <p className="text-[11px] text-text-muted mt-1">
+                Copy from Elite Settings → Pickup locations. API bookings without this code track on ekartlogistics.com but usually do not appear in the Elite Shipments list.
+              </p>
             </div>
 
             <div className="sm:col-span-2 rounded-lg border border-border bg-surface-2/40 p-3 space-y-2">
