@@ -39,8 +39,11 @@ export interface IPickup extends Document {
   lorrigoState?: string;
   lorrigoPincode?: string;
   lorrigoPhone?: string;
-  /** Optional Ekart pre-registered location_code (future). Booking uses full address when absent. */
+  /** Optional Ekart Elite location_code — linked via Sync (Elite registers locations; Durin has no create-warehouse API). */
   ekartLocationCode?: string;
+  ekartSyncStatus?: "SUCCESS" | "FAILED" | "SKIPPED";
+  ekartLastSyncAt?: Date;
+  ekartSyncError?: string;
   /** Lorrigo sync outcome — optional; unset when sync was never attempted. */
   lorrigoSyncStatus?: "SUCCESS" | "FAILED" | "SKIPPED";
   lorrigoLastSyncAt?: Date;
@@ -84,6 +87,9 @@ const pickupSchema = new Schema<IPickup>(
     lorrigoPincode: { type: String },
     lorrigoPhone: { type: String },
     ekartLocationCode: { type: String, sparse: true },
+    ekartSyncStatus: { type: String, enum: ["SUCCESS", "FAILED", "SKIPPED"] },
+    ekartLastSyncAt: { type: Date },
+    ekartSyncError: { type: String },
     lorrigoSyncStatus: { type: String, enum: ["SUCCESS", "FAILED", "SKIPPED"] },
     lorrigoLastSyncAt: { type: Date },
     lorrigoSyncError: { type: String },

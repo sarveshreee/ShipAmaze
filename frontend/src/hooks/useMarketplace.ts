@@ -37,19 +37,33 @@ export function useMarketplaceProducts() {
 
   const normalizedProducts = useMemo(
     () =>
-      products.map((p) => ({
-        ...p,
-        category: resolveCategoryName(p.category, apiCategories),
-      })),
+      products.map((p) => {
+        const resolvedCategories = (p.categories?.length ? p.categories : [p.category])
+          .map((c) => resolveCategoryName(c || "", apiCategories))
+          .filter(Boolean);
+        const unique = [...new Set(resolvedCategories.length ? resolvedCategories : ["Other"])];
+        return {
+          ...p,
+          category: unique[0] || "Other",
+          categories: unique,
+        };
+      }),
     [products, apiCategories]
   );
 
+  /** Group into every assigned category so secondary tags (e.g. Most Delivered) get sections. */
   const grouped = useMemo(() => {
     const map = new Map<string, SupplierProduct[]>();
     normalizedProducts.forEach((p) => {
-      const k = p.category || "Other";
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(p);
+      const keys = p.categories?.length ? p.categories : [p.category || "Other"];
+      const seen = new Set<string>();
+      keys.forEach((raw) => {
+        const k = raw || "Other";
+        if (seen.has(k)) return;
+        seen.add(k);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push(p);
+      });
     });
     return map;
   }, [normalizedProducts]);

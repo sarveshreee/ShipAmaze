@@ -14,5 +14,15 @@ router.post("/webhooks/critical-updates", ec.postEkartCriticalUpdates);
 
 router.use(authMiddleware);
 router.get("/health", requireRoles("admin"), ec.getEkartHealth);
+router.post(
+  "/pickups/:id/sync",
+  requireRoles("admin", "vendor", "dropshipper"),
+  ec.syncPickupLocation
+);
+router.post(
+  "/pickups/:id/unlink",
+  requireRoles("admin", "vendor", "dropshipper"),
+  ec.unlinkPickupLocation
+);
 
 export default router;

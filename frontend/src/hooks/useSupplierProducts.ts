@@ -3,11 +3,20 @@ import { useAuth } from "@/contexts/AuthContext";
 import * as productService from "@/services/productService";
 import type { ProductImageValue } from "@/lib/mediaUrl";
 
-function readProductCategory(r: Record<string, unknown>): string {
+function readProductCategories(r: Record<string, unknown>): string[] {
+  const list = Array.isArray(r.categories)
+    ? r.categories.map((c) => String(c).trim()).filter(Boolean)
+    : [];
   const direct = String(r.category ?? "").trim();
-  if (direct) return direct;
-  const list = Array.isArray(r.categories) ? r.categories.map((c) => String(c).trim()).filter(Boolean) : [];
-  return list[0] ?? "";
+  if (direct && !list.some((c) => c.toLowerCase() === direct.toLowerCase())) {
+    return [direct, ...list];
+  }
+  if (list.length > 0) return list;
+  return direct ? [direct] : [];
+}
+
+function readProductCategory(r: Record<string, unknown>): string {
+  return readProductCategories(r)[0] ?? "";
 }
 
 export type SupplierProduct = {
@@ -16,6 +25,8 @@ export type SupplierProduct = {
   sku: string;
   vendor_sku: string;
   category: string;
+  /** All assigned categories (primary + secondary tags like Most Delivered). */
+  categories: string[];
   brand: string;
   status: "draft" | "active" | "inactive" | "pending";
   price: number;
@@ -60,12 +71,14 @@ export type SupplierProduct = {
 
 export function mapApiToSupplierProduct(r: Record<string, unknown>): SupplierProduct {
   const id = String(r._id ?? r.id ?? "");
+  const categories = readProductCategories(r);
   return {
     id,
     name: String(r.name ?? ""),
     sku: String(r.sku ?? ""),
     vendor_sku: String(r.vendor_sku ?? r.vendorSku ?? ""),
-    category: readProductCategory(r),
+    category: categories[0] ?? readProductCategory(r),
+    categories,
     brand: String(r.brand ?? ""),
     status: (r.status as SupplierProduct["status"]) || "draft",
     price: Number(r.price ?? 0),

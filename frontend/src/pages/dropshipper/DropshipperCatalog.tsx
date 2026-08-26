@@ -21,14 +21,20 @@ export default function DropshipperCatalog() {
 
   const filtered = useMemo(() => {
     let list = products;
-    if (category !== "all") list = list.filter((p) => (p.category || "Other") === category);
+    if (category !== "all") {
+      list = list.filter((p) => {
+        const cats = p.categories?.length ? p.categories : [p.category || "Other"];
+        return cats.some((c) => (c || "Other") === category);
+      });
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.sku.toLowerCase().includes(q) ||
-          (p.category ?? "").toLowerCase().includes(q)
+          (p.category ?? "").toLowerCase().includes(q) ||
+          (p.categories ?? []).some((c) => c.toLowerCase().includes(q))
       );
     }
     return list;

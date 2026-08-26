@@ -234,6 +234,9 @@ export const apiClient = {
     apiRequest<T>(path, { method: "GET", signal: init?.signal }),
   post: <T>(path: string, json?: unknown, init?: { signal?: AbortSignal }) =>
     apiRequest<T>(path, { method: "POST", json, signal: init?.signal }),
+  /** Multipart upload — do not set Content-Type (browser sets boundary). */
+  postForm: <T>(path: string, formData: FormData, init?: { signal?: AbortSignal }) =>
+    apiRequest<T>(path, { method: "POST", body: formData, signal: init?.signal }),
   put: <T>(path: string, json?: unknown) => apiRequest<T>(path, { method: "PUT", json }),
   patch: <T>(path: string, json?: unknown) => apiRequest<T>(path, { method: "PATCH", json }),
   delete: <T>(path: string) => apiRequest<T>(path, { method: "DELETE" }),

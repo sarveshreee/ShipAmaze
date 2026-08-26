@@ -35,6 +35,7 @@ import { partnerRouter, partnerAdminRouter } from "./modules/partner/index.js";
 import { registerCourierProviders } from "./modules/courier/index.js";
 import * as debugController from "./controllers/debugController.js";
 import * as walletController from "./controllers/walletController.js";
+import * as payoutGstController from "./controllers/payoutGstController.js";
 import * as notificationController from "./controllers/notificationController.js";
 import * as adminWorkflowController from "./controllers/adminWorkflowController.js";
 import * as loginActivityController from "./controllers/loginActivityController.js";
@@ -725,7 +726,15 @@ export function createApp() {
   api.post("/wallet/deduct", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminDeductWallet);
   api.get("/wallet/transactions", authMiddleware, resourceController.listTransactions);
   api.get("/wallet/cod-remittances", authMiddleware, resourceController.listCodRemittances);
-  api.get("/wallet/gst-records", authMiddleware, resourceController.listGstRecords);
+  api.get("/wallet/gst-records", authMiddleware, payoutGstController.listUploadedGstRecords);
+  api.post(
+    "/wallet/gst-records/upload",
+    authMiddleware,
+    payoutGstController.gstExcelUpload.single("file"),
+    payoutGstController.uploadGstExcel
+  );
+  api.get("/wallet/payout-overrides", authMiddleware, payoutGstController.getPayoutSummaryOverrides);
+  api.put("/wallet/payout-overrides", authMiddleware, payoutGstController.upsertPayoutSummaryOverrides);
 
   api.get("/admin/wallets", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminListWallets);
   api.patch("/admin/wallets/:userId/adjust", authMiddleware, requireRoles("admin"), requireOwnerAdmin, walletController.adminAdjustWalletHandler);

@@ -2868,7 +2868,10 @@ export function RichOrdersTable({
                     return;
                   }
                 } else if (provider === "ekart") {
-                  // Ekart uses the same pickup record; booking validates provider-side.
+                  if (!selectedPickup?.ekartLocationCode?.trim()) {
+                    toast.error("Selected pickup is not linked to Ekart Elite — Sync location code on Pickup Addresses first");
+                    return;
+                  }
                 } else if (!selectedPickup?.velocityWarehouseId?.trim()) {
                   toast.error(
                     showProviderBrand

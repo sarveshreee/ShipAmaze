@@ -208,6 +208,8 @@ export function ProcessSelectedModal({
   const lorrigoPickupReady = Boolean(selectedPickup?.lorrigoPickupId?.trim());
   /** Velocity booking requires a linked Velocity warehouse on the selected pickup. */
   const velocityPickupReady = Boolean(selectedPickup?.velocityWarehouseId?.trim());
+  /** Ekart booking requires Elite location_code linked on this pickup. */
+  const ekartPickupReady = Boolean(selectedPickup?.ekartLocationCode?.trim());
 
   const destPincode = useMemo(() => {
     for (const o of referenceOrders) {
@@ -307,6 +309,7 @@ export function ProcessSelectedModal({
         if (provider === "lorrigo" && !lorrigoPickupReady) return false;
         // Hide Velocity couriers until the selected pickup is linked to a Velocity warehouse.
         if (provider === "velocity" && !velocityPickupReady) return false;
+        if (provider === "ekart" && !ekartPickupReady) return false;
         return true;
       })
       .map((c) => {
@@ -323,7 +326,7 @@ export function ProcessSelectedModal({
           price,
         };
       });
-  }, [serviceableCouriers, fixedCourierFromFilter, lorrigoPickupReady, velocityPickupReady]);
+  }, [serviceableCouriers, fixedCourierFromFilter, lorrigoPickupReady, velocityPickupReady, ekartPickupReady]);
 
   const courierSections = useMemo(
     () => groupCouriersByProvider(displayCouriers),
@@ -361,6 +364,17 @@ export function ProcessSelectedModal({
           : "Velocity couriers are hidden until this pickup address is synced. Open Pickup Addresses and click Sync warehouse."
       );
     }
+    if (
+      pickupAddr &&
+      !ekartPickupReady &&
+      serviceableCouriers.some((c) => (c.provider || "") === "ekart")
+    ) {
+      msgs.push(
+        role === "admin"
+          ? "Ekart couriers are hidden until this pickup is linked to an Elite location code (Pickup Addresses → Sync to Ekart)."
+          : "Ekart couriers are hidden until this pickup is synced. Open Pickup Addresses → Sync to Ekart and paste the Elite location code."
+      );
+    }
     return msgs;
   }, [
     open,
@@ -370,6 +384,7 @@ export function ProcessSelectedModal({
     hasPickupPin,
     lorrigoPickupReady,
     velocityPickupReady,
+    ekartPickupReady,
     serviceableCouriers,
     role,
   ]);
@@ -408,6 +423,14 @@ export function ProcessSelectedModal({
       setSelectedCarrierName("");
     }
   }, [velocityPickupReady, selectedCarrierProvider, selectedCarrierId]);
+
+  useEffect(() => {
+    if (!ekartPickupReady && selectedCarrierProvider === "ekart") {
+      setSelectedCarrierId("");
+      setSelectedCarrierName("");
+      setSelectedCarrierProvider("velocity");
+    }
+  }, [ekartPickupReady, selectedCarrierProvider]);
 
   const handleSubmit = async () => {
     if (orderIds.length === 0) {
@@ -456,6 +479,10 @@ export function ProcessSelectedModal({
       }
       if (selectedCarrierProvider === "lorrigo" && !lorrigoPickupReady) {
         toast.error("Sync this pickup address to Lorrigo before booking a Lorrigo courier.");
+        return;
+      }
+      if (selectedCarrierProvider === "ekart" && !ekartPickupReady) {
+        toast.error("Link this pickup to Ekart Elite (location code) before booking Ekart.");
         return;
       }
     }

@@ -72,6 +72,7 @@ export const queryKeys = {
   couriers: ["couriers"] as const,
   codRemittances: (userId?: string | null) => ["cod_remittances", userId ?? "anon"] as const,
   gstRecords: (userId?: string | null) => ["gst_records", userId ?? "anon"] as const,
+  payoutOverrides: (userId?: string | null) => ["payout_overrides", userId ?? "anon"] as const,
   pickups: (userId: string | null | undefined, scope?: string) =>
     ["pickup_addresses", userId ?? "anon", scope ?? "default"] as const,
   pincodes: ["pincodes"] as const,

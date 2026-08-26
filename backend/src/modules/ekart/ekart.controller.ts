@@ -20,6 +20,75 @@ import { getEkartStatusSyncIntervalMs } from "./ekart.statusSync.js";
 import { isEkartConfigured, isEkartEnabledFlag, ekartConfig } from "./ekart.config.js";
 import { TERMINAL_ORDER_STATUS_VALUES } from "../courier/statusNormalize.js";
 import { applyEkartCriticalUpdate, verifyEkartWebhookSecret } from "./ekart.webhooks.js";
+import {
+  assertEkartPickupAccess,
+  linkPickupToEkart,
+  unlinkPickupFromEkart,
+} from "./ekart.pickupSync.js";
+import { Pickup } from "../../models/Pickup.js";
+
+/**
+ * POST /api/ekart/pickups/:id/sync
+ * Body: { locationCode: "TEC_SUR_01" } — link Elite location to this pickup.
+ */
+export const syncPickupLocation = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+
+  const pickupId = String(req.params.id ?? "").trim();
+  await assertEkartPickupAccess(pickupId, req.user);
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const locationCode = String(body.locationCode ?? body.ekartLocationCode ?? "").trim();
+  const force = body.force === true;
+
+  const result = await linkPickupToEkart(pickupId, locationCode, { force });
+  const fresh = await Pickup.findById(pickupId).lean();
+
+  res.json({
+    success: true,
+    ekartSync: result,
+    data: fresh
+      ? {
+          id: String(fresh._id),
+          ekartLocationCode: fresh.ekartLocationCode,
+          ekartSyncStatus: fresh.ekartSyncStatus,
+          ekartLastSyncAt: fresh.ekartLastSyncAt
+            ? new Date(fresh.ekartLastSyncAt).toISOString()
+            : undefined,
+          ekartSyncError: fresh.ekartSyncError,
+        }
+      : undefined,
+  });
+});
+
+/**
+ * POST /api/ekart/pickups/:id/unlink
+ * Clear linked Elite location_code from this pickup.
+ */
+export const unlinkPickupLocation = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+
+  const pickupId = String(req.params.id ?? "").trim();
+  await assertEkartPickupAccess(pickupId, req.user);
+
+  const result = await unlinkPickupFromEkart(pickupId);
+  const fresh = await Pickup.findById(pickupId).lean();
+
+  res.json({
+    success: true,
+    ekartSync: result,
+    data: fresh
+      ? {
+          id: String(fresh._id),
+          ekartLocationCode: fresh.ekartLocationCode ?? null,
+          ekartSyncStatus: fresh.ekartSyncStatus ?? null,
+          ekartLastSyncAt: fresh.ekartLastSyncAt
+            ? new Date(fresh.ekartLastSyncAt).toISOString()
+            : undefined,
+        }
+      : undefined,
+  });
+});
 
 /**
  * GET /api/ekart/health
@@ -95,8 +164,9 @@ export const getEkartHealth = asyncHandler(async (req: AuthRequest, res: Respons
         note: "Durin v3 RTO/Cancel RVP — enable only after Ekart confirms merchant access.",
       },
       capabilities: {
-        pickupSync: false,
+        pickupSync: true,
         createPickup: false,
+        note: "Ekart locations are registered in Elite; ShipAmaze Sync links the location_code.",
         booking: true,
         tracking: true,
         cancel: ekartConfig.cancelEnabled,

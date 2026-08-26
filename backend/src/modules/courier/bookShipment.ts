@@ -775,6 +775,17 @@ export async function validateEkartBooking(input: BookShipmentInput): Promise<{
     throw new AppError(400, "Pickup address line 1 is required for Ekart booking");
   }
 
+  const ekartLoc =
+    String((pickup as { ekartLocationCode?: string }).ekartLocationCode ?? "").trim() ||
+    String(process.env.EKART_DEFAULT_LOCATION_CODE ?? "").trim();
+  if (!ekartLoc) {
+    recordEkartBookingValidationFailure();
+    throw new AppError(
+      422,
+      "Pickup is not linked to Ekart Elite. Open Pickup Addresses → Sync to Ekart and paste the Elite location code (Settings → Pickup locations), then book again."
+    );
+  }
+
   if (!input.skipServiceability) {
     const svc = await discoverServiceability(
       {

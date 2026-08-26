@@ -793,6 +793,23 @@ export function useGstRecords(opts?: { enabled?: boolean }) {
   );
 }
 
+export function usePayoutSummaryOverrides(opts?: { enabled?: boolean }) {
+  const { userId } = useAuth();
+  const q = useQuery({
+    queryKey: queryKeys.payoutOverrides(userId),
+    queryFn: () => walletService.getPayoutSummaryOverrides(),
+    enabled: opts?.enabled ?? true,
+    staleTime: 60 * 1000,
+  });
+  return {
+    data: q.data ?? null,
+    isLoading: q.isLoading,
+    refetch: async () => {
+      await q.refetch();
+    },
+  };
+}
+
 export function usePickupAddresses(opts?: { scope?: "platform"; ownership?: "own"; enabled?: boolean }) {
   const { userId } = useAuth();
   const scope = opts?.scope;

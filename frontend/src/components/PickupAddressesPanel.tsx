@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
 import { LorrigoPickupSyncCard } from "@/components/LorrigoPickupSyncCard";
+import { EkartPickupSyncCard } from "@/components/EkartPickupSyncCard";
 import { VelocityWarehouseLinkStatusBadge } from "@/components/VelocityWarehouseLinkStatusBadge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { getVelocityWarehouseLinkStatus, normalizeVelocityWarehouseCode } from "@/lib/velocityWarehouseLink";
@@ -83,6 +84,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
   /** Opt-in sync targets — nothing selected by default. */
   const [syncToVelocity, setSyncToVelocity] = useState(false);
   const [syncToLorrigo, setSyncToLorrigo] = useState(false);
+  const [syncToEkart, setSyncToEkart] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   /** Velocity code on the address being edited — for edit-dialog warnings only. */
@@ -113,6 +115,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
       setForm(emptyForm);
       setSyncToVelocity(false);
       setSyncToLorrigo(false);
+      setSyncToEkart(false);
       setEditingVelocityWarehouseId(undefined);
       resetPincode();
     }
@@ -124,6 +127,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
     setForm(emptyForm);
     setSyncToVelocity(false);
     setSyncToLorrigo(false);
+    setSyncToEkart(false);
     setDialogOpen(true);
   };
 
@@ -132,6 +136,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
     setEditingVelocityWarehouseId(a.velocityWarehouseId);
     setSyncToVelocity(false);
     setSyncToLorrigo(false);
+    setSyncToEkart(false);
     setForm({
       label: a.label,
       contactName: a.contactName,
@@ -184,9 +189,15 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
     }
     setSaving(true);
     try {
-      const syncProviders: Array<"velocity" | "lorrigo"> = [];
+      const syncProviders: Array<"velocity" | "lorrigo" | "ekart"> = [];
       if (syncToVelocity) syncProviders.push("velocity");
       if (syncToLorrigo) syncProviders.push("lorrigo");
+      if (syncToEkart) syncProviders.push("ekart");
+      if (syncToEkart && !form.ekartLocationCode.trim()) {
+        toast.error("Paste the Elite location code before syncing to Ekart");
+        setSaving(false);
+        return;
+      }
 
       const payload = {
         label: form.label.trim(),
@@ -208,6 +219,7 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
         syncProviders,
         syncToVelocity,
         syncToLorrigo,
+        syncToEkart,
       };
 
       let resp: Awaited<ReturnType<typeof pickupService.createPickupAddress>> | undefined;
@@ -441,6 +453,15 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
                 showProviderBrand={showProviderBrand}
               />
 
+              <EkartPickupSyncCard
+                pickup={a}
+                onUpdated={async () => {
+                  notifyPickupRefetch();
+                  await refetch();
+                }}
+                showProviderBrand={showProviderBrand}
+              />
+
               <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-border">
                 <Button size="sm" variant="outline" className="text-xs h-8" type="button" onClick={() => openEdit(a)}>
                   <Edit className="h-3 w-3 mr-1" />
@@ -643,11 +664,27 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
                   {showProviderBrand ? "Sync to Lorrigo" : "Sync for alternate couriers"}
                 </Label>
               </div>
-              {!syncToVelocity && !syncToLorrigo ? (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="sync-ekart"
+                  checked={syncToEkart}
+                  onCheckedChange={(v) => setSyncToEkart(Boolean(v))}
+                />
+                <Label htmlFor="sync-ekart" className="text-sm font-normal cursor-pointer">
+                  {showProviderBrand ? "Sync to Ekart (link Elite location code)" : "Sync to Elite (paste location code)"}
+                </Label>
+              </div>
+              {!syncToVelocity && !syncToLorrigo && !syncToEkart ? (
                 <p className="text-[11px] text-text-muted">
                   {showProviderBrand
-                    ? "Address will be saved without syncing to Velocity or Lorrigo."
+                    ? "Address will be saved without syncing. Use the address card to link Velocity, Lorrigo, or Ekart later."
                     : "Address will be saved without syncing. You can sync later from the address card."}
+                </p>
+              ) : syncToEkart ? (
+                <p className="text-[11px] text-text-muted">
+                  Elite Settings → Addresses is where the warehouse is registered. The Durin{" "}
+                  <code>location_code</code> usually comes from Ekart BD (or Download Registered
+                  Addresses) — paste it in the Elite location code field above, then sync.
                 </p>
               ) : null}
             </div>

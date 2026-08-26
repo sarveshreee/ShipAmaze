@@ -272,6 +272,9 @@ export interface PickupAddress {
   isActive?: boolean;
   /** Ekart Elite registered location_code (source.location_code on Durin create). */
   ekartLocationCode?: string;
+  ekartSyncStatus?: "SUCCESS" | "FAILED" | "SKIPPED";
+  ekartLastSyncAt?: string;
+  ekartSyncError?: string;
   /** Set after linking to Velocity dashboard warehouse */
   velocityWarehouseId?: string;
   /** Present when API exposes explicit link flag */

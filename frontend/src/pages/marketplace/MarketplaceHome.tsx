@@ -89,13 +89,16 @@ export default function MarketplaceHome() {
   const filtered = useMemo(() => {
     if (!deferredSearch) return null;
     return products
-      .filter(
-        (p) =>
-          enabledCategoryNames.has(p.category) &&
-          (p.name.toLowerCase().includes(deferredSearch) ||
-            p.sku.toLowerCase().includes(deferredSearch) ||
-            p.category.toLowerCase().includes(deferredSearch))
-      )
+      .filter((p) => {
+        const cats = p.categories?.length ? p.categories : [p.category];
+        const inEnabled = cats.some((c) => enabledCategoryNames.has(c));
+        if (!inEnabled) return false;
+        return (
+          p.name.toLowerCase().includes(deferredSearch) ||
+          p.sku.toLowerCase().includes(deferredSearch) ||
+          cats.some((c) => c.toLowerCase().includes(deferredSearch))
+        );
+      })
       .slice(0, SEARCH_RESULT_LIMIT);
   }, [deferredSearch, products, enabledCategoryNames]);
 

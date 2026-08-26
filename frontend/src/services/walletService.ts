@@ -145,6 +145,48 @@ export async function listGstRecords(params?: Record<string, string | undefined>
   return apiClient.get<GstRecordsResponse>(`/wallet/gst-records${s ? `?${s}` : ""}`);
 }
 
+export async function uploadGstExcel(file: File, replace = true) {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("replace", replace ? "true" : "false");
+  return apiClient.postForm<{ success: boolean; message?: string; data?: { imported: number; replaced: boolean } }>(
+    "/wallet/gst-records/upload",
+    fd
+  );
+}
+
+export type PayoutSummaryOverrides = {
+  nextCodOn: string | null;
+  pendingCod: number | null;
+  upcomingPayouts: number | null;
+  totalSettled: number | null;
+  pendingSettlement: number | null;
+  last7Days: number | null;
+  last30Days: number | null;
+  updatedAt?: string | null;
+};
+
+export async function getPayoutSummaryOverrides(): Promise<PayoutSummaryOverrides> {
+  const raw = await apiClient.get<unknown>("/wallet/payout-overrides");
+  const d = unwrapData<PayoutSummaryOverrides>(raw);
+  return {
+    nextCodOn: d?.nextCodOn ?? null,
+    pendingCod: d?.pendingCod ?? null,
+    upcomingPayouts: d?.upcomingPayouts ?? null,
+    totalSettled: d?.totalSettled ?? null,
+    pendingSettlement: d?.pendingSettlement ?? null,
+    last7Days: d?.last7Days ?? null,
+    last30Days: d?.last30Days ?? null,
+    updatedAt: d?.updatedAt ?? null,
+  };
+}
+
+export async function savePayoutSummaryOverrides(
+  patch: Partial<Omit<PayoutSummaryOverrides, "updatedAt">>
+) {
+  return apiClient.put<{ success: boolean; data: PayoutSummaryOverrides }>("/wallet/payout-overrides", patch);
+}
+
 export type AdminWalletRow = {
   userId: string;
   name: string;

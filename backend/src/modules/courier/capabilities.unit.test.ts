@@ -26,7 +26,7 @@ describe("provider capabilities registry", () => {
     expect(EKART_CAPABILITIES.returns).toBe(true);
     expect(EKART_CAPABILITIES.serviceability).toBe(true);
     expect(EKART_CAPABILITIES.webhooks).toBe(true);
-    expect(EKART_CAPABILITIES.pickupSync).toBe(false);
+    expect(EKART_CAPABILITIES.pickupSync).toBe(true);
     expect(EKART_CAPABILITIES.rates).toBe(false);
     expect(EKART_CAPABILITIES.labels).toBe(false);
     expect(EKART_CAPABILITIES.ndr).toBe(false);
@@ -43,6 +43,6 @@ describe("provider capabilities registry", () => {
 
   it("providerSupports reads capability flags", () => {
     expect(providerSupports(getStaticProviderCapabilities("velocity"), "booking")).toBe(true);
-    expect(providerSupports(getStaticProviderCapabilities("ekart"), "pickupSync")).toBe(false);
+    expect(providerSupports(getStaticProviderCapabilities("ekart"), "pickupSync")).toBe(true);
   });
 });

@@ -1,27 +1,43 @@
-import { useState, useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   IndianRupee, CalendarClock, TrendingUp, Search, Download, Eye, FileText, CheckCircle2, Clock, Wallet,
-  Loader2, AlertCircle, RefreshCw,
+  Loader2, AlertCircle, RefreshCw, Pencil, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useCodRemittances, useGstRecords, useWalletSummary } from "@/hooks/useApiData";
+import {
+  useCodRemittances,
+  useGstRecords,
+  useWalletSummary,
+  usePayoutSummaryOverrides,
+} from "@/hooks/useApiData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { downloadCSV } from "@/lib/exportUtils";
+import { queryKeys } from "@/lib/queryClient";
+import * as walletService from "@/services/walletService";
 import type { CODRemittance } from "@/types/logistics";
 import type { UserRole } from "@/services/authService";
-import type { GstRecord } from "@/services/walletService";
+import type { GstRecord, PayoutSummaryOverrides } from "@/services/walletService";
 
 const fmtINR = (n: number) =>
   `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -51,21 +67,53 @@ function isPending(status: CODRemittance["status"]): boolean {
   return status === "Pending" || status === "Processing" || status === "On Hold";
 }
 
+type OverrideField =
+  | "nextCodOn"
+  | "pendingCod"
+  | "upcomingPayouts"
+  | "totalSettled"
+  | "pendingSettlement"
+  | "last7Days"
+  | "last30Days";
+
+type EditTarget = {
+  field: OverrideField;
+  label: string;
+  kind: "money" | "text";
+  autoValue: string;
+};
+
+function pickOverrideNum(override: number | null | undefined, auto: number): number {
+  return override != null && Number.isFinite(override) ? override : auto;
+}
+
+function pickOverrideText(override: string | null | undefined, auto: string): string {
+  return override != null && String(override).trim() !== "" ? String(override) : auto;
+}
+
 export default function VendorPayouts() {
-  const { role } = useAuth();
+  const { role, isImpersonating, userId } = useAuth();
+  const qc = useQueryClient();
   const { canViewGST, canViewRemittance } = usePermissions();
   const { data: remittances = [], isLoading: remLoading, isError: remError, refetch: refetchRem } = useCodRemittances();
   const { data: gstRecords = [], isLoading: gstLoading, isError: gstError, refetch: refetchGst } = useGstRecords();
   const { data: wallet, isLoading: walletLoading, error: walletError, refetch: refetchWallet } = useWalletSummary();
+  const { data: overrides, refetch: refetchOverrides } = usePayoutSummaryOverrides();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [remStatusFilter, setRemStatusFilter] = useState<string>("all");
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [uploadingGst, setUploadingGst] = useState(false);
+  const gstFileRef = useRef<HTMLInputElement>(null);
 
   const panelLabel = roleLabel(role);
+  const showAdminEdit = isImpersonating;
 
-  const codStats = useMemo(() => {
+  const autoCodStats = useMemo(() => {
     const pendingRows = remittances.filter((r) => isPending(r.status));
     const nextPending = pendingRows[0];
     const upcomingTotal = pendingRows.reduce((s, r) => s + r.netPayable, 0);
@@ -76,6 +124,45 @@ export default function VendorPayouts() {
       upcomingCod: upcomingTotal,
     };
   }, [remittances, wallet?.pendingCod]);
+
+  const autoRemittanceSummary = useMemo(() => {
+    const totalSettled = remittances.filter((r) => isSettled(r.status)).reduce((s, r) => s + r.netPayable, 0);
+    const pending = remittances.filter((r) => isPending(r.status)).reduce((s, r) => s + r.netPayable, 0);
+    const now = new Date();
+    const weekAgo = new Date(now);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const monthAgo = new Date(now);
+    monthAgo.setDate(monthAgo.getDate() - 30);
+
+    const inRange = (r: CODRemittance, from: Date) => {
+      const d = new Date(r.settleDate);
+      return !Number.isNaN(d.getTime()) && d >= from;
+    };
+
+    const thisWeek = remittances.filter((r) => inRange(r, weekAgo)).reduce((s, r) => s + r.netPayable, 0);
+    const thisMonth = remittances.filter((r) => inRange(r, monthAgo)).reduce((s, r) => s + r.netPayable, 0);
+
+    return { totalSettled, pending, thisWeek, thisMonth };
+  }, [remittances]);
+
+  const displayCodStats = useMemo(
+    () => ({
+      nextCodOn: pickOverrideText(overrides?.nextCodOn, autoCodStats.nextCodOn),
+      nextCodAmount: pickOverrideNum(overrides?.pendingCod, autoCodStats.nextCodAmount),
+      upcomingCod: pickOverrideNum(overrides?.upcomingPayouts, autoCodStats.upcomingCod),
+    }),
+    [overrides, autoCodStats]
+  );
+
+  const displayRemittanceSummary = useMemo(
+    () => ({
+      totalSettled: pickOverrideNum(overrides?.totalSettled, autoRemittanceSummary.totalSettled),
+      pending: pickOverrideNum(overrides?.pendingSettlement, autoRemittanceSummary.pending),
+      thisWeek: pickOverrideNum(overrides?.last7Days, autoRemittanceSummary.thisWeek),
+      thisMonth: pickOverrideNum(overrides?.last30Days, autoRemittanceSummary.thisMonth),
+    }),
+    [overrides, autoRemittanceSummary]
+  );
 
   const filteredGst = useMemo(() => {
     return gstRecords.filter((r) => {
@@ -100,26 +187,6 @@ export default function VendorPayouts() {
     });
   }, [remittances, remStatusFilter, search]);
 
-  const remittanceSummary = useMemo(() => {
-    const totalSettled = remittances.filter((r) => isSettled(r.status)).reduce((s, r) => s + r.netPayable, 0);
-    const pending = remittances.filter((r) => isPending(r.status)).reduce((s, r) => s + r.netPayable, 0);
-    const now = new Date();
-    const weekAgo = new Date(now);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const monthAgo = new Date(now);
-    monthAgo.setDate(monthAgo.getDate() - 30);
-
-    const inRange = (r: CODRemittance, from: Date) => {
-      const d = new Date(r.settleDate);
-      return !Number.isNaN(d.getTime()) && d >= from;
-    };
-
-    const thisWeek = remittances.filter((r) => inRange(r, weekAgo)).reduce((s, r) => s + r.netPayable, 0);
-    const thisMonth = remittances.filter((r) => inRange(r, monthAgo)).reduce((s, r) => s + r.netPayable, 0);
-
-    return { totalSettled, pending, thisWeek, thisMonth };
-  }, [remittances]);
-
   const defaultTab = canViewRemittance ? "remittance" : "gst";
   const showGstTab = canViewGST;
   const showRemTab = canViewRemittance;
@@ -128,6 +195,73 @@ export default function VendorPayouts() {
     void refetchRem();
     void refetchWallet();
     void refetchGst();
+    void refetchOverrides();
+  };
+
+  const openEdit = (target: EditTarget) => {
+    setEditTarget(target);
+    const current =
+      target.field === "nextCodOn"
+        ? displayCodStats.nextCodOn
+        : target.field === "pendingCod"
+          ? String(displayCodStats.nextCodAmount)
+          : target.field === "upcomingPayouts"
+            ? String(displayCodStats.upcomingCod)
+            : target.field === "totalSettled"
+              ? String(displayRemittanceSummary.totalSettled)
+              : target.field === "pendingSettlement"
+                ? String(displayRemittanceSummary.pending)
+                : target.field === "last7Days"
+                  ? String(displayRemittanceSummary.thisWeek)
+                  : String(displayRemittanceSummary.thisMonth);
+    setEditValue(current === "—" ? "" : current.replace(/[₹,]/g, ""));
+  };
+
+  const saveEdit = async (clear = false) => {
+    if (!editTarget) return;
+    setSavingEdit(true);
+    try {
+      const field = editTarget.field;
+      const patch: Record<string, string | number | null> = {};
+      if (clear) {
+        patch[field] = null;
+      } else if (editTarget.kind === "text") {
+        patch[field] = editValue.trim() || null;
+      } else {
+        const n = Number(String(editValue).replace(/[₹,\s]/g, ""));
+        if (!Number.isFinite(n)) {
+          toast.error("Enter a valid number");
+          setSavingEdit(false);
+          return;
+        }
+        patch[field] = n;
+      }
+      await walletService.savePayoutSummaryOverrides(
+        patch as Partial<Omit<PayoutSummaryOverrides, "updatedAt">>
+      );
+      await qc.invalidateQueries({ queryKey: queryKeys.payoutOverrides(userId) });
+      toast.success(clear ? "Reset to automatic value" : "Saved — visible to the user");
+      setEditTarget(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const onGstFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploadingGst(true);
+    try {
+      const res = await walletService.uploadGstExcel(file, true);
+      await qc.invalidateQueries({ queryKey: queryKeys.gstRecords(userId) });
+      toast.success(res.message ?? `Imported GST rows`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploadingGst(false);
+      if (gstFileRef.current) gstFileRef.current.value = "";
+    }
   };
 
   const exportGst = () => {
@@ -168,6 +302,19 @@ export default function VendorPayouts() {
     toast.success(`Exported ${filteredRemittances.length} payout rows`);
   };
 
+  const EditBtn = ({ target }: { target: EditTarget }) =>
+    showAdminEdit ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 px-2 text-xs gap-1"
+        onClick={() => openEdit(target)}
+      >
+        <Pencil className="h-3 w-3" /> Edit
+      </Button>
+    ) : null;
+
   return (
     <div className="animate-fade-in-up">
       <PageHeader
@@ -207,42 +354,72 @@ export default function VendorPayouts() {
           <>
             <Card className="border-border">
               <CardContent className="p-5">
-                <div className="flex items-start justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
                     <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Next COD On</p>
-                    <p className="mt-2 text-2xl font-semibold text-text-primary">{codStats.nextCodOn}</p>
+                    <p className="mt-2 text-2xl font-semibold text-text-primary">{displayCodStats.nextCodOn}</p>
                     <p className="mt-1 text-xs text-text-secondary">Scheduled settlement date</p>
                   </div>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-light">
-                    <CalendarClock className="h-5 w-5 text-primary" />
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-light">
+                      <CalendarClock className="h-5 w-5 text-primary" />
+                    </div>
+                    <EditBtn
+                      target={{
+                        field: "nextCodOn",
+                        label: "Next COD On",
+                        kind: "text",
+                        autoValue: autoCodStats.nextCodOn,
+                      }}
+                    />
                   </div>
                 </div>
               </CardContent>
             </Card>
             <Card className="border-border">
               <CardContent className="p-5">
-                <div className="flex items-start justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
                     <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Pending COD</p>
-                    <p className="mt-2 text-2xl font-semibold text-text-primary">{fmtINR(codStats.nextCodAmount)}</p>
+                    <p className="mt-2 text-2xl font-semibold text-text-primary">{fmtINR(displayCodStats.nextCodAmount)}</p>
                     <p className="mt-1 text-xs text-text-secondary">Awaiting next settlement</p>
                   </div>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success-light">
-                    <IndianRupee className="h-5 w-5 text-success" />
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success-light">
+                      <IndianRupee className="h-5 w-5 text-success" />
+                    </div>
+                    <EditBtn
+                      target={{
+                        field: "pendingCod",
+                        label: "Pending COD",
+                        kind: "money",
+                        autoValue: fmtINR(autoCodStats.nextCodAmount),
+                      }}
+                    />
                   </div>
                 </div>
               </CardContent>
             </Card>
             <Card className="border-border">
               <CardContent className="p-5">
-                <div className="flex items-start justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
                     <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Upcoming Payouts</p>
-                    <p className="mt-2 text-2xl font-semibold text-text-primary">{fmtINR(codStats.upcomingCod)}</p>
+                    <p className="mt-2 text-2xl font-semibold text-text-primary">{fmtINR(displayCodStats.upcomingCod)}</p>
                     <p className="mt-1 text-xs text-text-secondary">Across pending cycles</p>
                   </div>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning-light">
-                    <TrendingUp className="h-5 w-5 text-warning" />
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning-light">
+                      <TrendingUp className="h-5 w-5 text-warning" />
+                    </div>
+                    <EditBtn
+                      target={{
+                        field: "upcomingPayouts",
+                        label: "Upcoming Payouts",
+                        kind: "money",
+                        autoValue: fmtINR(autoCodStats.upcomingCod),
+                      }}
+                    />
                   </div>
                 </div>
               </CardContent>
@@ -289,6 +466,23 @@ export default function VendorPayouts() {
                       <SelectItem value="prepaid">Prepaid</SelectItem>
                     </SelectContent>
                   </Select>
+                  <input
+                    ref={gstFileRef}
+                    type="file"
+                    accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+                    className="hidden"
+                    onChange={(e) => void onGstFile(e.target.files?.[0])}
+                  />
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-9 gap-1.5"
+                    disabled={uploadingGst}
+                    onClick={() => gstFileRef.current?.click()}
+                  >
+                    {uploadingGst ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    Upload Excel
+                  </Button>
                   <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={exportGst} disabled={filteredGst.length === 0}>
                     <Download className="h-4 w-4" /> Export
                   </Button>
@@ -331,7 +525,7 @@ export default function VendorPayouts() {
                           <TableRow>
                             <TableCell colSpan={11} className="text-center text-sm text-text-muted py-8">
                               {gstRecords.length === 0
-                                ? "No GST records yet. GST is calculated from your orders once they exist."
+                                ? "No GST data yet. Upload an Excel file (Order ID, Consignee, TP INC/EXC GST, GST, Mode, Status) to populate this table."
                                 : "No GST records match your filters."}
                             </TableCell>
                           </TableRow>
@@ -392,10 +586,66 @@ export default function VendorPayouts() {
                 Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
               ) : (
                 <>
-                  <KPICard icon={CheckCircle2} label="Total Settled" value={fmtINR(remittanceSummary.totalSettled)} color="success" />
-                  <KPICard icon={Clock} label="Pending Settlement" value={fmtINR(remittanceSummary.pending)} color="warning" />
-                  <KPICard icon={Wallet} label="Last 7 Days" value={fmtINR(remittanceSummary.thisWeek)} color="primary" />
-                  <KPICard icon={TrendingUp} label="Last 30 Days" value={fmtINR(remittanceSummary.thisMonth)} color="secondary" />
+                  <div className="relative">
+                    <KPICard icon={CheckCircle2} label="Total Settled" value={fmtINR(displayRemittanceSummary.totalSettled)} color="success" />
+                    {showAdminEdit && (
+                      <div className="absolute top-3 right-3">
+                        <EditBtn
+                          target={{
+                            field: "totalSettled",
+                            label: "Total Settled",
+                            kind: "money",
+                            autoValue: fmtINR(autoRemittanceSummary.totalSettled),
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <KPICard icon={Clock} label="Pending Settlement" value={fmtINR(displayRemittanceSummary.pending)} color="warning" />
+                    {showAdminEdit && (
+                      <div className="absolute top-3 right-3">
+                        <EditBtn
+                          target={{
+                            field: "pendingSettlement",
+                            label: "Pending Settlement",
+                            kind: "money",
+                            autoValue: fmtINR(autoRemittanceSummary.pending),
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <KPICard icon={Wallet} label="Last 7 Days" value={fmtINR(displayRemittanceSummary.thisWeek)} color="primary" />
+                    {showAdminEdit && (
+                      <div className="absolute top-3 right-3">
+                        <EditBtn
+                          target={{
+                            field: "last7Days",
+                            label: "Last 7 Days",
+                            kind: "money",
+                            autoValue: fmtINR(autoRemittanceSummary.thisWeek),
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <KPICard icon={TrendingUp} label="Last 30 Days" value={fmtINR(displayRemittanceSummary.thisMonth)} color="secondary" />
+                    {showAdminEdit && (
+                      <div className="absolute top-3 right-3">
+                        <EditBtn
+                          target={{
+                            field: "last30Days",
+                            label: "Last 30 Days",
+                            kind: "money",
+                            autoValue: fmtINR(autoRemittanceSummary.thisMonth),
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </div>
@@ -498,6 +748,38 @@ export default function VendorPayouts() {
           </TabsContent>
         )}
       </Tabs>
+
+      <Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit {editTarget?.label}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-text-muted">
+              Automatic value: <span className="font-medium text-text-secondary">{editTarget?.autoValue}</span>
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="payout-override-value">
+                {editTarget?.kind === "money" ? "Amount (₹)" : "Value"}
+              </Label>
+              <Input
+                id="payout-override-value"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                placeholder={editTarget?.kind === "money" ? "0.00" : "e.g. 13 Jul 2024"}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="ghost" disabled={savingEdit} onClick={() => void saveEdit(true)}>
+              Use automatic
+            </Button>
+            <Button type="button" disabled={savingEdit} onClick={() => void saveEdit(false)}>
+              {savingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

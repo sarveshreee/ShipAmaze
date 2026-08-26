@@ -27,9 +27,10 @@ export type PickupAddressPayload = {
   /** Admin only — target vendor/dropshipper user id */
   userId?: string;
   /** Opt-in provider sync on create/update — nothing syncs unless listed */
-  syncProviders?: Array<"velocity" | "lorrigo">;
+  syncProviders?: Array<"velocity" | "lorrigo" | "ekart">;
   syncToVelocity?: boolean;
   syncToLorrigo?: boolean;
+  syncToEkart?: boolean;
 };
 
 function unwrapList(body: unknown): PickupAddress[] {
@@ -77,6 +78,10 @@ export type PickupSaveResponse = {
     error?: string;
     durationMs?: number;
   };
+  ekartSync?:
+    | { synced: true; locationCode: string; alreadySynced?: boolean }
+    | { synced: false; skipped: true; reason: string }
+    | { synced: false; error: string };
 };
 
 export async function retryLorrigoPickupSync(pickupId: string) {
@@ -88,6 +93,27 @@ export async function retryLorrigoPickupSync(pickupId: string) {
       "id" | "lorrigoPickupId" | "lorrigoSyncStatus" | "lorrigoLastSyncAt" | "lorrigoSyncError"
     >;
   }>(`/lorrigo/pickups/${encodeURIComponent(pickupId)}/sync`, {});
+}
+
+export async function linkEkartPickupLocation(pickupId: string, locationCode: string) {
+  return apiClient.post<{
+    success: boolean;
+    ekartSync?:
+      | { synced: true; locationCode: string; alreadySynced?: boolean }
+      | { synced: false; skipped: true; reason: string }
+      | { synced: false; error: string };
+    data?: Pick<
+      PickupAddress,
+      "id" | "ekartLocationCode" | "ekartSyncStatus" | "ekartLastSyncAt" | "ekartSyncError"
+    >;
+  }>(`/ekart/pickups/${encodeURIComponent(pickupId)}/sync`, { locationCode, force: true });
+}
+
+export async function unlinkEkartPickupLocation(pickupId: string) {
+  return apiClient.post<{
+    success: boolean;
+    ekartSync?: { synced: true; locationCode: string } | { synced: false; error: string };
+  }>(`/ekart/pickups/${encodeURIComponent(pickupId)}/unlink`, {});
 }
 
 export async function createPickupAddress(body: PickupAddressPayload): Promise<PickupSaveResponse> {

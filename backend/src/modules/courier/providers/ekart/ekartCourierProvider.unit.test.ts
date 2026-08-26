@@ -79,14 +79,14 @@ describe("Ekart provider foundation", () => {
   it("declares Phase 3 capabilities without faking PDF labels", () => {
     expect(EKART_CAPABILITIES.booking).toBe(true);
     expect(EKART_CAPABILITIES.tracking).toBe(true);
-    expect(EKART_CAPABILITIES.pickupSync).toBe(false);
+    expect(EKART_CAPABILITIES.pickupSync).toBe(true);
     expect(EKART_CAPABILITIES.rates).toBe(false);
     expect(EKART_CAPABILITIES.cancel).toBe(false);
     expect(EKART_CAPABILITIES.returns).toBe(true);
     expect(EKART_CAPABILITIES.labels).toBe(false);
     expect(EKART_CAPABILITIES.webhooks).toBe(true);
     expect(providerSupports(EKART_CAPABILITIES, "booking")).toBe(true);
-    expect(providerSupports(EKART_CAPABILITIES, "pickupSync")).toBe(false);
+    expect(providerSupports(EKART_CAPABILITIES, "pickupSync")).toBe(true);
   });
 
   it("createPickup is not supported", async () => {
