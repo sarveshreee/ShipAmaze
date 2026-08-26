@@ -97,7 +97,7 @@ export function parseEkartTrackResponse(
     (deliveredFlag ? "delivered" : "") ||
     String(block.status ?? "").trim() ||
     (activities[0]?.activity ? String(activities[0].activity) : "") ||
-    "in_transit";
+    "shipment_created";
 
   const delivered =
     deliveredFlag ||

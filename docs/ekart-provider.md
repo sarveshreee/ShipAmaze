@@ -32,7 +32,14 @@ ShipAmaze Pickup (canonical)
 
 **No** `syncPickupToEkart`, **no** provider pickup IDs.
 
-Optional future: `Pickup.ekartLocationCode` → `source.location_code` when set; otherwise full address.
+Optional: `Pickup.ekartLocationCode` → `source.location_code` when set (recommended for Elite warehouse views); otherwise full address.
+
+### Durin `service_code` (REGULAR / ECONOMY)
+
+Discovery returns `courierId` values like `ekart:REGULAR` and `ekart:ECONOMY` from `POST /v1/offerings`.
+Create shipment uses that selected code as Durin `services[].service_code` (not only `EKART_SERVICE_CODE`).
+
+Single-order Create Shipment and Process Selected must send `provider: "ekart"` to `POST /api/courier/shipments` (never Velocity). Velocity’s own “Ekart” carrier is a different path and will **not** appear in Durin Elite.
 
 ### Durin create ID fields (OpenAPI Non_Large v2)
 

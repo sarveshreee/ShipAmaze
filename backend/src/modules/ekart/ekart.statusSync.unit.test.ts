@@ -125,6 +125,24 @@ describe("ekart status sync", () => {
     expect(order.lastProviderStatusSyncedAt).toBeInstanceOf(Date);
   });
 
+  it("heals false in_transit when Durin is still at shipment_created", async () => {
+    const order = makeOrder({ status: "in_transit", shipmentStatus: "in_transit" });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => ({
+        awb: "TECP0000000001",
+        status: "shipment_created",
+        activities: [{ date: "d", activity: "Shipment Created", location: "SURAT" }],
+      }))
+    );
+
+    const { syncEkartActiveShipmentStatuses } = await import("./ekart.statusSync.js");
+    const r = await syncEkartActiveShipmentStatuses(10);
+    expect(r.statusChanges).toBe(1);
+    expect(order.status).toBe("pickup_scheduled");
+    expect(order.shipmentStatus).toBe("shipment_created");
+  });
+
   it("records tracking failure without throwing the batch", async () => {
     const order = makeOrder();
     orders.push(order);

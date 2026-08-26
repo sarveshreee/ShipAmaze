@@ -201,15 +201,18 @@ export async function createShipment(body: {
   /** Empty string = Velocity auto-assign */
   carrier_id?: string | number | "";
   courier_name?: string;
-  /** velocity (default) | lorrigo */
-  provider?: "velocity" | "lorrigo";
+  /** velocity (default) | lorrigo | ekart (direct Durin — not Velocity’s Ekart carrier) */
+  provider?: "velocity" | "lorrigo" | "ekart";
   weight?: number;
   length?: number;
   width?: number;
   height?: number;
 }) {
-  const provider = body.provider === "lorrigo" ? "lorrigo" : "velocity";
-  if (provider === "lorrigo") {
+  const provider =
+    body.provider === "lorrigo" ? "lorrigo" : body.provider === "ekart" ? "ekart" : "velocity";
+
+  // Direct Lorrigo / Ekart (Durin) — never route these to Velocity.
+  if (provider === "lorrigo" || provider === "ekart") {
     return apiClient.post<{
       success: boolean;
       data: {
@@ -226,7 +229,7 @@ export async function createShipment(body: {
     }>("/courier/shipments", {
       orderId: body.orderId,
       warehouseId: body.warehouseId,
-      provider: "lorrigo",
+      provider,
       carrier_id: body.carrier_id,
       courier_name: body.courier_name,
       weight: body.weight,

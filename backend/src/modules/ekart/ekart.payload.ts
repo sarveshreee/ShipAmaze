@@ -176,7 +176,25 @@ export type EkartCreatePayloadBuild = {
   clientReferenceId: string;
   /** Request tracking_id sent to Durin (Flipkart-format AWB allocation) */
   trackingIdSent: string;
+  /** Resolved Durin service_code (e.g. REGULAR / ECONOMY) */
+  serviceCode: string;
 };
+
+/**
+ * Resolve Durin service_code from discovery courierId / metadata.
+ * Accepts: `ekart:REGULAR`, `ekart:ECONOMY`, `REGULAR`, `ECONOMY`, or nested `ekart:ekart:ECONOMY`.
+ * Falls back to EKART_SERVICE_CODE (default REGULAR).
+ */
+export function resolveEkartServiceCode(courierIdOrCode?: string | null): string {
+  const raw = String(courierIdOrCode ?? "").trim();
+  if (!raw) return ekartConfig.serviceCode;
+  const parts = raw.split(":").map((p) => p.trim()).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const code = parts[i].replace(/[^A-Za-z0-9_]/g, "").toUpperCase();
+    if (code && code !== "EKART") return code;
+  }
+  return ekartConfig.serviceCode;
+}
 
 export function buildEkartCreateShipmentPayload(input: {
   orderId: string;
@@ -197,6 +215,12 @@ export function buildEkartCreateShipmentPayload(input: {
    * Durin: reverse uses service_leg REVERSE; customer is source, warehouse is destination.
    */
   serviceLeg?: "FORWARD" | "REVERSE";
+  /**
+   * Selected discovery courierId (e.g. ekart:ECONOMY) or raw Durin service_code.
+   * Ignored for REVERSE (uses EKART_REVERSE_SERVICE_CODE).
+   */
+  serviceCode?: string;
+  courierId?: string;
 }): EkartCreatePayloadBuild {
   const merchant = ekartConfig.merchantCode;
   const serviceLeg = input.serviceLeg === "REVERSE" ? "REVERSE" : "FORWARD";
@@ -239,7 +263,9 @@ export function buildEkartCreateShipmentPayload(input: {
   const source = isReverse ? customerAddr : warehouse;
   const destination = isReverse ? warehouse : customerAddr;
   const returnLocation = warehouse;
-  const serviceCode = isReverse ? ekartConfig.reverseServiceCode : ekartConfig.serviceCode;
+  const serviceCode = isReverse
+    ? ekartConfig.reverseServiceCode
+    : resolveEkartServiceCode(input.serviceCode || input.courierId);
 
   const body: Record<string, unknown> = {
     client_name: merchant,
@@ -296,7 +322,7 @@ export function buildEkartCreateShipmentPayload(input: {
     ],
   };
 
-  return { body, clientReferenceId, trackingIdSent: trackingId };
+  return { body, clientReferenceId, trackingIdSent: trackingId, serviceCode };
 }
 
 export function parseEkartCreateResponse(raw: unknown): {
@@ -308,6 +334,8 @@ export function parseEkartCreateResponse(raw: unknown): {
   rejected: boolean;
   /** Response request_id */
   requestId?: string;
+  /** Durin parking flag — non-NOT_PARKED may delay Elite visibility */
+  isParked?: string;
 } {
   const root = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const requestId = typeof root.request_id === "string" ? root.request_id : undefined;
@@ -326,6 +354,8 @@ export function parseEkartCreateResponse(raw: unknown): {
     : typeof first.message === "string"
       ? first.message
       : undefined;
+  const isParked =
+    typeof first.is_parked === "string" ? first.is_parked.trim().toUpperCase() : undefined;
 
   const rejected =
     status.toUpperCase() === "REQUEST_REJECTED" ||
@@ -338,5 +368,6 @@ export function parseEkartCreateResponse(raw: unknown): {
     message,
     rejected,
     requestId,
+    isParked,
   };
 }

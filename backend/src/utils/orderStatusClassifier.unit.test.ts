@@ -48,6 +48,20 @@ describe("normalizeTrackingStatus", () => {
     expect(normalizeTrackingStatus("OUT_FOR_PICKUP", "lorrigo")).toBe("pending_pickup");
     expect(normalizeTrackingStatus("Out For Pickup", "lorrigo")).toBe("pending_pickup");
   });
+
+  it("maps Ekart create-stage statuses to pending_pickup, not in_transit", () => {
+    expect(normalizeTrackingStatus("shipment_created", "ekart")).toBe("pending_pickup");
+    expect(normalizeTrackingStatus("REQUEST_RECEIVED", "ekart")).toBe("pending_pickup");
+    expect(normalizeTrackingStatus("Shipment Details Received", "ekart")).toBe("pending_pickup");
+    expect(
+      classifyOrderTab({
+        status: "pickup_scheduled",
+        shipmentStatus: "shipment_created",
+        awb: "TECC9944456948",
+        courierProvider: "ekart",
+      })
+    ).toBe("pending_pickup");
+  });
 });
 
 describe("classifyOrderTab", () => {

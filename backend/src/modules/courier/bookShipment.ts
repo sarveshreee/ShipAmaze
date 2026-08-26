@@ -929,6 +929,7 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
     widthCm: input.widthCm,
     heightCm: input.heightCm,
     courierId: input.courierId || "ekart",
+    courierName: input.courierName || undefined,
     customer: {
       name: String(order.customer ?? ""),
       phone: String(order.customerPhone ?? order.phone ?? "").replace(/\D/g, "").slice(-10),
@@ -953,6 +954,7 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
       pickupState: pickupLean.state,
       pickupCountry: pickupLean.country,
       ekartLocationCode: pickupLean.ekartLocationCode,
+      serviceCode: String(input.courierId ?? "").trim() || undefined,
       pickupAddress: {
         label: pickupLean.label,
         contactName: pickupLean.contactName,

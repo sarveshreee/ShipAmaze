@@ -2800,13 +2800,22 @@ export function RichOrdersTable({
                 {velocityCouriers.map((r) => {
                   const id = String(r.courierId || r.carrier_id);
                   const name = String(r.courierName || r.carrier_name || id);
-                  const providerLabel = r.provider === "lorrigo" ? "Lorrigo" : "Velocity";
+                  const provider =
+                    r.provider === "lorrigo" ? "lorrigo" : r.provider === "ekart" ? "ekart" : "velocity";
+                  const providerLabel =
+                    provider === "lorrigo" ? "Lorrigo" : provider === "ekart" ? "Ekart" : "Velocity";
                   const charge = Number(r.totalCharge ?? r.total_charge ?? r.freight ?? r.freight_charge ?? 0);
                   const canBook = providerSupports(r.provider, "booking");
+                  // Avoid ekart:ekart:REGULAR when discovery already prefixes courierId.
+                  const optionValue = canBook
+                    ? id.startsWith(`${provider}:`)
+                      ? id
+                      : `${provider}:${id}`
+                    : id;
                   return (
                     <option
-                      key={`${r.provider}:${id}`}
-                      value={canBook ? `${r.provider || "velocity"}:${id}` : id}
+                      key={`${provider}:${id}`}
+                      value={optionValue}
                       disabled={!canBook}
                     >
                       {name} ({providerLabel}) — ₹{charge.toFixed(0)}
@@ -2847,7 +2856,8 @@ export function RichOrdersTable({
                   carrierRaw = courierPick.slice("lorrigo:".length);
                 } else if (courierPick.startsWith("ekart:")) {
                   provider = "ekart";
-                  carrierRaw = courierPick.slice("ekart:".length);
+                  // Keep ekart:REGULAR form for Durin service_code resolution on the backend.
+                  carrierRaw = courierPick;
                 } else if (courierPick.startsWith("velocity:")) {
                   provider = "velocity";
                   carrierRaw = courierPick.slice("velocity:".length);

@@ -118,6 +118,9 @@ const EKART_RAW_TO_PROVIDER: Record<string, ProviderCanonicalStatus> = {
   ...LORRIGO_RAW_TO_PROVIDER,
   created: "CREATED",
   shipment_created: "CREATED",
+  request_received: "CREATED",
+  shipment_details_received: "CREATED",
+  details_received: "CREATED",
   scheduled: "CREATED",
   pickup_out_for_pickup: "CREATED",
   out_for_pickup: "CREATED",
@@ -171,11 +174,28 @@ export function mapEkartStatusToProviderCanonical(raw: unknown): ProviderCanonic
   const k = key(raw);
   if (EKART_RAW_TO_PROVIDER[k]) return EKART_RAW_TO_PROVIDER[k];
   if (k.includes("cancel")) return "CANCELLED";
-  if (k.includes("deliver")) return "DELIVERED";
-  if (k.includes("rto") || k.includes("return")) return "RETURNED";
+  if (k.includes("deliver") && !k.includes("out")) return "DELIVERED";
+  if (k.includes("rto") || (k.includes("return") && !k.includes("pickup"))) return "RETURNED";
   if (k.includes("pickup") && k.includes("complete")) return "PICKED_UP";
   if (k.includes("out_for_delivery") || k.includes("ofd")) return "OUT_FOR_DELIVERY";
-  return "IN_TRANSIT";
+  if (
+    k.includes("created") ||
+    k.includes("scheduled") ||
+    k.includes("request_received") ||
+    k.includes("details_received")
+  ) {
+    return "CREATED";
+  }
+  if (
+    k.includes("transit") ||
+    k.includes("shipped") ||
+    k.includes("mh_received") ||
+    k.includes("received_at")
+  ) {
+    return "IN_TRANSIT";
+  }
+  // Unknown Durin codes stay at origin — do not skip Pending Pickup.
+  return "CREATED";
 }
 
 export function providerCanonicalToOrderStatus(

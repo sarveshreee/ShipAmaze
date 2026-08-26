@@ -78,6 +78,20 @@ describe("Ekart track mapping", () => {
     expect(parsed.status).toBe("delivered");
   });
 
+  it("empty history without delivered flag stays at shipment_created", () => {
+    const parsed = parseEkartTrackResponse(
+      {
+        TECP2: {
+          shipment_id: "TECP2",
+          history: [],
+        },
+      },
+      "TECP2"
+    );
+    expect(parsed.status).toBe("shipment_created");
+    expect(mapEkartStatusToProviderCanonical(parsed.status)).toBe("CREATED");
+  });
+
   it("normalizes Durin Critical Updates status codes", () => {
     expect(mapEkartStatusToProviderCanonical("shipped")).toBe("IN_TRANSIT");
     expect(mapEkartStatusToProviderCanonical("mh_received")).toBe("IN_TRANSIT");

@@ -43,6 +43,7 @@ import {
   buildEkartTrackingId,
   buildEkartCreateShipmentPayload,
   parseEkartCreateResponse,
+  resolveEkartServiceCode,
 } from "../../../ekart/ekart.payload.js";
 import { mapEkartStatusToProviderCanonical } from "../../statusNormalize.js";
 import { resetEkartMetricsForTests, getEkartBookingMetrics } from "../../../ekart/ekart.metrics.js";
@@ -186,6 +187,44 @@ describe("Ekart provider foundation", () => {
     });
     const detail = (built.body.services as any)[0].service_details[0];
     expect(detail.service_data.source).toEqual({ location_code: "TEC_BLR_01" });
+  });
+
+  it("passes selected ECONOMY service_code from courierId", () => {
+    expect(resolveEkartServiceCode("ekart:ECONOMY")).toBe("ECONOMY");
+    expect(resolveEkartServiceCode("ekart:ekart:REGULAR")).toBe("REGULAR");
+    expect(resolveEkartServiceCode("ECONOMY")).toBe("ECONOMY");
+
+    const built = buildEkartCreateShipmentPayload({
+      orderId: "ORD-ECO-1",
+      paymentMode: "prepaid",
+      orderAmount: 200,
+      weightKg: 0.5,
+      lengthCm: 10,
+      widthCm: 10,
+      heightCm: 10,
+      pickup: {
+        label: "WH1",
+        contactName: "Alice",
+        phone: "9876543210",
+        addressLine1: "12 MG Road",
+        city: "Bengaluru",
+        state: "Karnataka",
+        pincode: "560001",
+      },
+      customer: {
+        name: "Bob",
+        phone: "9123456789",
+        address: "45 Park Street",
+        city: "Kolkata",
+        state: "West Bengal",
+        pincode: "700016",
+      },
+      items: [{ name: "Shirt", qty: 1, price: 200 }],
+      trackingId: "TECP0000000099",
+      courierId: "ekart:ECONOMY",
+    });
+    expect((built.body.services as any)[0].service_code).toBe("ECONOMY");
+    expect(built.serviceCode).toBe("ECONOMY");
   });
 
   it("parses create success and rejection", () => {

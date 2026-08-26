@@ -58,6 +58,13 @@ export async function createEkartShipment(
         : undefined,
   };
 
+  const serviceCodeOverride =
+    typeof input.providerPayload?.serviceCode === "string"
+      ? input.providerPayload.serviceCode
+      : typeof input.providerPayload?.ekartServiceCode === "string"
+        ? input.providerPayload.ekartServiceCode
+        : undefined;
+
   const built = buildEkartCreateShipmentPayload({
     orderId: input.orderId,
     paymentMode: input.paymentMode,
@@ -70,6 +77,8 @@ export async function createEkartShipment(
     pickup,
     customer: input.customer,
     items: input.items,
+    courierId: input.courierId,
+    serviceCode: serviceCodeOverride,
     serviceLeg:
       input.providerPayload?.shipmentType === "return" ||
       String(input.providerPayload?.serviceLeg ?? "").toUpperCase() === "REVERSE"
@@ -109,6 +118,11 @@ export async function createEkartShipment(
 
   recordEkartBookingSuccess(Date.now() - started);
 
+  const parkedNote =
+    parsed.isParked && parsed.isParked !== "NOT_PARKED"
+      ? ` (is_parked=${parsed.isParked} — may not appear as Ready For Pickup in Elite until unparked)`
+      : "";
+
   // Current Ekart V2 API echoes the client tracking_id in the response.
   // If a future API introduces a dedicated AWB field,
   // prefer that value for Order.awb instead of the echoed tracking_id.
@@ -117,10 +131,10 @@ export async function createEkartShipment(
     providerOrderId: parsed.requestId || built.clientReferenceId,
     providerShipmentId: parsed.trackingId,
     awb: parsed.trackingId,
-    courierId: input.courierId || "ekart",
-    courierName: "Ekart",
+    courierId: input.courierId || `ekart:${built.serviceCode}`,
+    courierName: input.courierName || `Ekart ${built.serviceCode}`,
     status: parsed.status,
-    message: parsed.message,
+    message: `${parsed.message ?? ""}${parkedNote}`.trim() || undefined,
     raw: {
       ...(sanitizeForProviderLog(raw) as Record<string, unknown>),
       shipamaze: {
@@ -128,6 +142,7 @@ export async function createEkartShipment(
         trackingIdSent: built.trackingIdSent,
         trackingIdFromResponse: parsed.trackingId,
         requestId: parsed.requestId,
+        serviceCode: built.serviceCode,
       },
     },
   };

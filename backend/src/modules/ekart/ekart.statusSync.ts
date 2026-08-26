@@ -143,12 +143,15 @@ export async function syncEkartActiveShipmentStatuses(
       }
 
       const sameStatus = current === nextStatus;
+      const healFalseInTransit =
+        providerCanonical === "CREATED" &&
+        (current === "in_transit" || current === "picked_up");
 
       if (order.shipmentStatus !== rawShipmentStatus) {
         order.shipmentStatus = rawShipmentStatus;
       }
 
-      if (!sameStatus && shouldApplyStatusUpdate(order.status, nextStatus)) {
+      if (!sameStatus && (healFalseInTransit || shouldApplyStatusUpdate(order.status, nextStatus))) {
         appendStatusHistory(order, nextStatus, "ekart_bg_sync");
         order.status = nextStatus;
         result.statusChanges += 1;

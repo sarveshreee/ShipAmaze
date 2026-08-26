@@ -225,6 +225,9 @@ const RAW_KEY_TO_INTERNAL: Record<string, string> = {
   arrival: "in_transit",
   arrived: "in_transit",
   shipment_booked: "pending_pickup",
+  shipment_created: "pending_pickup",
+  request_received: "pending_pickup",
+  shipment_details_received: "pending_pickup",
   // Out for delivery
   out_for_delivery: "out_for_delivery",
   outfordelivery: "out_for_delivery",
@@ -320,6 +323,11 @@ const PROVIDER_RAW_OVERRIDES: Record<string, Record<string, string>> = {
     pickup_cancelled: "pickup_cancelled",
     not_picked: "pickup_failed",
     pickup_reattempt: "pickup_failed",
+    shipment_created: "pending_pickup",
+    request_received: "pending_pickup",
+    shipment_details_received: "pending_pickup",
+    details_received: "pending_pickup",
+    created: "pending_pickup",
   },
 };
 
@@ -366,7 +374,7 @@ function inferInternalFromHeuristics(key: string): string | undefined {
   if (
     key.includes("transit") ||
     key.includes("dispatch") ||
-    key.includes("ship") ||
+    key.includes("shipped") ||
     key.includes("bag") ||
     key.includes("connect") ||
     key.includes("hub") ||
