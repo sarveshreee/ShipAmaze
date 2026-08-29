@@ -91,6 +91,30 @@ export const PENDING_PICKUP_INTERNAL_KEYS = [
   "not_picked",
 ] as const;
 
+/**
+ * Shipment still waiting for courier collection (not yet picked).
+ * Used to force Pending Pickup even if Order.status was mis-set to in_transit
+ * (e.g. Lorrigo OUT_FOR_PICKUP). Create-stage codes like shipment_created are
+ * intentionally excluded — if status has already advanced to picked_up/in_transit,
+ * the order must move to In Transit.
+ */
+export const AWAITING_COURIER_PICKUP_RAW_KEYS = [
+  "out_for_pickup",
+  "pickup_out_for_pickup",
+  "pickup_exception",
+  "pickupexception",
+  "ready_for_pickup",
+  "not_picked",
+] as const;
+
+export const AWAITING_COURIER_PICKUP_MATCH_VALUES = variantsForKeys([
+  "out_for_pickup",
+  "pickup_out_for_pickup",
+  "pickup_exception",
+  "ready_for_pickup",
+  "not_picked",
+]);
+
 /** Internal keys for In Transit tab. */
 export const IN_TRANSIT_INTERNAL_KEYS = [
   "in_transit",
@@ -99,6 +123,8 @@ export const IN_TRANSIT_INTERNAL_KEYS = [
   "dispatched",
   "connected",
   "bagged",
+  "expected",
+  "shipment_expected",
 ] as const;
 
 export const OUT_FOR_DELIVERY_INTERNAL_KEYS = ["out_for_delivery"] as const;
@@ -224,6 +250,8 @@ const RAW_KEY_TO_INTERNAL: Record<string, string> = {
   received: "in_transit",
   arrival: "in_transit",
   arrived: "in_transit",
+  expected: "in_transit",
+  shipment_expected: "in_transit",
   shipment_booked: "pending_pickup",
   shipment_created: "pending_pickup",
   request_received: "pending_pickup",
@@ -328,6 +356,15 @@ const PROVIDER_RAW_OVERRIDES: Record<string, Record<string, string>> = {
     shipment_details_received: "pending_pickup",
     details_received: "pending_pickup",
     created: "pending_pickup",
+    pickup_complete: "in_transit",
+    shipment_pickup_complete: "in_transit",
+    picked: "in_transit",
+    mh_received: "in_transit",
+    received_at_dh: "in_transit",
+    shipment_shipped: "in_transit",
+    shipment_received: "in_transit",
+    expected: "in_transit",
+    shipment_expected: "in_transit",
   },
 };
 
@@ -384,7 +421,9 @@ function inferInternalFromHeuristics(key: string): string | undefined {
     key.includes("depart") ||
     key.includes("left_") ||
     key.includes("in_facility") ||
-    key.includes("received_at")
+    key.includes("received_at") ||
+    // Ekart Durin: "Shipment Expected" / "expected" means in network
+    (key.includes("expected") && !key.includes("return"))
   ) {
     return "in_transit";
   }
@@ -437,6 +476,8 @@ const INTERNAL_STATUS_LABELS: Record<string, string> = {
   dispatched: "In Transit",
   connected: "In Transit",
   bagged: "In Transit",
+  expected: "In Transit",
+  shipment_expected: "In Transit",
   out_for_delivery: "Out for Delivery",
   delivered: "Delivered",
   ndr: "NDR",
@@ -477,6 +518,8 @@ const INTERNAL_PROGRESS_RANK: Record<string, number> = {
   dispatched: 35,
   connected: 35,
   bagged: 35,
+  expected: 35,
+  shipment_expected: 35,
   out_for_delivery: 45,
   processing_failed: 50,
   pickup_failed: 50,
@@ -557,6 +600,11 @@ export interface OrderClassificationInput {
   courierProvider?: CourierProviderId | string;
 }
 
+function isAwaitingCourierPickupRaw(rawShipmentStatus: unknown): boolean {
+  const k = normalizeTrackingKey(rawShipmentStatus);
+  return (AWAITING_COURIER_PICKUP_RAW_KEYS as readonly string[]).includes(k);
+}
+
 /** Classify an order into a dashboard tab category. */
 export function classifyOrderTab(order: OrderClassificationInput): OrderTabCategory | undefined {
   if (order.isJunk) return "junk";
@@ -566,11 +614,14 @@ export function classifyOrderTab(order: OrderClassificationInput): OrderTabCateg
 
   const shipmentKey = normalizeTrackingStatus(order.shipmentStatus, order.courierProvider);
   const shipmentCategory = internalKeyToTabCategory(shipmentKey);
-  if (
-    shipmentCategory === "pending_pickup" ||
-    shipmentCategory === "ndr" ||
-    shipmentCategory === "rto"
-  ) {
+
+  // Still waiting for courier collection — keep on Pending Pickup even if status lagged.
+  if (isAwaitingCourierPickupRaw(order.shipmentStatus)) {
+    return "pending_pickup";
+  }
+
+  // NDR / RTO on shipment always win (delivery exception / return journey).
+  if (shipmentCategory === "ndr" || shipmentCategory === "rto") {
     return shipmentCategory;
   }
 

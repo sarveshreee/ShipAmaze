@@ -67,6 +67,20 @@ describe("buildTabQuery", () => {
     expect(JSON.stringify(q)).toContain("picked_up");
   });
 
+  it("in-transit excludes awaiting-courier pickup stages, not all pending labels", () => {
+    const q = buildTabQuery("in-transit");
+    const s = JSON.stringify(q);
+    expect(s).toContain("out_for_pickup");
+    expect(s).toContain("pickup_exception");
+  });
+
+  it("pending-pickup keeps awaiting courier stages even if status advanced", () => {
+    const q = buildTabQuery("pending-pickup");
+    const s = JSON.stringify(q);
+    expect(s).toContain("out_for_pickup");
+    expect(s).toContain("pickup_exception");
+  });
+
   it("in-transit checks saved Velocity shipmentStatus aliases", () => {
     const q = buildTabQuery("in-transit");
     expect(JSON.stringify(q)).toContain("shipmentStatus");
@@ -81,9 +95,17 @@ describe("buildTabQuery", () => {
   });
 
   it("delivered matches mixed-case status via case-insensitive regex", () => {
-    const q = buildTabQuery("delivered") as { $or?: unknown[] };
-    const or = q.$or ?? [];
-    const regexes = or.filter((clause) => {
+    const q = buildTabQuery("delivered") as { $and?: unknown[]; $or?: unknown[] };
+    const nested = JSON.stringify(q);
+    expect(nested).toMatch(/\$or/);
+    // Regex clauses live inside statusOrShipmentStatusIn under $and
+    const and = q.$and ?? [];
+    const orClauses: unknown[] = [];
+    for (const clause of and) {
+      const rec = clause as Record<string, unknown>;
+      if (Array.isArray(rec.$or)) orClauses.push(...rec.$or);
+    }
+    const regexes = orClauses.filter((clause) => {
       const value = Object.values(clause as Record<string, unknown>)[0];
       return value instanceof RegExp;
     });

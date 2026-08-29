@@ -62,6 +62,72 @@ describe("normalizeTrackingStatus", () => {
       })
     ).toBe("pending_pickup");
   });
+
+  it("maps Ekart pickup_complete to in_transit", () => {
+    expect(normalizeTrackingStatus("pickup_complete", "ekart")).toBe("in_transit");
+    expect(
+      classifyOrderTab({
+        status: "picked_up",
+        shipmentStatus: "pickup_complete",
+        awb: "TECC9944456948",
+        courierProvider: "ekart",
+      })
+    ).toBe("in_transit");
+  });
+
+  it("Ekart picked-up status wins over stale shipment_created", () => {
+    expect(
+      classifyOrderTab({
+        status: "in_transit",
+        shipmentStatus: "shipment_created",
+        awb: "TECC9944456948",
+        courierProvider: "ekart",
+      })
+    ).toBe("in_transit");
+    expect(
+      classifyOrderTab({
+        status: "picked_up",
+        shipmentStatus: "pending_pickup",
+        awb: "TECC9944456948",
+        courierProvider: "ekart",
+      })
+    ).toBe("in_transit");
+  });
+
+  it("Ekart Shipment Expected goes to in_transit tab", () => {
+    expect(normalizeTrackingStatus("Shipment Expected", "ekart")).toBe("in_transit");
+    expect(normalizeTrackingStatus("expected", "ekart")).toBe("in_transit");
+    expect(
+      classifyOrderTab({
+        status: "pending_pickup",
+        shipmentStatus: "Shipment Expected",
+        awb: "FICC8789452240",
+        courierProvider: "ekart",
+      })
+    ).toBe("in_transit");
+    expect(
+      orderMatchesTabCategory(
+        {
+          status: "pending_pickup",
+          shipmentStatus: "Shipment Expected",
+          awb: "FICC8789452240",
+          courierProvider: "ekart",
+        },
+        "in-transit"
+      )
+    ).toBe(true);
+    expect(
+      orderMatchesTabCategory(
+        {
+          status: "pending_pickup",
+          shipmentStatus: "Shipment Expected",
+          awb: "FICC8789452240",
+          courierProvider: "ekart",
+        },
+        "pending-pickup"
+      )
+    ).toBe(false);
+  });
 });
 
 describe("classifyOrderTab", () => {

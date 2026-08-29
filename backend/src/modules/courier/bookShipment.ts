@@ -42,6 +42,7 @@ import {
   pushShopifyFulfillmentUpdate,
 } from "../../services/shopifyFulfillmentMirror.js";
 import { orderCodCollectableAmount } from "../../services/normalizeOrderPayment.js";
+import { isUsableEkartLocationCode } from "../ekart/ekart.pickupSync.js";
 
 export type BookShipmentInput = {
   order: IOrder;
@@ -775,14 +776,29 @@ export async function validateEkartBooking(input: BookShipmentInput): Promise<{
     throw new AppError(400, "Pickup address line 1 is required for Ekart booking");
   }
 
-  const ekartLoc =
-    String((pickup as { ekartLocationCode?: string }).ekartLocationCode ?? "").trim() ||
-    String(process.env.EKART_DEFAULT_LOCATION_CODE ?? "").trim();
-  if (!ekartLoc) {
-    recordEkartBookingValidationFailure();
-    throw new AppError(
-      422,
-      "Pickup is not linked to Ekart Elite. Open Pickup Addresses → Sync to Ekart and paste the Elite location code (Settings → Pickup locations), then book again."
+  // Durin accepts source.address OR source.location_code. Elite Shipments usually needs
+  // a BD-assigned location_code — warn only; do not block API booking.
+  // Auto-clear mistaken pincode syncs (e.g. 395003) so we send full address instead.
+  let ekartLoc = String((pickup as { ekartLocationCode?: string }).ekartLocationCode ?? "").trim();
+  if (ekartLoc && !isUsableEkartLocationCode(ekartLoc)) {
+    console.warn(
+      `[ekart] clearing invalid location_code "${ekartLoc}" on pickup ${input.pickupAddressId} (pincode is not a Durin code)`
+    );
+    await Pickup.findByIdAndUpdate(input.pickupAddressId, {
+      $unset: { ekartLocationCode: 1 },
+      $set: {
+        ekartSyncStatus: "FAILED",
+        ekartSyncError:
+          "Cleared invalid code (pincode is not Durin location_code). Ask Ekart BD for real code, or book with address only.",
+        ekartLastSyncAt: new Date(),
+      },
+    }).catch(() => undefined);
+    ekartLoc = "";
+    (pickup as { ekartLocationCode?: string }).ekartLocationCode = undefined;
+  }
+  if (!ekartLoc && !String(process.env.EKART_DEFAULT_LOCATION_CODE ?? "").trim()) {
+    console.warn(
+      `[ekart] booking pickup ${input.pickupAddressId} without location_code — create/track OK; Elite list may stay empty until Ekart assigns a Durin location_code`
     );
   }
 

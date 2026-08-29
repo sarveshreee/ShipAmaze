@@ -45,7 +45,17 @@ POST /api/ekart/pickups/:id/sync  { locationCode: "TEC_SUR_01" }
 POST /api/ekart/pickups/:id/unlink
 ```
 
-Booking requires a linked code (or `EKART_DEFAULT_LOCATION_CODE`). Without it, create still works on public tracking but Elite Shipments stays empty.
+Booking works with full pickup **address** (Durin docs: location_code **or** address).  
+Elite Shipments listing usually needs a BD-assigned `location_code`. Without it, public track works; Elite list may stay empty.
+
+ShipAmaze **Sync to Ekart** = optional link of that code when Ekart provides it:
+
+```
+POST /api/ekart/pickups/:id/sync  { locationCode: "TEC_SUR_01" }
+POST /api/ekart/pickups/:id/unlink
+```
+
+There is **no** Durin create-warehouse API in GettingStarted / Non_Large / Large docs.
 
 ### Durin `service_code` (REGULAR / ECONOMY)
 

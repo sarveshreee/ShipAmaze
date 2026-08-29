@@ -143,6 +143,45 @@ describe("ekart status sync", () => {
     expect(order.shipmentStatus).toBe("shipment_created");
   });
 
+  it("advances pending_pickup to in_transit on pickup_complete", async () => {
+    const order = makeOrder({ status: "pending_pickup", shipmentStatus: "shipment_created" });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => ({
+        awb: "TECP0000000001",
+        status: "pickup_complete",
+        pickupDate: "2018-08-21T12:00:00.000+05:30",
+        activities: [{ date: "d", activity: "Shipment Picked Up", location: "SURAT" }],
+      }))
+    );
+
+    const { syncEkartActiveShipmentStatuses } = await import("./ekart.statusSync.js");
+    const r = await syncEkartActiveShipmentStatuses(10);
+    expect(r.statusChanges).toBe(1);
+    expect(["picked_up", "in_transit"]).toContain(order.status);
+    expect(order.shipmentStatus).toBe("pickup_complete");
+  });
+
+  it("does not heal in_transit back when activities already show pickup", async () => {
+    const order = makeOrder({ status: "in_transit", shipmentStatus: "in_transit" });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => ({
+        awb: "TECP0000000001",
+        status: "shipment_created",
+        activities: [
+          { date: "d2", activity: "Shipment Picked Up", location: "SURAT" },
+          { date: "d1", activity: "Shipment Created", location: "SURAT" },
+        ],
+      }))
+    );
+
+    const { syncEkartActiveShipmentStatuses } = await import("./ekart.statusSync.js");
+    const r = await syncEkartActiveShipmentStatuses(10);
+    expect(r.statusChanges).toBe(0);
+    expect(order.status).toBe("in_transit");
+  });
+
   it("records tracking failure without throwing the batch", async () => {
     const order = makeOrder();
     orders.push(order);

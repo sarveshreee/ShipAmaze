@@ -198,6 +198,14 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
         setSaving(false);
         return;
       }
+      const ekartCode = form.ekartLocationCode.trim();
+      if (ekartCode && (/^\d+$/.test(ekartCode) || !/[A-Za-z]/.test(ekartCode))) {
+        toast.error(
+          "Pincode is not a Durin location_code. Leave blank to book with address, or paste the real code from Ekart BD (e.g. TEC_SUR_01)."
+        );
+        setSaving(false);
+        return;
+      }
 
       const payload = {
         label: form.label.trim(),
@@ -625,15 +633,16 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
               <Input className="mt-1" value={form.gstin} onChange={(e) => setForm((f) => ({ ...f, gstin: e.target.value.toUpperCase() }))} maxLength={15} />
             </div>
             <div className="sm:col-span-2">
-              <Label>Ekart location code (Elite)</Label>
+              <Label>Ekart location code (not pincode)</Label>
               <Input
                 className="mt-1"
                 value={form.ekartLocationCode}
                 onChange={(e) => setForm((f) => ({ ...f, ekartLocationCode: e.target.value.trim() }))}
-                placeholder="e.g. TEC_SUR_01"
+                placeholder="e.g. TEC_SUR_01 — not 395003"
               />
               <p className="text-[11px] text-text-muted mt-1">
-                Copy from Elite Settings → Pickup locations. API bookings without this code track on ekartlogistics.com but usually do not appear in the Elite Shipments list.
+                Do not enter the address pincode. Elite Addresses does not show Durin location_code —
+                ask Ekart BD. Leave blank to book with full address (create/track works; Elite list may stay empty).
               </p>
             </div>
 

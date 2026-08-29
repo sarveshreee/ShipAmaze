@@ -49,7 +49,16 @@ describe("ekart.pickupSync", () => {
   it("validates location codes", () => {
     expect(validateEkartLocationCode("")).toMatch(/required/i);
     expect(validateEkartLocationCode("TEC_SUR_01")).toBe("");
+    expect(validateEkartLocationCode("395003")).toMatch(/pincode/i);
+    expect(validateEkartLocationCode("123456")).toMatch(/pincode/i);
     expect(normalizeEkartLocationCode(" TEC SUR ")).toBe("TEC_SUR");
+  });
+
+  it("rejects pincode link attempts", async () => {
+    const r = await linkPickupToEkart("507f1f77bcf86cd799439011", "395003");
+    expect(r.synced).toBe(false);
+    if (!r.synced && "error" in r) expect(r.error).toMatch(/pincode/i);
+    expect(store.get("507f1f77bcf86cd799439011")?.ekartLocationCode).toBeUndefined();
   });
 
   it("links Elite location code onto pickup", async () => {

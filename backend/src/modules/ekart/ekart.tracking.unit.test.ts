@@ -3,6 +3,7 @@ import {
   extractEkartShipmentBlock,
   mapEkartTrackHistory,
   parseEkartTrackResponse,
+  pickBestEkartHistoryStatus,
 } from "./ekart.tracking.js";
 import { mapEkartStatusToProviderCanonical } from "../courier/statusNormalize.js";
 
@@ -90,6 +91,39 @@ describe("Ekart track mapping", () => {
     );
     expect(parsed.status).toBe("shipment_created");
     expect(mapEkartStatusToProviderCanonical(parsed.status)).toBe("CREATED");
+  });
+
+  it("picks furthest status when history is oldest-first", () => {
+    const history = [
+      {
+        status: "shipment_created",
+        event_date_iso8601: "2018-08-20T10:00:00.000+05:30",
+        public_description: "Shipment Created",
+      },
+      {
+        status: "pickup_complete",
+        event_date_iso8601: "2018-08-21T12:00:00.000+05:30",
+        public_description: "Shipment Picked Up",
+      },
+      {
+        status: "in_transit",
+        event_date_iso8601: "2018-08-22T08:00:00.000+05:30",
+        public_description: "In Transit",
+      },
+    ];
+    expect(pickBestEkartHistoryStatus(history).status).toBe("in_transit");
+    const parsed = parseEkartTrackResponse(
+      {
+        TECP3: {
+          shipment_id: "TECP3",
+          history,
+        },
+      },
+      "TECP3"
+    );
+    expect(parsed.status).toBe("in_transit");
+    expect(parsed.pickupDate).toContain("2018-08-21");
+    expect(mapEkartStatusToProviderCanonical(parsed.status)).toBe("IN_TRANSIT");
   });
 
   it("normalizes Durin Critical Updates status codes", () => {

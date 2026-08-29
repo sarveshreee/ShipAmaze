@@ -1,8 +1,9 @@
 /**
  * Ekart tracking — POST /v2/shipments/track → ProviderTrackingResult.
  *
- * Durin TrackResponseV2 is keyed by tracking id; `history` is newest-first.
- * Prefer machine `history[0].status` for canonical mapping; keep
+ * Durin TrackResponseV2 is keyed by tracking id; `history` is usually newest-first.
+ * Prefer the highest-progress machine `history[].status` (date tie-break) so
+ * oldest-first payloads do not trap orders on shipment_created. Keep
  * `public_description` on timeline activities for UI.
  */
 
@@ -12,6 +13,10 @@ import type {
   ProviderTrackingResult,
 } from "../courier/types.js";
 import { AppError } from "../../middleware/errorMiddleware.js";
+import {
+  mapEkartStatusToProviderCanonical,
+  type ProviderCanonicalStatus,
+} from "../courier/statusNormalize.js";
 import { ekartConfig } from "./ekart.config.js";
 import { ekartPost } from "./ekart.client.js";
 import {
@@ -22,6 +27,67 @@ import {
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+const PROVIDER_PROGRESS_RANK: Record<ProviderCanonicalStatus, number> = {
+  CREATED: 10,
+  PICKED_UP: 30,
+  IN_TRANSIT: 35,
+  OUT_FOR_DELIVERY: 45,
+  FAILED: 50,
+  CANCELLED: 55,
+  RETURNED: 60,
+  LOST: 60,
+  DELIVERED: 70,
+};
+
+function historyEventDateMs(row: Record<string, unknown>): number {
+  const raw = row.event_date_iso8601 ?? row.event_date ?? row.updated_datetime ?? row.date;
+  const ms = Date.parse(String(raw ?? ""));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function isPickupCanonical(c: ProviderCanonicalStatus): boolean {
+  return c === "PICKED_UP" || c === "IN_TRANSIT" || c === "OUT_FOR_DELIVERY" || c === "DELIVERED";
+}
+
+/**
+ * Pick the furthest-along Durin machine status from history.
+ * Exported for unit tests.
+ */
+export function pickBestEkartHistoryStatus(historyRows: unknown[]): {
+  status: string;
+  pickupDate?: string;
+} {
+  let bestStatus = "";
+  let bestRank = -1;
+  let bestDate = -1;
+  let pickupDate: string | undefined;
+
+  for (const row of historyRows) {
+    const o = asRecord(row);
+    if (!o) continue;
+    const machine = String(o.status ?? "").trim();
+    if (!machine) continue;
+    const canonical = mapEkartStatusToProviderCanonical(machine);
+    const rank = PROVIDER_PROGRESS_RANK[canonical] ?? 0;
+    const dateMs = historyEventDateMs(o);
+    const dateStr = String(
+      o.event_date_iso8601 ?? o.event_date ?? o.updated_datetime ?? o.date ?? ""
+    );
+
+    if (isPickupCanonical(canonical) && dateStr && !pickupDate) {
+      pickupDate = dateStr;
+    }
+    // Prefer higher lifecycle progress; on ties prefer newer event date.
+    if (rank > bestRank || (rank === bestRank && dateMs >= bestDate)) {
+      bestRank = rank;
+      bestDate = dateMs;
+      bestStatus = machine;
+    }
+  }
+
+  return { status: bestStatus, pickupDate };
 }
 
 /** Exported for unit tests — Durin history → ShipAmaze activities (newest-first). */
@@ -89,20 +155,35 @@ export function parseEkartTrackResponse(
   const historyRows = Array.isArray(block.history) ? block.history : [];
   const activities = mapEkartTrackHistory(historyRows);
 
+  const best = pickBestEkartHistoryStatus(historyRows);
   const latest = asRecord(historyRows[0]);
-  const machineStatus = String(latest?.status ?? "").trim();
+  const machineStatus = best.status || String(latest?.status ?? "").trim();
   const deliveredFlag = block.delivered === true;
+  const blockStatus = String(block.status ?? "").trim();
+  // Prefer machine codes / block status. Only fall back to public activity text
+  // when history has no machine status — never invent shipment_created when
+  // activities already show pickup/transit (that trapped orders on Pending Pickup).
+  const activityFallback = activities[0]?.activity ? String(activities[0].activity) : "";
   const status =
     machineStatus ||
     (deliveredFlag ? "delivered" : "") ||
-    String(block.status ?? "").trim() ||
-    (activities[0]?.activity ? String(activities[0].activity) : "") ||
+    blockStatus ||
+    activityFallback ||
     "shipment_created";
 
   const delivered =
     deliveredFlag ||
     machineStatus.toLowerCase() === "delivered" ||
     status.toLowerCase().includes("delivered");
+
+  let pickupDate = best.pickupDate;
+  if (!pickupDate) {
+    const statusCanonical = mapEkartStatusToProviderCanonical(status);
+    if (isPickupCanonical(statusCanonical)) {
+      pickupDate =
+        String(activities.find((a) => /pick/i.test(a.activity))?.date || "") || undefined;
+    }
+  }
 
   return {
     awb: String(block.shipment_id ?? block.external_tracking_id ?? awb),
@@ -114,7 +195,7 @@ export function parseEkartTrackResponse(
     deliveredDate: delivered
       ? String(activities[0]?.date || latest?.event_date_iso8601 || latest?.event_date || "")
       : undefined,
-    pickupDate: undefined,
+    pickupDate: pickupDate || undefined,
     message: undefined,
   };
 }

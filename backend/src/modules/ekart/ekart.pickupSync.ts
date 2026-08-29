@@ -24,10 +24,35 @@ export function normalizeEkartLocationCode(raw: unknown): string {
     .slice(0, 120);
 }
 
+/** Indian pincode is 6 digits — never a Durin location_code. */
+export function looksLikeIndianPincode(raw: unknown): boolean {
+  return /^\d{6}$/.test(String(raw ?? "").trim());
+}
+
+/**
+ * True only for usable Durin location_code values.
+ * Rejects empty, pincodes, and pure-numeric strings (e.g. paste of 395003).
+ */
+export function isUsableEkartLocationCode(raw: unknown): boolean {
+  const code = normalizeEkartLocationCode(raw);
+  if (!code || code.length < 2) return false;
+  if (looksLikeIndianPincode(code) || /^\d+$/.test(code)) return false;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(code)) return false;
+  // Real Durin codes include letters (e.g. TEC_SUR_01) — require at least one.
+  if (!/[A-Za-z]/.test(code)) return false;
+  return true;
+}
+
 export function validateEkartLocationCode(raw: unknown): string {
   const code = normalizeEkartLocationCode(raw);
   if (!code) return "Ekart location code is required";
   if (code.length < 2) return "Ekart location code is too short";
+  if (looksLikeIndianPincode(code) || /^\d+$/.test(code)) {
+    return "Pincode is not a Durin location_code (e.g. 395003 is wrong). Ask Ekart BD for the real code like TEC_SUR_01, or leave blank and book with full address.";
+  }
+  if (!/[A-Za-z]/.test(code)) {
+    return "Location code must include letters (not only digits). Ask Ekart BD for the Durin location_code.";
+  }
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(code)) {
     return "Use the location code from Elite (letters, numbers, _ or - only)";
   }
@@ -37,9 +62,10 @@ export function validateEkartLocationCode(raw: unknown): string {
 export function resolveEkartPickupLocationCode(pickup: {
   ekartLocationCode?: string | null;
 }): string {
-  return (
-    normalizeEkartLocationCode(pickup.ekartLocationCode) || ekartConfig.defaultLocationCode
-  );
+  const fromPickup = normalizeEkartLocationCode(pickup.ekartLocationCode);
+  if (isUsableEkartLocationCode(fromPickup)) return fromPickup;
+  const fallback = ekartConfig.defaultLocationCode;
+  return isUsableEkartLocationCode(fallback) ? normalizeEkartLocationCode(fallback) : "";
 }
 
 /**

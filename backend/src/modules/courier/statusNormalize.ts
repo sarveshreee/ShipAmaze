@@ -134,6 +134,7 @@ const EKART_RAW_TO_PROVIDER: Record<string, ProviderCanonicalStatus> = {
   received: "IN_TRANSIT",
   mh_received: "IN_TRANSIT",
   expected: "IN_TRANSIT",
+  shipment_expected: "IN_TRANSIT",
   received_at_dh: "IN_TRANSIT",
   shipped: "IN_TRANSIT",
   shipment_shipped: "IN_TRANSIT",
@@ -176,8 +177,24 @@ export function mapEkartStatusToProviderCanonical(raw: unknown): ProviderCanonic
   if (k.includes("cancel")) return "CANCELLED";
   if (k.includes("deliver") && !k.includes("out")) return "DELIVERED";
   if (k.includes("rto") || (k.includes("return") && !k.includes("pickup"))) return "RETURNED";
-  if (k.includes("pickup") && k.includes("complete")) return "PICKED_UP";
+  // Pickup confirmed — including public text like "Shipment Picked Up".
+  if (
+    (k.includes("pickup") &&
+      (k.includes("complete") || k.includes("done") || k.includes("success"))) ||
+    (k.includes("picked") && !k.includes("not") && !k.includes("except"))
+  ) {
+    return "PICKED_UP";
+  }
   if (k.includes("out_for_delivery") || k.includes("ofd")) return "OUT_FOR_DELIVERY";
+  if (
+    k.includes("out_for_pickup") ||
+    k.includes("pickup_out_for_pickup") ||
+    k.includes("pickup_exception") ||
+    k.includes("pickup_reattempt") ||
+    k.includes("ready_for_pickup")
+  ) {
+    return "CREATED";
+  }
   if (
     k.includes("created") ||
     k.includes("scheduled") ||
@@ -190,7 +207,12 @@ export function mapEkartStatusToProviderCanonical(raw: unknown): ProviderCanonic
     k.includes("transit") ||
     k.includes("shipped") ||
     k.includes("mh_received") ||
-    k.includes("received_at")
+    k.includes("received_at") ||
+    k.includes("dispatched") ||
+    k.includes("bagged") ||
+    k.includes("connected") ||
+    // Durin "Shipment Expected" / "expected" = parcel in network (In Transit)
+    (k.includes("expected") && !k.includes("return"))
   ) {
     return "IN_TRANSIT";
   }

@@ -29,4 +29,19 @@ describe("statusNormalize", () => {
     expect(mapEkartStatusToProviderCanonical("Shipment Created")).toBe("CREATED");
     expect(providerCanonicalToOrderStatus("CREATED")).toBe("pickup_scheduled");
   });
+
+  it("maps Ekart pickup confirmations to PICKED_UP / IN_TRANSIT", () => {
+    expect(mapEkartStatusToProviderCanonical("pickup_complete")).toBe("PICKED_UP");
+    expect(mapEkartStatusToProviderCanonical("Shipment Picked Up")).toBe("PICKED_UP");
+    expect(mapEkartStatusToProviderCanonical("package_picked_up")).toBe("PICKED_UP");
+    expect(mapEkartStatusToProviderCanonical("mh_received")).toBe("IN_TRANSIT");
+    expect(providerCanonicalToOrderStatus("PICKED_UP")).toBe("picked_up");
+  });
+
+  it("maps Ekart Shipment Expected to IN_TRANSIT", () => {
+    expect(mapEkartStatusToProviderCanonical("expected")).toBe("IN_TRANSIT");
+    expect(mapEkartStatusToProviderCanonical("Shipment Expected")).toBe("IN_TRANSIT");
+    expect(mapEkartStatusToProviderCanonical("shipment_expected")).toBe("IN_TRANSIT");
+    expect(providerCanonicalToOrderStatus("IN_TRANSIT")).toBe("in_transit");
+  });
 });

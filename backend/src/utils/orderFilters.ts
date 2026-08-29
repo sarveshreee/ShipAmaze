@@ -12,6 +12,7 @@ import {
   AFTER_PENDING_PICKUP_MATCH_VALUES,
   AFTER_READY_TO_SHIP_MATCH_VALUES,
   AFTER_RTO_MATCH_VALUES,
+  AWAITING_COURIER_PICKUP_MATCH_VALUES,
   DELIVERED_MATCH_VALUES,
   FULFILLMENT_PIPELINE_MATCH_VALUES,
   IN_TRANSIT_MATCH_VALUES,
@@ -195,7 +196,15 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
         },
         {
           $or: [
-            { shipmentStatus: { $in: PENDING_PICKUP_MATCH_VALUES } },
+            // Still awaiting courier collection (OUT_FOR_PICKUP / exception).
+            { shipmentStatus: { $in: AWAITING_COURIER_PICKUP_MATCH_VALUES } },
+            // Generic pending labels only when status has not already advanced past pickup.
+            {
+              $and: [
+                { shipmentStatus: { $in: PENDING_PICKUP_MATCH_VALUES } },
+                { status: { $nin: AFTER_PENDING_PICKUP_MATCH_VALUES } },
+              ],
+            },
             neitherStatusNorShipmentStatusIn(AFTER_PENDING_PICKUP_MATCH_VALUES),
           ],
         },
@@ -208,7 +217,8 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
       $and: [
         statusOrShipmentStatusIn(IN_TRANSIT_MATCH_VALUES),
         neitherStatusNorShipmentStatusIn(AFTER_IN_TRANSIT_MATCH_VALUES),
-        neitherStatusNorShipmentStatusIn(PENDING_PICKUP_MATCH_VALUES),
+        // Exclude only active awaiting-pickup shipment stages (not stale pending_pickup labels).
+        neitherStatusNorShipmentStatusIn(AWAITING_COURIER_PICKUP_MATCH_VALUES),
         neitherStatusNorShipmentStatusIn(PROCESSING_FAILED_MATCH_VALUES),
       ],
     };

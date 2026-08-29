@@ -2869,8 +2869,9 @@ export function RichOrdersTable({
                   }
                 } else if (provider === "ekart") {
                   if (!selectedPickup?.ekartLocationCode?.trim()) {
-                    toast.error("Selected pickup is not linked to Ekart Elite — Sync location code on Pickup Addresses first");
-                    return;
+                    toast.warning(
+                      "No Durin location_code linked — create/track will work; Elite list may stay empty until Ekart BD assigns a code."
+                    );
                   }
                 } else if (!selectedPickup?.velocityWarehouseId?.trim()) {
                   toast.error(

@@ -309,7 +309,7 @@ export function ProcessSelectedModal({
         if (provider === "lorrigo" && !lorrigoPickupReady) return false;
         // Hide Velocity couriers until the selected pickup is linked to a Velocity warehouse.
         if (provider === "velocity" && !velocityPickupReady) return false;
-        if (provider === "ekart" && !ekartPickupReady) return false;
+        // Ekart: Durin allows address-only create; location_code is for Elite visibility only.
         return true;
       })
       .map((c) => {
@@ -370,9 +370,7 @@ export function ProcessSelectedModal({
       serviceableCouriers.some((c) => (c.provider || "") === "ekart")
     ) {
       msgs.push(
-        role === "admin"
-          ? "Ekart couriers are hidden until this pickup is linked to an Elite location code (Pickup Addresses → Sync to Ekart)."
-          : "Ekart couriers are hidden until this pickup is synced. Open Pickup Addresses → Sync to Ekart and paste the Elite location code."
+        "Ekart: pickup has no Durin location_code linked. Booking still works; Elite Shipments may not list AWBs until Ekart BD assigns a location_code and you Sync it."
       );
     }
     return msgs;
@@ -424,14 +422,6 @@ export function ProcessSelectedModal({
     }
   }, [velocityPickupReady, selectedCarrierProvider, selectedCarrierId]);
 
-  useEffect(() => {
-    if (!ekartPickupReady && selectedCarrierProvider === "ekart") {
-      setSelectedCarrierId("");
-      setSelectedCarrierName("");
-      setSelectedCarrierProvider("velocity");
-    }
-  }, [ekartPickupReady, selectedCarrierProvider]);
-
   const handleSubmit = async () => {
     if (orderIds.length === 0) {
       toast.error("No orders selected");
@@ -482,8 +472,9 @@ export function ProcessSelectedModal({
         return;
       }
       if (selectedCarrierProvider === "ekart" && !ekartPickupReady) {
-        toast.error("Link this pickup to Ekart Elite (location code) before booking Ekart.");
-        return;
+        toast.warning(
+          "No Durin location_code on this pickup — shipment will create/track, but may not appear in Elite until Ekart assigns a code."
+        );
       }
     }
 

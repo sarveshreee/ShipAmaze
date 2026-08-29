@@ -5,6 +5,10 @@
 
 import { createHash } from "crypto";
 import { ekartConfig } from "./ekart.config.js";
+import {
+  isUsableEkartLocationCode,
+  normalizeEkartLocationCode,
+} from "./ekart.pickupSync.js";
 
 export type EkartPickupLean = {
   label?: string;
@@ -171,8 +175,10 @@ function buildAddressBlock(opts: {
 }
 
 function buildSourceOrReturn(pickup: EkartPickupLean) {
-  const locationCode =
+  // Never send a pincode as location_code — Durin returns "Invalid Location Code: [395003]".
+  const raw =
     String(pickup.ekartLocationCode ?? "").trim() || ekartConfig.defaultLocationCode;
+  const locationCode = isUsableEkartLocationCode(raw) ? normalizeEkartLocationCode(raw) : "";
   if (locationCode) {
     return { location_code: locationCode };
   }
@@ -292,8 +298,11 @@ export function buildEkartCreateShipmentPayload(input: {
     ? ekartConfig.reverseServiceCode
     : resolveEkartServiceCode(input.serviceCode || input.courierId);
 
-  const usedLocationCode =
+  const usedLocationCodeRaw =
     String(input.pickup.ekartLocationCode ?? "").trim() || ekartConfig.defaultLocationCode;
+  const usedLocationCode = isUsableEkartLocationCode(usedLocationCodeRaw)
+    ? normalizeEkartLocationCode(usedLocationCodeRaw)
+    : "";
   if (!usedLocationCode && !isReverse) {
     console.warn(
       "[ekart] create without location_code — Durin accepts address-only but Elite typically lists only registered pickup locations. Set Pickup.ekartLocationCode or EKART_DEFAULT_LOCATION_CODE."

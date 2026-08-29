@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Link2, Unlink } from "lucide-react";
+import { ExternalLink, Link2, Unlink, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,15 @@ import { cn } from "@/lib/utils";
 
 /** Elite seller panel — pickup locations are registered here (not via Durin API). */
 export const EKART_ELITE_URL = "https://app.elite.ekartlogistics.in/";
+
+/** Pincode / pure digits are never a Durin location_code. */
+function looksLikeBadLocationCode(raw: string): boolean {
+  const c = raw.trim();
+  if (!c) return false;
+  if (/^\d{6}$/.test(c) || /^\d+$/.test(c)) return true;
+  if (!/[A-Za-z]/.test(c)) return true;
+  return false;
+}
 
 type Props = {
   pickup: Pick<
@@ -30,14 +39,17 @@ function formatSyncTime(iso?: string): string {
 }
 
 export function EkartPickupSyncCard({ pickup, onUpdated, showProviderBrand = true }: Props) {
-  const synced = Boolean(pickup.ekartLocationCode?.trim());
-  const failed = pickup.ekartSyncStatus === "FAILED";
+  const linkedCode = pickup.ekartLocationCode?.trim() ?? "";
+  const badLinked = Boolean(linkedCode && looksLikeBadLocationCode(linkedCode));
+  const synced = Boolean(linkedCode) && !badLinked;
+  const failed = pickup.ekartSyncStatus === "FAILED" || badLinked;
   const brand = showProviderBrand ? "Ekart" : "Ekart Elite";
-  const [code, setCode] = useState(pickup.ekartLocationCode ?? "");
+  const [code, setCode] = useState(badLinked ? "" : linkedCode);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setCode(pickup.ekartLocationCode ?? "");
+    const next = pickup.ekartLocationCode?.trim() ?? "";
+    setCode(next && looksLikeBadLocationCode(next) ? "" : next);
   }, [pickup.ekartLocationCode]);
 
   const badgeClass = synced
@@ -52,8 +64,8 @@ export function EkartPickupSyncCard({ pickup, onUpdated, showProviderBrand = tru
       : "Elite synced"
     : failed
       ? showProviderBrand
-        ? "Ekart sync failed"
-        : "Elite sync failed"
+        ? "Ekart sync invalid"
+        : "Elite sync invalid"
       : showProviderBrand
         ? "Ekart not synced"
         : "Elite not synced";
@@ -62,6 +74,12 @@ export function EkartPickupSyncCard({ pickup, onUpdated, showProviderBrand = tru
     const trimmed = code.trim();
     if (!trimmed) {
       toast.error("Paste the Elite location code first");
+      return;
+    }
+    if (looksLikeBadLocationCode(trimmed)) {
+      toast.error(
+        "Pincode is not a Durin location_code. Ask Ekart BD for the real code (e.g. TEC_SUR_01), or leave blank and book with address only."
+      );
       return;
     }
     setBusy(true);
@@ -121,33 +139,38 @@ export function EkartPickupSyncCard({ pickup, onUpdated, showProviderBrand = tru
         </Button>
       </div>
 
-      <p className="text-[11px] text-text-muted leading-snug">
-        {synced ? (
-          <>
-            Last sync: {formatSyncTime(pickup.ekartLastSyncAt)}
-            <span className="ml-2 font-mono text-text-secondary">{pickup.ekartLocationCode}</span>
-          </>
-        ) : (
-          <>
-            Add/confirm this warehouse in Elite (Settings → Addresses). Elite often does{" "}
-            <strong>not</strong> show <code>location_code</code> on screen — ask your Ekart BD
-            (Shivkumar) for the Durin location code for merchant TEC, or use{" "}
-            <strong>Download Registered Addresses</strong> and look for Location Code / ID.
-            Paste that code here. ShipAmaze cannot create Elite warehouses via API (unlike
-            Lorrigo/Velocity).
-          </>
-        )}
-      </p>
+      {badLinked ? (
+        <p className="text-[11px] text-danger leading-snug flex gap-1.5 items-start">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>
+            <code className="font-mono">{linkedCode}</code> is a <strong>pincode</strong>, not a
+            Durin location_code. Click Unlink, then book with address only — or paste the real
+            code from Ekart BD (not visible as pincode in Elite Addresses).
+          </span>
+        </p>
+      ) : synced ? (
+        <p className="text-[11px] text-text-muted leading-snug">
+          Last sync: {formatSyncTime(pickup.ekartLastSyncAt)}
+          <span className="ml-2 font-mono text-text-secondary">{pickup.ekartLocationCode}</span>
+        </p>
+      ) : (
+        <p className="text-[11px] text-text-muted leading-snug">
+          Do <strong>not</strong> paste the pincode (e.g. 395003). Elite Addresses screen does{" "}
+          <strong>not</strong> show Durin <code>location_code</code> — ask Ekart BD (Shivkumar)
+          for merchant TEC. Leave blank to book with full address (create/track works; Elite
+          list may stay empty until you get the real code).
+        </p>
+      )}
 
       {!synced ? (
         <div className="space-y-1.5">
-          <Label className="text-[11px]">Elite location code</Label>
+          <Label className="text-[11px]">Elite location code (not pincode)</Label>
           <div className="flex gap-2">
             <Input
               className="h-8 text-xs font-mono"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="e.g. TEC_SUR_01"
+              placeholder="e.g. TEC_SUR_01 — not 395003"
               disabled={busy}
             />
             <Button
@@ -162,6 +185,19 @@ export function EkartPickupSyncCard({ pickup, onUpdated, showProviderBrand = tru
               Sync to {showProviderBrand ? "Ekart" : "Elite"}
             </Button>
           </div>
+          {badLinked ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs text-danger px-0"
+              disabled={busy}
+              onClick={() => void onUnlink()}
+            >
+              <Unlink className="h-3 w-3 mr-1" />
+              Unlink invalid code
+            </Button>
+          ) : null}
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
@@ -189,7 +225,7 @@ export function EkartPickupSyncCard({ pickup, onUpdated, showProviderBrand = tru
         </div>
       )}
 
-      {failed && pickup.ekartSyncError ? (
+      {failed && pickup.ekartSyncError && !badLinked ? (
         <p className="text-[11px] text-danger leading-snug">{pickup.ekartSyncError}</p>
       ) : null}
     </div>

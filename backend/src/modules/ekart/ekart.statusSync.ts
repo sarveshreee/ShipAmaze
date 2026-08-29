@@ -10,9 +10,11 @@ import { appendProviderEvent } from "../courier/providerEvents.js";
 import { ensureCorrelationId } from "../courier/correlation.js";
 import {
   mapEkartStatusToProviderCanonical,
+  mapProviderRawToOrderStatus,
   providerCanonicalToOrderStatus,
   shouldApplyStatusUpdate,
   TERMINAL_ORDER_STATUS_VALUES,
+  type ProviderCanonicalStatus,
 } from "../courier/statusNormalize.js";
 import { isEkartConfigured, isEkartEnabledFlag } from "./ekart.config.js";
 import { recordEkartStatusSyncPoll } from "./ekart.statusSyncMetrics.js";
@@ -41,6 +43,77 @@ function appendStatusHistory(order: IOrder, status: string, note: string) {
   const prev = order.statusHistory ?? [];
   order.statusHistory = [...prev, { status, at: new Date(), note }].slice(-50);
   if (typeof order.markModified === "function") order.markModified("statusHistory");
+}
+
+function ekartRawKey(raw: unknown): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/** Explicit Durin create-stage codes — safe to heal false in_transit. */
+function isExplicitEkartCreateStage(raw: unknown): boolean {
+  const k = ekartRawKey(raw);
+  return (
+    k === "shipment_created" ||
+    k === "request_received" ||
+    k === "shipment_details_received" ||
+    k === "details_received" ||
+    k === "created" ||
+    k === "scheduled" ||
+    k === "accepted" ||
+    k === "updated" ||
+    k === "lpd_generated"
+  );
+}
+
+function activitiesShowPastPickup(
+  activities: Array<{ activity?: string; date?: string }> | undefined
+): boolean {
+  if (!Array.isArray(activities) || activities.length === 0) return false;
+  for (const a of activities) {
+    const text = String(a.activity ?? "");
+    const canonical = mapEkartStatusToProviderCanonical(text);
+    if (
+      canonical === "PICKED_UP" ||
+      canonical === "IN_TRANSIT" ||
+      canonical === "OUT_FOR_DELIVERY" ||
+      canonical === "DELIVERED"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function inferOrderStatusFromActivities(
+  activities: Array<{ activity?: string }> | undefined
+): string | undefined {
+  if (!Array.isArray(activities) || activities.length === 0) return undefined;
+  let best: ProviderCanonicalStatus | undefined;
+  let bestRank = -1;
+  const rank: Record<ProviderCanonicalStatus, number> = {
+    CREATED: 10,
+    PICKED_UP: 30,
+    IN_TRANSIT: 35,
+    OUT_FOR_DELIVERY: 45,
+    FAILED: 50,
+    CANCELLED: 55,
+    RETURNED: 60,
+    LOST: 60,
+    DELIVERED: 70,
+  };
+  for (const a of activities) {
+    const canonical = mapEkartStatusToProviderCanonical(a.activity);
+    const r = rank[canonical] ?? 0;
+    if (r > bestRank && canonical !== "CREATED") {
+      bestRank = r;
+      best = canonical;
+    }
+  }
+  return best ? providerCanonicalToOrderStatus(best) : undefined;
 }
 
 /**
@@ -84,7 +157,7 @@ export async function syncEkartActiveShipmentStatuses(
     shipmentStatus: { $nin: ["reship", "delivered", "cancelled", "returned", "lost"] },
   })
     .select(
-      "_id orderId awb status shipmentStatus trackingActivities statusHistory providerEvents correlationId bookingVersion ekartTrackingId ekartClientReferenceId lastProviderStatusSyncedAt"
+      "_id orderId awb status shipmentStatus trackingActivities statusHistory providerEvents correlationId bookingVersion ekartTrackingId ekartClientReferenceId lastProviderStatusSyncedAt pickupDate"
     )
     .sort({ lastProviderStatusSyncedAt: 1, updatedAt: 1 })
     .limit(batchSize)
@@ -129,7 +202,8 @@ export async function syncEkartActiveShipmentStatuses(
       }
 
       const providerCanonical = mapEkartStatusToProviderCanonical(rawStatus);
-      const nextStatus = providerCanonicalToOrderStatus(providerCanonical);
+      // Prefer classifier path (same as Lorrigo) so public pickup text advances tabs.
+      let nextStatus = mapProviderRawToOrderStatus("ekart", rawStatus);
       const current = normalizeOrderStatus(order.status);
       const rawShipmentStatus = String(rawStatus);
 
@@ -142,13 +216,65 @@ export async function syncEkartActiveShipmentStatuses(
         }));
       }
 
+      const pastPickupInActivities = activitiesShowPastPickup(order.trackingActivities);
+
+      // Courier confirmed pickup (date or activity) but status still booking-like — advance tab.
+      if (
+        (tracked.pickupDate || pastPickupInActivities) &&
+        (nextStatus === "pickup_scheduled" ||
+          nextStatus === "ready_to_ship" ||
+          nextStatus === "draft" ||
+          providerCanonical === "CREATED")
+      ) {
+        if (
+          current === "pickup_scheduled" ||
+          current === "ready_to_ship" ||
+          current === "draft"
+        ) {
+          nextStatus = inferOrderStatusFromActivities(order.trackingActivities) || "in_transit";
+        } else if (providerCanonical === "CREATED") {
+          // Already past pickup — keep current lifecycle (avoid picked_up ↔ in_transit churn
+          // and do not heal back to pending_pickup when activities prove collection).
+          nextStatus = current;
+        }
+      }
+
+      if (tracked.pickupDate) {
+        const pickupMs = Date.parse(tracked.pickupDate);
+        if (!Number.isNaN(pickupMs)) {
+          const pickupD = new Date(pickupMs);
+          if (!order.pickupDate || order.pickupDate.getTime() !== pickupD.getTime()) {
+            order.pickupDate = pickupD;
+          }
+        }
+      }
+
       const sameStatus = current === nextStatus;
+      // Only heal false in_transit for explicit create-stage codes with no pickup evidence.
+      // Empty/partial Durin payloads previously reset real pickups back to Pending Pickup.
       const healFalseInTransit =
         providerCanonical === "CREATED" &&
+        isExplicitEkartCreateStage(rawStatus) &&
+        !tracked.pickupDate &&
+        !pastPickupInActivities &&
         (current === "in_transit" || current === "picked_up");
 
-      if (order.shipmentStatus !== rawShipmentStatus) {
-        order.shipmentStatus = rawShipmentStatus;
+      // When pickup is proven via activities/date but Durin machine status lags at create-stage,
+      // persist the advanced lifecycle on shipmentStatus so tabs/filters move correctly.
+      let shipmentStatusToStore = rawShipmentStatus;
+      if (
+        !healFalseInTransit &&
+        providerCanonical === "CREATED" &&
+        (tracked.pickupDate || pastPickupInActivities) &&
+        nextStatus !== "pickup_scheduled" &&
+        nextStatus !== "draft" &&
+        nextStatus !== "ready_to_ship"
+      ) {
+        shipmentStatusToStore = nextStatus;
+      }
+
+      if (order.shipmentStatus !== shipmentStatusToStore) {
+        order.shipmentStatus = shipmentStatusToStore;
       }
 
       if (!sameStatus && (healFalseInTransit || shouldApplyStatusUpdate(order.status, nextStatus))) {

@@ -12,7 +12,7 @@ import { appendProviderEvent } from "../courier/providerEvents.js";
 import { ensureCorrelationId } from "../courier/correlation.js";
 import {
   mapEkartStatusToProviderCanonical,
-  providerCanonicalToOrderStatus,
+  mapProviderRawToOrderStatus,
   shouldApplyStatusUpdate,
 } from "../courier/statusNormalize.js";
 import { ekartConfig, isEkartEnabledFlag } from "./ekart.config.js";
@@ -137,7 +137,7 @@ export async function applyEkartCriticalUpdate(
   }
 
   const providerCanonical = mapEkartStatusToProviderCanonical(rawStatus);
-  const nextStatus = providerCanonicalToOrderStatus(providerCanonical);
+  const nextStatus = mapProviderRawToOrderStatus("ekart", rawStatus);
   const current = normalizeOrderStatus(order.status);
 
   const activity = {

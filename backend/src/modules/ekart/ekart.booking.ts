@@ -103,6 +103,21 @@ export async function createEkartShipment(
     });
   } catch (err) {
     recordEkartBookingFailure(Date.now() - started);
+    if (err instanceof AppError) {
+      const m = err.message || "";
+      if (/invalid\s+location\s+code/i.test(m)) {
+        throw new AppError(
+          422,
+          "Invalid Durin location_code (a pincode like 395003 is not valid). On Pickup Addresses click Unlink for Ekart, then book again with full address — or paste the real code from Ekart BD (e.g. TEC_SUR_01)."
+        );
+      }
+      if (/shipment\s+already\s+present/i.test(m)) {
+        throw new AppError(
+          409,
+          "Shipment already exists at Ekart for this order. Use Refresh tracking / open the AWB — do not create again."
+        );
+      }
+    }
     throw err;
   }
 
