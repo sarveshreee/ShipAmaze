@@ -126,6 +126,40 @@ describe("Ekart track mapping", () => {
     expect(mapEkartStatusToProviderCanonical(parsed.status)).toBe("IN_TRANSIT");
   });
 
+  it("prefers later undelivered over earlier delivered in history", () => {
+    const history = [
+      {
+        status: "undelivered_attempted",
+        event_date_iso8601: "2018-08-29T10:00:00.000+05:30",
+        public_description: "Undelivered - Customer not available",
+      },
+      {
+        status: "delivered",
+        event_date_iso8601: "2018-08-28T18:00:00.000+05:30",
+        public_description: "Delivered to Customer",
+      },
+      {
+        status: "out_for_delivery",
+        event_date_iso8601: "2018-08-28T07:00:00.000+05:30",
+        public_description: "Out for delivery",
+      },
+    ];
+    expect(pickBestEkartHistoryStatus(history).status).toBe("undelivered_attempted");
+    const parsed = parseEkartTrackResponse(
+      {
+        TECP4: {
+          shipment_id: "TECP4",
+          delivered: true,
+          history,
+        },
+      },
+      "TECP4"
+    );
+    expect(parsed.status).toBe("undelivered_attempted");
+    expect(parsed.deliveredDate).toBeUndefined();
+    expect(mapEkartStatusToProviderCanonical(parsed.status)).toBe("FAILED");
+  });
+
   it("normalizes Durin Critical Updates status codes", () => {
     expect(mapEkartStatusToProviderCanonical("shipped")).toBe("IN_TRANSIT");
     expect(mapEkartStatusToProviderCanonical("mh_received")).toBe("IN_TRANSIT");

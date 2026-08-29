@@ -182,6 +182,26 @@ describe("ekart status sync", () => {
     expect(order.status).toBe("in_transit");
   });
 
+  it("heals false delivered when Durin latest is undelivered_attempted", async () => {
+    const order = makeOrder({ status: "delivered", shipmentStatus: "delivered" });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => ({
+        awb: "TECP0000000001",
+        status: "undelivered_attempted",
+        activities: [
+          { date: "d", activity: "Undelivered - Customer not available", location: "Hub" },
+        ],
+      }))
+    );
+
+    const { syncEkartActiveShipmentStatuses } = await import("./ekart.statusSync.js");
+    const r = await syncEkartActiveShipmentStatuses(10);
+    expect(r.statusChanges).toBe(1);
+    expect(order.status).toBe("ndr");
+    expect(order.shipmentStatus).toBe("undelivered_attempted");
+  });
+
   it("records tracking failure without throwing the batch", async () => {
     const order = makeOrder();
     orders.push(order);

@@ -52,17 +52,23 @@ function isPickupCanonical(c: ProviderCanonicalStatus): boolean {
 }
 
 /**
- * Pick the furthest-along Durin machine status from history.
+ * Pick the current Durin machine status from history.
+ * Prefer the newest event by date (not highest lifecycle rank) so an older
+ * `delivered` scan cannot override a later `undelivered_attempted` / RTO.
+ * When dates are missing, assume Durin newest-first order (first row wins).
  * Exported for unit tests.
  */
 export function pickBestEkartHistoryStatus(historyRows: unknown[]): {
   status: string;
   pickupDate?: string;
 } {
-  let bestStatus = "";
-  let bestRank = -1;
-  let bestDate = -1;
-  let pickupDate: string | undefined;
+  type Ev = {
+    machine: string;
+    canonical: ProviderCanonicalStatus;
+    dateMs: number;
+    dateStr: string;
+  };
+  const events: Ev[] = [];
 
   for (const row of historyRows) {
     const o = asRecord(row);
@@ -70,24 +76,37 @@ export function pickBestEkartHistoryStatus(historyRows: unknown[]): {
     const machine = String(o.status ?? "").trim();
     if (!machine) continue;
     const canonical = mapEkartStatusToProviderCanonical(machine);
-    const rank = PROVIDER_PROGRESS_RANK[canonical] ?? 0;
     const dateMs = historyEventDateMs(o);
     const dateStr = String(
       o.event_date_iso8601 ?? o.event_date ?? o.updated_datetime ?? o.date ?? ""
     );
+    events.push({ machine, canonical, dateMs, dateStr });
+  }
 
-    if (isPickupCanonical(canonical) && dateStr && !pickupDate) {
-      pickupDate = dateStr;
-    }
-    // Prefer higher lifecycle progress; on ties prefer newer event date.
-    if (rank > bestRank || (rank === bestRank && dateMs >= bestDate)) {
-      bestRank = rank;
-      bestDate = dateMs;
-      bestStatus = machine;
+  if (events.length === 0) return { status: "" };
+
+  let pickupDate: string | undefined;
+  let pickupMs = Number.POSITIVE_INFINITY;
+  for (const e of events) {
+    if (!isPickupCanonical(e.canonical) || !e.dateStr) continue;
+    const ms = e.dateMs > 0 ? e.dateMs : Number.POSITIVE_INFINITY;
+    if (ms <= pickupMs) {
+      pickupMs = ms;
+      pickupDate = e.dateStr;
     }
   }
 
-  return { status: bestStatus, pickupDate };
+  const dated = events.filter((e) => e.dateMs > 0);
+  if (dated.length > 0) {
+    dated.sort((a, b) => {
+      if (b.dateMs !== a.dateMs) return b.dateMs - a.dateMs;
+      return (PROVIDER_PROGRESS_RANK[b.canonical] ?? 0) - (PROVIDER_PROGRESS_RANK[a.canonical] ?? 0);
+    });
+    return { status: dated[0]!.machine, pickupDate };
+  }
+
+  // No timestamps — Durin TrackResponseV2 is newest-first.
+  return { status: events[0]!.machine, pickupDate };
 }
 
 /** Exported for unit tests — Durin history → ShipAmaze activities (newest-first). */
@@ -171,14 +190,12 @@ export function parseEkartTrackResponse(
     activityFallback ||
     "shipment_created";
 
-  const delivered =
-    deliveredFlag ||
-    machineStatus.toLowerCase() === "delivered" ||
-    status.toLowerCase().includes("delivered");
+  // Only true Durin delivery — never treat "undelivered*" / attempt text as delivered.
+  const statusCanonical = mapEkartStatusToProviderCanonical(status);
+  const delivered = statusCanonical === "DELIVERED";
 
   let pickupDate = best.pickupDate;
   if (!pickupDate) {
-    const statusCanonical = mapEkartStatusToProviderCanonical(status);
     if (isPickupCanonical(statusCanonical)) {
       pickupDate =
         String(activities.find((a) => /pick/i.test(a.activity))?.date || "") || undefined;

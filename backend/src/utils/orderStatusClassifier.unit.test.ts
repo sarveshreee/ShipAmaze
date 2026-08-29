@@ -128,6 +128,19 @@ describe("normalizeTrackingStatus", () => {
       )
     ).toBe(false);
   });
+
+  it("Ekart undelivered goes to ndr, not delivered", () => {
+    expect(normalizeTrackingStatus("undelivered_attempted", "ekart")).toBe("ndr");
+    expect(normalizeTrackingStatus("Undelivered - Customer not available", "ekart")).toBe("ndr");
+    expect(
+      classifyOrderTab({
+        status: "delivered",
+        shipmentStatus: "undelivered_attempted",
+        awb: "FICC8789452240",
+        courierProvider: "ekart",
+      })
+    ).toBe("ndr");
+  });
 });
 
 describe("classifyOrderTab", () => {

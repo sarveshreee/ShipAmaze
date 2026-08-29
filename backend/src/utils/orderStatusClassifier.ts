@@ -401,7 +401,9 @@ function inferInternalFromHeuristics(key: string): string | undefined {
   ) {
     return "ndr";
   }
-  if (key.includes("deliver") && !key.includes("out")) return "delivered";
+  if (key.includes("deliver") && !key.includes("out") && !key.includes("un") && !key.includes("fail") && !key.includes("attempt") && !key.includes("except") && !key.includes("return")) {
+    return "delivered";
+  }
   if (key.includes("out_for_pickup") || key === "pickup_out_for_pickup") {
     return "pending_pickup";
   }

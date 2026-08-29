@@ -153,8 +153,18 @@ export async function syncEkartActiveShipmentStatuses(
     awb: { $exists: true, $nin: ["", null] },
     shipmentCreated: true,
     isJunk: { $ne: true },
-    status: { $nin: TERMINAL_ORDER_STATUS_VALUES },
-    shipmentStatus: { $nin: ["reship", "delivered", "cancelled", "returned", "lost"] },
+    shipmentStatus: { $nin: ["reship", "cancelled", "lost"] },
+    $or: [
+      {
+        status: { $nin: TERMINAL_ORDER_STATUS_VALUES },
+        shipmentStatus: { $nin: ["delivered", "returned"] },
+      },
+      // Re-verify Delivered — prior max-rank history mapping forced false delivered
+      // over later undelivered_attempted / RTO events.
+      {
+        status: { $in: ["delivered", "Delivered", "DELIVERED"] },
+      },
+    ],
   })
     .select(
       "_id orderId awb status shipmentStatus trackingActivities statusHistory providerEvents correlationId bookingVersion ekartTrackingId ekartClientReferenceId lastProviderStatusSyncedAt pickupDate"
@@ -259,6 +269,20 @@ export async function syncEkartActiveShipmentStatuses(
         !pastPickupInActivities &&
         (current === "in_transit" || current === "picked_up");
 
+      // Allow correcting false Delivered when Durin latest status is NDR / RTO / still moving.
+      const healFalseDelivered =
+        current === "delivered" &&
+        nextStatus !== "delivered" &&
+        (providerCanonical === "FAILED" ||
+          providerCanonical === "RETURNED" ||
+          providerCanonical === "IN_TRANSIT" ||
+          providerCanonical === "OUT_FOR_DELIVERY" ||
+          providerCanonical === "PICKED_UP" ||
+          nextStatus === "ndr" ||
+          nextStatus === "rto" ||
+          nextStatus === "in_transit" ||
+          nextStatus === "out_for_delivery");
+
       // When pickup is proven via activities/date but Durin machine status lags at create-stage,
       // persist the advanced lifecycle on shipmentStatus so tabs/filters move correctly.
       let shipmentStatusToStore = rawShipmentStatus;
@@ -277,7 +301,12 @@ export async function syncEkartActiveShipmentStatuses(
         order.shipmentStatus = shipmentStatusToStore;
       }
 
-      if (!sameStatus && (healFalseInTransit || shouldApplyStatusUpdate(order.status, nextStatus))) {
+      if (
+        !sameStatus &&
+        (healFalseInTransit ||
+          healFalseDelivered ||
+          shouldApplyStatusUpdate(order.status, nextStatus))
+      ) {
         appendStatusHistory(order, nextStatus, "ekart_bg_sync");
         order.status = nextStatus;
         result.statusChanges += 1;
@@ -291,6 +320,7 @@ export async function syncEkartActiveShipmentStatuses(
           metadata: {
             providerCanonical,
             rawStatus: rawShipmentStatus,
+            healFalseDelivered: healFalseDelivered || undefined,
           },
         });
       }

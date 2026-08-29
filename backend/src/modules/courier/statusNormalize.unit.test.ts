@@ -44,4 +44,15 @@ describe("statusNormalize", () => {
     expect(mapEkartStatusToProviderCanonical("shipment_expected")).toBe("IN_TRANSIT");
     expect(providerCanonicalToOrderStatus("IN_TRANSIT")).toBe("in_transit");
   });
+
+  it("does not map undelivered / attempt statuses to DELIVERED", () => {
+    expect(mapEkartStatusToProviderCanonical("undelivered_attempted")).toBe("FAILED");
+    expect(mapEkartStatusToProviderCanonical("undelivered_unattempted")).toBe("FAILED");
+    expect(mapEkartStatusToProviderCanonical("Undelivered - Customer not available")).toBe(
+      "FAILED"
+    );
+    expect(mapEkartStatusToProviderCanonical("delivery_attempt_metadata")).toBe("FAILED");
+    expect(mapEkartStatusToProviderCanonical("return_delivered")).toBe("RETURNED");
+    expect(mapEkartStatusToProviderCanonical("delivered")).toBe("DELIVERED");
+  });
 });

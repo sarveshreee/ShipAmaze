@@ -175,8 +175,29 @@ export function mapEkartStatusToProviderCanonical(raw: unknown): ProviderCanonic
   const k = key(raw);
   if (EKART_RAW_TO_PROVIDER[k]) return EKART_RAW_TO_PROVIDER[k];
   if (k.includes("cancel")) return "CANCELLED";
-  if (k.includes("deliver") && !k.includes("out")) return "DELIVERED";
+  // NDR / failed attempt — must run before the broad "deliver" match
+  // ("undelivered_*" contains "deliver" and was incorrectly mapped to DELIVERED).
+  if (
+    k.includes("undeliver") ||
+    k.includes("delivery_attempt") ||
+    k.includes("delivery_exception") ||
+    (k.includes("attempt") && k.includes("deliver"))
+  ) {
+    return "FAILED";
+  }
   if (k.includes("rto") || (k.includes("return") && !k.includes("pickup"))) return "RETURNED";
+  if (
+    k.includes("deliver") &&
+    !k.includes("out") &&
+    !k.includes("un") &&
+    !k.includes("fail") &&
+    !k.includes("except") &&
+    !k.includes("attempt") &&
+    !k.includes("return") &&
+    !k.includes("metadata")
+  ) {
+    return "DELIVERED";
+  }
   // Pickup confirmed — including public text like "Shipment Picked Up".
   if (
     (k.includes("pickup") &&
