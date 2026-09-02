@@ -602,7 +602,9 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
         );
         await refetch({ includeCounts: true });
       } else if (result.updated > 0) {
-        toast.success(`Updated ${result.updated} shipment status${result.updated !== 1 ? "es" : ""} from Velocity`);
+        toast.success(
+          `Updated ${result.updated} shipment status${result.updated !== 1 ? "es" : ""} from courier tracking`
+        );
         await refetch({ includeCounts: true });
       } else {
         toast.info(`All ${result.processed} shipment statuses are already up to date`);
@@ -680,7 +682,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                     {refreshingStatuses ? "Refreshing…" : "Refresh Tracking"}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Sync latest shipment statuses from Velocity (In Transit, Delivered, etc.)</TooltipContent>
+                <TooltipContent>Sync latest AWB statuses from Velocity, Ekart, and Lorrigo</TooltipContent>
               </Tooltip>
             )}
             {showActions && (

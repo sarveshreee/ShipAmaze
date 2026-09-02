@@ -13,6 +13,7 @@ import {
   mapProviderRawToOrderStatus,
   providerCanonicalToOrderStatus,
   shouldApplyStatusUpdate,
+  statusProgressRank,
   TERMINAL_ORDER_STATUS_VALUES,
   type ProviderCanonicalStatus,
 } from "../courier/statusNormalize.js";
@@ -241,7 +242,8 @@ export async function syncEkartActiveShipmentStatuses(
           current === "ready_to_ship" ||
           current === "draft"
         ) {
-          nextStatus = inferOrderStatusFromActivities(order.trackingActivities) || "in_transit";
+          const inferred = inferOrderStatusFromActivities(order.trackingActivities);
+          nextStatus = (inferred || "in_transit") as typeof nextStatus;
         } else if (providerCanonical === "CREATED") {
           // Already past pickup — keep current lifecycle (avoid picked_up ↔ in_transit churn
           // and do not heal back to pending_pickup when activities prove collection).
@@ -283,9 +285,15 @@ export async function syncEkartActiveShipmentStatuses(
           nextStatus === "in_transit" ||
           nextStatus === "out_for_delivery");
 
-      // When pickup is proven via activities/date but Durin machine status lags at create-stage,
-      // persist the advanced lifecycle on shipmentStatus so tabs/filters move correctly.
+      // Persist normalized lifecycle on shipmentStatus so Mongo tab queries stay accurate.
       let shipmentStatusToStore = rawShipmentStatus;
+      if (
+        !healFalseInTransit &&
+        statusProgressRank(nextStatus) >
+          statusProgressRank(normalizeOrderStatus(String(shipmentStatusToStore)))
+      ) {
+        shipmentStatusToStore = nextStatus;
+      }
       if (
         !healFalseInTransit &&
         providerCanonical === "CREATED" &&
@@ -305,6 +313,8 @@ export async function syncEkartActiveShipmentStatuses(
         !sameStatus &&
         (healFalseInTransit ||
           healFalseDelivered ||
+          nextStatus === "ndr" ||
+          nextStatus === "rto" ||
           shouldApplyStatusUpdate(order.status, nextStatus))
       ) {
         appendStatusHistory(order, nextStatus, "ekart_bg_sync");

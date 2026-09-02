@@ -1279,8 +1279,90 @@ export const syncShipmentStatuses = asyncHandler(async (req: AuthRequest, res: R
   if (req.user.role !== "admin") throw new AppError(403, "Forbidden");
 
   const batchSize = Math.min(200, Math.max(1, Number((req.body as Record<string, unknown>).batchSize ?? 100)));
-  const syncResult = await getCourierProvider("velocity").syncStatus({ batchSize });
-  res.json({ success: true, ...syncResult });
+  const perProvider = Math.max(1, Math.ceil(batchSize / 3));
+
+  const mergeSync = (
+    label: string,
+    r: {
+      processed?: number;
+      scanned?: number;
+      updated?: number;
+      errors?: number;
+      skipped?: number;
+      statusChanges?: number;
+      errorDetails?: string[];
+    }
+  ) => ({
+    provider: label,
+    processed: r.processed ?? r.scanned ?? 0,
+    updated: r.updated ?? 0,
+    errors: r.errors ?? 0,
+    skipped: r.skipped ?? 0,
+    statusChanges: r.statusChanges ?? 0,
+    errorDetails: r.errorDetails ?? [],
+  });
+
+  const [velocity, ekart, lorrigo] = await Promise.all([
+    getCourierProvider("velocity")
+      .syncStatus({ batchSize: perProvider })
+      .then((r) => mergeSync("velocity", r))
+      .catch((e) => ({
+        provider: "velocity",
+        processed: 0,
+        updated: 0,
+        errors: 1,
+        skipped: 0,
+        statusChanges: 0,
+        errorDetails: [e instanceof Error ? e.message : String(e)],
+      })),
+    getCourierProvider("ekart")
+      .syncStatus({ batchSize: perProvider })
+      .then((r) => mergeSync("ekart", r))
+      .catch((e) => ({
+        provider: "ekart",
+        processed: 0,
+        updated: 0,
+        errors: 1,
+        skipped: 0,
+        statusChanges: 0,
+        errorDetails: [e instanceof Error ? e.message : String(e)],
+      })),
+    getCourierProvider("lorrigo")
+      .syncStatus({ batchSize: perProvider })
+      .then((r) => mergeSync("lorrigo", r))
+      .catch((e) => ({
+        provider: "lorrigo",
+        processed: 0,
+        updated: 0,
+        errors: 1,
+        skipped: 0,
+        statusChanges: 0,
+        errorDetails: [e instanceof Error ? e.message : String(e)],
+      })),
+  ]);
+
+  const processed = velocity.processed + ekart.processed + lorrigo.processed;
+  const updated = velocity.updated + ekart.updated + lorrigo.updated;
+  const errors = velocity.errors + ekart.errors + lorrigo.errors;
+  const skipped = velocity.skipped + ekart.skipped + lorrigo.skipped;
+  const statusChanges =
+    velocity.statusChanges + ekart.statusChanges + lorrigo.statusChanges;
+  const errorDetails = [
+    ...velocity.errorDetails,
+    ...ekart.errorDetails,
+    ...lorrigo.errorDetails,
+  ].slice(0, 20);
+
+  res.json({
+    success: true,
+    processed,
+    updated,
+    errors,
+    skipped,
+    statusChanges,
+    errorDetails,
+    providers: { velocity, ekart, lorrigo },
+  });
 });
 
 export const syncNdrOrders = asyncHandler(async (req: AuthRequest, res: Response) => {

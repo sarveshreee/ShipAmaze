@@ -945,7 +945,7 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
   }
 
   const pay = paymentModeOf(order);
-  const createInput: ProviderCreateShipmentInput = {
+  let createInput: ProviderCreateShipmentInput = {
     orderId: order.orderId,
     pickupId: input.pickupAddressId,
     paymentMode: pay,
@@ -1001,10 +1001,45 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
     },
   };
 
-  let result: ProviderShipmentResult;
+  let result: ProviderShipmentResult | undefined;
   try {
     result = await provider.createShipment(createInput);
   } catch (err) {
+    let retriedAfterInvalidLocation = false;
+    if (
+      err instanceof AppError &&
+      /invalid\s+location\s+code/i.test(String(err.message ?? "")) &&
+      String(createInput.providerPayload?.ekartLocationCode ?? "").trim()
+    ) {
+      try {
+        await Pickup.findByIdAndUpdate(input.pickupAddressId, {
+          $unset: { ekartLocationCode: 1 },
+          $set: {
+            ekartSyncStatus: "FAILED",
+            ekartSyncError:
+              "Cleared invalid Durin location_code — retried booking with full pickup address.",
+            ekartLastSyncAt: new Date(),
+          },
+        }).catch(() => undefined);
+        pickupLean.ekartLocationCode = undefined;
+        const payload = { ...(createInput.providerPayload ?? {}) };
+        const pickupAddr = {
+          ...((payload.pickupAddress as Record<string, unknown> | undefined) ?? {}),
+        };
+        delete pickupAddr.ekartLocationCode;
+        payload.ekartLocationCode = undefined;
+        payload.pickupAddress = pickupAddr;
+        createInput = { ...createInput, providerPayload: payload };
+        result = await provider.createShipment(createInput);
+        retriedAfterInvalidLocation = true;
+      } catch (retryErr) {
+        err = retryErr;
+      }
+    }
+
+    if (retriedAfterInvalidLocation) {
+      // fall through to applyEkartShipmentToOrder below
+    } else {
     const maybeAcked =
       err instanceof AppError &&
       (err.statusCode === 504 || isTransientNetworkMessage(err.message));
@@ -1071,6 +1106,11 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
       await releaseBookingClaim(order.orderId);
       throw err;
     }
+    }
+  }
+
+  if (!result) {
+    throw new AppError(500, "Ekart booking failed without a provider response");
   }
 
   applyEkartShipmentToOrder(order, result, input, pickupLean, {

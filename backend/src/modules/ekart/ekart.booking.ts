@@ -108,7 +108,7 @@ export async function createEkartShipment(
       if (/invalid\s+location\s+code/i.test(m)) {
         throw new AppError(
           422,
-          "Invalid Durin location_code (a pincode like 395003 is not valid). On Pickup Addresses click Unlink for Ekart, then book again with full address — or paste the real code from Ekart BD (e.g. TEC_SUR_01)."
+          "Invalid Durin location_code on this pickup. ShipAmaze clears bad codes and retries with the full address automatically — click Unlink on Pickup Addresses if this persists."
         );
       }
       if (/shipment\s+already\s+present/i.test(m)) {

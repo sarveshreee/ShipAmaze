@@ -1,4 +1,5 @@
 import type { Order } from "@/types/logistics";
+import { effectiveInternalStatus } from "./orderStatusClassifier";
 
 export type OrderDateType = "choose" | "placed" | "pickup" | "delivered";
 
@@ -83,6 +84,44 @@ export function orderTimestampForTab(
       label: "Delivered",
       date: latestStatusTime(order, ["delivered"]) ?? null,
     };
+  }
+
+  // Show the real lifecycle label when status/shipmentStatus advanced past the viewing tab.
+  const effective = effectiveInternalStatus(
+    order.status,
+    order.shipmentStatus,
+    order.courierProvider
+  );
+  if (effective === "ndr") {
+    return {
+      label: "NDR",
+      date:
+        latestStatusTime(order, [
+          "ndr",
+          "undelivered_attempted",
+          "undelivered_unattempted",
+          "delivery_failed",
+          "need_attention",
+        ]) ?? createdAt,
+    };
+  }
+  if (effective === "rto") {
+    return {
+      label: "RTO",
+      date: latestStatusTime(order, ["rto", "rto_initiated", "returned"]) ?? createdAt,
+    };
+  }
+  if (effective === "delivered") {
+    return { label: "Delivered", date: latestStatusTime(order, ["delivered"]) ?? createdAt };
+  }
+  if (effective === "out_for_delivery") {
+    return {
+      label: "Out For Delivery",
+      date: latestStatusTime(order, ["out_for_delivery", "out-for-delivery"]) ?? createdAt,
+    };
+  }
+  if (effective === "in_transit" || effective === "picked_up") {
+    return { label: "In Transit", date: orderPickedUpAt(order) ?? createdAt };
   }
 
   const tab = normalizeStatusKey(activeTab);

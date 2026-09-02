@@ -208,8 +208,6 @@ export function ProcessSelectedModal({
   const lorrigoPickupReady = Boolean(selectedPickup?.lorrigoPickupId?.trim());
   /** Velocity booking requires a linked Velocity warehouse on the selected pickup. */
   const velocityPickupReady = Boolean(selectedPickup?.velocityWarehouseId?.trim());
-  /** Ekart booking requires Elite location_code linked on this pickup. */
-  const ekartPickupReady = Boolean(selectedPickup?.ekartLocationCode?.trim());
 
   const destPincode = useMemo(() => {
     for (const o of referenceOrders) {
@@ -326,7 +324,7 @@ export function ProcessSelectedModal({
           price,
         };
       });
-  }, [serviceableCouriers, fixedCourierFromFilter, lorrigoPickupReady, velocityPickupReady, ekartPickupReady]);
+  }, [serviceableCouriers, fixedCourierFromFilter, lorrigoPickupReady, velocityPickupReady]);
 
   const courierSections = useMemo(
     () => groupCouriersByProvider(displayCouriers),
@@ -364,15 +362,6 @@ export function ProcessSelectedModal({
           : "Velocity couriers are hidden until this pickup address is synced. Open Pickup Addresses and click Sync warehouse."
       );
     }
-    if (
-      pickupAddr &&
-      !ekartPickupReady &&
-      serviceableCouriers.some((c) => (c.provider || "") === "ekart")
-    ) {
-      msgs.push(
-        "Ekart: pickup has no Durin location_code linked. Booking still works; Elite Shipments may not list AWBs until Ekart BD assigns a location_code and you Sync it."
-      );
-    }
     return msgs;
   }, [
     open,
@@ -382,7 +371,6 @@ export function ProcessSelectedModal({
     hasPickupPin,
     lorrigoPickupReady,
     velocityPickupReady,
-    ekartPickupReady,
     serviceableCouriers,
     role,
   ]);
@@ -470,11 +458,6 @@ export function ProcessSelectedModal({
       if (selectedCarrierProvider === "lorrigo" && !lorrigoPickupReady) {
         toast.error("Sync this pickup address to Lorrigo before booking a Lorrigo courier.");
         return;
-      }
-      if (selectedCarrierProvider === "ekart" && !ekartPickupReady) {
-        toast.warning(
-          "No Durin location_code on this pickup — shipment will create/track, but may not appear in Elite until Ekart assigns a code."
-        );
       }
     }
 

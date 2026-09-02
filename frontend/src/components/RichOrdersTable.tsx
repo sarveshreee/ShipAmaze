@@ -3074,11 +3074,7 @@ export function RichOrdersTable({
                     return;
                   }
                 } else if (provider === "ekart") {
-                  if (!selectedPickup?.ekartLocationCode?.trim()) {
-                    toast.warning(
-                      "No Durin location_code linked — create/track will work; Elite list may stay empty until Ekart BD assigns a code."
-                    );
-                  }
+                  // Ekart books with full pickup address — no Durin location_code required.
                 } else if (!selectedPickup?.velocityWarehouseId?.trim()) {
                   toast.error(
                     showProviderBrand

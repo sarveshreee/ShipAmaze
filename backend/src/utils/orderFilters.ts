@@ -185,6 +185,14 @@ export function buildTabQuery(tab: string): Record<string, unknown> | undefined 
     return {
       isJunk: { $ne: true },
       $and: [
+        // Never show NDR/RTO/delivery pipeline stages under Pending Pickup.
+        neitherStatusNorShipmentStatusIn([
+          ...NDR_MATCH_VALUES,
+          ...RTO_MATCH_VALUES,
+          ...IN_TRANSIT_MATCH_VALUES,
+          ...OUT_FOR_DELIVERY_MATCH_VALUES,
+          ...DELIVERED_MATCH_VALUES,
+        ]),
         {
           $or: [
             statusOrShipmentStatusIn(PENDING_PICKUP_MATCH_VALUES),

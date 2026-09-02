@@ -162,6 +162,12 @@ export const NDR_INTERNAL_KEYS = [
   "needs_attention",
   "reattempt_delivery",
   "undelivered",
+  "undelivered_attempted",
+  "undelivered_unattempted",
+  "delivery_failed",
+  "failed_delivery",
+  "not_picked_up",
+  "rejected",
 ] as const;
 
 /** Return journey — RTO tab. */
@@ -617,21 +623,29 @@ export function classifyOrderTab(order: OrderClassificationInput): OrderTabCateg
   const shipmentKey = normalizeTrackingStatus(order.shipmentStatus, order.courierProvider);
   const shipmentCategory = internalKeyToTabCategory(shipmentKey);
 
-  // Still waiting for courier collection — keep on Pending Pickup even if status lagged.
-  if (isAwaitingCourierPickupRaw(order.shipmentStatus)) {
-    return "pending_pickup";
-  }
-
-  // NDR / RTO on shipment always win (delivery exception / return journey).
-  if (shipmentCategory === "ndr" || shipmentCategory === "rto") {
-    return shipmentCategory;
-  }
-
   const effective = effectiveInternalStatus(
     order.status,
     order.shipmentStatus,
     order.courierProvider
   );
+  const effectiveCategory = internalKeyToTabCategory(effective);
+
+  // NDR / RTO always win over pending pickup (even when status lagged at pending_pickup).
+  if (
+    shipmentCategory === "ndr" ||
+    shipmentCategory === "rto" ||
+    effectiveCategory === "ndr" ||
+    effectiveCategory === "rto"
+  ) {
+    return shipmentCategory === "ndr" || shipmentCategory === "rto"
+      ? shipmentCategory
+      : effectiveCategory;
+  }
+
+  // Still waiting for courier collection — keep on Pending Pickup even if status lagged.
+  if (isAwaitingCourierPickupRaw(order.shipmentStatus)) {
+    return "pending_pickup";
+  }
   const hasAwb = Boolean(String(order.awb ?? "").trim());
   const category = internalKeyToTabCategory(effective);
 
