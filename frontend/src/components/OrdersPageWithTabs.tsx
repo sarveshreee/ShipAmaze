@@ -38,11 +38,14 @@ import {
 } from "@/lib/orderServiceabilityFilter";
 import { useVendorWarehouses } from "@/hooks/useVendorWarehouses";
 import { OrderListAdvancedFilters } from "@/components/OrderListAdvancedFilters";
-import { Badge } from "@/components/ui/badge";
+import { OrderFieldSearch } from "@/components/OrderFieldSearch";
 import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import { printShippingLabel } from "@/components/ShippingLabel";
 import * as userService from "@/services/userService";
 import * as vendorService from "@/services/vendorService";
+import { buildOrderFilterTags, hasActiveListFilters } from "@/lib/orderListFilterUtils";
+import { refetchOrdersAndDashboard } from "@/lib/refetchEvents";
+import { useQuery } from "@tanstack/react-query";
 
 const tabs: { label: string; filter: string }[] = [
   { label: "All", filter: "all" },
@@ -115,6 +118,7 @@ interface Props {
 }
 
 export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = true }: Props) {
+  const { role, userId } = useAuth();
   const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -183,6 +187,41 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     counts: true,
   });
 
+  const facetQueryParams = useMemo(
+    () => ({
+      view: listView,
+      tab: listView === "junk" ? undefined : activeTab,
+      q: debouncedSearch || undefined,
+      ...advancedFilters,
+      payment: effectivePayment,
+      fulfillment: activeTab === "channel" ? channelFulfillment : undefined,
+    }),
+    [
+      listView,
+      activeTab,
+      debouncedSearch,
+      advancedFilters,
+      effectivePayment,
+      channelFulfillment,
+    ]
+  );
+
+  const { data: filterFacets, isFetching: facetsLoading } = useQuery({
+    queryKey: ["orderFilterFacets", userId, JSON.stringify(facetQueryParams)],
+    queryFn: ({ signal }) => orderService.getOrderFilterFacets(facetQueryParams, { signal }),
+    staleTime: 30_000,
+  });
+
+  const patchListFilters = useCallback((patch: Partial<OrderListFilterValues>) => {
+    setAdvancedFilters((prev) => {
+      const next = { ...prev, ...patch };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined || v === "") delete next[k as keyof OrderListFilterValues];
+      }
+      return next;
+    });
+  }, []);
+
   // Refresh list when order status is updated from /order-detail (new tab) or sibling windows.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -212,7 +251,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
   const { data: pickupAddresses = [] } = usePickupAddresses();
   const { data: platformPickups = [] } = usePickupAddresses({ scope: "platform" });
   const { warehouses: vendorWarehouses } = useVendorWarehouses();
-  const { role } = useAuth();
   const [dropshipperOptions, setDropshipperOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [vendorOptions, setVendorOptions] = useState<Array<{ id: string; label: string }>>([]);
 
@@ -356,128 +394,47 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
     setPage(1);
   }, []);
 
-  const filterTags = useMemo(() => {
-    const tags: Array<{ id: string; label: string; onRemove: () => void }> = [];
-    const af = advancedFilters;
-    const add = (id: keyof OrderListFilterValues, label: string) => {
-      const v = af[id];
-      if (v == null || String(v).trim() === "") return;
-      tags.push({
-        id: String(id),
-        label,
-        onRemove: () => setAdvancedFilters((p) => ({ ...p, [id]: undefined })),
-      });
-    };
-    add("status", `Status: ${af.status}`);
-    if (activeTab !== "channel") add("payment", `Payment: ${af.payment}`);
-    add("courier", `Courier: ${af.courier}`);
-    if (af.source?.trim()) {
-      tags.push({
-        id: "source",
-        label: `Source: ${af.source}`,
-        onRemove: () => setAdvancedFilters((p) => ({ ...p, source: undefined })),
-      });
-    }
-    add("dateFrom", `From: ${af.dateFrom}`);
-    add("dateTo", `To: ${af.dateTo}`);
-    if (af.dateType?.trim() && af.dateType !== "choose") {
-      const label =
-        af.dateType === "pickup"
-          ? "Pickup"
-          : af.dateType === "delivered"
-            ? "Delivered"
-            : af.dateType === "placed"
-              ? "Placed"
-              : af.dateType;
-      tags.push({
-        id: "dateType",
-        label: `Date type: ${label}`,
-        onRemove: () => setAdvancedFilters((p) => ({ ...p, dateType: undefined })),
-      });
-    }
-    add("customerCity", `Customer city: ${af.customerCity}`);
-    add("customerState", `Customer state: ${af.customerState}`);
-    add("pickupCity", `Pickup city: ${af.pickupCity}`);
-    add("pickupState", `Pickup state: ${af.pickupState}`);
-    add("productName", `Product: ${af.productName}`);
-    add("productSku", `SKU: ${af.productSku}`);
-    add("amountMin", `Min ₹: ${af.amountMin}`);
-    add("amountMax", `Max ₹: ${af.amountMax}`);
-    if (af.hasAwb === "yes" || af.hasAwb === "no") {
-      tags.push({
-        id: "hasAwb",
-        label: `AWB: ${af.hasAwb === "yes" ? "Yes" : "No"}`,
-        onRemove: () => setAdvancedFilters((p) => ({ ...p, hasAwb: undefined })),
-      });
-    }
-    if (af.shipmentCreated === "yes" || af.shipmentCreated === "no") {
-      tags.push({
-        id: "shipmentCreated",
-        label: `Shipment: ${af.shipmentCreated === "yes" ? "Created" : "Not created"}`,
-        onRemove: () => setAdvancedFilters((p) => ({ ...p, shipmentCreated: undefined })),
-      });
-    }
-    if (af.dropshipperId?.trim()) {
-      const label = dropshipperOptions.find((d) => d.id === af.dropshipperId)?.label ?? af.dropshipperId;
-      tags.push({
-        id: "dropshipperId",
-        label: `Dropshipper: ${label}`,
-        onRemove: () => setAdvancedFilters((p) => ({ ...p, dropshipperId: undefined })),
-      });
-    }
-    if (af.vendorId?.trim()) {
-      const label = vendorOptions.find((v) => v.id === af.vendorId)?.label ?? af.vendorId;
-      tags.push({
-        id: "vendorId",
-        label: `Vendor: ${label}`,
-        onRemove: () => setAdvancedFilters((p) => ({ ...p, vendorId: undefined })),
-      });
-    }
-    if (activeTab === "channel" && channelPayment?.trim()) {
-      tags.push({
-        id: "__chPay",
-        label: `Payment: ${channelPayment}`,
-        onRemove: () => setChannelPayment(undefined),
-      });
-    }
-    if (activeTab === "channel" && channelFulfillment?.trim()) {
-      tags.push({
-        id: "__chFul",
-        label: `Fulfillment: ${channelFulfillment}`,
-        onRemove: () => setChannelFulfillment(undefined),
-      });
-    }
-    if (serviceabilityFilterActive) {
-      const pickupLabel =
-        pickupFilterOptions.find((p) => p.id === serviceabilityPickupId)?.label ?? "pickup";
-      const courierLabel = couriers.find((c) => c.id === serviceabilityCourierId)?.name ?? "courier";
-      tags.push({
-        id: "__svcCourier",
-        label: `Serviceable: ${courierLabel} · ${pickupLabel}`,
-        onRemove: () => setServiceabilityCourierId(""),
-      });
-    }
-    return tags;
-  }, [
-    advancedFilters,
-    activeTab,
-    channelPayment,
-    channelFulfillment,
-    dropshipperOptions,
-    vendorOptions,
-    serviceabilityFilterActive,
-    serviceabilityPickupId,
-    serviceabilityCourierId,
-    pickupFilterOptions,
-    couriers,
-  ]);
+  const filterTags = useMemo(
+    () =>
+      buildOrderFilterTags(advancedFilters, {
+        onPatch: patchListFilters,
+        searchQ: debouncedSearch,
+        onRemoveSearch: () => setSearch(""),
+        activeTab,
+        channelPayment,
+        channelFulfillment,
+        dropshipperLabel: (id) => dropshipperOptions.find((d) => d.id === id)?.label ?? id,
+        vendorLabel: (id) => vendorOptions.find((v) => v.id === id)?.label ?? id,
+        serviceabilityLabel: serviceabilityFilterActive
+          ? `Serviceable: ${couriers.find((c) => c.id === serviceabilityCourierId)?.name ?? "courier"} · ${
+              pickupFilterOptions.find((p) => p.id === serviceabilityPickupId)?.label ?? "pickup"
+            }`
+          : undefined,
+        onRemoveServiceability: serviceabilityFilterActive
+          ? () => setServiceabilityCourierId("")
+          : undefined,
+        onRemoveChannelPayment: () => setChannelPayment(undefined),
+        onRemoveChannelFulfillment: () => setChannelFulfillment(undefined),
+      }),
+    [
+      advancedFilters,
+      patchListFilters,
+      debouncedSearch,
+      activeTab,
+      channelPayment,
+      channelFulfillment,
+      dropshipperOptions,
+      vendorOptions,
+      serviceabilityFilterActive,
+      serviceabilityCourierId,
+      serviceabilityPickupId,
+      couriers,
+      pickupFilterOptions,
+    ]
+  );
 
   const hasListFilters =
-    Boolean(debouncedSearch) ||
-    filterTags.length > 0 ||
-    Boolean(advancedFilters.dateFrom) ||
-    Boolean(advancedFilters.dateTo) ||
-    serviceabilityFilterActive;
+    hasActiveListFilters(advancedFilters, { q: debouncedSearch }) || serviceabilityFilterActive;
 
   const filterByTab = (o: Order, tab: string) => orderMatchesTab(o, tab);
 
@@ -813,6 +770,17 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
             </div>
           </div>
 
+          <OrderFieldSearch
+            searchField={advancedFilters.searchField}
+            searchValue={advancedFilters.searchValue}
+            onChange={(field, value) =>
+              patchListFilters({
+                searchField: field,
+                searchValue: value.trim() ? value : undefined,
+              })
+            }
+          />
+
           <div className="flex flex-wrap gap-2 items-end pb-1">
             {activeTab !== "channel" && (
               <Select
@@ -1083,23 +1051,6 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
             </div>
           )}
 
-          {filterTags.length > 0 && (
-            <div className="flex flex-wrap gap-2 items-center pt-1 border-t border-border/40">
-              {filterTags.map((t) => (
-                <Badge key={t.id} variant="secondary" className="pl-2 pr-1 py-1 gap-1 font-normal text-xs max-w-full bg-primary/10 text-primary border-primary/20">
-                  <span className="truncate">{t.label}</span>
-                  <button
-                    type="button"
-                    className="rounded p-0.5 hover:bg-primary/15 shrink-0"
-                    aria-label={`Remove ${t.label}`}
-                    onClick={t.onRemove}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
-              ))}
-            </div>
-          )}
           </div>
 
           <div
@@ -1315,6 +1266,11 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       ) : (
         <RichOrdersTable
           orders={filtered}
+          listFilters={advancedFilters}
+          onListFiltersChange={patchListFilters}
+          activeFilterTags={filterTags}
+          filterFacets={filterFacets}
+          facetsLoading={facetsLoading}
           selected={selected}
           onToggleSelect={toggleSelect}
           onSelectAll={(ids) => setSelected(new Set(ids))}
@@ -1357,6 +1313,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
           warehouses={linkedWarehouseOptions}
           onOrdersChanged={async () => {
             await refetch({ includeCounts: true });
+            refetchOrdersAndDashboard();
           }}
           onViewOrder={openOrder}
           onCreateShipment={

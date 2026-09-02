@@ -336,46 +336,10 @@ export function useOrdersQuery(opts: UseOrdersQueryOptions): OrdersQueryState {
     fulfillment,
     counts = true,
     enabled = true,
-    status,
-    courier,
-    source,
-    dateFrom,
-    dateTo,
-    dateType,
-    customerCity,
-    customerState,
-    pickupCity,
-    pickupState,
-    productSku,
-    productName,
-    amountMin,
-    amountMax,
-    hasAwb,
-    shipmentCreated,
-    dropshipperId,
-    vendorId,
+    ...filterFields
   } = opts;
 
-  const adv: OrderListFilterValues = {
-    status,
-    courier,
-    source,
-    dateFrom,
-    dateTo,
-    dateType,
-    customerCity,
-    customerState,
-    pickupCity,
-    pickupState,
-    productSku,
-    productName,
-    amountMin,
-    amountMax,
-    hasAwb,
-    shipmentCreated,
-    dropshipperId,
-    vendorId,
-  };
+  const adv: OrderListFilterValues = filterFields;
 
   const advKey = stableAdvKey(adv);
   const listKey = `${view ?? "default"}:${page}:${pageSize}:${q ?? ""}:${tab ?? ""}:${payment ?? ""}:${fulfillment ?? ""}:${advKey}`;
@@ -856,7 +820,9 @@ export function useDashboardSummary<T = Record<string, unknown>>(opts?: { enable
       return apiRequest<T>("/dashboard/summary", { method: "GET", signal });
     },
     enabled: opts?.enabled ?? true,
-    staleTime: 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchOnWindowFocus: true,
   });
 
   return {

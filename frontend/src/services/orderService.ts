@@ -11,10 +11,23 @@ export type OrdersListMeta = {
 };
 
 /** Advanced list filters (query string fields for GET /orders). */
+export type OrderSearchField =
+  | "trackingId"
+  | "orderId"
+  | "invoiceNumber"
+  | "channelOrderNumber"
+  | "productName"
+  | "productSku"
+  | "consigneeName"
+  | "consigneeMobile"
+  | "consigneeEmail";
+
 export type OrderListFilterValues = {
   status?: string;
   payment?: string;
   courier?: string;
+  /** Comma-separated courier names (multi-select column filter). */
+  couriers?: string;
   source?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -22,16 +35,45 @@ export type OrderListFilterValues = {
   dateType?: "choose" | "placed" | "pickup" | "delivered";
   customerCity?: string;
   customerState?: string;
+  customerName?: string;
   pickupCity?: string;
   pickupState?: string;
+  pickupStates?: string;
+  pickupCities?: string;
+  pickupKeys?: string;
+  pickupMissing?: string;
+  pickupValidPincode?: string;
+  pickupVelocityLinked?: string;
+  pickupVelocityUnlinked?: string;
   productSku?: string;
+  /** Comma-separated exact SKU matches (multi-select). */
+  productSkus?: string;
   productName?: string;
+  /** Comma-separated product names (multi-select). */
+  productNames?: string;
+  productNameMode?: "AND" | "OR" | "NOT";
+  /** Comma-separated Shopify store labels. */
+  store?: string;
+  remark?: string;
+  remarkHas?: string;
   amountMin?: string;
   amountMax?: string;
   hasAwb?: string;
   shipmentCreated?: string;
   dropshipperId?: string;
   vendorId?: string;
+  /** Field-targeted search (Image 2 style). */
+  searchField?: OrderSearchField;
+  searchValue?: string;
+};
+
+export type OrderFilterFacetOption = { value: string; count: number };
+
+export type OrderFilterFacets = {
+  stores: OrderFilterFacetOption[];
+  skus: OrderFilterFacetOption[];
+  products: OrderFilterFacetOption[];
+  couriers: OrderFilterFacetOption[];
 };
 
 export type ListOrdersParams = OrderListFilterValues & {
@@ -54,6 +96,13 @@ function setIfTrim(sp: URLSearchParams, key: string, v: string | undefined) {
   if (t) sp.set(key, t);
 }
 
+function setProductNameMode(sp: URLSearchParams, mode: string | undefined) {
+  const m = mode?.trim().toUpperCase();
+  if (m === "AND" || m === "OR" || m === "NOT") {
+    sp.set("productNameMode", m.toLowerCase());
+  }
+}
+
 function buildQueryString(params: ListOrdersParams): string {
   const sp = new URLSearchParams();
   if (params.view) sp.set("view", params.view);
@@ -61,9 +110,12 @@ function buildQueryString(params: ListOrdersParams): string {
   if (params.page != null) sp.set("page", String(params.page));
   if (params.pageSize != null) sp.set("pageSize", String(params.pageSize));
   if (params.q) sp.set("q", params.q);
+  setIfTrim(sp, "searchField", params.searchField);
+  setIfTrim(sp, "searchValue", params.searchValue);
   setIfTrim(sp, "status", params.status);
   setIfTrim(sp, "payment", params.payment);
   setIfTrim(sp, "courier", params.courier);
+  setIfTrim(sp, "couriers", params.couriers);
   setIfTrim(sp, "source", params.source);
   if (params.fulfillment) sp.set("fulfillment", params.fulfillment);
   setIfTrim(sp, "dateFrom", params.dateFrom);
@@ -76,10 +128,24 @@ function buildQueryString(params: ListOrdersParams): string {
   if (params.countsOnly) sp.set("countsOnly", "1");
   setIfTrim(sp, "customerCity", params.customerCity);
   setIfTrim(sp, "customerState", params.customerState);
+  setIfTrim(sp, "customerName", params.customerName);
   setIfTrim(sp, "pickupCity", params.pickupCity);
   setIfTrim(sp, "pickupState", params.pickupState);
+  setIfTrim(sp, "pickupStates", params.pickupStates);
+  setIfTrim(sp, "pickupCities", params.pickupCities);
+  setIfTrim(sp, "pickupKeys", params.pickupKeys);
+  setIfTrim(sp, "pickupMissing", params.pickupMissing);
+  setIfTrim(sp, "pickupValidPincode", params.pickupValidPincode);
+  setIfTrim(sp, "pickupVelocityLinked", params.pickupVelocityLinked);
+  setIfTrim(sp, "pickupVelocityUnlinked", params.pickupVelocityUnlinked);
   setIfTrim(sp, "productSku", params.productSku);
+  setIfTrim(sp, "productSkus", params.productSkus);
   setIfTrim(sp, "productName", params.productName);
+  setIfTrim(sp, "productNames", params.productNames);
+  setProductNameMode(sp, params.productNameMode);
+  setIfTrim(sp, "store", params.store);
+  setIfTrim(sp, "remark", params.remark);
+  setIfTrim(sp, "remarkHas", params.remarkHas);
   setIfTrim(sp, "amountMin", params.amountMin);
   setIfTrim(sp, "amountMax", params.amountMax);
   setIfTrim(sp, "hasAwb", params.hasAwb);
@@ -100,6 +166,15 @@ export async function listOrders(
     return apiClient.get<Order[]>(`/orders${qs}`, { signal: init?.signal });
   }
   return apiClient.get<OrdersListMeta>(`/orders${qs}`, { signal: init?.signal });
+}
+
+/** Facet counts for column filter dropdowns (store, SKU, product, courier). */
+export async function getOrderFilterFacets(
+  params: ListOrdersParams = {},
+  init?: { signal?: AbortSignal }
+): Promise<OrderFilterFacets> {
+  const qs = buildQueryString({ ...params, counts: false });
+  return apiClient.get<OrderFilterFacets>(`/orders/facets${qs}`, { signal: init?.signal });
 }
 
 /** Full order rows for selected IDs (bulk labels/invoices across pages). */

@@ -334,13 +334,232 @@ function parseNum(v: unknown): number | undefined {
   return n;
 }
 
+function parseCsvList(v: unknown, maxItems = 50, maxLen = 200): string[] {
+  const raw = String(v ?? "").trim();
+  if (!raw) return [];
+  return [
+    ...new Set(
+      raw
+        .split(/[,|\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => (s.length > maxLen ? s.slice(0, maxLen) : s))
+    ),
+  ].slice(0, maxItems);
+}
+
+function parseSearchField(v: unknown): OrderSearchField | undefined {
+  const raw = clip(String(v ?? ""), 40).trim();
+  if (!raw) return undefined;
+  const key = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  const map: Record<string, OrderSearchField> = {
+    trackingid: "trackingId",
+    orderid: "orderId",
+    invoicenumber: "invoiceNumber",
+    channelordernumber: "channelOrderNumber",
+    productname: "productName",
+    productsku: "productSku",
+    consigneename: "consigneeName",
+    consigneemobile: "consigneeMobile",
+    consigneeemail: "consigneeEmail",
+  };
+  return map[key];
+}
+
+/** Multi-value search input (newline or comma separated). */
+export function parseSearchValues(raw: string): string[] {
+  return parseCsvList(raw, 100, 200);
+}
+
+const LINE_ITEM_SKU_PATHS = [
+  "products.sku",
+  "orderItems.sku",
+  "items.sku",
+  "shopifyLineItems.sku",
+] as const;
+
+const LINE_ITEM_NAME_PATHS = [
+  "products.name",
+  "products.title",
+  "orderItems.name",
+  "orderItems.title",
+  "items.name",
+  "items.title",
+  "shopifyLineItems.name",
+  "shopifyLineItems.title",
+] as const;
+
+function exactFieldRegex(values: string[]): RegExp[] {
+  return values.map((v) => new RegExp(`^${escapeRegex(v.trim())}$`, "i"));
+}
+
+function partialFieldRegex(values: string[]): RegExp[] {
+  return values.map((v) => new RegExp(escapeRegex(v.trim()), "i"));
+}
+
+/** Field-targeted search (Image 2 style dropdown + value). */
+export function buildFieldSearchQuery(
+  field: OrderSearchField,
+  rawValue: string
+): Record<string, unknown> | undefined {
+  const values = parseSearchValues(rawValue);
+  if (values.length === 0) return undefined;
+
+  const orClauses: Record<string, unknown>[] = [];
+  const pushPartial = (paths: string[], rxList: RegExp[]) => {
+    for (const path of paths) {
+      for (const rx of rxList) orClauses.push({ [path]: rx });
+    }
+  };
+  const pushExact = (paths: string[], rxList: RegExp[]) => {
+    for (const path of paths) {
+      for (const rx of rxList) orClauses.push({ [path]: rx });
+    }
+  };
+
+  if (field === "trackingId") {
+    for (const v of values) {
+      orClauses.push(...scanLookupClauses(v));
+      pushPartial(["trackingId", "awb", "trackingUrl"], partialFieldRegex([v]));
+    }
+  } else if (field === "orderId") {
+    for (const v of values) {
+      pushPartial(["orderId", "externalOrderName"], partialFieldRegex([v]));
+      if (mongoose.Types.ObjectId.isValid(v) && v.length === 24) {
+        try {
+          orClauses.push({ _id: new mongoose.Types.ObjectId(v) });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } else if (field === "invoiceNumber") {
+    pushPartial(["orderId", "externalOrderName", "shopifyOrderNumericId"], partialFieldRegex(values));
+  } else if (field === "channelOrderNumber") {
+    pushPartial(
+      ["externalOrderName", "shopifyOrderNumericId", "externalOrderId"],
+      partialFieldRegex(values)
+    );
+  } else if (field === "productName") {
+    pushPartial([...LINE_ITEM_NAME_PATHS], partialFieldRegex(values));
+  } else if (field === "productSku") {
+    pushExact([...LINE_ITEM_SKU_PATHS], exactFieldRegex(values));
+  } else if (field === "consigneeName") {
+    pushPartial(["customer", "customerName", "consigneeName"], partialFieldRegex(values));
+  } else if (field === "consigneeMobile") {
+    pushPartial(["phone", "customerPhone"], partialFieldRegex(values));
+  } else if (field === "consigneeEmail") {
+    pushPartial(["customerEmail"], partialFieldRegex(values));
+  }
+
+  if (orClauses.length === 0) return undefined;
+  return { $or: orClauses };
+}
+
+function buildStoreFilterQuery(stores: string[]): Record<string, unknown> {
+  const or: Record<string, unknown>[] = [];
+  for (const store of stores) {
+    const label = store.trim();
+    if (!label) continue;
+    const rx = new RegExp(`^${escapeRegex(label)}$`, "i");
+    const domainStem = label.replace(/\.myshopify\.com$/i, "");
+    const domainRx = new RegExp(escapeRegex(domainStem), "i");
+    or.push({ shopifyStoreName: rx });
+    or.push({ shopifyShopDomain: domainRx });
+  }
+  if (or.length === 0) return {};
+  return { $or: or };
+}
+
+function buildCouriersFilterQuery(names: string[]): Record<string, unknown> {
+  const or: Record<string, unknown>[] = [];
+  for (const name of names) {
+    const rx = new RegExp(`^${escapeRegex(name.trim())}$`, "i");
+    or.push({ courier: rx }, { courierName: rx });
+  }
+  return { $or: or };
+}
+
+function buildProductSkusFilterQuery(skus: string[]): Record<string, unknown> {
+  const rxList = exactFieldRegex(skus);
+  const or: Record<string, unknown>[] = [];
+  for (const path of LINE_ITEM_SKU_PATHS) {
+    for (const rx of rxList) or.push({ [path]: rx });
+  }
+  return { $or: or };
+}
+
+function buildProductNamesFilterQuery(
+  names: string[],
+  mode: "and" | "or" | "not"
+): Record<string, unknown> | undefined {
+  if (names.length === 0) return undefined;
+  const clauses = names.map((name) => {
+    const rx = new RegExp(`^${escapeRegex(name.trim())}$`, "i");
+    return {
+      $or: LINE_ITEM_NAME_PATHS.map((path) => ({ [path]: rx })),
+    };
+  });
+  if (mode === "and") return { $and: clauses };
+  if (mode === "not") {
+    return { $nor: clauses };
+  }
+  return { $or: clauses };
+}
+
+function buildPickupKeysFilterQuery(keys: string[]): Record<string, unknown> {
+  const or: Record<string, unknown>[] = [];
+  for (const key of keys) {
+    const k = key.trim();
+    if (!k || k === "__unassigned__") {
+      or.push(
+        { pickupAddressId: { $exists: false } },
+        { pickupAddressId: null },
+        { pickupAddressId: "" },
+        { pickupAddress: { $exists: false } },
+        { pickupAddress: null },
+        { pickupAddress: "" }
+      );
+      continue;
+    }
+    if (mongoose.Types.ObjectId.isValid(k) && k.length === 24) {
+      try {
+        or.push({ pickupAddressId: new mongoose.Types.ObjectId(k) });
+      } catch {
+        /* ignore */
+      }
+    }
+    const rx = new RegExp(`^${escapeRegex(k)}$`, "i");
+    or.push(
+      { "pickupAddress.label": rx },
+      { "pickupAddress.warehouseName": rx },
+      { "pickupAddress.pickupName": rx }
+    );
+  }
+  return { $or: or };
+}
+
+export type OrderSearchField =
+  | "trackingId"
+  | "orderId"
+  | "invoiceNumber"
+  | "channelOrderNumber"
+  | "productName"
+  | "productSku"
+  | "consigneeName"
+  | "consigneeMobile"
+  | "consigneeEmail";
+
 export type ParsedOrderListQuery = {
   page: number;
   pageSize: number;
   search?: string;
+  searchField?: OrderSearchField;
+  searchValue?: string;
   status?: string;
   payment?: string;
   courier?: string;
+  couriers?: string[];
   source?: string;
   fulfillment?: string;
   dateFrom?: Date;
@@ -350,10 +569,24 @@ export type ParsedOrderListQuery = {
   countsOnly: boolean;
   customerCity?: string;
   customerState?: string;
+  customerName?: string;
   pickupCity?: string;
   pickupState?: string;
+  pickupStates?: string[];
+  pickupCities?: string[];
+  pickupKeys?: string[];
+  pickupMissing?: "yes" | "no";
+  pickupValidPincode?: "yes" | "no";
+  pickupVelocityLinked?: "yes" | "no";
+  pickupVelocityUnlinked?: "yes" | "no";
   productSku?: string;
+  productSkus?: string[];
   productName?: string;
+  productNames?: string[];
+  productNameMode?: "and" | "or" | "not";
+  store?: string[];
+  remark?: string;
+  remarkHas?: "yes" | "no";
   amountMin?: number;
   amountMax?: number;
   hasAwb?: "yes" | "no";
@@ -363,6 +596,14 @@ export type ParsedOrderListQuery = {
   /** Which timestamp dateFrom/dateTo apply to: placed | pickup | delivered */
   dateType?: "placed" | "pickup" | "delivered";
 };
+
+export type OrderListFilterExcludeKey =
+  | "store"
+  | "couriers"
+  | "productSkus"
+  | "productNames"
+  | "searchField"
+  | "remark";
 
 export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderListQuery {
   const page = Math.max(1, parseInt(String(q.page ?? "1"), 10) || 1);
@@ -385,10 +626,29 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
 
   const customerCity = clip(String(q.customerCity ?? ""), 120) || undefined;
   const customerState = clip(String(q.customerState ?? ""), 120) || undefined;
+  const customerName = clip(String(q.customerName ?? ""), 120) || undefined;
   const pickupCity = clip(String(q.pickupCity ?? ""), 120) || undefined;
   const pickupState = clip(String(q.pickupState ?? ""), 120) || undefined;
+  const pickupStates = parseCsvList(q.pickupStates);
+  const pickupCities = parseCsvList(q.pickupCities);
+  const pickupKeys = parseCsvList(q.pickupKeys);
+  const pickupMissing = parseYesNo(q.pickupMissing);
+  const pickupValidPincode = parseYesNo(q.pickupValidPincode);
+  const pickupVelocityLinked = parseYesNo(q.pickupVelocityLinked);
+  const pickupVelocityUnlinked = parseYesNo(q.pickupVelocityUnlinked);
   const productSku = clip(String(q.productSku ?? ""), 120) || undefined;
+  const productSkus = parseCsvList(q.productSkus ?? q.productSkuList);
   const productName = clip(String(q.productName ?? ""), 200) || undefined;
+  const productNames = parseCsvList(q.productNames ?? q.productNameList);
+  const productNameModeRaw = clip(String(q.productNameMode ?? "or"), 8).toLowerCase();
+  const productNameMode =
+    productNameModeRaw === "and" || productNameModeRaw === "not" ? productNameModeRaw : "or";
+  const store = parseCsvList(q.store);
+  const couriers = parseCsvList(q.couriers ?? q.courierList);
+  const remark = clip(String(q.remark ?? ""), 200) || undefined;
+  const remarkHas = parseYesNo(q.remarkHas);
+  const searchField = parseSearchField(q.searchField);
+  const searchValue = clip(String(q.searchValue ?? ""), 2000) || undefined;
 
   let amountMin = parseNum(q.amountMin);
   let amountMax = parseNum(q.amountMax);
@@ -416,9 +676,12 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
     page,
     pageSize,
     search,
+    searchField,
+    searchValue,
     status,
     payment,
     courier,
+    couriers: couriers.length > 0 ? couriers : undefined,
     source,
     fulfillment,
     dateFrom,
@@ -429,10 +692,24 @@ export function parseOrderListQuery(q: Record<string, unknown>): ParsedOrderList
     countsOnly,
     customerCity,
     customerState,
+    customerName,
     pickupCity,
     pickupState,
+    pickupStates: pickupStates.length > 0 ? pickupStates : undefined,
+    pickupCities: pickupCities.length > 0 ? pickupCities : undefined,
+    pickupKeys: pickupKeys.length > 0 ? pickupKeys : undefined,
+    pickupMissing,
+    pickupValidPincode,
+    pickupVelocityLinked,
+    pickupVelocityUnlinked,
     productSku,
+    productSkus: productSkus.length > 0 ? productSkus : undefined,
     productName,
+    productNames: productNames.length > 0 ? productNames : undefined,
+    productNameMode: productNames.length > 0 ? productNameMode : undefined,
+    store: store.length > 0 ? store : undefined,
+    remark,
+    remarkHas,
     amountMin,
     amountMax,
     hasAwb,
@@ -496,17 +773,25 @@ export function buildSearchQuery(search: string): Record<string, unknown> {
  * Async so admin vendor filter can match pickup ownership / createdBy (not only vendorId).
  */
 export async function buildOrderListFiltersQuery(
-  pq: ParsedOrderListQuery
+  pq: ParsedOrderListQuery,
+  exclude: OrderListFilterExcludeKey[] = []
 ): Promise<Record<string, unknown> | undefined> {
+  const skip = new Set(exclude);
   const parts: Record<string, unknown>[] = [];
 
   if (pq.search) parts.push(buildSearchQuery(pq.search));
+  if (!skip.has("searchField") && pq.searchField && pq.searchValue) {
+    const fieldQ = buildFieldSearchQuery(pq.searchField, pq.searchValue);
+    if (fieldQ) parts.push(fieldQ);
+  }
   if (pq.status) {
     const statusQ = buildStatusFilterQuery(pq.status);
     if (statusQ) parts.push(statusQ);
   }
   if (pq.payment) parts.push({ payment: pq.payment });
-  if (pq.courier) {
+  if (!skip.has("couriers") && pq.couriers && pq.couriers.length > 0) {
+    parts.push(buildCouriersFilterQuery(pq.couriers));
+  } else if (pq.courier) {
     const rx = new RegExp(escapeRegex(pq.courier), "i");
     parts.push({ $or: [{ courier: rx }, { courierName: rx }] });
   }
@@ -592,6 +877,10 @@ export async function buildOrderListFiltersQuery(
     const rx = new RegExp(escapeRegex(pq.customerState), "i");
     parts.push({ $or: [{ state: rx }, { shippingState: rx }] });
   }
+  if (pq.customerName) {
+    const rx = new RegExp(escapeRegex(pq.customerName), "i");
+    parts.push({ $or: [{ customer: rx }, { customerName: rx }, { consigneeName: rx }] });
+  }
   if (pq.pickupCity) {
     const rx = new RegExp(escapeRegex(pq.pickupCity), "i");
     parts.push({ "pickupAddress.city": rx });
@@ -600,7 +889,89 @@ export async function buildOrderListFiltersQuery(
     const rx = new RegExp(escapeRegex(pq.pickupState), "i");
     parts.push({ "pickupAddress.state": rx });
   }
-  if (pq.productName) {
+  if (pq.pickupCities && pq.pickupCities.length > 0) {
+    const or = pq.pickupCities.map((city) => ({
+      "pickupAddress.city": new RegExp(`^${escapeRegex(city)}$`, "i"),
+    }));
+    parts.push({ $or: or });
+  }
+  if (pq.pickupStates && pq.pickupStates.length > 0) {
+    const or = pq.pickupStates.map((state) => ({
+      "pickupAddress.state": new RegExp(`^${escapeRegex(state)}$`, "i"),
+    }));
+    parts.push({ $or: or });
+  }
+  if (pq.pickupKeys && pq.pickupKeys.length > 0) {
+    parts.push(buildPickupKeysFilterQuery(pq.pickupKeys));
+  }
+  if (pq.pickupMissing === "yes") {
+    parts.push({
+      $or: [
+        { pickupAddressId: { $exists: false } },
+        { pickupAddressId: null },
+        { pickupAddressId: "" },
+        { pickupAddress: { $exists: false } },
+        { pickupAddress: null },
+        { pickupAddress: "" },
+      ],
+    });
+  } else if (pq.pickupMissing === "no") {
+    parts.push({
+      pickupAddressId: { $exists: true, $nin: [null, ""] },
+    });
+  }
+  if (pq.pickupValidPincode === "yes") {
+    parts.push({ "pickupAddress.pincode": { $regex: /^\d{6}$/ } });
+  } else if (pq.pickupValidPincode === "no") {
+    parts.push({
+      $and: [
+        { "pickupAddress.pincode": { $exists: true, $nin: [null, ""] } },
+        { "pickupAddress.pincode": { $not: { $regex: /^\d{6}$/ } } },
+      ],
+    });
+  }
+  if (pq.pickupVelocityLinked === "yes") {
+    parts.push({
+      $or: [
+        { "pickupAddress.velocityWarehouseId": { $regex: /\S/ } },
+        { velocityWarehouseId: { $regex: /\S/ } },
+      ],
+    });
+  }
+  if (pq.pickupVelocityUnlinked === "yes") {
+    parts.push({
+      $and: [
+        {
+          $or: [
+            { pickupAddressId: { $exists: true, $nin: [null, ""] } },
+            { pickupAddress: { $type: "object" } },
+          ],
+        },
+        {
+          $and: [
+            {
+              $or: [
+                { "pickupAddress.velocityWarehouseId": { $exists: false } },
+                { "pickupAddress.velocityWarehouseId": null },
+                { "pickupAddress.velocityWarehouseId": "" },
+              ],
+            },
+            {
+              $or: [
+                { velocityWarehouseId: { $exists: false } },
+                { velocityWarehouseId: null },
+                { velocityWarehouseId: "" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  }
+  if (!skip.has("productNames") && pq.productNames && pq.productNames.length > 0) {
+    const nameQ = buildProductNamesFilterQuery(pq.productNames, pq.productNameMode ?? "or");
+    if (nameQ) parts.push(nameQ);
+  } else if (pq.productName) {
     const rx = new RegExp(escapeRegex(pq.productName), "i");
     parts.push({
       $or: [
@@ -615,7 +986,9 @@ export async function buildOrderListFiltersQuery(
       ],
     });
   }
-  if (pq.productSku) {
+  if (!skip.has("productSkus") && pq.productSkus && pq.productSkus.length > 0) {
+    parts.push(buildProductSkusFilterQuery(pq.productSkus));
+  } else if (pq.productSku) {
     const rx = new RegExp(escapeRegex(pq.productSku), "i");
     parts.push({
       $or: [
@@ -624,6 +997,19 @@ export async function buildOrderListFiltersQuery(
         { "items.sku": rx },
         { "shopifyLineItems.sku": rx },
       ],
+    });
+  }
+  if (!skip.has("store") && pq.store && pq.store.length > 0) {
+    parts.push(buildStoreFilterQuery(pq.store));
+  }
+  if (!skip.has("remark") && pq.remark) {
+    parts.push({ adminRemark: new RegExp(escapeRegex(pq.remark), "i") });
+  }
+  if (!skip.has("remark") && pq.remarkHas === "yes") {
+    parts.push({ adminRemark: { $regex: /\S/ } });
+  } else if (!skip.has("remark") && pq.remarkHas === "no") {
+    parts.push({
+      $or: [{ adminRemark: { $exists: false } }, { adminRemark: null }, { adminRemark: "" }],
     });
   }
   if (pq.amountMin != null || pq.amountMax != null) {

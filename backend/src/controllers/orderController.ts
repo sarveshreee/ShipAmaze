@@ -552,6 +552,133 @@ async function computeOrderTabCounts(
   return tabCounts;
 }
 
+type FacetRow = { _id: string; count: number };
+
+async function buildFacetBaseQuery(
+  user: NonNullable<AuthRequest["user"]>,
+  queryParams: Record<string, unknown>,
+  exclude: import("../utils/orderFilters.js").OrderListFilterExcludeKey[]
+): Promise<Record<string, unknown>> {
+  const view = String(queryParams.view ?? "").toLowerCase();
+  const pq = parseOrderListQuery(queryParams);
+  const visibility = await buildOrderVisibilityQuery(user);
+  let query: Record<string, unknown> = { ...visibility };
+  if (view === "junk") {
+    query = mergeQueries(query, { isJunk: true });
+  } else if (String(pq.tab ?? "").toLowerCase() !== "all") {
+    query = mergeQueries(query, { isJunk: { $ne: true } });
+  }
+  if (view !== "junk" && pq.tab) {
+    const tq = buildTabQuery(pq.tab);
+    if (tq) query = mergeQueries(query, tq);
+  }
+  const listFilters = await buildOrderListFiltersQuery(pq, exclude);
+  if (listFilters) query = mergeQueries(query, listFilters);
+  return query;
+}
+
+/** Distinct filter option counts for column filter popovers (respects active tab + other filters). */
+export const getOrderFilterFacets = asyncHandler(async (req: AuthRequest, res: Response) => {
+  if (!req.user) throw new AppError(401, "Unauthorized");
+  const qParams = req.query as Record<string, unknown>;
+
+  const [storeQuery, skuQuery, productQuery, courierQuery] = await Promise.all([
+    buildFacetBaseQuery(req.user, qParams, ["store"]),
+    buildFacetBaseQuery(req.user, qParams, ["productSkus"]),
+    buildFacetBaseQuery(req.user, qParams, ["productNames"]),
+    buildFacetBaseQuery(req.user, qParams, ["couriers"]),
+  ]);
+
+  const lineArraysExpr = {
+    $concatArrays: [
+      { $ifNull: ["$products", []] },
+      { $ifNull: ["$orderItems", []] },
+      { $ifNull: ["$items", []] },
+      { $ifNull: ["$shopifyLineItems", []] },
+    ],
+  };
+
+  const [stores, skus, products, couriers] = await Promise.all([
+    Order.aggregate<FacetRow>([
+      {
+        $match: mergeQueries(storeQuery, {
+          $or: [{ shopifyStoreName: { $regex: /\S/ } }, { shopifyShopDomain: { $regex: /\S/ } }],
+        }),
+      },
+      {
+        $project: {
+          storeLabel: {
+            $cond: [
+              { $gt: [{ $strLenCP: { $ifNull: ["$shopifyStoreName", ""] } }, 0] },
+              { $toUpper: "$shopifyStoreName" },
+              { $toUpper: { $arrayElemAt: [{ $split: [{ $ifNull: ["$shopifyShopDomain", ""] }, "."] }, 0] } },
+            ],
+          },
+        },
+      },
+      { $group: { _id: "$storeLabel", count: { $sum: 1 } } },
+      { $match: { _id: { $nin: ["", null] } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 60 },
+    ]).option({ maxTimeMS: 8_000, allowDiskUse: true }),
+    Order.aggregate<FacetRow>([
+      { $match: skuQuery },
+      { $project: { lines: lineArraysExpr } },
+      { $unwind: "$lines" },
+      { $match: { "lines.sku": { $regex: /\S/ } } },
+      { $group: { _id: { $toUpper: "$lines.sku" }, count: { $sum: 1 } } },
+      { $match: { _id: { $nin: ["", null] } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 60 },
+    ]).option({ maxTimeMS: 8_000, allowDiskUse: true }),
+    Order.aggregate<FacetRow>([
+      { $match: productQuery },
+      { $project: { lines: lineArraysExpr } },
+      { $unwind: "$lines" },
+      {
+        $project: {
+          name: {
+            $trim: {
+              input: {
+                $ifNull: ["$lines.name", { $ifNull: ["$lines.title", ""] }],
+              },
+            },
+          },
+        },
+      },
+      { $match: { name: { $regex: /\S/ } } },
+      { $group: { _id: "$name", count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 60 },
+    ]).option({ maxTimeMS: 8_000, allowDiskUse: true }),
+    Order.aggregate<FacetRow>([
+      { $match: courierQuery },
+      {
+        $project: {
+          courierLabel: {
+            $trim: {
+              input: {
+                $ifNull: ["$courierName", { $ifNull: ["$courier", ""] }],
+              },
+            },
+          },
+        },
+      },
+      { $match: { courierLabel: { $regex: /\S/ } } },
+      { $group: { _id: "$courierLabel", count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 60 },
+    ]).option({ maxTimeMS: 8_000, allowDiskUse: true }),
+  ]);
+
+  res.json({
+    stores: stores.map((r) => ({ value: String(r._id), count: r.count })),
+    skus: skus.map((r) => ({ value: String(r._id), count: r.count })),
+    products: products.map((r) => ({ value: String(r._id), count: r.count })),
+    couriers: couriers.map((r) => ({ value: String(r._id), count: r.count })),
+  });
+});
+
 export const listOrders = asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.user) throw new AppError(401, "Unauthorized");
 

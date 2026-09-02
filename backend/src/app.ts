@@ -297,6 +297,7 @@ export function createApp() {
   );
 
   api.get("/orders", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.listOrders);
+  api.get("/orders/facets", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.getOrderFilterFacets);
   api.get("/orders/ids", authMiddleware, requireStaffPermission(STAFF_PERMISSIONS.ORDERS_VIEW), orderController.listOrderIds);
   api.post(
     "/orders/by-ids",

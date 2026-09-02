@@ -2,11 +2,12 @@ import { useMemo } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { KPICard } from "@/components/KPICard";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
-import { Package, CheckCircle2, RotateCcw, AlertTriangle, IndianRupee, Users, Store, Truck } from "lucide-react";
+import { Package, CheckCircle2, RotateCcw, AlertTriangle, IndianRupee, Users, Store, Truck, RefreshCw } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from "recharts";
 import { Link } from "react-router-dom";
 import { useDashboardSummary } from "@/hooks/useApiData";
 import { DashboardEntityRow } from "@/components/DashboardEntityRow";
+import { Button } from "@/components/ui/button";
 
 type DashboardSummary = {
   totalOrders: number;
@@ -75,7 +76,16 @@ export default function AdminDashboard() {
 
   return (
     <div className="animate-fade-in-up">
-      <PageHeader title="Dashboard" breadcrumb={["Admin", "Dashboard"]} />
+      <PageHeader
+        title="Dashboard"
+        breadcrumb={["Admin", "Dashboard"]}
+        actions={
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => reload()} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
 
       {error && (
         <div className="mb-4 rounded-lg border border-danger/30 bg-danger-light/40 px-4 py-3 text-sm text-danger-dark flex items-center justify-between gap-3">

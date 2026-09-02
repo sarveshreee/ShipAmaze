@@ -21,7 +21,11 @@ import { orderTimestampForTab, type OrderDateType } from "@/lib/orderListTimesta
 import { toast } from "sonner";
 import { printBulkInvoices, printBulkLabels, printShippingLabel } from "@/components/ShippingLabel";
 import { shouldUseVelocityCourierPdf } from "@/lib/labelPrintUtils";
+import { refetchOrdersAndDashboard } from "@/lib/refetchEvents";
 import * as orderService from "@/services/orderService";
+import type { OrderFilterFacets, OrderListFilterValues } from "@/services/orderService";
+import { csvToList, listToCsv, type FilterTag } from "@/lib/orderListFilterUtils";
+import { Badge } from "@/components/ui/badge";
 import { updatePickupAddress } from "@/services/pickupService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -760,6 +764,12 @@ interface Props {
   }>;
   /** Shown under the icon when the server returned zero rows (not loading). */
   emptyDescription?: string;
+  /** Server-side list filters (single source of truth with tab counts). */
+  listFilters?: OrderListFilterValues;
+  onListFiltersChange?: (patch: Partial<OrderListFilterValues>) => void;
+  activeFilterTags?: FilterTag[];
+  filterFacets?: OrderFilterFacets;
+  facetsLoading?: boolean;
 }
 
 export function RichOrdersTable({
@@ -797,6 +807,11 @@ export function RichOrdersTable({
   onViewOrder,
   onCreateShipment,
   emptyDescription = "No orders found for these filters.",
+  listFilters = {},
+  onListFiltersChange,
+  activeFilterTags = [],
+  filterFacets,
+  facetsLoading = false,
 }: Props) {
   const navigate = useNavigate();
   const { role } = useAuth();
@@ -819,6 +834,7 @@ export function RichOrdersTable({
   const [orderDetailsFilter, setOrderDetailsFilter] = useState({ open: false, dateFrom: "", dateTo: "", paymentType: "" as "" | "COD" | "Prepaid" });
   const [customerFilter, setCustomerFilter] = useState({ open: false, search: "", city: "" });
   const [storeFilter, setStoreFilter] = useState({ open: false, search: "", selectedStores: new Set<string>() });
+  const [skuFilter, setSkuFilter] = useState({ open: false, search: "", selectedSkus: new Set<string>() });
   const [courierFilter, setCourierFilter] = useState({ open: false, search: "", selectedCouriers: new Set<string>() });
   const [remarkFilter, setRemarkFilter] = useState({ open: false, search: "", hasRemark: false, noRemark: false });
 
@@ -829,6 +845,7 @@ export function RichOrdersTable({
   const orderDetailsRef = useRef<HTMLTableCellElement>(null);
   const customerRef = useRef<HTMLTableCellElement>(null);
   const storeRef = useRef<HTMLTableCellElement>(null);
+  const skuRef = useRef<HTMLTableCellElement>(null);
   const courierRef = useRef<HTMLTableCellElement>(null);
   const remarkRef = useRef<HTMLTableCellElement>(null);
 
@@ -927,6 +944,7 @@ export function RichOrdersTable({
   const allCities = Array.from(new Set(orders.map(o => o.city).filter(Boolean)));
 
   const courierFilterOptions = useMemo(() => {
+    if (filterFacets?.couriers?.length) return filterFacets.couriers.map((c) => ({ name: c.value, count: c.count }));
     const map = new Map<string, number>();
     for (const o of orders) {
       const name = String(o.courierName || o.courier || "").trim();
@@ -936,9 +954,10 @@ export function RichOrdersTable({
     return [...map.entries()]
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }, [orders]);
+  }, [orders, filterFacets?.couriers]);
 
   const storeFilterOptions = useMemo(() => {
+    if (filterFacets?.stores?.length) return filterFacets.stores.map((s) => ({ store: s.value, count: s.count }));
     const map = new Map<string, number>();
     for (const o of orders) {
       if (o.channel !== "Shopify" && o.externalSource !== "shopify") continue;
@@ -949,7 +968,37 @@ export function RichOrdersTable({
     return [...map.entries()]
       .map(([store, count]) => ({ store, count }))
       .sort((a, b) => b.count - a.count || a.store.localeCompare(b.store));
-  }, [orders]);
+  }, [orders, filterFacets?.stores]);
+
+  const skuFilterOptions = useMemo(() => {
+    if (filterFacets?.skus?.length) return filterFacets.skus.map((s) => ({ sku: s.value, count: s.count }));
+    const map = new Map<string, number>();
+    for (const o of orders) {
+      for (const p of o.products ?? []) {
+        const sku = String((p as { sku?: string }).sku ?? "").trim();
+        if (!sku) continue;
+        map.set(sku.toUpperCase(), (map.get(sku.toUpperCase()) ?? 0) + 1);
+      }
+    }
+    return [...map.entries()]
+      .map(([sku, count]) => ({ sku, count }))
+      .sort((a, b) => b.count - a.count || a.sku.localeCompare(b.sku));
+  }, [orders, filterFacets?.skus]);
+
+  const productFilterOptions = useMemo(() => {
+    if (filterFacets?.products?.length) return filterFacets.products.map((p) => p.value);
+    return allProductNames;
+  }, [allProductNames, filterFacets?.products]);
+
+  const applyListFilters = useCallback(
+    (patch: Partial<OrderListFilterValues>) => {
+      onListFiltersChange?.(patch);
+    },
+    [onListFiltersChange]
+  );
+
+  const activeSkuCount = csvToList(listFilters.productSkus ?? listFilters.productSku).length;
+  const displayOrders = orders;
 
   const pickupFilterOptions = useMemo(() => {
     const locationMap = new Map<string, { key: string; label: string; count: number }>();
@@ -997,72 +1046,6 @@ export function RichOrdersTable({
     };
   }, [orders]);
 
-  const filteredOrders = orders.filter(o => {
-    // Product filter
-    if (productFilter.selectedNames.size > 0) {
-      const orderProductNames = (o.products || []).map(p => p.name);
-      if (productFilter.mode === "AND") {
-        if (!Array.from(productFilter.selectedNames).every(n => orderProductNames.includes(n))) return false;
-      } else if (productFilter.mode === "OR") {
-        if (!Array.from(productFilter.selectedNames).some(n => orderProductNames.includes(n))) return false;
-      } else {
-        if (Array.from(productFilter.selectedNames).some(n => orderProductNames.includes(n))) return false;
-      }
-    }
-    // Amount filter
-    if (amountFilter.from && o.amount < Number(amountFilter.from)) return false;
-    if (amountFilter.to && o.amount > Number(amountFilter.to)) return false;
-    // Pickup address filter
-    const pickupMeta = extractPickupMeta(o);
-    if (addressFilter.missingPickup && pickupMeta.hasPickup) return false;
-    if (addressFilter.validPickupPincode && (!pickupMeta.hasPickup || !pickupMeta.validPincode)) return false;
-    if (addressFilter.invalidPickupPincode && (!pickupMeta.hasPickup || pickupMeta.validPincode)) return false;
-    if (addressFilter.velocityLinked && !pickupMeta.velocityLinked) return false;
-    if (addressFilter.velocityUnlinked && pickupMeta.velocityLinked) return false;
-    if (addressFilter.selectedPickupKeys.size > 0 && !addressFilter.selectedPickupKeys.has(pickupMeta.key)) return false;
-    if (addressFilter.selectedStates.size > 0 && !addressFilter.selectedStates.has(pickupMeta.state)) return false;
-    if (addressFilter.selectedCities.size > 0 && !addressFilter.selectedCities.has(pickupMeta.city)) return false;
-    // Order Details filter
-    if (orderDetailsFilter.dateFrom) {
-      const orderDate = orderTimestampForTab(o, activeTab, dateType).date;
-      if (!orderDate) return false;
-      const from = new Date(`${orderDetailsFilter.dateFrom}T00:00:00`);
-      if (orderDate < from) return false;
-    }
-    if (orderDetailsFilter.dateTo) {
-      const orderDate = orderTimestampForTab(o, activeTab, dateType).date;
-      if (!orderDate) return false;
-      const to = new Date(`${orderDetailsFilter.dateTo}T23:59:59.999`);
-      if (orderDate > to) return false;
-    }
-    if (orderDetailsFilter.paymentType) {
-      if (o.payment !== orderDetailsFilter.paymentType) return false;
-    }
-    // Customer filter
-    if (customerFilter.search) {
-      const q = customerFilter.search.toLowerCase();
-      if (!(o.customer || "").toLowerCase().includes(q)) return false;
-    }
-    if (customerFilter.city) {
-      if ((o.city || "").toLowerCase() !== customerFilter.city.toLowerCase()) return false;
-    }
-    if (storeFilter.selectedStores.size > 0) {
-      if (o.channel !== "Shopify" && o.externalSource !== "shopify") return false;
-      if (!storeFilter.selectedStores.has(formatShopifyStoreLabel(o))) return false;
-    }
-    if (courierFilter.selectedCouriers.size > 0) {
-      const courierName = String(o.courierName || o.courier || "").trim();
-      if (!courierFilter.selectedCouriers.has(courierName)) return false;
-    }
-    if (remarkFilter.hasRemark && !(remarks[o.id] ?? o.adminRemark ?? "").trim()) return false;
-    if (remarkFilter.noRemark && Boolean((remarks[o.id] ?? o.adminRemark ?? "").trim())) return false;
-    if (remarkFilter.search.trim()) {
-      const q = remarkFilter.search.trim().toLowerCase();
-      const text = (remarks[o.id] ?? o.adminRemark ?? "").toLowerCase();
-      if (!text.includes(q)) return false;
-    }
-    return true;
-  });
   const hasCourierDetailsColumn =
     activeTab === "pending-pickup" ||
     activeTab === "in-transit" ||
@@ -1082,7 +1065,7 @@ export function RichOrdersTable({
     if (onOrdersChanged) {
       await onOrdersChanged();
     } else {
-      window.dispatchEvent(new Event("shipamaze:refetch:orders"));
+      refetchOrdersAndDashboard();
     }
   }, [onOrdersChanged]);
 
@@ -1225,12 +1208,125 @@ export function RichOrdersTable({
     return n;
   };
 
+  const applyProductFilter = () => {
+    applyListFilters({
+      productNames: productFilter.selectedNames.size ? listToCsv(productFilter.selectedNames) : undefined,
+      productNameMode: productFilter.mode,
+      productName: undefined,
+    });
+    setProductFilter((f) => ({ ...f, open: false }));
+  };
+
+  const applyAmountFilter = () => {
+    applyListFilters({
+      amountMin: amountFilter.from.trim() || undefined,
+      amountMax: amountFilter.to.trim() || undefined,
+    });
+    setAmountFilter((f) => ({ ...f, open: false }));
+  };
+
+  const applyOrderDetailsFilter = () => {
+    applyListFilters({
+      dateFrom: orderDetailsFilter.dateFrom || undefined,
+      dateTo: orderDetailsFilter.dateTo || undefined,
+      payment: orderDetailsFilter.paymentType || undefined,
+    });
+    setOrderDetailsFilter((f) => ({ ...f, open: false }));
+  };
+
+  const applyCustomerFilter = () => {
+    applyListFilters({
+      customerName: customerFilter.search.trim() || undefined,
+      customerCity: customerFilter.city.trim() || undefined,
+    });
+    setCustomerFilter((f) => ({ ...f, open: false }));
+  };
+
+  const applyStoreFilter = () => {
+    applyListFilters({
+      store: storeFilter.selectedStores.size ? listToCsv(storeFilter.selectedStores) : undefined,
+    });
+    setStoreFilter((f) => ({ ...f, open: false }));
+  };
+
+  const applySkuFilter = () => {
+    applyListFilters({
+      productSkus: skuFilter.selectedSkus.size ? listToCsv(skuFilter.selectedSkus) : undefined,
+      productSku: undefined,
+    });
+    setSkuFilter((f) => ({ ...f, open: false }));
+  };
+
+  const applyCourierFilter = () => {
+    applyListFilters({
+      couriers: courierFilter.selectedCouriers.size ? listToCsv(courierFilter.selectedCouriers) : undefined,
+      courier: undefined,
+    });
+    setCourierFilter((f) => ({ ...f, open: false }));
+  };
+
+  const applyRemarkFilter = () => {
+    applyListFilters({
+      remark: remarkFilter.search.trim() || undefined,
+      remarkHas: remarkFilter.hasRemark ? "yes" : remarkFilter.noRemark ? "no" : undefined,
+    });
+    setRemarkFilter((f) => ({ ...f, open: false }));
+  };
+
+  const applyAddressFilter = () => {
+    applyListFilters({
+      pickupMissing: addressFilter.missingPickup ? "yes" : undefined,
+      pickupValidPincode: addressFilter.validPickupPincode
+        ? "yes"
+        : addressFilter.invalidPickupPincode
+          ? "no"
+          : undefined,
+      pickupVelocityLinked: addressFilter.velocityLinked ? "yes" : undefined,
+      pickupVelocityUnlinked: addressFilter.velocityUnlinked ? "yes" : undefined,
+      pickupKeys: addressFilter.selectedPickupKeys.size
+        ? listToCsv(addressFilter.selectedPickupKeys)
+        : undefined,
+      pickupStates: addressFilter.selectedStates.size ? listToCsv(addressFilter.selectedStates) : undefined,
+      pickupCities: addressFilter.selectedCities.size ? listToCsv(addressFilter.selectedCities) : undefined,
+    });
+    setAddressFilter((f) => ({ ...f, open: false }));
+  };
+
+  const filterChipRow =
+    activeFilterTags.length > 0 ? (
+      <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
+        {activeFilterTags.map((t) => (
+          <Badge
+            key={t.id}
+            variant="secondary"
+            className="pl-2 pr-1 py-0.5 gap-1 font-normal text-xs max-w-[220px] bg-primary/10 text-primary border-primary/20"
+          >
+            <span className="truncate">{t.label}</span>
+            <button
+              type="button"
+              className="rounded p-0.5 hover:bg-primary/15 shrink-0"
+              aria-label={`Remove ${t.label}`}
+              onClick={t.onRemove}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        ))}
+      </div>
+    ) : null;
+
   const FilterIcon = ({ active }: { active: boolean }) => (
     <SlidersHorizontal className={cn("h-3.5 w-3.5 transition-colors", active ? "text-primary" : "text-text-muted")} />
   );
 
   return (
     <div className="rounded-lg bg-card border border-border">
+      {selected.size === 0 && activeFilterTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/50 bg-surface-2/30 px-4 py-2">
+          <span className="text-xs font-semibold text-text-secondary shrink-0">Active filters</span>
+          {filterChipRow}
+        </div>
+      )}
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 border-b border-primary/20 bg-gradient-to-r from-primary/[0.08] via-card to-secondary/[0.06] px-4 py-2.5">
           <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-text-primary">
@@ -1240,7 +1336,7 @@ export function RichOrdersTable({
             order{selected.size === 1 ? "" : "s"} selected
             {onSelectAllMatching &&
               typeof totalMatching === "number" &&
-              totalMatching > filteredOrders.length &&
+              totalMatching > displayOrders.length &&
               selected.size < Math.min(totalMatching, 1000) && (
                 <button
                   type="button"
@@ -1293,6 +1389,7 @@ export function RichOrdersTable({
                 </Button>
               </div>
             )}
+            {filterChipRow}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {showBulkMoveToReady && onBulkMoveToReady && (
@@ -1491,10 +1588,10 @@ export function RichOrdersTable({
               <th className="p-3 text-left w-10">
                 <input type="checkbox" className="rounded border-border accent-primary"
                   checked={
-                    filteredOrders.length > 0 &&
-                    filteredOrders.every((o) => selected.has(o.id))
+                    displayOrders.length > 0 &&
+                    displayOrders.every((o) => selected.has(o.id))
                   }
-                  onChange={e => e.target.checked ? onSelectAll(filteredOrders.map(o => o.id)) : onClearSelection()} />
+                  onChange={e => e.target.checked ? onSelectAll(displayOrders.map(o => o.id)) : onClearSelection()} />
               </th>
               {/* Order Details header with filter */}
               <th ref={orderDetailsRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[180px] relative">
@@ -1502,7 +1599,7 @@ export function RichOrdersTable({
                   <span>Order Details</span>
                   <button onClick={() => setOrderDetailsFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={!!(orderDetailsFilter.dateFrom || orderDetailsFilter.dateTo || orderDetailsFilter.paymentType)} />
+                    <FilterIcon active={!!(listFilters.dateFrom || listFilters.dateTo || listFilters.payment)} />
                   </button>
                 </div>
                 <FilterPopover open={orderDetailsFilter.open} onClose={() => setOrderDetailsFilter(f => ({ ...f, open: false }))} anchorRef={orderDetailsRef}>
@@ -1526,8 +1623,11 @@ export function RichOrdersTable({
                       </select>
                     </div>
                     <div className="flex justify-between pt-3 border-t border-border">
-                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setOrderDetailsFilter({ open: false, dateFrom: "", dateTo: "", paymentType: "" })}>Clear</Button>
-                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setOrderDetailsFilter(f => ({ ...f, open: false }))}>Apply</Button>
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => {
+                        setOrderDetailsFilter({ open: false, dateFrom: "", dateTo: "", paymentType: "" });
+                        applyListFilters({ dateFrom: undefined, dateTo: undefined, payment: undefined });
+                      }}>Clear</Button>
+                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={applyOrderDetailsFilter}>Apply</Button>
                     </div>
                   </div>
                 </FilterPopover>
@@ -1537,10 +1637,10 @@ export function RichOrdersTable({
                   <div className="flex items-center gap-2">
                     <span>Store Details</span>
                     <button
-                      onClick={() => setStoreFilter((f) => ({ ...f, open: !f.open }))}
+                      onClick={() => setStoreFilter((f) => ({ ...f, open: !f.open, selectedStores: new Set(csvToList(listFilters.store)) }))}
                       className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"
                     >
-                      <FilterIcon active={storeFilter.selectedStores.size > 0} />
+                      <FilterIcon active={csvToList(listFilters.store).length > 0} />
                     </button>
                   </div>
                   <FilterPopover
@@ -1589,14 +1689,17 @@ export function RichOrdersTable({
                           variant="outline"
                           size="sm"
                           className="h-8 text-xs px-4"
-                          onClick={() => setStoreFilter({ open: false, search: "", selectedStores: new Set() })}
+                          onClick={() => {
+                            setStoreFilter({ open: false, search: "", selectedStores: new Set() });
+                            applyListFilters({ store: undefined });
+                          }}
                         >
                           Clear
                         </Button>
                         <Button
                           size="sm"
                           className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark"
-                          onClick={() => setStoreFilter((f) => ({ ...f, open: false }))}
+                          onClick={applyStoreFilter}
                         >
                           Apply
                         </Button>
@@ -1611,7 +1714,7 @@ export function RichOrdersTable({
                   <span>Product Details</span>
                   <button onClick={() => setProductFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={productFilter.selectedNames.size > 0} />
+                    <FilterIcon active={csvToList(listFilters.productNames).length > 0 || !!listFilters.productName?.trim()} />
                   </button>
                 </div>
                 <FilterPopover open={productFilter.open} onClose={() => setProductFilter(f => ({ ...f, open: false }))} anchorRef={productRef}>
@@ -1627,7 +1730,7 @@ export function RichOrdersTable({
                       ))}
                     </div>
                     <div className="max-h-[180px] overflow-auto space-y-1">
-                      {allProductNames.filter(n => n.toLowerCase().includes(productFilter.search.toLowerCase())).map(name => (
+                      {productFilterOptions.filter(n => n.toLowerCase().includes(productFilter.search.toLowerCase())).map(name => (
                         <label key={name} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1">
                           <input type="checkbox" className="rounded accent-primary" checked={productFilter.selectedNames.has(name)}
                             onChange={() => setProductFilter((f) => {
@@ -1641,14 +1744,86 @@ export function RichOrdersTable({
                       ))}
                     </div>
                     <div className="flex justify-between pt-3 border-t border-border">
-                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setProductFilter({ open: false, search: "", mode: "AND", selectedNames: new Set() })}>Clear</Button>
-                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setProductFilter(f => ({ ...f, open: false }))}>Apply</Button>
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => {
+                        setProductFilter({ open: false, search: "", mode: "AND", selectedNames: new Set() });
+                        applyListFilters({ productNames: undefined, productNameMode: undefined, productName: undefined });
+                      }}>Clear</Button>
+                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={applyProductFilter}>Apply</Button>
                     </div>
                   </div>
                 </FilterPopover>
               </th>
-              <th className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[170px]">
-                SKU
+              <th ref={skuRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[170px] relative">
+                <div className="flex items-center gap-2">
+                  <span>SKU</span>
+                  <button
+                    type="button"
+                    onClick={() => setSkuFilter((f) => ({ ...f, open: !f.open, selectedSkus: new Set(csvToList(listFilters.productSkus ?? listFilters.productSku)) }))}
+                    className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"
+                  >
+                    <FilterIcon active={activeSkuCount > 0} />
+                  </button>
+                </div>
+                <FilterPopover open={skuFilter.open} onClose={() => setSkuFilter((f) => ({ ...f, open: false }))} anchorRef={skuRef}>
+                  <div className="space-y-3">
+                    <p className="font-semibold text-text-primary text-sm">Filter by SKU</p>
+                    <Input
+                      placeholder="Search SKU..."
+                      value={skuFilter.search}
+                      onChange={(e) => setSkuFilter((f) => ({ ...f, search: e.target.value }))}
+                      className="h-9 text-xs"
+                    />
+                    {facetsLoading && <p className="text-xs text-text-muted">Loading options…</p>}
+                    <div className="max-h-[180px] overflow-auto space-y-1">
+                      {skuFilterOptions
+                        .filter((row) => row.sku.toLowerCase().includes(skuFilter.search.toLowerCase()))
+                        .map((row) => (
+                          <label
+                            key={row.sku}
+                            className="flex items-center justify-between gap-2 text-xs py-1.5 cursor-pointer hover:bg-surface-2/50 rounded px-1"
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              <input
+                                type="checkbox"
+                                className="rounded accent-primary shrink-0"
+                                checked={skuFilter.selectedSkus.has(row.sku)}
+                                onChange={() =>
+                                  setSkuFilter((f) => {
+                                    const n = new Set(f.selectedSkus);
+                                    if (n.has(row.sku)) n.delete(row.sku);
+                                    else n.add(row.sku);
+                                    return { ...f, selectedSkus: n };
+                                  })
+                                }
+                              />
+                              <span className="truncate font-mono">{row.sku}</span>
+                            </span>
+                            <span className="text-text-muted shrink-0">{row.count}</span>
+                          </label>
+                        ))}
+                    </div>
+                    <div className="flex justify-between pt-3 border-t border-border">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs px-4"
+                        onClick={() => {
+                          setSkuFilter({ open: false, search: "", selectedSkus: new Set() });
+                          applyListFilters({ productSkus: undefined, productSku: undefined });
+                        }}
+                      >
+                        Clear
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark"
+                        onClick={applySkuFilter}
+                      >
+                        Apply
+                      </Button>
+                    </div>
+                  </div>
+                </FilterPopover>
               </th>
               {/* Customer Details header with filter */}
               <th ref={customerRef} className="p-3 text-left font-semibold uppercase tracking-wide text-[11px] text-text-muted min-w-[180px] relative">
@@ -1656,7 +1831,7 @@ export function RichOrdersTable({
                   <span>Customer Details</span>
                   <button onClick={() => setCustomerFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={!!(customerFilter.search || customerFilter.city)} />
+                    <FilterIcon active={!!(listFilters.customerName?.trim() || listFilters.customerCity?.trim())} />
                   </button>
                 </div>
                 <FilterPopover open={customerFilter.open} onClose={() => setCustomerFilter(f => ({ ...f, open: false }))} anchorRef={customerRef}>
@@ -1675,8 +1850,11 @@ export function RichOrdersTable({
                       </select>
                     </div>
                     <div className="flex justify-between pt-3 border-t border-border">
-                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setCustomerFilter({ open: false, search: "", city: "" })}>Clear</Button>
-                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setCustomerFilter(f => ({ ...f, open: false }))}>Apply</Button>
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => {
+                        setCustomerFilter({ open: false, search: "", city: "" });
+                        applyListFilters({ customerName: undefined, customerCity: undefined });
+                      }}>Clear</Button>
+                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={applyCustomerFilter}>Apply</Button>
                     </div>
                   </div>
                 </FilterPopover>
@@ -1688,7 +1866,7 @@ export function RichOrdersTable({
                   <span>Amount Details</span>
                   <button onClick={() => setAmountFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={!!(amountFilter.from || amountFilter.to)} />
+                    <FilterIcon active={!!(listFilters.amountMin?.trim() || listFilters.amountMax?.trim())} />
                   </button>
                 </div>
                 <FilterPopover open={amountFilter.open} onClose={() => setAmountFilter(f => ({ ...f, open: false }))} anchorRef={amountRef}>
@@ -1697,8 +1875,11 @@ export function RichOrdersTable({
                     <Input placeholder="From" type="number" value={amountFilter.from} onChange={e => setAmountFilter(f => ({ ...f, from: e.target.value }))} className="h-9 text-xs" />
                     <Input placeholder="To" type="number" value={amountFilter.to} onChange={e => setAmountFilter(f => ({ ...f, to: e.target.value }))} className="h-9 text-xs" />
                     <div className="flex justify-between pt-3 border-t border-border">
-                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setAmountFilter({ open: false, from: "", to: "" })}>Clear</Button>
-                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setAmountFilter(f => ({ ...f, open: false }))}>Apply</Button>
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => {
+                        setAmountFilter({ open: false, from: "", to: "" });
+                        applyListFilters({ amountMin: undefined, amountMax: undefined });
+                      }}>Clear</Button>
+                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={applyAmountFilter}>Apply</Button>
                     </div>
                   </div>
                 </FilterPopover>
@@ -1709,7 +1890,15 @@ export function RichOrdersTable({
                   <span>Pickup Address</span>
                   <button onClick={() => setAddressFilter(f => ({ ...f, open: !f.open }))}
                     className="p-1.5 rounded-md hover:bg-surface-2 transition-colors">
-                    <FilterIcon active={isAddressFilterActive(addressFilter)} />
+                    <FilterIcon active={
+                      !!listFilters.pickupMissing ||
+                      !!listFilters.pickupValidPincode ||
+                      !!listFilters.pickupVelocityLinked ||
+                      !!listFilters.pickupVelocityUnlinked ||
+                      csvToList(listFilters.pickupKeys).length > 0 ||
+                      csvToList(listFilters.pickupStates).length > 0 ||
+                      csvToList(listFilters.pickupCities).length > 0
+                    } />
                   </button>
                 </div>
                 <FilterPopover open={addressFilter.open} onClose={() => setAddressFilter(f => ({ ...f, open: false }))} anchorRef={addressRef}>
@@ -1934,8 +2123,19 @@ export function RichOrdersTable({
                     })()}
 
                     <div className="flex justify-between pt-3 border-t border-border">
-                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => setAddressFilter(EMPTY_ADDRESS_FILTER)}>Clear</Button>
-                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={() => setAddressFilter(f => ({ ...f, open: false }))}>Apply</Button>
+                      <Button variant="outline" size="sm" className="h-8 text-xs px-4" onClick={() => {
+                        setAddressFilter(EMPTY_ADDRESS_FILTER);
+                        applyListFilters({
+                          pickupMissing: undefined,
+                          pickupValidPincode: undefined,
+                          pickupVelocityLinked: undefined,
+                          pickupVelocityUnlinked: undefined,
+                          pickupKeys: undefined,
+                          pickupStates: undefined,
+                          pickupCities: undefined,
+                        });
+                      }}>Clear</Button>
+                      <Button size="sm" className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark" onClick={applyAddressFilter}>Apply</Button>
                     </div>
                   </div>
                 </FilterPopover>
@@ -1950,7 +2150,7 @@ export function RichOrdersTable({
                         onClick={() => setCourierFilter((f) => ({ ...f, open: !f.open }))}
                         className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"
                       >
-                        <FilterIcon active={courierFilter.selectedCouriers.size > 0} />
+                        <FilterIcon active={csvToList(listFilters.couriers).length > 0 || !!listFilters.courier?.trim()} />
                       </button>
                     )}
                   </div>
@@ -2001,14 +2201,17 @@ export function RichOrdersTable({
                             variant="outline"
                             size="sm"
                             className="h-8 text-xs px-4"
-                            onClick={() => setCourierFilter({ open: false, search: "", selectedCouriers: new Set() })}
+                            onClick={() => {
+                              setCourierFilter({ open: false, search: "", selectedCouriers: new Set() });
+                              applyListFilters({ couriers: undefined, courier: undefined });
+                            }}
                           >
                             Clear
                           </Button>
                           <Button
                             size="sm"
                             className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark"
-                            onClick={() => setCourierFilter((f) => ({ ...f, open: false }))}
+                            onClick={applyCourierFilter}
                           >
                             Apply
                           </Button>
@@ -2026,7 +2229,7 @@ export function RichOrdersTable({
                       onClick={() => setRemarkFilter((f) => ({ ...f, open: !f.open }))}
                       className="p-1.5 rounded-md hover:bg-surface-2 transition-colors"
                     >
-                      <FilterIcon active={remarkFilter.hasRemark || remarkFilter.noRemark || !!remarkFilter.search.trim()} />
+                      <FilterIcon active={!!listFilters.remark?.trim() || listFilters.remarkHas === "yes" || listFilters.remarkHas === "no"} />
                     </button>
                   )}
                 </div>
@@ -2067,14 +2270,17 @@ export function RichOrdersTable({
                           variant="outline"
                           size="sm"
                           className="h-8 text-xs px-4"
-                          onClick={() => setRemarkFilter({ open: false, search: "", hasRemark: false, noRemark: false })}
+                          onClick={() => {
+                            setRemarkFilter({ open: false, search: "", hasRemark: false, noRemark: false });
+                            applyListFilters({ remark: undefined, remarkHas: undefined });
+                          }}
                         >
                           Clear
                         </Button>
                         <Button
                           size="sm"
                           className="h-8 text-xs px-4 bg-primary text-primary-foreground hover:bg-primary-dark"
-                          onClick={() => setRemarkFilter((f) => ({ ...f, open: false }))}
+                          onClick={applyRemarkFilter}
                         >
                           Apply
                         </Button>
@@ -2095,13 +2301,13 @@ export function RichOrdersTable({
                   ))}
                 </tr>
               ))
-            ) : filteredOrders.length === 0 ? (
+            ) : displayOrders.length === 0 ? (
               <tr><td colSpan={columnCount} className="p-12 text-center text-text-muted">
                 <Package className="h-10 w-10 mx-auto mb-2 opacity-40" />
                 <p className="font-medium text-text-primary">{emptyDescription}</p>
                 <p className="text-xs mt-1">Try clearing filters or changing your search.</p>
               </td></tr>
-            ) : filteredOrders.map(o => {
+            ) : displayOrders.map(o => {
               const products = o.products || [];
               const orderEmail = (o as any).email || `${(o.customer || '').toLowerCase().replace(/\s/g, '')}@email.com`;
               const orderTimestamp = orderTimestampForTab(o, activeTab, dateType);
@@ -2519,7 +2725,7 @@ export function RichOrdersTable({
           <div className="flex flex-wrap items-center gap-3">
             <span>
               {(() => {
-                const z = typeof totalCount === "number" ? totalCount : filteredOrders.length;
+                const z = typeof totalCount === "number" ? totalCount : displayOrders.length;
                 if (z === 0) return "Showing 0 of 0 orders";
                 const start = (page - 1) * pageSize + 1;
                 const end = Math.min(page * pageSize, z);

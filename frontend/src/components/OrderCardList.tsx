@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { refetchOrdersAndDashboard } from "@/lib/refetchEvents";
 import type { Order } from "@/types/logistics";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { ExpandableText, ProductNameText, SkuBadge } from "@/components/ProductLineDisplay";
@@ -231,7 +232,7 @@ export function OrderCardList({
         onClose={() => setEditSku(null)}
         order={editSku?.order ?? null}
         lineIndex={editSku?.lineIndex ?? 0}
-        onSaved={() => window.dispatchEvent(new Event("shipamaze:refetch:orders"))}
+        onSaved={() => refetchOrdersAndDashboard()}
       />
     </>
   );
