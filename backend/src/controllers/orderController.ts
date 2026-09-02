@@ -1783,7 +1783,8 @@ export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Respon
   if (!order) throw new AppError(404, "Order not found");
   await assertOrderAccess(req.user, order);
 
-  // Cancel on the order's courier provider (Velocity or Lorrigo). Soft-fail so local reship still proceeds.
+  // Cancel on the order's courier provider (Velocity / Lorrigo / Ekart). For Ekart ghost
+  // bookings (Failed tab, no local AWB), derives the Durin tracking_id and cancels at source.
   const { cancelProviderShipmentForOrder } = await import("../modules/courier/cancelProviderShipment.js");
   const cancelResult = await cancelProviderShipmentForOrder(order, { reason: "customer_request" });
   if (cancelResult.attempted && !cancelResult.success) {
@@ -1926,6 +1927,11 @@ function clearOrderShipmentForRebook(order: InstanceType<typeof Order>): void {
   order.velocityReturnId = undefined;
   order.lorrigoOrderId = undefined;
   order.lorrigoShipmentId = undefined;
+  order.ekartClientReferenceId = undefined;
+  order.ekartTrackingId = undefined;
+  order.ekartRequestId = undefined;
+  order.courierProvider = undefined;
+  order.courierName = undefined;
   order.labelUrl = undefined;
   order.manifestUrl = undefined;
   order.courierCompanyId = undefined;

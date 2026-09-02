@@ -24,6 +24,10 @@ import {
 import { trackEkartShipment } from "./ekart.tracking.js";
 import { cancelEkartShipment as cancelEkartViaDurin } from "./ekart.cancel.js";
 import {
+  isEkartDuplicateCreateMessage,
+  recoverEkartDuplicateShipment,
+} from "./ekart.recover.js";
+import {
   recordEkartBookingAttempt,
   recordEkartBookingFailure,
   recordEkartBookingSuccess,
@@ -111,10 +115,12 @@ export async function createEkartShipment(
           "Invalid Durin location_code on this pickup. ShipAmaze clears bad codes and retries with the full address automatically — click Unlink on Pickup Addresses if this persists."
         );
       }
-      if (/shipment\s+already\s+present/i.test(m)) {
+      if (isEkartDuplicateCreateMessage(m)) {
+        const recovered = await recoverEkartDuplicateShipment(built, input, started);
+        if (recovered) return recovered;
         throw new AppError(
           409,
-          "Shipment already exists at Ekart for this order. Use Refresh tracking / open the AWB — do not create again."
+          "Shipment already exists at Ekart for this order but could not be recovered. Use Cancel → Reship to void the ghost AWB, then process again."
         );
       }
     }
@@ -122,6 +128,10 @@ export async function createEkartShipment(
   }
 
   const parsed = parseEkartCreateResponse(raw);
+  if ((parsed.rejected || !parsed.trackingId) && isEkartDuplicateCreateMessage(parsed.message ?? "")) {
+    const recovered = await recoverEkartDuplicateShipment(built, input, started);
+    if (recovered) return recovered;
+  }
   if (parsed.rejected || !parsed.trackingId) {
     recordEkartBookingFailure(Date.now() - started);
     throw new AppError(

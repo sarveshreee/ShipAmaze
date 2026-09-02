@@ -9,6 +9,11 @@ import { getCourierProvider, resolveCourierProviderId } from "./providerRegistry
 import { providerSupports } from "./capabilities.js";
 import { appendProviderEvent } from "./providerEvents.js";
 import { ensureCorrelationId } from "./correlation.js";
+import {
+  resolveEkartMerchantReferenceForOrder,
+  resolveEkartTrackingIdForOrder,
+  shouldAttemptEkartGhostCancel,
+} from "../ekart/ekart.recover.js";
 
 export type CancelProviderShipmentResult = {
   attempted: boolean;
@@ -37,29 +42,37 @@ export async function cancelProviderShipmentForOrder(
   opts?: { reason?: string }
 ): Promise<CancelProviderShipmentResult> {
   const providerId = resolveCancelProviderId(order);
-  const awb = String(order.awb ?? "").trim();
+  let awb = String(order.awb ?? "").trim();
   const lorrigoOrderId = String(order.lorrigoOrderId ?? "").trim();
   const velocityOrderId = String(order.velocityOrderId ?? "").trim();
 
-  if (providerId === "lorrigo" && !lorrigoOrderId && !awb) {
+  const ekartGhostCancel =
+    providerId === "ekart" || (shouldAttemptEkartGhostCancel(order) && !lorrigoOrderId && !velocityOrderId);
+  if (ekartGhostCancel && !awb) {
+    awb = resolveEkartTrackingIdForOrder(order);
+  }
+
+  if (providerId === "lorrigo" && !lorrigoOrderId && !awb && !ekartGhostCancel) {
     return { attempted: false, success: false, provider: "lorrigo", message: "No Lorrigo shipment to cancel" };
   }
-  if (providerId === "ekart" && !awb) {
-    return { attempted: false, success: false, provider: "ekart", message: "No AWB to cancel" };
+  if (ekartGhostCancel && !awb) {
+    return { attempted: false, success: false, provider: "ekart", message: "No Ekart AWB to cancel" };
   }
-  if (providerId === "velocity" && !awb) {
+  if (providerId === "velocity" && !awb && !ekartGhostCancel) {
     return { attempted: false, success: false, provider: "velocity", message: "No AWB to cancel" };
   }
 
+  const cancelProvider: "velocity" | "lorrigo" | "ekart" = ekartGhostCancel ? "ekart" : providerId;
+
   let provider;
   try {
-    provider = getCourierProvider(providerId);
+    provider = getCourierProvider(cancelProvider);
   } catch {
     return {
       attempted: false,
       success: false,
-      provider: providerId,
-      message: `${providerId} provider is not registered`,
+      provider: cancelProvider,
+      message: `${cancelProvider} provider is not registered`,
     };
   }
 
@@ -67,49 +80,52 @@ export async function cancelProviderShipmentForOrder(
     return {
       attempted: false,
       success: false,
-      provider: providerId,
+      provider: cancelProvider,
       message: `${provider.displayName} cancel is not available`,
     };
   }
 
   const correlationId = ensureCorrelationId(order);
   const reason = String(opts?.reason ?? "customer_request").trim() || "customer_request";
+  const ekartMerchantRef = resolveEkartMerchantReferenceForOrder(order);
 
   appendProviderEvent(order, {
-    provider: providerId,
+    provider: cancelProvider,
     type: "CANCEL_REQUEST",
     status: "PENDING",
     correlationId,
     metadata: {
       awb: awb || undefined,
-      providerOrderId: providerId === "lorrigo" ? lorrigoOrderId || undefined : velocityOrderId || undefined,
+      providerOrderId:
+        cancelProvider === "lorrigo"
+          ? lorrigoOrderId || undefined
+          : cancelProvider === "ekart"
+            ? ekartMerchantRef || undefined
+            : velocityOrderId || undefined,
     },
   });
 
   try {
     const result = await provider.cancelShipment({
       providerOrderId:
-        providerId === "lorrigo"
+        cancelProvider === "lorrigo"
           ? lorrigoOrderId || undefined
-          : providerId === "ekart"
-            ? String(order.ekartClientReferenceId ?? "").trim() || undefined
+          : cancelProvider === "ekart"
+            ? ekartMerchantRef || undefined
             : velocityOrderId || undefined,
       awbs: awb ? [awb] : undefined,
       reason,
-      merchantReferenceId:
-        providerId === "ekart"
-          ? String(order.ekartClientReferenceId ?? "").trim() || undefined
-          : undefined,
+      merchantReferenceId: cancelProvider === "ekart" ? ekartMerchantRef || undefined : undefined,
       serviceLeg:
-        providerId === "ekart" &&
-        String(order.ekartTrackingId ?? order.awb ?? "").toUpperCase().charAt(3) === "R"
+        cancelProvider === "ekart" &&
+        String(order.ekartTrackingId ?? awb ?? "").toUpperCase().charAt(3) === "R"
           ? "REVERSE"
-          : providerId === "ekart"
+          : cancelProvider === "ekart"
             ? "FORWARD"
             : undefined,
     });
     appendProviderEvent(order, {
-      provider: providerId,
+      provider: cancelProvider,
       type: "CANCEL_RESPONSE",
       status: result.success ? "SUCCESS" : "FAILED",
       correlationId,
@@ -118,21 +134,21 @@ export async function cancelProviderShipmentForOrder(
     return {
       attempted: true,
       success: Boolean(result.success),
-      provider: providerId,
+      provider: cancelProvider,
       message: result.message,
     };
   } catch (err) {
     const message = providerPublicMessage(err, "Provider cancel failed");
     appendProviderEvent(order, {
-      provider: providerId,
+      provider: cancelProvider,
       type: "CANCEL_RESPONSE",
       status: "FAILED",
       correlationId,
       message,
     });
     console.warn(
-      `[courier:cancel] ${providerId} cancel failed orderId=${order.orderId} awb=${awb || "-"}: ${message}`
+      `[courier:cancel] ${cancelProvider} cancel failed orderId=${order.orderId} awb=${awb || "-"}: ${message}`
     );
-    return { attempted: true, success: false, provider: providerId, message };
+    return { attempted: true, success: false, provider: cancelProvider, message };
   }
 }
