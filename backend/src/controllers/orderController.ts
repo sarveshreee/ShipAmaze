@@ -1787,6 +1787,21 @@ export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Respon
   // bookings (Failed tab, no local AWB), derives the Durin tracking_id and cancels at source.
   const { cancelProviderShipmentForOrder } = await import("../modules/courier/cancelProviderShipment.js");
   const cancelResult = await cancelProviderShipmentForOrder(order, { reason: "customer_request" });
+
+  // Ekart with a live AWB: never "fake cancel" locally if Durin cancel failed / was skipped.
+  const isEkart =
+    String(order.courierProvider ?? "").toLowerCase() === "ekart" ||
+    Boolean(String(order.ekartTrackingId ?? "").trim());
+  const ekartAwb = String(order.awb || order.ekartTrackingId || "").trim();
+  if (isEkart && ekartAwb && (!cancelResult.attempted || !cancelResult.success)) {
+    await order.save().catch(() => undefined); // persist CANCEL_REQUEST / CANCEL_RESPONSE events
+    throw new AppError(
+      502,
+      cancelResult.message ||
+        "Ekart cancel failed — order was NOT moved to Reship. Fix Ekart cancel (EKART_CANCEL_ENABLED) or cancel in Elite, then retry."
+    );
+  }
+
   if (cancelResult.attempted && !cancelResult.success) {
     devLog.warn(
       `[orders:reship] ${cancelResult.provider} cancel failed for ${order.orderId}: ${cancelResult.message ?? "unknown"}`

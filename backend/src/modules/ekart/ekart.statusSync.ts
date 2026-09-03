@@ -46,6 +46,49 @@ function appendStatusHistory(order: IOrder, status: string, note: string) {
   if (typeof order.markModified === "function") order.markModified("statusHistory");
 }
 
+/** Elite / Durin cancel → clear AWB and move to Reship (same as Velocity / Lorrigo). */
+function moveEkartCancelledToReship(
+  order: IOrder,
+  opts: {
+    rawShipmentStatus: string;
+    providerLatency: number;
+    correlationId: string;
+    note: string;
+  }
+): void {
+  const current = normalizeOrderStatus(order.status);
+  const alreadyReship = String(order.status ?? "").toLowerCase().replace(/-/g, "_") === "reship";
+  order.shipmentCreated = false;
+  order.awb = "";
+  order.trackingId = undefined;
+  order.shipmentId = undefined;
+  order.ekartTrackingId = undefined;
+  order.ekartRequestId = undefined;
+  order.ekartClientReferenceId = undefined;
+  order.courierProvider = undefined;
+  order.courierName = undefined;
+  order.courierCompanyId = undefined;
+  order.labelUrl = undefined;
+  order.trackingUrl = undefined;
+  order.trackingActivities = undefined;
+  order.bookingInProgress = false;
+  if (!alreadyReship) {
+    appendStatusHistory(order, "reship", opts.note);
+    order.status = "reship";
+  }
+  order.shipmentStatus = "reship";
+  order.lastProviderStatusSyncedAt = new Date();
+  appendProviderEvent(order, {
+    provider: "ekart",
+    type: "STATUS_CHANGE",
+    status: "SUCCESS",
+    durationMs: opts.providerLatency,
+    correlationId: opts.correlationId,
+    message: `${current} → reship (Ekart cancelled)`,
+    metadata: { providerCanonical: "CANCELLED", rawStatus: opts.rawShipmentStatus },
+  });
+}
+
 function ekartRawKey(raw: unknown): string {
   return String(raw ?? "")
     .trim()
@@ -154,16 +197,23 @@ export async function syncEkartActiveShipmentStatuses(
     awb: { $exists: true, $nin: ["", null] },
     shipmentCreated: true,
     isJunk: { $ne: true },
-    shipmentStatus: { $nin: ["reship", "cancelled", "lost"] },
+    shipmentStatus: { $nin: ["reship", "lost"] },
     $or: [
       {
-        status: { $nin: TERMINAL_ORDER_STATUS_VALUES },
+        status: { $nin: [...TERMINAL_ORDER_STATUS_VALUES, "reship"] },
         shipmentStatus: { $nin: ["delivered", "returned"] },
       },
       // Re-verify Delivered — prior max-rank history mapping forced false delivered
       // over later undelivered_attempted / RTO events.
       {
         status: { $in: ["delivered", "Delivered", "DELIVERED"] },
+      },
+      // Heal Elite cancels that landed as cancelled without Reship clear.
+      {
+        status: { $in: ["cancelled", "Canceled", "CANCELLED"] },
+      },
+      {
+        shipmentStatus: { $regex: /cancel/i },
       },
     ],
   })
@@ -188,6 +238,24 @@ export async function syncEkartActiveShipmentStatuses(
 
     const correlationId = ensureCorrelationId(order);
     const trackStarted = Date.now();
+
+    // Heal stuck rows where status/shipmentStatus already says cancelled but Reship wasn't applied.
+    if (
+      mapEkartStatusToProviderCanonical(order.shipmentStatus) === "CANCELLED" ||
+      mapEkartStatusToProviderCanonical(order.status) === "CANCELLED"
+    ) {
+      moveEkartCancelledToReship(order, {
+        rawShipmentStatus: String(order.shipmentStatus ?? order.status ?? "cancelled"),
+        providerLatency: 0,
+        correlationId,
+        note: "ekart_cancelled_to_reship",
+      });
+      result.processed += 1;
+      result.statusChanges += 1;
+      await order.save();
+      result.updated += 1;
+      continue;
+    }
 
     try {
       const tracked = await provider.trackShipment({ awb });
@@ -225,6 +293,23 @@ export async function syncEkartActiveShipmentStatuses(
           activity: a.activity,
           location: a.location,
         }));
+      }
+
+      // Elite / Durin cancel → Reship (clear AWB so order can be rebooked).
+      if (providerCanonical === "CANCELLED") {
+        moveEkartCancelledToReship(order, {
+          rawShipmentStatus,
+          providerLatency,
+          correlationId,
+          note: "ekart_cancelled_to_reship",
+        });
+        result.statusChanges += 1;
+        await order.save();
+        result.updated += 1;
+        console.info(
+          `[ekart:status-sync] moved cancelled Ekart order to reship orderId=${order.orderId}`
+        );
+        continue;
       }
 
       const pastPickupInActivities = activitiesShowPastPickup(order.trackingActivities);

@@ -165,6 +165,7 @@ export function extractEkartShipmentBlock(raw: unknown, awb: string): Record<str
 /**
  * Parse Durin track payload into ProviderTrackingResult fields.
  * Status uses machine codes from history (e.g. `delivered`), not public text.
+ * Elite "Seller Cancelled" often sets `rto: true` / `rto_detail` without a cancel history row.
  */
 export function parseEkartTrackResponse(
   raw: unknown,
@@ -183,12 +184,37 @@ export function parseEkartTrackResponse(
   // when history has no machine status — never invent shipment_created when
   // activities already show pickup/transit (that trapped orders on Pending Pickup).
   const activityFallback = activities[0]?.activity ? String(activities[0].activity) : "";
-  const status =
+  let status =
     machineStatus ||
     (deliveredFlag ? "delivered" : "") ||
     blockStatus ||
     activityFallback ||
     "shipment_created";
+
+  // Elite seller cancel / pre-pickup RTO: Durin keeps history at out_for_pickup but sets rto flags.
+  const rtoFlag = block.rto === true;
+  const rtoDetail = asRecord(block.rto_detail);
+  const rtoApproved = rtoDetail?.approved === true;
+  const rtoReason = String(rtoDetail?.reason ?? "").toLowerCase();
+  const historyCanonical = mapEkartStatusToProviderCanonical(machineStatus || status);
+  const stillPrePickup =
+    historyCanonical === "CREATED" ||
+    !machineStatus ||
+    /^(shipment_created|pickup_scheduled|out_for_pickup|pickup_out_for_pickup|pickup_reattempt|lpd_generated)$/i.test(
+      machineStatus
+    );
+  const cancelReason =
+    /cancel/i.test(rtoReason) ||
+    /cancel/i.test(String(asRecord(Array.isArray(block.shipment_notes) ? block.shipment_notes[0] : null)?.note ?? ""));
+  if ((rtoFlag || rtoApproved) && stillPrePickup && (cancelReason || rtoApproved || rtoFlag)) {
+    // Prefer CANCELLED so status sync moves to Reship (seller cancel), not lingering In Transit.
+    status = cancelReason || rtoApproved ? "seller_cancelled" : "rto_created";
+  } else if ((rtoFlag || rtoApproved) && historyCanonical !== "CANCELLED" && historyCanonical !== "RETURNED") {
+    // Post-pickup RTO path — keep return lifecycle.
+    if (!/^(return_|rto_)/i.test(machineStatus)) {
+      status = "rto_created";
+    }
+  }
 
   // Only true Durin delivery — never treat "undelivered*" / attempt text as delivered.
   const statusCanonical = mapEkartStatusToProviderCanonical(status);
@@ -203,7 +229,7 @@ export function parseEkartTrackResponse(
   }
 
   return {
-    awb: String(block.shipment_id ?? block.external_tracking_id ?? awb),
+    awb: String(block.external_tracking_id ?? block.shipment_id ?? awb),
     status,
     rawStatusCode: machineStatus || status,
     courierName: String(block.merchant_name ?? "Ekart"),

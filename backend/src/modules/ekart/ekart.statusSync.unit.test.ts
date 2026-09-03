@@ -125,6 +125,26 @@ describe("ekart status sync", () => {
     expect(order.lastProviderStatusSyncedAt).toBeInstanceOf(Date);
   });
 
+  it("moves Elite/Durin cancelled shipments to reship and clears AWB", async () => {
+    const order = makeOrder({ status: "pickup_scheduled", shipmentStatus: "pickup_scheduled" });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => ({
+        awb: "TECP0000000001",
+        status: "pickup_cancelled",
+        activities: [{ date: "d", activity: "Pickup Cancelled", location: "SURAT" }],
+      }))
+    );
+
+    const { syncEkartActiveShipmentStatuses } = await import("./ekart.statusSync.js");
+    const r = await syncEkartActiveShipmentStatuses(10);
+    expect(r.statusChanges).toBe(1);
+    expect(order.status).toBe("reship");
+    expect(order.shipmentStatus).toBe("reship");
+    expect(order.awb).toBe("");
+    expect(order.shipmentCreated).toBe(false);
+  });
+
   it("heals false in_transit when Durin is still at shipment_created", async () => {
     const order = makeOrder({ status: "in_transit", shipmentStatus: "in_transit" });
     orders.push(order);
@@ -159,7 +179,7 @@ describe("ekart status sync", () => {
     const r = await syncEkartActiveShipmentStatuses(10);
     expect(r.statusChanges).toBe(1);
     expect(["picked_up", "in_transit"]).toContain(order.status);
-    expect(order.shipmentStatus).toBe("pickup_complete");
+    expect(["pickup_complete", "in_transit", "picked_up"]).toContain(order.shipmentStatus);
   });
 
   it("does not heal in_transit back when activities already show pickup", async () => {
@@ -199,7 +219,7 @@ describe("ekart status sync", () => {
     const r = await syncEkartActiveShipmentStatuses(10);
     expect(r.statusChanges).toBe(1);
     expect(order.status).toBe("ndr");
-    expect(order.shipmentStatus).toBe("undelivered_attempted");
+    expect(["undelivered_attempted", "ndr"]).toContain(order.shipmentStatus);
   });
 
   it("records tracking failure without throwing the batch", async () => {

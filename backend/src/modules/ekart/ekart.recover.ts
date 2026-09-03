@@ -27,9 +27,23 @@ export function resolveEkartTrackingIdForOrder(order: {
   awb?: string;
   ekartTrackingId?: string;
   payment?: unknown;
+  providerEvents?: Array<{ provider?: string; type?: string; message?: string; metadata?: Record<string, unknown> }>;
 }): string {
   const direct = String(order.awb ?? order.ekartTrackingId ?? "").trim();
   if (direct) return direct;
+
+  // After fake/local reship, AWB may be cleared — recover from booking event.
+  const events = Array.isArray(order.providerEvents) ? order.providerEvents : [];
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i];
+    if (String(e?.provider ?? "").toLowerCase() !== "ekart") continue;
+    const metaAwb = String(e?.metadata?.providerShipmentId ?? e?.metadata?.awb ?? "").trim();
+    if (metaAwb) return metaAwb;
+    const msg = String(e?.message ?? "");
+    const m = msg.match(/\b(TEC[PCR]\d{10})\b/i);
+    if (m?.[1]) return m[1].toUpperCase();
+  }
+
   const orderId = String(order.orderId ?? "").trim();
   if (!orderId) return "";
   return buildEkartTrackingId({

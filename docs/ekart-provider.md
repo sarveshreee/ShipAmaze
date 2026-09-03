@@ -145,7 +145,7 @@ Background poller (same scheduler pattern as Lorrigo/Velocity):
 | tracking | true |
 | background status sync | true |
 | serviceability | true (`POST /v1/offerings` via shared discovery) |
-| cancel | **runtime** — `EKART_CANCEL_ENABLED` (default false); FORWARD → RTO create; REVERSE → Cancel RVP |
+| cancel | **runtime** — `EKART_CANCEL_ENABLED` (defaults **on** when `EKART_ENABLED=true`; set `false` to disable). FORWARD → RTO create; REVERSE → Cancel RVP |
 | returns | true (REVERSE create on `/v2/shipments/create`) |
 | rates | false |
 | pickupSync | false |
@@ -162,7 +162,12 @@ Background poller (same scheduler pattern as Lorrigo/Velocity):
 | Cancel reverse | `PUT /v3/shipments/cancel_rvp` | `EKART_CANCEL_ENABLED=true` |
 | Create reverse | `POST /v2/shipments/create` with `service_leg: REVERSE` | (booking; not gated by cancel flag) |
 
-When `EKART_CANCEL_ENABLED=false` (default): cancel capability is not exposed and v3 RTO/Cancel RVP are never called. Enable only after Ekart confirms Durin v3 access for your merchant code (docs historically mentioned merchant `MYS`).
+When `EKART_CANCEL_ENABLED=false`: cancel capability is not exposed and v3 RTO/Cancel RVP are never called.
+When unset: defaults to **on** if `EKART_ENABLED=true` (Reship cancel hits Durin).
+
+**Reship hard-fail for Ekart:** if the order has an Ekart AWB and Durin cancel fails, ShipAmaze does **not** clear the AWB / move to Reship (no fake local cancel).
+
+**Elite → ShipAmaze:** status poller (and webhooks if enabled) map Durin cancel statuses → Reship + clear AWB.
 
 ## Phase 3B — Labels
 

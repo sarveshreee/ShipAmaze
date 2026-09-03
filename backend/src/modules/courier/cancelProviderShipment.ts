@@ -34,6 +34,10 @@ function resolveCancelProviderId(order: IOrder): "velocity" | "lorrigo" | "ekart
   if (String(order.ekartTrackingId ?? "").trim() || String(order.ekartRequestId ?? "").trim()) {
     return "ekart";
   }
+  const recovered = resolveEkartTrackingIdForOrder(order);
+  if (/^[A-Z]{3}[PCR]\d{10}$/i.test(recovered)) return "ekart";
+  const events = Array.isArray(order.providerEvents) ? order.providerEvents : [];
+  if (events.some((e) => String(e.provider ?? "").toLowerCase() === "ekart")) return "ekart";
   return resolveCourierProviderId(order.courierProvider);
 }
 

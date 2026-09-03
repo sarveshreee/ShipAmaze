@@ -518,8 +518,8 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
       const res = await orderService.moveOrderToReship(id);
       const pc = res.providerCancel;
       if (pc?.attempted && !pc.success) {
-        toast.warning(
-          `Moved to Reship, but ${pc.provider} cancel failed: ${pc.message || "unknown error"}`
+        toast.error(
+          `${pc.provider} cancel failed: ${pc.message || "unknown error"} — order was NOT moved to Reship`
         );
       } else if (pc?.attempted && pc.success) {
         toast.success("Courier shipment cancelled and order moved to Reship");

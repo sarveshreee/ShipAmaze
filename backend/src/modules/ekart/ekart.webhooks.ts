@@ -148,6 +148,52 @@ export async function applyEkartCriticalUpdate(
   const prevActs = Array.isArray(order.trackingActivities) ? order.trackingActivities : [];
   order.trackingActivities = [activity, ...prevActs].slice(0, 50);
 
+  // Elite cancel / Durin cancel event → Reship (clear AWB for rebook).
+  if (providerCanonical === "CANCELLED") {
+    const alreadyReship = String(order.status ?? "").toLowerCase().replace(/-/g, "_") === "reship";
+    order.shipmentCreated = false;
+    order.awb = "";
+    order.trackingId = undefined;
+    order.shipmentId = undefined;
+    order.ekartTrackingId = undefined;
+    order.ekartRequestId = undefined;
+    order.ekartClientReferenceId = undefined;
+    order.courierProvider = undefined;
+    order.courierName = undefined;
+    order.courierCompanyId = undefined;
+    order.labelUrl = undefined;
+    order.trackingUrl = undefined;
+    order.trackingActivities = undefined;
+    order.bookingInProgress = false;
+    if (!alreadyReship) {
+      appendStatusHistory(order, "reship", "ekart_webhook_cancelled_to_reship");
+      order.status = "reship";
+    }
+    order.shipmentStatus = "reship";
+    order.lastProviderStatusSyncedAt = new Date();
+    appendProviderEvent(order, {
+      provider: "ekart",
+      type: "STATUS_CHANGE",
+      status: "SUCCESS",
+      correlationId,
+      message: `${current} → reship (Ekart cancelled)`,
+      metadata: {
+        source: "webhook",
+        providerCanonical,
+        rawStatus,
+        event: parsed.event,
+      },
+    });
+    await order.save();
+    return {
+      accepted: true,
+      matched: true,
+      statusChanged: !alreadyReship,
+      orderId: order.orderId,
+      message: "Moved to reship after Elite/Durin cancel",
+    };
+  }
+
   if (order.shipmentStatus !== rawStatus) {
     order.shipmentStatus = rawStatus;
   }

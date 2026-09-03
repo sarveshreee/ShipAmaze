@@ -287,8 +287,8 @@ export function OrderDetailDrawer({
         const res = await orderService.moveOrderToReship(order.id);
         const pc = res.providerCancel;
         if (pc?.attempted && !pc.success) {
-          toast.warning(
-            `Moved to Reship, but ${pc.provider} cancel failed: ${pc.message || "unknown error"}`
+          toast.error(
+            `${pc.provider} cancel failed: ${pc.message || "unknown error"} — order was NOT moved to Reship`
           );
         } else {
           toast.success("Shipment cancelled — order moved to Reship");

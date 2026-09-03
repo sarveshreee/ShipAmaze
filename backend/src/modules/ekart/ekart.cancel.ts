@@ -30,10 +30,27 @@ function isRejected(raw: unknown): { rejected: boolean; message?: string } {
     ? first.message.map(String).join("; ")
     : typeof first.message === "string"
       ? first.message
-      : undefined;
+      : typeof root.message === "string"
+        ? root.message
+        : undefined;
   const rejected =
     status === "REQUEST_REJECTED" || (Number.isFinite(statusCode) && statusCode >= 400);
   return { rejected, message };
+}
+
+/** Elite already cancelled / RTO already raised — treat as success so local Reship can proceed. */
+export function isEkartAlreadyCancelledMessage(message: string): boolean {
+  const m = String(message ?? "").toLowerCase();
+  return (
+    m.includes("already in rto") ||
+    m.includes("already rto") ||
+    m.includes("already cancelled") ||
+    m.includes("already canceled") ||
+    m.includes("shipment is cancelled") ||
+    m.includes("shipment is canceled") ||
+    m.includes("rto already") ||
+    m.includes("cancel already")
+  );
 }
 
 /** Flipkart-format tracking id 4th char R ⇒ reverse / RVP. */
@@ -95,7 +112,7 @@ export async function cancelEkartShipment(
       retryable: false,
     });
     const { rejected, message } = isRejected(raw);
-    if (rejected) {
+    if (rejected && !isEkartAlreadyCancelledMessage(message || "")) {
       return {
         success: false,
         message: message || "Ekart Cancel RVP rejected",
@@ -104,7 +121,10 @@ export async function cancelEkartShipment(
     }
     return {
       success: true,
-      message: message || "Ekart RVP cancel accepted",
+      message:
+        message && isEkartAlreadyCancelledMessage(message)
+          ? `Ekart already cancelled (${message})`
+          : message || "Ekart RVP cancel accepted",
       raw: sanitizeForProviderLog(raw),
     };
   }
@@ -119,20 +139,36 @@ export async function cancelEkartShipment(
     request_details: [detail],
   };
 
-  const raw = await ekartPut<unknown>(ekartConfig.rtoCreateEndpoint, body, {
-    retryable: false,
-  });
-  const { rejected, message } = isRejected(raw);
-  if (rejected) {
+  try {
+    const raw = await ekartPut<unknown>(ekartConfig.rtoCreateEndpoint, body, {
+      retryable: false,
+    });
+    const { rejected, message } = isRejected(raw);
+    if (rejected && !isEkartAlreadyCancelledMessage(message || "")) {
+      return {
+        success: false,
+        message: message || "Ekart RTO create rejected",
+        raw: sanitizeForProviderLog(raw),
+      };
+    }
     return {
-      success: false,
-      message: message || "Ekart RTO create rejected",
+      success: true,
+      message:
+        message && isEkartAlreadyCancelledMessage(message)
+          ? `Ekart already cancelled (${message})`
+          : message || "Ekart RTO request accepted",
       raw: sanitizeForProviderLog(raw),
     };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Durin may HTTP-error with "Unable to RTO shipment as it is already in RTO"
+    // after Elite seller cancel — that still means cancelled at source.
+    if (isEkartAlreadyCancelledMessage(msg)) {
+      return {
+        success: true,
+        message: `Ekart already cancelled (${msg})`,
+      };
+    }
+    throw err;
   }
-  return {
-    success: true,
-    message: message || "Ekart RTO request accepted",
-    raw: sanitizeForProviderLog(raw),
-  };
 }

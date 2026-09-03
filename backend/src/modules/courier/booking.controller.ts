@@ -13,7 +13,6 @@ import { AppError } from "../../middleware/errorMiddleware.js";
 import { Order, type IOrder } from "../../models/Order.js";
 import { bookShipmentViaProvider } from "./bookShipment.js";
 import {
-  getCourierProvider,
   listConfiguredCourierProviders,
   listCourierProviders,
   resolveCourierProviderId,
@@ -192,55 +191,56 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
   if (!order) throw new AppError(404, "Order not found");
   assertBookingOrderAccess(req.user, order);
 
-  const providerId = resolveCourierProviderId(order.courierProvider);
-  const provider = getCourierProvider(providerId);
-  if (!providerSupports(provider.capabilities, "cancel")) {
-    throw new AppError(501, `${provider.displayName} cancel is not available`);
-  }
-
-  const providerOrderId =
-    providerId === "lorrigo"
-      ? String(order.lorrigoOrderId ?? "").trim()
-      : String(order.velocityOrderId ?? "").trim();
-
-  const result = await provider.cancelShipment({
-    providerOrderId: providerOrderId || undefined,
-    awbs: order.awb ? [order.awb] : undefined,
+  const { cancelProviderShipmentForOrder } = await import("./cancelProviderShipment.js");
+  const cancelResult = await cancelProviderShipmentForOrder(order, {
     reason: String(body.reason ?? "customer_request"),
   });
 
-  // After successful provider cancel, move local order to Reship (rebookable), like Velocity sync.
-  if (result.success) {
-    order.shipmentCreated = false;
-    order.awb = "";
-    order.trackingId = undefined;
-    order.shipmentId = undefined;
-    if (providerId === "lorrigo") {
-      order.lorrigoOrderId = undefined;
-      order.lorrigoShipmentId = undefined;
-    } else {
-      order.velocityOrderId = undefined;
-      order.velocityShipmentId = undefined;
-    }
-    order.labelUrl = undefined;
-    order.trackingUrl = undefined;
-    order.trackingActivities = undefined;
-    order.bookingInProgress = false;
-    order.status = "reship";
-    order.shipmentStatus = "reship";
-    const prev = order.statusHistory ?? [];
-    order.statusHistory = [
-      ...prev,
-      {
-        status: "reship",
-        at: new Date(),
-        updatedBy: req.user._id,
-        note: `${providerId}_cancel_to_reship`,
-      },
-    ].slice(-50);
-    if (typeof order.markModified === "function") order.markModified("statusHistory");
-    await order.save();
+  if (!cancelResult.attempted) {
+    throw new AppError(501, cancelResult.message || "Cancel is not available for this shipment");
+  }
+  if (!cancelResult.success) {
+    await order.save().catch(() => undefined);
+    throw new AppError(502, cancelResult.message || "Provider cancel failed");
   }
 
-  res.json({ success: result.success, message: result.message, data: result });
+  // After successful provider cancel, move local order to Reship (rebookable).
+  order.shipmentCreated = false;
+  order.awb = "";
+  order.trackingId = undefined;
+  order.shipmentId = undefined;
+  order.lorrigoOrderId = undefined;
+  order.lorrigoShipmentId = undefined;
+  order.velocityOrderId = undefined;
+  order.velocityShipmentId = undefined;
+  order.ekartTrackingId = undefined;
+  order.ekartRequestId = undefined;
+  order.ekartClientReferenceId = undefined;
+  order.courierProvider = undefined;
+  order.courierName = undefined;
+  order.courierCompanyId = undefined;
+  order.labelUrl = undefined;
+  order.trackingUrl = undefined;
+  order.trackingActivities = undefined;
+  order.bookingInProgress = false;
+  order.status = "reship";
+  order.shipmentStatus = "reship";
+  const prev = order.statusHistory ?? [];
+  order.statusHistory = [
+    ...prev,
+    {
+      status: "reship",
+      at: new Date(),
+      updatedBy: req.user._id,
+      note: `${cancelResult.provider}_cancel_to_reship`,
+    },
+  ].slice(-50);
+  if (typeof order.markModified === "function") order.markModified("statusHistory");
+  await order.save();
+
+  res.json({
+    success: true,
+    message: cancelResult.message || "Shipment cancelled",
+    data: cancelResult,
+  });
 });

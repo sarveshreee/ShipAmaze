@@ -18,6 +18,7 @@ vi.mock("./ekart.config.js", () => ({
 
 import {
   cancelEkartShipment,
+  isEkartAlreadyCancelledMessage,
   isEkartReverseTrackingId,
   resolveEkartCancelLeg,
 } from "./ekart.cancel.js";
@@ -26,6 +27,12 @@ describe("Ekart cancel / RTO / RVP", () => {
   beforeEach(() => {
     putMock.mockReset();
     process.env.EKART_CANCEL_ENABLED = "true";
+  });
+
+  it("treats already-in-RTO messages as success", () => {
+    expect(isEkartAlreadyCancelledMessage("Unable to RTO shipment as it is already in RTO")).toBe(
+      true
+    );
   });
 
   it("does not call Durin when EKART_CANCEL_ENABLED is false", async () => {
