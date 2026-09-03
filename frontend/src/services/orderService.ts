@@ -366,7 +366,7 @@ export async function moveOrderToReship(id: string) {
     providerCancel?: {
       attempted: boolean;
       success: boolean;
-      provider: "velocity" | "lorrigo";
+      provider: "velocity" | "lorrigo" | "ekart";
       message?: string;
     };
   }>(`/orders/${encodeURIComponent(id)}/reship`, {});
