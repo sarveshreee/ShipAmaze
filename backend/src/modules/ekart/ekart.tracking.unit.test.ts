@@ -65,6 +65,23 @@ describe("Ekart track mapping", () => {
     expect(parsed.deliveredDate).toContain("2018-08-28");
   });
 
+  it("does not use Durin shipment_id order-number as AWB", () => {
+    const parsed = parseEkartTrackResponse(
+      {
+        TECP5292547140: {
+          shipment_id: "10348",
+          external_tracking_id: "TECP5292547140",
+          order_id: "10348",
+          delivered: false,
+          history: [{ status: "pickup_scheduled", event_date_iso8601: "2026-09-03T18:22:44+05:30" }],
+        },
+      },
+      "TECP5292547140"
+    );
+    expect(parsed.awb).toBe("TECP5292547140");
+    expect(parsed.status).toBe("pickup_scheduled");
+  });
+
   it("maps Elite seller cancel via rto flag even when history is still out_for_pickup", () => {
     const parsed = parseEkartTrackResponse(
       {

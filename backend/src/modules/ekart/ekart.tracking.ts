@@ -228,8 +228,21 @@ export function parseEkartTrackResponse(
     }
   }
 
+  // Never prefer Durin shipment_id when it is the merchant order id (e.g. "10304").
+  // Flipkart AWB is always merchant+P/C/R+10 digits on external_tracking_id / request tracking_id.
+  const extAwb = String(block.external_tracking_id ?? "").trim();
+  const shipId = String(block.shipment_id ?? "").trim();
+  const looksLikeFlipkartAwb = (v: string) => /^[A-Za-z]{3}[PCRocr]\d{10}$/.test(v);
+  const resolvedAwb = looksLikeFlipkartAwb(extAwb)
+    ? extAwb.toUpperCase()
+    : looksLikeFlipkartAwb(shipId)
+      ? shipId.toUpperCase()
+      : looksLikeFlipkartAwb(awb)
+        ? awb.toUpperCase()
+        : extAwb || awb || shipId;
+
   return {
-    awb: String(block.external_tracking_id ?? block.shipment_id ?? awb),
+    awb: resolvedAwb,
     status,
     rawStatusCode: machineStatus || status,
     courierName: String(block.merchant_name ?? "Ekart"),
