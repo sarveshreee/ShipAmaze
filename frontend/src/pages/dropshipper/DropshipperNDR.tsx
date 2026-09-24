@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { useNdrOrders } from "@/hooks/useApiData";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import type { NdrRow } from "@/hooks/useApiData";
 import {
   AlertTriangle,
@@ -324,14 +325,16 @@ function NdrCard({ ndr, onManage }: { ndr: NdrRow; onManage: (n: NdrRow) => void
             {ndr.carrier && (
               <span className="text-[11px] text-text-muted">{ndr.carrier}</span>
             )}
-            <span
-              className={cn(
-                "rounded px-1.5 py-0.5 text-[10px] capitalize font-medium",
-                providerBadge(ndr.courierProvider)
-              )}
-            >
-              {ndr.courierProvider ?? "velocity"}
-            </span>
+            {VELOCITY_UI_ENABLED || ndr.courierProvider !== "velocity" ? (
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] capitalize font-medium",
+                  providerBadge(ndr.courierProvider)
+                )}
+              >
+                {ndr.courierProvider || "—"}
+              </span>
+            ) : null}
           </div>
           {ndr.orderId && (
             <p className="text-[11px] text-text-muted font-mono truncate max-w-[200px]">

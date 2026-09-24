@@ -30,6 +30,8 @@ import {
   claimOrderForBooking,
   releaseBookingClaim,
 } from "./bookingClaim.js";
+import { mapEkartStatusToProviderCanonical } from "./statusNormalize.js";
+import { lastEkartAcceptedTrackingId } from "../ekart/ekart.recover.js";
 import type { AuthRequest } from "../../middleware/authMiddleware.js";
 import { bookForwardShipmentForOrder } from "../velocity/velocity.controller.js";
 import {
@@ -42,7 +44,6 @@ import {
   pushShopifyFulfillmentUpdate,
 } from "../../services/shopifyFulfillmentMirror.js";
 import { orderCodCollectableAmount } from "../../services/normalizeOrderPayment.js";
-import { isUsableEkartLocationCode } from "../ekart/ekart.pickupSync.js";
 
 export type BookShipmentInput = {
   order: IOrder;
@@ -776,32 +777,6 @@ export async function validateEkartBooking(input: BookShipmentInput): Promise<{
     throw new AppError(400, "Pickup address line 1 is required for Ekart booking");
   }
 
-  // Durin accepts source.address OR source.location_code. Elite Shipments usually needs
-  // a BD-assigned location_code — warn only; do not block API booking.
-  // Auto-clear mistaken pincode syncs (e.g. 395003) so we send full address instead.
-  let ekartLoc = String((pickup as { ekartLocationCode?: string }).ekartLocationCode ?? "").trim();
-  if (ekartLoc && !isUsableEkartLocationCode(ekartLoc)) {
-    console.warn(
-      `[ekart] clearing invalid location_code "${ekartLoc}" on pickup ${input.pickupAddressId} (pincode is not a Durin code)`
-    );
-    await Pickup.findByIdAndUpdate(input.pickupAddressId, {
-      $unset: { ekartLocationCode: 1 },
-      $set: {
-        ekartSyncStatus: "FAILED",
-        ekartSyncError:
-          "Cleared invalid code (pincode is not Durin location_code). Ask Ekart BD for real code, or book with address only.",
-        ekartLastSyncAt: new Date(),
-      },
-    }).catch(() => undefined);
-    ekartLoc = "";
-    (pickup as { ekartLocationCode?: string }).ekartLocationCode = undefined;
-  }
-  if (!ekartLoc && !String(process.env.EKART_DEFAULT_LOCATION_CODE ?? "").trim()) {
-    console.warn(
-      `[ekart] booking pickup ${input.pickupAddressId} without location_code — create/track OK; Elite list may stay empty until Ekart assigns a Durin location_code`
-    );
-  }
-
   if (!input.skipServiceability) {
     const svc = await discoverServiceability(
       {
@@ -920,20 +895,51 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
     correlationId,
   });
 
-  const order = claim.order;
+  let order = claim.order;
   input.order = order;
 
   if (claim.reusedExisting && String(order.awb || "").trim()) {
-    return {
-      awb: String(order.awb),
-      providerOrderId: String(order.ekartRequestId ?? order.ekartTrackingId ?? ""),
-      providerShipmentId: order.ekartTrackingId,
-      courierId: order.courierCompanyId != null ? String(order.courierCompanyId) : undefined,
-      courierName: order.courierName,
-      labelUrl: order.labelUrl,
-      freightCharge: order.shippingCharges,
-      status: order.shipmentStatus,
-    };
+    let reuseOk = true;
+    try {
+      const tracked = await provider.trackShipment({ awb: String(order.awb) });
+      const canonical = mapEkartStatusToProviderCanonical(tracked.status);
+      // Empty track right after create is normal — keep the AWB. Only drop it if Durin cancelled.
+      if (canonical === "CANCELLED" || canonical === "RETURNED") {
+        reuseOk = false;
+      }
+    } catch {
+      reuseOk = true;
+    }
+    if (reuseOk) {
+      return {
+        awb: String(order.awb),
+        providerOrderId: String(order.ekartRequestId ?? order.ekartTrackingId ?? ""),
+        providerShipmentId: order.ekartTrackingId,
+        courierId: order.courierCompanyId != null ? String(order.courierCompanyId) : undefined,
+        courierName: order.courierName,
+        labelUrl: order.labelUrl,
+        freightCharge: order.shippingCharges,
+        status: order.shipmentStatus,
+      };
+    }
+    order.bookingVersion = Math.max(1, Number(order.bookingVersion ?? 1)) + 1;
+    order.shipmentCreated = false;
+    order.awb = "";
+    order.ekartTrackingId = undefined;
+    order.bookingIdempotencyKey = undefined;
+    await order.save().catch(() => undefined);
+    await releaseBookingClaim(order.orderId);
+    const reclaimed = await claimOrderForBooking({
+      orderId: input.order.orderId,
+      provider: "ekart",
+      idempotencyKey: `${input.idempotencyKey || `ekart:${input.order.orderId}`}:v${order.bookingVersion}`,
+      correlationId,
+    });
+    if (reclaimed.reusedExisting && String(reclaimed.order.awb || "").trim()) {
+      throw new AppError(409, "Order already has a shipment (duplicate booking blocked)");
+    }
+    order = reclaimed.order;
+    input.order = order;
   }
 
   let pickupLean: Record<string, unknown>;
@@ -945,7 +951,7 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
   }
 
   const pay = paymentModeOf(order);
-  let createInput: ProviderCreateShipmentInput = {
+  const createInput: ProviderCreateShipmentInput = {
     orderId: order.orderId,
     pickupId: input.pickupAddressId,
     paymentMode: pay,
@@ -980,8 +986,9 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
       pickupCity: pickupLean.city,
       pickupState: pickupLean.state,
       pickupCountry: pickupLean.country,
-      ekartLocationCode: pickupLean.ekartLocationCode,
       serviceCode: String(input.courierId ?? "").trim() || undefined,
+      bookingAttempt: Math.max(1, Number(input.order.bookingVersion ?? 1)),
+      trackingId: lastEkartAcceptedTrackingId(order) || undefined,
       pickupAddress: {
         label: pickupLean.label,
         contactName: pickupLean.contactName,
@@ -994,7 +1001,6 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
         state: pickupLean.state,
         pincode: pickupLean.pincode,
         country: pickupLean.country,
-        ekartLocationCode: pickupLean.ekartLocationCode,
       },
       correlationId,
       idempotencyKey: claim.idempotencyKey,
@@ -1005,41 +1011,6 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
   try {
     result = await provider.createShipment(createInput);
   } catch (err) {
-    let retriedAfterInvalidLocation = false;
-    if (
-      err instanceof AppError &&
-      /invalid\s+location\s+code/i.test(String(err.message ?? "")) &&
-      String(createInput.providerPayload?.ekartLocationCode ?? "").trim()
-    ) {
-      try {
-        await Pickup.findByIdAndUpdate(input.pickupAddressId, {
-          $unset: { ekartLocationCode: 1 },
-          $set: {
-            ekartSyncStatus: "FAILED",
-            ekartSyncError:
-              "Cleared invalid Durin location_code — retried booking with full pickup address.",
-            ekartLastSyncAt: new Date(),
-          },
-        }).catch(() => undefined);
-        pickupLean.ekartLocationCode = undefined;
-        const payload = { ...(createInput.providerPayload ?? {}) };
-        const pickupAddr = {
-          ...((payload.pickupAddress as Record<string, unknown> | undefined) ?? {}),
-        };
-        delete pickupAddr.ekartLocationCode;
-        payload.ekartLocationCode = undefined;
-        payload.pickupAddress = pickupAddr;
-        createInput = { ...createInput, providerPayload: payload };
-        result = await provider.createShipment(createInput);
-        retriedAfterInvalidLocation = true;
-      } catch (retryErr) {
-        err = retryErr;
-      }
-    }
-
-    if (retriedAfterInvalidLocation) {
-      // fall through to applyEkartShipmentToOrder below
-    } else {
     const maybeAcked =
       err instanceof AppError &&
       (err.statusCode === 504 || isTransientNetworkMessage(err.message));
@@ -1105,7 +1076,6 @@ export async function bookEkartShipment(input: BookShipmentInput): Promise<BookS
       }
       await releaseBookingClaim(order.orderId);
       throw err;
-    }
     }
   }
 

@@ -107,6 +107,22 @@ export const AWAITING_COURIER_PICKUP_RAW_KEYS = [
   "not_picked",
 ] as const;
 
+/** Durin create / Elite Ready For Pickup — never treat these as In Transit. */
+export const EKART_AWAITING_PICKUP_RAW_KEYS = [
+  "shipment_created",
+  "request_received",
+  "shipment_details_received",
+  "details_received",
+  "created",
+  "scheduled",
+  "pickup_scheduled",
+  "out_for_pickup",
+  "pickup_out_for_pickup",
+  "pickup_reattempt",
+  "lpd_generated",
+  "expected_at_null",
+] as const;
+
 export const AWAITING_COURIER_PICKUP_MATCH_VALUES = variantsForKeys([
   "out_for_pickup",
   "pickup_out_for_pickup",
@@ -356,7 +372,6 @@ const PROVIDER_RAW_OVERRIDES: Record<string, Record<string, string>> = {
   ekart: {
     pickup_cancelled: "pickup_cancelled",
     not_picked: "pickup_failed",
-    pickup_reattempt: "pickup_failed",
     shipment_created: "pending_pickup",
     request_received: "pending_pickup",
     shipment_details_received: "pending_pickup",
@@ -369,6 +384,12 @@ const PROVIDER_RAW_OVERRIDES: Record<string, Record<string, string>> = {
     received_at_dh: "in_transit",
     shipment_shipped: "in_transit",
     shipment_received: "in_transit",
+    pickup_scheduled: "pending_pickup",
+    out_for_pickup: "pending_pickup",
+    pickup_out_for_pickup: "pending_pickup",
+    pickup_reattempt: "pending_pickup",
+    expected_at_null: "pending_pickup",
+    seller_cancelled: "cancelled",
     expected: "in_transit",
     shipment_expected: "in_transit",
   },
@@ -413,6 +434,11 @@ function inferInternalFromHeuristics(key: string): string | undefined {
   if (key.includes("out_for_pickup") || key === "pickup_out_for_pickup") {
     return "pending_pickup";
   }
+  // Durin pickup_scheduled public text is "Expected at null" — still waiting for pickup.
+  if (key.includes("expected") && key.includes("null")) {
+    return "pending_pickup";
+  }
+  if (key.includes("pickup") && key.includes("schedul")) return "pending_pickup";
   if (key.includes("out_for_deliver") || key === "ofd" || key.includes("outfordelivery")) {
     return "out_for_delivery";
   }
@@ -430,15 +456,14 @@ function inferInternalFromHeuristics(key: string): string | undefined {
     key.includes("left_") ||
     key.includes("in_facility") ||
     key.includes("received_at") ||
-    // Ekart Durin: "Shipment Expected" / "expected" means in network
-    (key.includes("expected") && !key.includes("return"))
+    // Named-hub "Shipment Expected" is in-network. "Expected at null" is still pickup.
+    (key.includes("expected") && !key.includes("return") && !key.includes("null"))
   ) {
     return "in_transit";
   }
-  if (key.includes("pick") && !key.includes("not") && !key.includes("schedul")) {
+  if (key.includes("pick") && !key.includes("not") && !key.includes("schedul") && !key.includes("up")) {
     return "in_transit";
   }
-  if (key.includes("pickup") && key.includes("schedul")) return "pending_pickup";
   if (key.includes("ready") && key.includes("ship")) return "ready_to_ship";
   if (key.includes("manifest")) return "ready_to_ship";
   if (key.includes("booked")) return "ready_to_ship";
@@ -613,6 +638,14 @@ function isAwaitingCourierPickupRaw(rawShipmentStatus: unknown): boolean {
   return (AWAITING_COURIER_PICKUP_RAW_KEYS as readonly string[]).includes(k);
 }
 
+function isEkartAwaitingPickupRaw(rawShipmentStatus: unknown): boolean {
+  const k = normalizeTrackingKey(rawShipmentStatus);
+  return (
+    (EKART_AWAITING_PICKUP_RAW_KEYS as readonly string[]).includes(k) ||
+    (k.includes("expected") && k.includes("null"))
+  );
+}
+
 /** Classify an order into a dashboard tab category. */
 export function classifyOrderTab(order: OrderClassificationInput): OrderTabCategory | undefined {
   if (order.isJunk) return "junk";
@@ -644,6 +677,12 @@ export function classifyOrderTab(order: OrderClassificationInput): OrderTabCateg
 
   // Still waiting for courier collection — keep on Pending Pickup even if status lagged.
   if (isAwaitingCourierPickupRaw(order.shipmentStatus)) {
+    return "pending_pickup";
+  }
+  if (
+    String(order.courierProvider ?? "").toLowerCase() === "ekart" &&
+    isEkartAwaitingPickupRaw(order.shipmentStatus)
+  ) {
     return "pending_pickup";
   }
   const hasAwb = Boolean(String(order.awb ?? "").trim());

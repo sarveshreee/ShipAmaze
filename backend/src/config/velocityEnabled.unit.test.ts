@@ -6,7 +6,7 @@ import {
   resetCourierProviderRegistrationForTests,
 } from "../modules/courier/index.js";
 import { resolveDiscoveryProviderIds } from "../modules/courier/discoveryConfig.js";
-import { isVelocityActive, isVelocityEnabledFlag } from "./env.js";
+import { isVelocityActive, isVelocityEnabledFlag, VELOCITY_SITE_CONNECTED } from "./env.js";
 
 describe("VELOCITY_ENABLED kill switch", () => {
   const prev = {
@@ -31,9 +31,9 @@ describe("VELOCITY_ENABLED kill switch", () => {
     }
   });
 
-  it("defaults to enabled when unset (backward compatible)", () => {
+  it("defaults to enabled when unset (backward compatible) unless the site is disconnected", () => {
     delete process.env.VELOCITY_ENABLED;
-    expect(isVelocityEnabledFlag()).toBe(true);
+    expect(isVelocityEnabledFlag()).toBe(VELOCITY_SITE_CONNECTED);
   });
 
   it("disables when VELOCITY_ENABLED=false", () => {
@@ -52,12 +52,14 @@ describe("VELOCITY_ENABLED kill switch", () => {
     expect(listCourierProviders().map((p) => p.id)).not.toContain("velocity");
   });
 
-  it("registers Velocity when enabled", () => {
+  it("registers Velocity when enabled and the site is connected", () => {
     process.env.VELOCITY_ENABLED = "true";
     process.env.VELOCITY_USERNAME = "u";
     process.env.VELOCITY_PASSWORD = "p";
     registerCourierProviders();
-    expect(listCourierProviders().map((p) => p.id)).toContain("velocity");
+    const ids = listCourierProviders().map((p) => p.id);
+    if (VELOCITY_SITE_CONNECTED) expect(ids).toContain("velocity");
+    else expect(ids).not.toContain("velocity");
   });
 
   it("excludes Velocity from discovery when disabled", () => {

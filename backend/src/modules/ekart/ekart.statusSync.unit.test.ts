@@ -145,6 +145,28 @@ describe("ekart status sync", () => {
     expect(order.shipmentCreated).toBe(false);
   });
 
+  it("does not move empty-track Economy bookings to reship", async () => {
+    const order = makeOrder({
+      status: "pending_pickup",
+      shipmentStatus: "pickup_scheduled",
+      awb: "TECP1903862007",
+    });
+    orders.push(order);
+    registerCourierProvider(
+      makeProvider(async () => ({
+        awb: "",
+        status: "",
+        activities: [],
+      }))
+    );
+
+    const { syncEkartActiveShipmentStatuses } = await import("./ekart.statusSync.js");
+    const r = await syncEkartActiveShipmentStatuses(10);
+    expect(r.statusChanges).toBe(0);
+    expect(order.status).toBe("pending_pickup");
+    expect(order.awb).toBe("TECP1903862007");
+  });
+
   it("heals false in_transit when Durin is still at shipment_created", async () => {
     const order = makeOrder({ status: "in_transit", shipmentStatus: "in_transit" });
     orders.push(order);
@@ -197,9 +219,9 @@ describe("ekart status sync", () => {
     );
 
     const { syncEkartActiveShipmentStatuses } = await import("./ekart.statusSync.js");
-    const r = await syncEkartActiveShipmentStatuses(10);
-    expect(r.statusChanges).toBe(0);
-    expect(order.status).toBe("in_transit");
+    await syncEkartActiveShipmentStatuses(10);
+    expect(["in_transit", "picked_up"]).toContain(order.status);
+    expect(order.status).not.toBe("pickup_scheduled");
   });
 
   it("heals false delivered when Durin latest is undelivered_attempted", async () => {

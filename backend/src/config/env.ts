@@ -75,12 +75,22 @@ export function isProduction(): boolean {
 }
 
 /**
+ * Site disconnect for Velocity.
+ * false = Velocity is fully off (no register, discovery, booking, warehouse sync, or background jobs),
+ * even if VELOCITY_ENABLED=true on the host.
+ * Set this to true to connect Velocity again; VELOCITY_ENABLED and credentials still apply.
+ */
+export const VELOCITY_SITE_CONNECTED = false;
+
+/**
  * True feature flag for Velocity.
+ * - VELOCITY_SITE_CONNECTED false → disabled (site disconnect)
  * - Explicit false/0/no/off → disabled (kill switch)
  * - Explicit true/1/yes/on → enabled
  * - Unset/empty → enabled (backward compatible default; Velocity is the legacy provider)
  */
 export function isVelocityEnabledFlag(): boolean {
+  if (!VELOCITY_SITE_CONNECTED) return false;
   const raw = process.env.VELOCITY_ENABLED;
   if (raw === undefined || String(raw).trim() === "") return true;
   if (falsyFlag(raw)) return false;

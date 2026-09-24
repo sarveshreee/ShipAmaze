@@ -64,8 +64,7 @@ export const EKART_CAPABILITIES: CourierProviderCapabilities = {
   cancel: false,
   ndr: false,
   returns: true,
-  /** Link Elite location_code (Durin cannot create warehouses via API). */
-  pickupSync: true,
+  pickupSync: false,
   labels: false,
   webhooks: true,
 };

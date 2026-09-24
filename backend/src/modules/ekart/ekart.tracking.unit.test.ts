@@ -43,16 +43,26 @@ const TRACK_SAMPLE = {
 };
 
 describe("Ekart track mapping", () => {
+  it("treats empty Durin track as not found (no ghost AWB)", () => {
+    const parsed = parseEkartTrackResponse({}, "TECP1903862007");
+    expect(parsed.awb).toBe("");
+    expect(parsed.status).toBe("");
+
+    const wrapped = parseEkartTrackResponse({ request_id: "abc" }, "TECP1903862007");
+    expect(wrapped.awb).toBe("");
+    expect(wrapped.status).toBe("");
+  });
+
   it("extracts shipment block keyed by tracking id", () => {
     const block = extractEkartShipmentBlock(TRACK_SAMPLE, "CLTC0000000001");
     expect(block.shipment_id).toBe("CLTC0000000001");
     expect(block.delivered).toBe(true);
   });
 
-  it("maps history to activities with public descriptions", () => {
+  it("maps history to activities using machine status", () => {
     const acts = mapEkartTrackHistory(TRACK_SAMPLE.CLTC0000000001.history);
     expect(acts).toHaveLength(3);
-    expect(acts[0].activity).toBe("Delivered to Customer");
+    expect(acts[0].activity).toBe("delivered");
     expect(acts[0].location).toBe("NirsaHub_NRA");
   });
 
@@ -61,7 +71,7 @@ describe("Ekart track mapping", () => {
     expect(parsed.status).toBe("delivered");
     expect(parsed.rawStatusCode).toBe("delivered");
     expect(mapEkartStatusToProviderCanonical(parsed.status)).toBe("DELIVERED");
-    expect(parsed.activities[0].activity).toBe("Delivered to Customer");
+    expect(parsed.activities[0].activity).toBe("delivered");
     expect(parsed.deliveredDate).toContain("2018-08-28");
   });
 

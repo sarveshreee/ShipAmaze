@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import * as orderService from "@/services/orderService";
 import { syncShipmentStatuses } from "@/services/velocityService";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import type { OrderListFilterValues } from "@/services/orderService";
 import { errorMessageFromUnknown } from "@/lib/errorMessage";
 import { isOrderReadyToShip, orderMatchesTab } from "@/lib/orderTabFilters";
@@ -684,7 +685,9 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
                     {refreshingStatuses ? "Refreshing…" : "Refresh Tracking"}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Sync latest AWB statuses from Velocity, Ekart, and Lorrigo</TooltipContent>
+                <TooltipContent>
+                  Sync latest AWB statuses from {VELOCITY_UI_ENABLED ? "Velocity, Ekart, and Lorrigo" : "Ekart and Lorrigo"}
+                </TooltipContent>
               </Tooltip>
             )}
             {showActions && (
@@ -1439,6 +1442,7 @@ export default function OrdersPageWithTabs({ breadcrumbPrefix, showActions = tru
             }
 
             for (const warning of res.pickupLinkWarnings ?? []) {
+              if (!VELOCITY_UI_ENABLED && warning.provider !== "lorrigo") continue;
               toast.warning(
                 `Pickup address is not linked to ${warning.provider === "lorrigo" ? "Lorrigo" : "Velocity"}: ${warning.error}`,
                 {

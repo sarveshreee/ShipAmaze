@@ -14,6 +14,7 @@ import { usePickupAddresses } from "@/hooks/useApiData";
 import * as orderService from "@/services/orderService";
 import * as pickupService from "@/services/pickupService";
 import { discoverRates, type DiscoveredCourier } from "@/services/courierDiscoveryService";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import { providerSupports } from "@/lib/providerCapabilities";
 import type { PickupAddress } from "@/types/logistics";
 import { AddAddressModal } from "@/components/AddAddressModal";
@@ -463,7 +464,7 @@ export default function AddOrder() {
     if (!validateStep(5)) return;
 
     const pickupAddr = allAddresses.find((a) => a.id === selectedPickup);
-    if (pickupAddr && !pickupAddr.velocityWarehouseId?.trim()) {
+    if (VELOCITY_UI_ENABLED && pickupAddr && !pickupAddr.velocityWarehouseId?.trim()) {
       toast.warning("This pickup address is not linked for shipping. Link it before generating AWB.");
     }
 
@@ -726,15 +727,15 @@ export default function AddOrder() {
                                 )}
                                 {!active ? (
                                   <span className="rounded-full bg-text-muted/20 px-2 py-0.5 text-[10px] font-medium text-text-muted">Inactive</span>
-                                ) : a.velocityWarehouseId?.trim() ? (
+                                ) : VELOCITY_UI_ENABLED && a.velocityWarehouseId?.trim() ? (
                                   <Badge variant="outline" className="text-[10px] border-success/40 text-success">
                                     Shipping linked
                                   </Badge>
-                                ) : (
+                                ) : VELOCITY_UI_ENABLED ? (
                                   <Badge variant="secondary" className="text-[10px]">
                                     Not linked
                                   </Badge>
-                                )}
+                                ) : null}
                               </div>
                             </div>
                             <p className="text-xs text-text-muted mt-1">
@@ -1156,7 +1157,9 @@ export default function AddOrder() {
                 {velocityRates.map((r) => {
                   const id = String(r.courierId || r.carrier_id);
                   const name = String(r.courierName || r.carrier_name || id);
-                  const providerLabel = r.provider === "lorrigo" ? "Lorrigo" : "Velocity";
+                  if (!VELOCITY_UI_ENABLED && r.provider === "velocity") return null;
+                  const providerLabel =
+                    r.provider === "lorrigo" ? "Lorrigo" : r.provider === "ekart" ? "Ekart" : "Velocity";
                   const total = Number(r.totalCharge ?? r.total_charge ?? r.freight ?? r.freight_charge ?? 0);
                   const freight = r.freight ?? r.freightCharge ?? r.freight_charge;
                   const canBook = providerSupports(r.provider, "booking");

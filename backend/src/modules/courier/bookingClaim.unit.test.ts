@@ -57,6 +57,29 @@ describe("claimOrderForBooking", () => {
     expect(findOneAndUpdate).toHaveBeenCalled();
   });
 
+  it("does not reuse leftover AWB when order is on reship", async () => {
+    const { claimOrderForBooking } = await import("./bookingClaim.js");
+    findOne.mockResolvedValueOnce({
+      orderId: "ORD-RESHIP",
+      status: "reship",
+      shipmentCreated: true,
+      awb: "TECP1903862007",
+      bookingIdempotencyKey: "ekart:ORD-RESHIP",
+    });
+    findOneAndUpdate.mockResolvedValueOnce({
+      orderId: "ORD-RESHIP",
+      status: "reship",
+      shipmentCreated: false,
+      awb: "",
+      bookingInProgress: true,
+      bookingIdempotencyKey: "ekart:ORD-RESHIP",
+    });
+
+    const r = await claimOrderForBooking({ orderId: "ORD-RESHIP", provider: "ekart" });
+    expect(r.reusedExisting).toBe(false);
+    expect(findOneAndUpdate).toHaveBeenCalled();
+  });
+
   it("rejects race when another worker holds the claim", async () => {
     const { claimOrderForBooking } = await import("./bookingClaim.js");
     findOne

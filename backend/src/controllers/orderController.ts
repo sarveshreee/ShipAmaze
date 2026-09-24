@@ -1424,7 +1424,8 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
   await order.save();
 
   const shouldSyncVelocity =
-    pickupChanged ||
+    isVelocityEnabledFlag() &&
+    (pickupChanged ||
     customerName ||
     customerEmail ||
     customerPhoneRaw ||
@@ -1435,7 +1436,7 @@ export const updateOrder = asyncHandler(async (req: AuthRequest, res: Response) 
     shippingPincode ||
     hasLineItemsUpdate ||
     (!Number.isNaN(rawWeight) && rawWeight > 0) ||
-    amtOnly !== undefined;
+    amtOnly !== undefined);
 
   let velocitySync: { synced: boolean; reason?: string } | undefined;
   if (shouldSyncVelocity) {
@@ -1786,7 +1787,7 @@ export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Respon
   // Cancel on the order's courier provider (Velocity / Lorrigo / Ekart). For Ekart ghost
   // bookings (Failed tab, no local AWB), derives the Durin tracking_id and cancels at source.
   const { cancelProviderShipmentForOrder } = await import("../modules/courier/cancelProviderShipment.js");
-  const cancelResult = await cancelProviderShipmentForOrder(order, { reason: "customer_request" });
+  const cancelResult = await cancelProviderShipmentForOrder(order, { reason: "Cancel the shipment" });
 
   // Ekart with a live AWB: never "fake cancel" locally if Durin cancel failed / was skipped.
   const isEkart =
@@ -1811,7 +1812,7 @@ export const markOrderReship = asyncHandler(async (req: AuthRequest, res: Respon
   order.isJunk = false;
   order.junkedAt = undefined;
   order.junkReason = undefined;
-  clearOrderShipmentForRebook(order);
+  clearOrderShipmentForRebook(order, { bumpBookingVersion: true });
   order.status = "reship";
   order.shipmentStatus = "reship";
   appendStatusHistory(
@@ -1932,7 +1933,16 @@ function orderMissingSku(o: Pick<IOrder, "products" | "orderItems" | "items" | "
   return items.some((row) => !String(row.sku ?? "").trim());
 }
 
-function clearOrderShipmentForRebook(order: InstanceType<typeof Order>): void {
+function clearOrderShipmentForRebook(
+  order: InstanceType<typeof Order>,
+  opts?: { bumpBookingVersion?: boolean }
+): void {
+  // Failed retry must keep the same bookingVersion so we reuse the Durin AWB.
+  // Only Reship (after a real cancel) should mint a new tracking id.
+  if (opts?.bumpBookingVersion) {
+    order.bookingVersion = Math.max(1, Number(order.bookingVersion ?? 1)) + 1;
+  }
+  order.bookingIdempotencyKey = undefined;
   order.shipmentCreated = false;
   order.awb = "";
   order.trackingId = undefined;
@@ -2029,7 +2039,7 @@ function applyProcessSelectedPrep(o: OrderDoc, prep: ProcessSelectedPrep, userId
   if (isReship) {
     o.status = "ready_to_ship";
     o.shipmentStatus = "ready_to_ship";
-    clearOrderShipmentForRebook(o);
+    clearOrderShipmentForRebook(o, { bumpBookingVersion: true });
   } else if (st !== "ready_to_ship") {
     o.status = "ready_to_ship";
     o.shipmentStatus = "ready_to_ship";
@@ -2405,6 +2415,9 @@ async function processOneSelectedOrder(
     // fuzzy-matched onto a Velocity Delhivery service.
     const serviceable = await listMultiProviderServiceableForOrder(o, prep);
     preferred = pickPriorityServiceableCourier(priorities, serviceable);
+    if (preferred && !isVelocityEnabledFlag() && (preferred.provider ?? "velocity") === "velocity") {
+      preferred = undefined;
+    }
     if (preferred) {
       bookedPreferredKey = `${preferred.provider ?? "velocity"}::${preferred.carrier_id}`;
       try {
@@ -2441,6 +2454,16 @@ async function processOneSelectedOrder(
         };
       }
 
+      const candidateProvider =
+        candidate.provider === "lorrigo"
+          ? "lorrigo"
+          : candidate.provider === "ekart"
+            ? "ekart"
+            : "velocity";
+      if (!isVelocityEnabledFlag() && candidateProvider === "velocity") {
+        continue;
+      }
+
       const candidateKey = `${candidate.provider ?? "velocity"}::${candidate.carrierId ?? candidate.courierName}`;
       if (
         bookedPreferredKey &&
@@ -2455,12 +2478,7 @@ async function processOneSelectedOrder(
       const resolved: ResolvedServiceableCarrier = {
         carrier_id: String(candidate.carrierId ?? "").trim(),
         carrier_name: candidate.courierName,
-        provider:
-          candidate.provider === "lorrigo"
-            ? "lorrigo"
-            : candidate.provider === "ekart"
-              ? "ekart"
-              : "velocity",
+        provider: candidateProvider,
       };
       if (!resolved.carrier_id) {
         // Resolve from live serviceability by name within provider.
@@ -2819,7 +2837,8 @@ export const processSelectedOrders = asyncHandler(async (req: AuthRequest, res: 
   let lorrigoPickupId = lorrigoPickupIdExisting;
 
   const needVelocityLink =
-    (courierSelectionMode === "courier" && courierProvider === "velocity") || priorityNeedsVelocity;
+    isVelocityEnabledFlag() &&
+    ((courierSelectionMode === "courier" && courierProvider === "velocity") || priorityNeedsVelocity);
   const needLorrigoLink =
     (courierSelectionMode === "courier" && courierProvider === "lorrigo") || priorityNeedsLorrigo;
 

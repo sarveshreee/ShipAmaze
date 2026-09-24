@@ -54,23 +54,22 @@ describe("ekart.pickupSync", () => {
     expect(normalizeEkartLocationCode(" TEC SUR ")).toBe("TEC_SUR");
   });
 
-  it("rejects pincode link attempts", async () => {
-    const r = await linkPickupToEkart("507f1f77bcf86cd799439011", "395003");
-    expect(r.synced).toBe(false);
-    if (!r.synced && "error" in r) expect(r.error).toMatch(/pincode/i);
+  it("does not link location codes", async () => {
+    const r = await linkPickupToEkart("507f1f77bcf86cd799439011", "TEC_SUR_01");
+    expect(r).toEqual({
+      synced: false,
+      skipped: true,
+      reason: "Ekart location codes are not used",
+    });
     expect(store.get("507f1f77bcf86cd799439011")?.ekartLocationCode).toBeUndefined();
   });
 
-  it("links Elite location code onto pickup", async () => {
-    const r = await linkPickupToEkart("507f1f77bcf86cd799439011", "TEC_SUR_01");
-    expect(r).toEqual({ synced: true, locationCode: "TEC_SUR_01" });
-    const row = store.get("507f1f77bcf86cd799439011");
-    expect(row?.ekartLocationCode).toBe("TEC_SUR_01");
-    expect(row?.ekartSyncStatus).toBe("SUCCESS");
-  });
-
-  it("unlinks location code", async () => {
-    await linkPickupToEkart("507f1f77bcf86cd799439011", "TEC_SUR_01");
+  it("unlinks leftover location code", async () => {
+    store.set("507f1f77bcf86cd799439011", {
+      _id: "507f1f77bcf86cd799439011",
+      ekartLocationCode: "TEC_SUR_01",
+      deletedAt: undefined,
+    });
     const r = await unlinkPickupFromEkart("507f1f77bcf86cd799439011");
     expect(r.synced).toBe(true);
     expect(store.get("507f1f77bcf86cd799439011")?.ekartLocationCode).toBeUndefined();

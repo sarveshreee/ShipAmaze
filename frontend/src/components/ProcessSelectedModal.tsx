@@ -14,6 +14,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Save, Loader2, Package, Settings2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { usePickupAddresses } from "@/hooks/useApiData";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { ProcessSelectedPayload } from "@/services/orderService";
@@ -30,6 +31,7 @@ import { cn } from "@/lib/utils";
 import type { Order } from "@/types/logistics";
 import { getOrderLineItems } from "@/lib/orderSkuValidation";
 import * as orderService from "@/services/orderService";
+import * as pickupService from "@/services/pickupService";
 
 const WEIGHT_DIMENSION_PRESETS: Record<string, { weight: string; l: string; w: string; h: string }> = {
   "0.5": { weight: "0.5", l: "1", w: "1", h: "1" },
@@ -68,6 +70,8 @@ interface Props {
     courierName: string;
     carrierId?: string;
     pickupId: string;
+    /** When known (discovery / priority). Defaults to velocity for legacy catalog filters. */
+    provider?: "velocity" | "lorrigo" | "ekart";
   };
   onProcess: (payload: ProcessSelectedPayload) => Promise<void>;
 }
@@ -88,7 +92,7 @@ export function ProcessSelectedModal({
 }: Props) {
   const { role } = useAuth();
   const isAdmin = role === "admin";
-  const { data: userPickups = [] } = usePickupAddresses(
+  const { data: userPickups = [], refetch: refetchPickups } = usePickupAddresses(
     role === "admin"
       ? { scope: "platform", enabled: open }
       : role === "dropshipper"
@@ -176,6 +180,7 @@ export function ProcessSelectedModal({
       setCourierMode("courier");
       setSelectedCarrierId(fixedCourierFromFilter.carrierId?.trim() ?? "");
       setSelectedCarrierName(fixedCourierFromFilter.courierName);
+      setSelectedCarrierProvider(fixedCourierFromFilter.provider ?? "velocity");
       setShipmentMode("forward");
       return;
     }
@@ -208,7 +213,6 @@ export function ProcessSelectedModal({
   const lorrigoPickupReady = Boolean(selectedPickup?.lorrigoPickupId?.trim());
   /** Velocity booking requires a linked Velocity warehouse on the selected pickup. */
   const velocityPickupReady = Boolean(selectedPickup?.velocityWarehouseId?.trim());
-
   const destPincode = useMemo(() => {
     for (const o of referenceOrders) {
       const pin = String(o.pincode ?? "").replace(/\D/g, "").slice(0, 6);
@@ -292,22 +296,25 @@ export function ProcessSelectedModal({
 
   const displayCouriers = useMemo(() => {
     if (fixedCourierFromFilter) {
+      const fixedProvider = fixedCourierFromFilter.provider;
+      if (!VELOCITY_UI_ENABLED && fixedProvider !== "lorrigo" && fixedProvider !== "ekart") {
+        return [];
+      }
       return [
         {
           carrier_id: fixedCourierFromFilter.carrierId ?? fixedCourierFromFilter.courierName,
           carrier_name: fixedCourierFromFilter.courierName,
-          provider: "velocity" as const,
+          provider: (fixedCourierFromFilter.provider ?? "velocity") as "velocity" | "lorrigo" | "ekart",
         },
       ];
     }
     return serviceableCouriers
       .filter((c) => {
         const provider = c.provider || "velocity";
-        // Hide Lorrigo couriers until the selected pickup has a real lorrigoPickupId.
-        if (provider === "lorrigo" && !lorrigoPickupReady) return false;
-        // Hide Velocity couriers until the selected pickup is linked to a Velocity warehouse.
+        if (!VELOCITY_UI_ENABLED && provider === "velocity") return false;
+        // Velocity still needs a warehouse link before booking (no on-demand create in Process Selected).
+        // Lorrigo: show even if pickup is not synced yet — booking will sync/link on demand.
         if (provider === "velocity" && !velocityPickupReady) return false;
-        // Ekart: Durin allows address-only create; location_code is for Elite visibility only.
         return true;
       })
       .map((c) => {
@@ -324,7 +331,7 @@ export function ProcessSelectedModal({
           price,
         };
       });
-  }, [serviceableCouriers, fixedCourierFromFilter, lorrigoPickupReady, velocityPickupReady]);
+  }, [serviceableCouriers, fixedCourierFromFilter, velocityPickupReady]);
 
   const courierSections = useMemo(
     () => groupCouriersByProvider(displayCouriers),
@@ -347,11 +354,12 @@ export function ProcessSelectedModal({
     ) {
       msgs.push(
         role === "admin"
-          ? "Lorrigo couriers are hidden until this pickup address is synced to Lorrigo (use Sync / Retry Sync on Pickup Addresses)."
-          : "Some couriers are hidden until this pickup address is synced. Use Sync / Retry Sync on Pickup Addresses."
+          ? "This pickup is not synced to Lorrigo yet. You can still select a Lorrigo courier — Sync will run automatically when you Process."
+          : "This pickup is not synced to Lorrigo yet. You can still select a Lorrigo courier — it will sync automatically when you Process."
       );
     }
     if (
+      VELOCITY_UI_ENABLED &&
       pickupAddr &&
       !velocityPickupReady &&
       serviceableCouriers.some((c) => (c.provider || "velocity") === "velocity")
@@ -393,15 +401,6 @@ export function ProcessSelectedModal({
     setSelectedCarrierProvider(provider || "velocity");
   };
 
-  // Drop a selected Lorrigo courier if the pickup is no longer Lorrigo-ready.
-  useEffect(() => {
-    if (!lorrigoPickupReady && selectedCarrierProvider === "lorrigo") {
-      setSelectedCarrierId("");
-      setSelectedCarrierName("");
-      setSelectedCarrierProvider("velocity");
-    }
-  }, [lorrigoPickupReady, selectedCarrierProvider]);
-
   // Drop a selected Velocity courier if the pickup is not linked to a Velocity warehouse.
   useEffect(() => {
     if (!velocityPickupReady && selectedCarrierProvider === "velocity" && selectedCarrierId) {
@@ -427,6 +426,54 @@ export function ProcessSelectedModal({
       toast.error("Select return address");
       return;
     }
+
+    const mode = fixedCourierFromFilter ? "courier" : courierMode;
+    if (mode === "courier" && !selectedCarrierId && !selectedCarrierName) {
+      toast.error("Select a courier");
+      return;
+    }
+
+    if (mode === "courier") {
+      if (VELOCITY_UI_ENABLED && selectedCarrierProvider === "velocity" && !velocityPickupReady) {
+        toast.error("Sync this pickup address to Velocity before booking a Velocity courier.");
+        return;
+      }
+      if (!VELOCITY_UI_ENABLED && selectedCarrierProvider === "velocity") {
+        toast.error("Select a Lorrigo or Ekart courier.");
+        return;
+      }
+    }
+
+    // Lorrigo: sync pickup on demand before booking when not already linked.
+    if (mode === "courier" && selectedCarrierProvider === "lorrigo" && !lorrigoPickupReady) {
+      try {
+        toast.message("Syncing pickup to Lorrigo…");
+        const syncRes = await pickupService.retryLorrigoPickupSync(pickupAddr);
+        const synced = Boolean(
+          syncRes.lorrigoSync?.synced ||
+            syncRes.lorrigoSync?.pickupId ||
+            syncRes.data?.lorrigoPickupId
+        );
+        await refetchPickups();
+        if (!synced) {
+          const reason =
+            syncRes.lorrigoSync?.error ||
+            syncRes.lorrigoSync?.reason ||
+            "Pickup could not be synced to Lorrigo";
+          toast.error(String(reason), {
+            description: "Open Pickup Addresses → Sync / Retry Sync to Lorrigo, then try again.",
+            duration: 10000,
+          });
+          return;
+        }
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Lorrigo pickup sync failed", {
+          description: "Open Pickup Addresses → Sync / Retry Sync to Lorrigo, then try again.",
+          duration: 10000,
+        });
+        return;
+      }
+    }
     const w = Number(weight);
     if (!(w > 0) || !Number.isFinite(w)) {
       toast.error("Enter a valid weight (kg)");
@@ -440,8 +487,6 @@ export function ProcessSelectedModal({
       return;
     }
 
-    const mode: CourierSelectionMode = fixedCourierFromFilter ? "courier" : courierMode;
-
     if (mode === "courier") {
       if (!selectedCarrierId.trim() || !selectedCarrierName.trim()) {
         toast.error("Select a courier to book with");
@@ -449,14 +494,6 @@ export function ProcessSelectedModal({
       }
       if (!providerSupports(selectedCarrierProvider, "booking")) {
         toast.error("Selected courier provider does not support booking yet.");
-        return;
-      }
-      if (selectedCarrierProvider === "velocity" && !velocityPickupReady) {
-        toast.error("Sync this pickup address to Velocity before booking a Velocity courier.");
-        return;
-      }
-      if (selectedCarrierProvider === "lorrigo" && !lorrigoPickupReady) {
-        toast.error("Sync this pickup address to Lorrigo before booking a Lorrigo courier.");
         return;
       }
     }
@@ -532,7 +569,7 @@ export function ProcessSelectedModal({
                 </>
               ) : (
                 <>
-                  Orders are booked via the selected courier provider (Velocity, Lorrigo, or Ekart when enabled)
+                  Orders are booked via the selected courier provider ({VELOCITY_UI_ENABLED ? "Velocity, Lorrigo, or Ekart" : "Lorrigo or Ekart"} when enabled)
                   with a real AWB. Dropshippers are charged your admin Rate Card price (Rates &amp; Shipping),
                   not the provider&apos;s actual freight.
                 </>
@@ -648,8 +685,8 @@ export function ProcessSelectedModal({
                 {courierMode === "priority" && (
                   <p className="text-xs text-text-muted rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2">
                     Each order will be booked using your saved priority list — starting from Priority #1 for every
-                    order, falling back to the next courier if the lane is not serviceable. Velocity, Lorrigo,
-                    and Ekart couriers are supported when configured.
+                    order, falling back to the next courier if the lane is not serviceable.{" "}
+                    {VELOCITY_UI_ENABLED ? "Velocity, Lorrigo, and Ekart" : "Lorrigo and Ekart"} couriers are supported when configured.
                   </p>
                 )}
 
@@ -736,7 +773,7 @@ export function ProcessSelectedModal({
                 {uniqueDestPincodes.length > 1 && (
                   <p className="text-[11px] text-text-muted mt-1">
                     {orderIds.length} orders across {uniqueDestPincodes.length} pincodes — each is booked with{" "}
-                    {fixedCourierFromFilter.courierName} using per-order Velocity serviceability.
+                    {fixedCourierFromFilter.courierName} using per-order serviceability.
                   </p>
                 )}
               </div>

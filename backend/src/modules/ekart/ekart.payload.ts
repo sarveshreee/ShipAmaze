@@ -1,14 +1,10 @@
 /**
  * Ekart Durin payload builders — Pickup → source / return_location mapping.
- * No pickup sync. Optional ekartLocationCode uses location_code when present.
+ * Address-only: Durin does not require a location_code.
  */
 
 import { createHash } from "crypto";
 import { ekartConfig } from "./ekart.config.js";
-import {
-  isUsableEkartLocationCode,
-  normalizeEkartLocationCode,
-} from "./ekart.pickupSync.js";
 
 export type EkartPickupLean = {
   label?: string;
@@ -22,8 +18,6 @@ export type EkartPickupLean = {
   state?: string;
   pincode?: string;
   country?: string;
-  /** Optional future field — when set, prefer location_code over full address. */
-  ekartLocationCode?: string;
 };
 
 export type EkartCustomerLean = {
@@ -110,11 +104,16 @@ export function buildEkartTrackingId(opts: {
   paymentMode: "cod" | "prepaid";
   orderId: string;
   reverse?: boolean;
+  /** 1 = first book (stable hash). 2+ = reship so Durin gets a new AWB. */
+  attempt?: number;
 }): string {
   const merchant = (opts.merchantCode || "XXX").replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase();
   const padded = (merchant + "XXX").slice(0, 3);
   const type = opts.reverse ? "R" : opts.paymentMode === "cod" ? "C" : "P";
-  const hash = createHash("sha256").update(String(opts.orderId)).digest("hex");
+  const attempt = Math.max(1, Math.floor(Number(opts.attempt) || 1));
+  // Attempt 1 keeps the historical seed so ghost recovery still finds first-book AWBs.
+  const seed = attempt <= 1 ? String(opts.orderId) : `${opts.orderId}#${attempt}`;
+  const hash = createHash("sha256").update(seed).digest("hex");
   let num = "";
   for (const ch of hash) {
     if (/\d/.test(ch)) num += ch;
@@ -131,16 +130,22 @@ export function buildEkartTrackingId(opts: {
  * like `shopify-…-myshopify-com-7193615565079` (all share the same 15-char prefix),
  * which Durin rejects with HTTP 400.
  */
-export function buildEkartClientReferenceId(orderId: string): string {
+export function buildEkartClientReferenceId(orderId: string, attempt = 1): string {
   const raw = String(orderId ?? "").trim();
+  const n = Math.max(1, Math.floor(Number(attempt) || 1));
+  let base: string;
   if (!raw) {
-    return createHash("sha256").update(`ekart-${Date.now()}`).digest("hex").slice(0, 15);
+    base = createHash("sha256").update(`ekart-${Date.now()}`).digest("hex").slice(0, 15);
+  } else if (raw.length <= 15) {
+    base = raw;
+  } else {
+    // Prefer trailing numeric id (Shopify / channel order numbers) — unique within 15 chars.
+    const trailingDigits = raw.match(/(\d{10,})$/)?.[1];
+    base = trailingDigits ? trailingDigits.slice(-15) : createHash("sha256").update(raw).digest("hex").slice(0, 15);
   }
-  if (raw.length <= 15) return raw;
-  // Prefer trailing numeric id (Shopify / channel order numbers) — unique within 15 chars.
-  const trailingDigits = raw.match(/(\d{10,})$/)?.[1];
-  if (trailingDigits) return trailingDigits.slice(-15);
-  return createHash("sha256").update(raw).digest("hex").slice(0, 15);
+  if (n <= 1) return base.slice(0, 15);
+  const suffix = `v${n}`;
+  return `${base.slice(0, Math.max(1, 15 - suffix.length))}${suffix}`;
 }
 
 function buildAddressBlock(opts: {
@@ -175,20 +180,13 @@ function buildAddressBlock(opts: {
 }
 
 function buildSourceOrReturn(pickup: EkartPickupLean) {
-  // Never send a pincode as location_code — Durin returns "Invalid Location Code: [395003]".
-  const raw =
-    String(pickup.ekartLocationCode ?? "").trim() || ekartConfig.defaultLocationCode;
-  const locationCode = isUsableEkartLocationCode(raw) ? normalizeEkartLocationCode(raw) : "";
-  if (locationCode) {
-    return { location_code: locationCode };
-  }
   const contact = asciiLine(pickup.contactName, asciiLine(pickup.label, "Pickup"));
   const line1 = line(pickup.addressLine1, "Address");
   const line2 = [pickup.addressLine2, pickup.landmark]
     .map((s) => String(s ?? "").trim())
     .filter(Boolean)
     .join(", ");
-  return buildAddressBlock({
+  const addressBlock = buildAddressBlock({
     firstName: contact,
     addressLine1: line1,
     addressLine2: line2 || undefined,
@@ -198,6 +196,12 @@ function buildSourceOrReturn(pickup: EkartPickupLean) {
     phone: phone10(pickup.phone),
     email: pickup.email,
   });
+
+  return {
+    location_type: "SELLER_PICKUP_POINT",
+    location_name: asciiLine(pickup.label, contact).slice(0, 80),
+    ...addressBlock,
+  };
 }
 
 export type EkartCreatePayloadBuild = {
@@ -218,13 +222,15 @@ export type EkartCreatePayloadBuild = {
  */
 export function resolveEkartServiceCode(courierIdOrCode?: string | null): string {
   const raw = String(courierIdOrCode ?? "").trim();
+  const allowed = new Set(["REGULAR", "ECONOMY", "NDD"]);
   if (!raw) return ekartConfig.serviceCode;
   const parts = raw.split(":").map((p) => p.trim()).filter(Boolean);
   for (let i = parts.length - 1; i >= 0; i--) {
     const code = parts[i].replace(/[^A-Za-z0-9_]/g, "").toUpperCase();
-    if (code && code !== "EKART") return code;
+    if (allowed.has(code)) return code;
   }
-  return ekartConfig.serviceCode;
+  const fallback = ekartConfig.serviceCode.toUpperCase();
+  return allowed.has(fallback) ? fallback : "REGULAR";
 }
 
 export function buildEkartCreateShipmentPayload(input: {
@@ -252,11 +258,14 @@ export function buildEkartCreateShipmentPayload(input: {
    */
   serviceCode?: string;
   courierId?: string;
+  /** Reship / retry — changes tracking_id and client_reference_id. */
+  bookingAttempt?: number;
 }): EkartCreatePayloadBuild {
   const merchant = ekartConfig.merchantCode;
   const serviceLeg = input.serviceLeg === "REVERSE" ? "REVERSE" : "FORWARD";
   const isReverse = serviceLeg === "REVERSE";
-  const clientReferenceId = buildEkartClientReferenceId(input.orderId);
+  const bookingAttempt = Math.max(1, Math.floor(Number(input.bookingAttempt) || 1));
+  const clientReferenceId = buildEkartClientReferenceId(input.orderId, bookingAttempt);
   const trackingId =
     input.trackingId?.trim() ||
     buildEkartTrackingId({
@@ -264,6 +273,7 @@ export function buildEkartCreateShipmentPayload(input: {
       paymentMode: input.paymentMode,
       orderId: input.orderId,
       reverse: isReverse,
+      attempt: bookingAttempt,
     });
 
   const amountToCollect = isReverse
@@ -290,24 +300,13 @@ export function buildEkartCreateShipmentPayload(input: {
     email: input.customer.email,
   });
 
-  // Durin REVERSE example: source = customer, destination = warehouse location_code/address.
+  // Durin REVERSE: source = customer, destination = warehouse address.
   const source = isReverse ? customerAddr : warehouse;
   const destination = isReverse ? warehouse : customerAddr;
   const returnLocation = warehouse;
   const serviceCode = isReverse
     ? ekartConfig.reverseServiceCode
     : resolveEkartServiceCode(input.serviceCode || input.courierId);
-
-  const usedLocationCodeRaw =
-    String(input.pickup.ekartLocationCode ?? "").trim() || ekartConfig.defaultLocationCode;
-  const usedLocationCode = isUsableEkartLocationCode(usedLocationCodeRaw)
-    ? normalizeEkartLocationCode(usedLocationCodeRaw)
-    : "";
-  if (!usedLocationCode && !isReverse) {
-    console.warn(
-      "[ekart] create without location_code — Durin accepts address-only but Elite typically lists only registered pickup locations. Set Pickup.ekartLocationCode or EKART_DEFAULT_LOCATION_CODE."
-    );
-  }
 
   const body: Record<string, unknown> = {
     client_name: merchant,
@@ -318,6 +317,10 @@ export function buildEkartCreateShipmentPayload(input: {
         service_details: [
           {
             service_leg: serviceLeg,
+            // OpenAPI ServiceDetail.tier — REGULAR / ECONOMY. Elite product filters use this.
+            ...(!isReverse && (serviceCode === "REGULAR" || serviceCode === "ECONOMY")
+              ? { tier: serviceCode }
+              : {}),
             service_data: {
               vendor_name: "Ekart",
               amount_to_collect: String(amountToCollect),

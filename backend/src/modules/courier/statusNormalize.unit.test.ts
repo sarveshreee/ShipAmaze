@@ -42,6 +42,8 @@ describe("statusNormalize", () => {
     expect(mapEkartStatusToProviderCanonical("expected")).toBe("IN_TRANSIT");
     expect(mapEkartStatusToProviderCanonical("Shipment Expected")).toBe("IN_TRANSIT");
     expect(mapEkartStatusToProviderCanonical("shipment_expected")).toBe("IN_TRANSIT");
+    expect(mapEkartStatusToProviderCanonical("Expected at null")).toBe("CREATED");
+    expect(mapEkartStatusToProviderCanonical("expected_at_null")).toBe("CREATED");
     expect(providerCanonicalToOrderStatus("IN_TRANSIT")).toBe("in_transit");
   });
 

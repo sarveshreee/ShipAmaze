@@ -24,6 +24,17 @@ function buildIdempotencyKey(orderId: string, provider: string, explicit?: strin
  * Atomically claim an order for booking. Returns existing shipment if already booked
  * with the same idempotency key (or any completed booking).
  */
+export function isRebookableBookingStatus(status: unknown): boolean {
+  const s = String(status ?? "").toLowerCase().replace(/-/g, "_");
+  return (
+    s === "reship" ||
+    s === "booking_failed" ||
+    s === "failed" ||
+    s === "processing_failed" ||
+    s === "pickup_failed"
+  );
+}
+
 export async function claimOrderForBooking(opts: {
   orderId: string;
   provider: "velocity" | "lorrigo" | "ekart";
@@ -37,6 +48,20 @@ export async function claimOrderForBooking(opts: {
   // Fast path: already booked
   const existing = await Order.findOne({ orderId: opts.orderId });
   if (!existing) throw new AppError(404, "Order not found");
+
+  if (isRebookableBookingStatus(existing.status)) {
+    await Order.updateOne(
+      { orderId: opts.orderId },
+      {
+        $set: { shipmentCreated: false, awb: "", bookingInProgress: false },
+        $unset: { bookingInProgressAt: 1, bookingIdempotencyKey: 1 },
+      }
+    ).catch(() => undefined);
+    existing.shipmentCreated = false;
+    existing.awb = "";
+    existing.bookingInProgress = false;
+    existing.bookingIdempotencyKey = undefined;
+  }
 
   if (existing.shipmentCreated || String(existing.awb || "").trim()) {
     recordDuplicateBookingAttempt();

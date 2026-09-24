@@ -270,7 +270,6 @@ export interface PickupAddress {
   gstin?: string;
   isDefault: boolean;
   isActive?: boolean;
-  /** Ekart Elite registered location_code (source.location_code on Durin create). */
   ekartLocationCode?: string;
   ekartSyncStatus?: "SUCCESS" | "FAILED" | "SKIPPED";
   ekartLastSyncAt?: string;

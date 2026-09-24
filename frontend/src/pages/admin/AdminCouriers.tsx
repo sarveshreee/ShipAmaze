@@ -15,6 +15,7 @@ import type { CourierPriorityRule, CourierPriorityRuleType } from "@/services/co
 import * as courierService from "@/services/courierService";
 import * as pickupService from "@/services/pickupService";
 import { ApiError } from "@/lib/apiClient";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
 import type { PickupAddress } from "@/types/logistics";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -314,7 +315,7 @@ export default function AdminCouriers() {
               Pickup locations
             </h3>
             <p className="text-xs text-text-muted mt-0.5">
-              Loaded from Admin → Pickup Addresses. Link Velocity warehouses and set the default for courier operations.
+              Loaded from Admin → Pickup Addresses. Set the default pickup used for courier operations.
             </p>
           </div>
           <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
@@ -341,7 +342,7 @@ export default function AdminCouriers() {
               <p className="text-xs text-text-secondary">
                 Default for courier operations:{" "}
                 <strong className="text-text-primary">{defaultPickup.label}</strong>
-                {defaultPickup.velocityWarehouseId ? (
+                {VELOCITY_UI_ENABLED && defaultPickup.velocityWarehouseId ? (
                   <Badge variant="outline" className="ml-2 text-[10px]">
                     Velocity: {defaultPickup.velocityWarehouseId}
                   </Badge>
@@ -396,15 +397,17 @@ export default function AdminCouriers() {
                         Linked couriers: {linkedCouriers.map((c) => c.name).join(", ")}
                       </p>
                     )}
-                    <VelocityWarehouseLinkCard
-                      mongoId={p.id}
-                      velocityWarehouseId={p.velocityWarehouseId}
-                      onUpdated={async () => {
-                        window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses_platform"));
-                        await refetchPickups();
-                      }}
-                      forbiddenHint="pickup"
-                    />
+                    {VELOCITY_UI_ENABLED ? (
+                      <VelocityWarehouseLinkCard
+                        mongoId={p.id}
+                        velocityWarehouseId={p.velocityWarehouseId}
+                        onUpdated={async () => {
+                          window.dispatchEvent(new Event("shipamaze:refetch:pickup_addresses_platform"));
+                          await refetchPickups();
+                        }}
+                        forbiddenHint="pickup"
+                      />
+                    ) : null}
                   </div>
                 );
               })}

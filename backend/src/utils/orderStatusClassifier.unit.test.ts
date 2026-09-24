@@ -75,11 +75,11 @@ describe("normalizeTrackingStatus", () => {
     ).toBe("in_transit");
   });
 
-  it("Ekart picked-up status wins over stale shipment_created", () => {
+  it("Ekart picked-up status wins over stale pending_pickup shipmentStatus", () => {
     expect(
       classifyOrderTab({
         status: "in_transit",
-        shipmentStatus: "shipment_created",
+        shipmentStatus: "pickup_complete",
         awb: "TECC9944456948",
         courierProvider: "ekart",
       })
@@ -87,11 +87,32 @@ describe("normalizeTrackingStatus", () => {
     expect(
       classifyOrderTab({
         status: "picked_up",
-        shipmentStatus: "pending_pickup",
+        shipmentStatus: "mh_received",
         awb: "TECC9944456948",
         courierProvider: "ekart",
       })
     ).toBe("in_transit");
+  });
+
+  it("Ekart Expected at null / pickup_scheduled stay on pending pickup", () => {
+    expect(normalizeTrackingStatus("Expected at null", "ekart")).toBe("pending_pickup");
+    expect(normalizeTrackingStatus("pickup_scheduled", "ekart")).toBe("pending_pickup");
+    expect(
+      classifyOrderTab({
+        status: "in_transit",
+        shipmentStatus: "pickup_scheduled",
+        awb: "TECP2097314199",
+        courierProvider: "ekart",
+      })
+    ).toBe("pending_pickup");
+    expect(
+      classifyOrderTab({
+        status: "in_transit",
+        shipmentStatus: "Expected at null",
+        awb: "TECP2097314199",
+        courierProvider: "ekart",
+      })
+    ).toBe("pending_pickup");
   });
 
   it("Ekart Shipment Expected goes to in_transit tab", () => {

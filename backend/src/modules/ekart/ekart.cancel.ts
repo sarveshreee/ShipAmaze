@@ -14,6 +14,8 @@ import { sanitizeForProviderLog } from "../courier/http/sanitizeForProviderLog.j
 import type { ProviderCancelInput, ProviderCancelResult } from "../courier/types.js";
 import { ekartConfig } from "./ekart.config.js";
 import { ekartPut } from "./ekart.client.js";
+import { trackEkartShipment } from "./ekart.tracking.js";
+import { mapEkartStatusToProviderCanonical } from "../courier/statusNormalize.js";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -49,7 +51,12 @@ export function isEkartAlreadyCancelledMessage(message: string): boolean {
     m.includes("shipment is cancelled") ||
     m.includes("shipment is canceled") ||
     m.includes("rto already") ||
-    m.includes("cancel already")
+    m.includes("cancel already") ||
+    m.includes("shipment not found") ||
+    m.includes("tracking id not found") ||
+    m.includes("tracking_id not found") ||
+    m.includes("no shipment") ||
+    m.includes("invalid tracking")
   );
 }
 
@@ -88,7 +95,7 @@ export async function cancelEkartShipment(
     input.merchantReferenceId ?? input.providerOrderId ?? ""
   ).trim();
   const reason =
-    String(input.reason ?? "Client-Cancellation").trim() || "Client-Cancellation";
+    String(input.reason ?? "Cancel the shipment").trim() || "Cancel the shipment";
 
   if (!awb && !merchantRef) {
     throw new AppError(
@@ -151,6 +158,26 @@ export async function cancelEkartShipment(
         raw: sanitizeForProviderLog(raw),
       };
     }
+
+    if (awb) {
+      // Elite seller-cancel flips history to pickup_cancelled immediately.
+      // Durin RTO often keeps latest=pickup_scheduled for a few seconds — wait it out.
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, 800));
+        }
+        try {
+          const tracked = await trackEkartShipment({ awb });
+          const canonical = mapEkartStatusToProviderCanonical(tracked.status);
+          if (canonical === "CANCELLED" || canonical === "RETURNED") {
+            break;
+          }
+        } catch {
+          break;
+        }
+      }
+    }
+
     return {
       success: true,
       message:

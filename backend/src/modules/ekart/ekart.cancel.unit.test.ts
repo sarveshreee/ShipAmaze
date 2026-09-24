@@ -6,6 +6,13 @@ vi.mock("./ekart.client.js", () => ({
   ekartPut: (...args: unknown[]) => putMock(...args),
 }));
 
+vi.mock("./ekart.tracking.js", () => ({
+  trackEkartShipment: vi.fn(async () => ({
+    awb: "TECP0000000001",
+    status: "pickup_cancelled",
+  })),
+}));
+
 vi.mock("./ekart.config.js", () => ({
   ekartConfig: {
     rtoCreateEndpoint: "/v3/shipments/rto/create",
@@ -33,6 +40,8 @@ describe("Ekart cancel / RTO / RVP", () => {
     expect(isEkartAlreadyCancelledMessage("Unable to RTO shipment as it is already in RTO")).toBe(
       true
     );
+    expect(isEkartAlreadyCancelledMessage("Shipment not found for tracking id")).toBe(true);
+    expect(isEkartAlreadyCancelledMessage("Invalid Tracking Id")).toBe(true);
   });
 
   it("does not call Durin when EKART_CANCEL_ENABLED is false", async () => {

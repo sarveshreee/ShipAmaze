@@ -52,13 +52,9 @@ export const ekartConfig = {
   get merchantCode() {
     return (process.env.EKART_MERCHANT_CODE || "").trim().toUpperCase();
   },
-  /**
-   * Registered Elite pickup location_code (e.g. TEC_SUR_01).
-   * Durin FORWARD examples use this for source; Elite lists by registered locations.
-   * Pickup.ekartLocationCode overrides this when set.
-   */
+  /** Unused — Durin create is address-only. Kept so old env files do not break. */
   get defaultLocationCode() {
-    return (process.env.EKART_DEFAULT_LOCATION_CODE || "").trim();
+    return "";
   },
   /** Default service code for forward Non-Large create (Ekart-assigned). */
   get serviceCode() {

@@ -36,9 +36,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
 import { LorrigoPickupSyncCard } from "@/components/LorrigoPickupSyncCard";
-import { EkartPickupSyncCard } from "@/components/EkartPickupSyncCard";
 import { VelocityWarehouseLinkStatusBadge } from "@/components/VelocityWarehouseLinkStatusBadge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { getVelocityWarehouseLinkStatus, normalizeVelocityWarehouseCode } from "@/lib/velocityWarehouseLink";
@@ -57,7 +57,6 @@ const emptyForm = {
   pincode: "",
   country: "India",
   gstin: "",
-  ekartLocationCode: "",
   isDefault: false,
   isActive: true,
 };
@@ -84,7 +83,6 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
   /** Opt-in sync targets — nothing selected by default. */
   const [syncToVelocity, setSyncToVelocity] = useState(false);
   const [syncToLorrigo, setSyncToLorrigo] = useState(false);
-  const [syncToEkart, setSyncToEkart] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   /** Velocity code on the address being edited — for edit-dialog warnings only. */
@@ -115,7 +113,6 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
       setForm(emptyForm);
       setSyncToVelocity(false);
       setSyncToLorrigo(false);
-      setSyncToEkart(false);
       setEditingVelocityWarehouseId(undefined);
       resetPincode();
     }
@@ -127,7 +124,6 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
     setForm(emptyForm);
     setSyncToVelocity(false);
     setSyncToLorrigo(false);
-    setSyncToEkart(false);
     setDialogOpen(true);
   };
 
@@ -151,7 +147,6 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
       pincode: a.pincode,
       country: a.country || "India",
       gstin: a.gstin ?? "",
-      ekartLocationCode: a.ekartLocationCode ?? "",
       isDefault: a.isDefault,
       isActive: a.isActive !== false,
     });
@@ -189,23 +184,9 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
     }
     setSaving(true);
     try {
-      const syncProviders: Array<"velocity" | "lorrigo" | "ekart"> = [];
-      if (syncToVelocity) syncProviders.push("velocity");
+      const syncProviders: Array<"velocity" | "lorrigo"> = [];
+      if (VELOCITY_UI_ENABLED && syncToVelocity) syncProviders.push("velocity");
       if (syncToLorrigo) syncProviders.push("lorrigo");
-      if (syncToEkart) syncProviders.push("ekart");
-      if (syncToEkart && !form.ekartLocationCode.trim()) {
-        toast.error("Paste the Elite location code before syncing to Ekart");
-        setSaving(false);
-        return;
-      }
-      const ekartCode = form.ekartLocationCode.trim();
-      if (ekartCode && (/^\d+$/.test(ekartCode) || !/[A-Za-z]/.test(ekartCode))) {
-        toast.error(
-          "Pincode is not a Durin location_code. Leave blank to book with address, or paste the real code from Ekart BD (e.g. TEC_SUR_01)."
-        );
-        setSaving(false);
-        return;
-      }
 
       const payload = {
         label: form.label.trim(),
@@ -221,13 +202,11 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
         pincode: pinDigits,
         country: form.country.trim() || "India",
         gstin: form.gstin.trim() || undefined,
-        ekartLocationCode: form.ekartLocationCode.trim() || undefined,
         isDefault: form.isDefault,
         isActive: form.isActive,
         syncProviders,
         syncToVelocity,
         syncToLorrigo,
-        syncToEkart,
       };
 
       let resp: Awaited<ReturnType<typeof pickupService.createPickupAddress>> | undefined;
@@ -366,10 +345,12 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
                           Default
                         </span>
                       )}
-                      <VelocityWarehouseLinkStatusBadge
-                        velocityWarehouseId={a.velocityWarehouseId}
-                        labels={velocityBadgeLabels}
-                      />
+                      {VELOCITY_UI_ENABLED ? (
+                        <VelocityWarehouseLinkStatusBadge
+                          velocityWarehouseId={a.velocityWarehouseId}
+                          labels={velocityBadgeLabels}
+                        />
+                      ) : null}
                       {a.isActive === false ? (
                         <span className="inline-flex rounded-full bg-text-muted/20 text-text-muted px-2 py-0.5 text-[10px] font-medium">
                           Inactive
@@ -402,13 +383,13 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
                         Source: Vendor · ID: {a.vendorId.slice(-6)}
                       </p>
                     ) : null}
-                    {getVelocityWarehouseLinkStatus(a.velocityWarehouseId) === "linked" ? (
+                    {VELOCITY_UI_ENABLED && getVelocityWarehouseLinkStatus(a.velocityWarehouseId) === "linked" ? (
                       <p className="mt-1 font-mono text-[11px] font-semibold text-primary">
                         {normalizeVelocityWarehouseCode(a.velocityWarehouseId)}
                       </p>
-                    ) : getVelocityWarehouseLinkStatus(a.velocityWarehouseId) === "not_linked" ? (
+                    ) : VELOCITY_UI_ENABLED && getVelocityWarehouseLinkStatus(a.velocityWarehouseId) === "not_linked" ? (
                       <p className="mt-1 text-[10px] text-warning-dark">Not linked — booking disabled</p>
-                    ) : a.velocityWarehouseId?.trim() ? (
+                    ) : VELOCITY_UI_ENABLED && a.velocityWarehouseId?.trim() ? (
                       <p className="mt-1 text-[10px] text-danger">
                         {showProviderBrand ? "Invalid Velocity code" : "Invalid warehouse code"}
                       </p>
@@ -441,27 +422,20 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
                 {a.gstin ? <p className="text-xs text-text-muted pt-1">GSTIN: {a.gstin}</p> : null}
               </div>
 
-              <VelocityWarehouseLinkCard
-                mongoId={a.id}
-                velocityWarehouseId={a.velocityWarehouseId}
-                onUpdated={async () => {
-                  notifyPickupRefetch();
-                  await refetch();
-                }}
-                forbiddenHint="pickup"
-                showProviderBrand={showProviderBrand}
-              />
+              {VELOCITY_UI_ENABLED ? (
+                <VelocityWarehouseLinkCard
+                  mongoId={a.id}
+                  velocityWarehouseId={a.velocityWarehouseId}
+                  onUpdated={async () => {
+                    notifyPickupRefetch();
+                    await refetch();
+                  }}
+                  forbiddenHint="pickup"
+                  showProviderBrand={showProviderBrand}
+                />
+              ) : null}
 
               <LorrigoPickupSyncCard
-                pickup={a}
-                onUpdated={async () => {
-                  notifyPickupRefetch();
-                  await refetch();
-                }}
-                showProviderBrand={showProviderBrand}
-              />
-
-              <EkartPickupSyncCard
                 pickup={a}
                 onUpdated={async () => {
                   notifyPickupRefetch();
@@ -503,7 +477,8 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
             <DialogTitle>{editingId ? "Edit pickup address" : "New pickup address"}</DialogTitle>
             <DialogDescription>Warehouse / ship-from location used when creating orders.</DialogDescription>
           </DialogHeader>
-          {editingId &&
+          {VELOCITY_UI_ENABLED &&
+          editingId &&
           (getVelocityWarehouseLinkStatus(editingVelocityWarehouseId) === "linked" ||
             getVelocityWarehouseLinkStatus(editingVelocityWarehouseId) === "invalid") ? (
             <Alert className="border-warning/40 bg-warning-light/40 py-2.5 [&>svg]:text-warning-dark">
@@ -632,19 +607,6 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
               <Label>GST (optional)</Label>
               <Input className="mt-1" value={form.gstin} onChange={(e) => setForm((f) => ({ ...f, gstin: e.target.value.toUpperCase() }))} maxLength={15} />
             </div>
-            <div className="sm:col-span-2">
-              <Label>Ekart location code (not pincode)</Label>
-              <Input
-                className="mt-1"
-                value={form.ekartLocationCode}
-                onChange={(e) => setForm((f) => ({ ...f, ekartLocationCode: e.target.value.trim() }))}
-                placeholder="e.g. TEC_SUR_01 — not 395003"
-              />
-              <p className="text-[11px] text-text-muted mt-1">
-                Do not enter the address pincode. Elite Addresses does not show Durin location_code —
-                ask Ekart BD. Leave blank to book with full address (create/track works; Elite list may stay empty).
-              </p>
-            </div>
 
             <div className="sm:col-span-2 rounded-lg border border-border bg-surface-2/40 p-3 space-y-2">
               <div>
@@ -653,16 +615,18 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
                   Optional — nothing is selected by default. Sync only the providers you enable (you can also sync later from the address card).
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="sync-velocity"
-                  checked={syncToVelocity}
-                  onCheckedChange={(v) => setSyncToVelocity(Boolean(v))}
-                />
-                <Label htmlFor="sync-velocity" className="text-sm font-normal cursor-pointer">
-                  {showProviderBrand ? "Sync to Velocity" : "Sync warehouse (primary shipping)"}
-                </Label>
-              </div>
+              {VELOCITY_UI_ENABLED ? (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="sync-velocity"
+                    checked={syncToVelocity}
+                    onCheckedChange={(v) => setSyncToVelocity(Boolean(v))}
+                  />
+                  <Label htmlFor="sync-velocity" className="text-sm font-normal cursor-pointer">
+                    {showProviderBrand ? "Sync to Velocity" : "Sync warehouse (primary shipping)"}
+                  </Label>
+                </div>
+              ) : null}
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="sync-lorrigo"
@@ -673,27 +637,13 @@ export default function PickupAddressesPanel({ breadcrumb, subtitle, showProvide
                   {showProviderBrand ? "Sync to Lorrigo" : "Sync for alternate couriers"}
                 </Label>
               </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="sync-ekart"
-                  checked={syncToEkart}
-                  onCheckedChange={(v) => setSyncToEkart(Boolean(v))}
-                />
-                <Label htmlFor="sync-ekart" className="text-sm font-normal cursor-pointer">
-                  {showProviderBrand ? "Sync to Ekart (link Elite location code)" : "Sync to Elite (paste location code)"}
-                </Label>
-              </div>
-              {!syncToVelocity && !syncToLorrigo && !syncToEkart ? (
+              {!syncToVelocity && !syncToLorrigo ? (
                 <p className="text-[11px] text-text-muted">
                   {showProviderBrand
-                    ? "Address will be saved without syncing. Use the address card to link Velocity, Lorrigo, or Ekart later."
+                    ? VELOCITY_UI_ENABLED
+                      ? "Address will be saved without syncing. Use the address card to link Velocity or Lorrigo later."
+                      : "Address will be saved without syncing. Use the address card to link Lorrigo later."
                     : "Address will be saved without syncing. You can sync later from the address card."}
-                </p>
-              ) : syncToEkart ? (
-                <p className="text-[11px] text-text-muted">
-                  Elite Settings → Addresses is where the warehouse is registered. The Durin{" "}
-                  <code>location_code</code> usually comes from Ekart BD (or Download Registered
-                  Addresses) — paste it in the Elite location code field above, then sync.
                 </p>
               ) : null}
             </div>

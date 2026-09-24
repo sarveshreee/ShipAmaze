@@ -25,6 +25,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { useBranding } from "@/contexts/BrandingContext";
 import { trackShipmentPublic } from "@/services/velocityService";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import type { VelocityTrackingResult } from "@/services/velocityService";
 import { getPublicOrder } from "@/services/orderService";
 import { cn } from "@/lib/utils";
@@ -324,6 +325,35 @@ export default function PublicTracking() {
       }
 
       const awbToQuery = orderLookup?.awb?.trim() || trimmed;
+      if (!VELOCITY_UI_ENABLED) {
+        if (!orderLookup) {
+          setError("Shipment not found. Check the AWB or Order ID.");
+          return;
+        }
+        setResult(
+          toSafeTrackingResult({
+            awb: awbToQuery,
+            status: orderLookup.status,
+            carrierName: orderLookup.courierName ?? orderLookup.courier,
+            activities: orderLookup.trackingActivities ?? [],
+            order: { id: orderLookup.id },
+            orderDetails: {
+              phone: orderLookup.customerPhoneMasked,
+              paymentType: orderLookup.payment,
+              destination: {
+                city: orderLookup.city,
+                state: orderLookup.state,
+                pincode: orderLookup.pincodeMasked,
+              },
+              dates: { orderDate: orderLookup.date },
+              shipment: { channel: orderLookup.channel },
+            },
+          }),
+        );
+        pushRecent(trimmed);
+        setRecent(readRecent());
+        return;
+      }
       const resp = await trackShipmentPublic(awbToQuery);
       setResult(
         toSafeTrackingResult({

@@ -12,6 +12,7 @@ import { useDropshipperAccess } from "@/hooks/useDropshipperAccess";
 import { cn } from "@/lib/utils";
 
 import { discoverRates, type DiscoveredCourier } from "@/services/courierDiscoveryService";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import { providerSupports } from "@/lib/providerCapabilities";
 import { forwardShipmentBlockers } from "@/lib/forwardShipmentValidation";
 import { isOrderReadyToShip } from "@/lib/orderTabFilters";
@@ -209,6 +210,7 @@ function resolveOrderProductImage(
 }
 
 function reportVelocitySync(result: { velocitySync?: { synced: boolean; reason?: string } } | undefined) {
+  if (!VELOCITY_UI_ENABLED) return;
   if (!result?.velocitySync) return;
   if (result.velocitySync.synced) {
     toast.success("Changes synced to Velocity");
@@ -2960,7 +2962,7 @@ export function RichOrdersTable({
               }
               return (
                 <div className="space-y-2">
-                  {modalOrderWh ? (
+                  {VELOCITY_UI_ENABLED && modalOrderWh ? (
                     <div className="rounded-lg border border-success/30 bg-success-light/30 p-3 text-xs text-success-dark">
                       {showProviderBrand ? "Order linked to Velocity warehouse:" : "Order linked to shipping warehouse:"}{" "}
                       <span className="font-mono font-semibold">{modalOrderWh}</span>
@@ -2980,8 +2982,8 @@ export function RichOrdersTable({
                           <option key={w.id} value={w.id}>
                             {w.warehouseName}
                             {w.city ? ` — ${w.city}` : ""}
-                            {vid ? ` — ${vid}` : ""}
-                            {!vid ? (showProviderBrand ? " (not Velocity-linked)" : " (not linked)") : ""}
+                            {VELOCITY_UI_ENABLED && vid ? ` — ${vid}` : ""}
+                            {VELOCITY_UI_ENABLED && !vid ? (showProviderBrand ? " (not Velocity-linked)" : " (not linked)") : ""}
                           </option>
                         );
                       })}
@@ -2997,13 +2999,13 @@ export function RichOrdersTable({
                 value={selectedCourierId}
                 onChange={(e) => setSelectedCourierId(e.target.value)}
               >
-                <option value="">Auto — {showProviderBrand ? "Velocity assigns" : "system assigns"} best carrier</option>
+                <option value="">Auto — {showProviderBrand && VELOCITY_UI_ENABLED ? "Velocity assigns" : "system assigns"} best carrier</option>
                 {_couriers.map((c) => (
                   <option key={`local-${c.id}`} value={`name:${c.name}`}>
                     {c.name} (manual)
                   </option>
                 ))}
-                {velocityCouriers.map((r) => {
+                {velocityCouriers.filter((r) => VELOCITY_UI_ENABLED || r.provider !== "velocity").map((r) => {
                   const id = String(r.courierId || r.carrier_id);
                   const name = String(r.courierName || r.carrier_name || id);
                   const provider =
@@ -3031,7 +3033,7 @@ export function RichOrdersTable({
                 })}
               </select>
               <p className="text-[11px] text-text-muted mt-1">
-                {couriersLoading ? (showProviderBrand ? "Loading Velocity couriers…" : "Loading couriers…") : "Choose Auto or pick a specific courier for this shipment."}
+                {couriersLoading ? (showProviderBrand && VELOCITY_UI_ENABLED ? "Loading Velocity couriers…" : "Loading couriers…") : "Choose Auto or pick a specific courier for this shipment."}
               </p>
             </div>
           </div>

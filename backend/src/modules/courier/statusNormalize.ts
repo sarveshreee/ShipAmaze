@@ -125,6 +125,8 @@ const EKART_RAW_TO_PROVIDER: Record<string, ProviderCanonicalStatus> = {
   pickup_out_for_pickup: "CREATED",
   out_for_pickup: "CREATED",
   pickup_reattempt: "CREATED",
+  expected_at_null: "CREATED",
+  seller_cancelled: "CANCELLED",
   lpd_generated: "CREATED",
   accepted: "CREATED",
   updated: "CREATED",
@@ -229,6 +231,11 @@ export function mapEkartStatusToProviderCanonical(raw: unknown): ProviderCanonic
   ) {
     return "CREATED";
   }
+  // Durin pickup_scheduled public text is often "Expected at null" — that is
+  // NOT in-network. Only treat a real hub/expected scan as transit.
+  if (k.includes("expected") && k.includes("null")) {
+    return "CREATED";
+  }
   if (
     k.includes("transit") ||
     k.includes("shipped") ||
@@ -237,8 +244,8 @@ export function mapEkartStatusToProviderCanonical(raw: unknown): ProviderCanonic
     k.includes("dispatched") ||
     k.includes("bagged") ||
     k.includes("connected") ||
-    // Durin "Shipment Expected" / "expected" = parcel in network (In Transit)
-    (k.includes("expected") && !k.includes("return"))
+    // Durin "Shipment Expected" at a named hub = parcel in network
+    (k.includes("expected") && !k.includes("return") && !k.includes("null"))
   ) {
     return "IN_TRANSIT";
   }

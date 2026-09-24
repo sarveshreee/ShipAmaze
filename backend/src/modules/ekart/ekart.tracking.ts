@@ -120,7 +120,7 @@ export function mapEkartTrackHistory(raw: unknown): ProviderTrackingActivity[] {
       o.event_date_iso8601 ?? o.event_date ?? o.updated_datetime ?? o.date ?? ""
     );
     const activity = String(
-      o.public_description ?? o.status ?? o.hub_notes ?? o.activity ?? ""
+      o.status ?? o.public_description ?? o.hub_notes ?? o.activity ?? ""
     );
     const location = String(o.hub_name ?? o.city ?? o.location ?? "");
     if (!activity && !date) continue;
@@ -159,7 +159,33 @@ export function extractEkartShipmentBlock(raw: unknown, awb: string): Record<str
     }
   }
 
-  return root;
+  // Flat shipment object (no AWB key). Never treat `{ request_id }` as a hit —
+  // that made ghost AWBs look trackable and Elite never listed them.
+  if (isEkartShipmentBlockPresent(root, awb)) return root;
+  return {};
+}
+
+/** True when Durin actually indexed this tracking id (not an empty 200). */
+export function isEkartShipmentBlockPresent(
+  block: Record<string, unknown>,
+  awb?: string
+): boolean {
+  if (!block || Object.keys(block).length === 0) return false;
+  if (Array.isArray(block.history) && block.history.length > 0) return true;
+  if (String(block.shipment_id ?? "").trim()) return true;
+  if (String(block.external_tracking_id ?? "").trim()) return true;
+  if (String(block.order_id ?? "").trim()) return true;
+  if (block.sender != null || block.receiver != null) return true;
+  if (typeof block.rto === "boolean") return true;
+  if (block.delivered === true) return true;
+  if (awb && asRecord(block[awb])) return true;
+  return false;
+}
+
+export function isEkartTrackFound(
+  tracked: { awb?: string; status?: string } | null | undefined
+): boolean {
+  return Boolean(String(tracked?.awb ?? "").trim() && String(tracked?.status ?? "").trim());
 }
 
 /**
@@ -172,6 +198,16 @@ export function parseEkartTrackResponse(
   awb: string
 ): Omit<ProviderTrackingResult, "raw"> & { rawStatusCode: string } {
   const block = extractEkartShipmentBlock(raw, awb);
+  if (!isEkartShipmentBlockPresent(block, awb)) {
+    return {
+      awb: "",
+      status: "",
+      rawStatusCode: "",
+      courierName: "Ekart",
+      providerOrderId: "",
+      activities: [],
+    };
+  }
   const historyRows = Array.isArray(block.history) ? block.history : [];
   const activities = mapEkartTrackHistory(historyRows);
 

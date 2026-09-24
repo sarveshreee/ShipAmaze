@@ -30,32 +30,14 @@ ShipAmaze Pickup (canonical)
   → store ids distinctly (see below)
 ```
 
-**No** `syncPickupToEkart`, **no** provider pickup IDs.
-
-Optional: `Pickup.ekartLocationCode` → `source.location_code` when set (recommended for Elite warehouse views); otherwise full address.
-
-### Pickup sync (Elite link — not API create)
-
-Durin has **no** create-warehouse API. Locations are registered in Elite (Settings → Pickup locations) and approved by Ekart.
-
-ShipAmaze **Sync to Ekart** = link that Elite `location_code` onto the pickup:
+**No** pickup sync and **no** `location_code`. Create always sends the ShipAmaze pickup address (`source.address` + `return_location.address`).
 
 ```
-POST /api/ekart/pickups/:id/sync  { locationCode: "TEC_SUR_01" }
+POST /api/ekart/pickups/:id/sync
 POST /api/ekart/pickups/:id/unlink
 ```
 
-Booking works with full pickup **address** (Durin docs: location_code **or** address).  
-Elite Shipments listing usually needs a BD-assigned `location_code`. Without it, public track works; Elite list may stay empty.
-
-ShipAmaze **Sync to Ekart** = optional link of that code when Ekart provides it:
-
-```
-POST /api/ekart/pickups/:id/sync  { locationCode: "TEC_SUR_01" }
-POST /api/ekart/pickups/:id/unlink
-```
-
-There is **no** Durin create-warehouse API in GettingStarted / Non_Large / Large docs.
+These routes return **410** — location codes are not used.
 
 ### Durin `service_code` (REGULAR / ECONOMY)
 

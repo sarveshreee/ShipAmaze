@@ -60,7 +60,6 @@ import {
   syncVendorWarehouseToVelocity,
 } from "../modules/velocity/velocity.warehouseSync.js";
 import { syncPickupToLorrigo } from "../modules/lorrigo/lorrigo.pickupSync.js";
-import { linkPickupToEkart } from "../modules/ekart/ekart.pickupSync.js";
 import { getCourierProvider } from "../modules/courier/providerRegistry.js";
 import {
   normalizeProviderNdrAction,
@@ -1469,20 +1468,15 @@ function pickupContactFromBody(b: Record<string, unknown>): string {
 function parsePickupSyncTargets(b: Record<string, unknown>): {
   syncVelocity: boolean;
   syncLorrigo: boolean;
-  syncEkart: boolean;
-  ekartLocationCode: string;
 } {
   const providers = Array.isArray(b.syncProviders)
     ? b.syncProviders.map((p) => String(p).trim().toLowerCase()).filter(Boolean)
     : [];
   const fromListVelocity = providers.includes("velocity");
   const fromListLorrigo = providers.includes("lorrigo");
-  const fromListEkart = providers.includes("ekart");
   const syncVelocity = b.syncToVelocity === true || fromListVelocity;
   const syncLorrigo = b.syncToLorrigo === true || fromListLorrigo;
-  const syncEkart = b.syncToEkart === true || fromListEkart;
-  const ekartLocationCode = String(b.ekartLocationCode ?? "").trim();
-  return { syncVelocity, syncLorrigo, syncEkart, ekartLocationCode };
+  return { syncVelocity, syncLorrigo };
 }
 
 function mapPickupDoc(a: {
@@ -1715,7 +1709,6 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     pincode,
     country,
     gstin: gstinRaw || undefined,
-    ekartLocationCode: trimStr(b.ekartLocationCode) || undefined,
     addressFingerprint: fp,
     isDefault: makeDefault,
     isActive,
@@ -1724,8 +1717,7 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   });
 
   // Opt-in sync only — nothing syncs by default; client must request providers explicitly.
-  const { syncVelocity, syncLorrigo, syncEkart, ekartLocationCode: ekartCodeFromSync } =
-    parsePickupSyncTargets(b);
+  const { syncVelocity, syncLorrigo } = parsePickupSyncTargets(b);
 
   let velocitySync:
     | Awaited<ReturnType<typeof syncPickupToVelocity>>
@@ -1736,10 +1728,6 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     | Awaited<ReturnType<typeof syncPickupToLorrigo>>
     | { synced: false; skipped: true; reason: string }
     | { synced: false; error: string }
-    | undefined;
-  let ekartSync:
-    | Awaited<ReturnType<typeof linkPickupToEkart>>
-    | { synced: false; skipped: true; reason: string }
     | undefined;
 
   if (syncVelocity) {
@@ -1761,13 +1749,6 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     lorrigoSync = { synced: false, skipped: true, reason: "Sync not requested" };
   }
 
-  if (syncEkart) {
-    const code = ekartCodeFromSync || trimStr(b.ekartLocationCode);
-    ekartSync = await linkPickupToEkart(String(doc._id), code, { force: true });
-  } else {
-    ekartSync = { synced: false, skipped: true, reason: "Sync not requested" };
-  }
-
   // Re-read latest provider fields from DB for the response
   const fresh = await Pickup.findById(doc._id).lean();
   const responseDoc = fresh ?? doc.toObject();
@@ -1780,7 +1761,6 @@ export const createPickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     data: mapPickupDoc(responseDoc),
     velocitySync,
     lorrigoSync,
-    ekartSync,
   });
 });
 
@@ -1853,7 +1833,6 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   if (b.pincode !== undefined) patch.pincode = normalizePincodeIndia(trimStr(b.pincode));
   if (b.country !== undefined) patch.country = trimStr(b.country) || "India";
   if (b.gstin !== undefined) patch.gstin = trimStr(b.gstin).toUpperCase();
-  if (b.ekartLocationCode !== undefined) patch.ekartLocationCode = trimStr(b.ekartLocationCode);
   if (b.isActive !== undefined) patch.isActive = Boolean(b.isActive);
 
   if (b.isDefault === true) {
@@ -1920,16 +1899,12 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
   existing.alternatePhone = alternatePhone || undefined;
   existing.email = email || "";
   existing.gstin = gstinVal || undefined;
-  if (b.ekartLocationCode !== undefined) {
-    existing.ekartLocationCode = trimStr(b.ekartLocationCode) || undefined;
-  }
   existing.addressFingerprint = fp;
 
   await existing.save();
 
   // Opt-in sync only — never auto-sync on update unless the client requests it.
-  const { syncVelocity, syncLorrigo, syncEkart, ekartLocationCode: ekartCodeFromSync } =
-    parsePickupSyncTargets(b);
+  const { syncVelocity, syncLorrigo } = parsePickupSyncTargets(b);
 
   let velocitySync:
     | Awaited<ReturnType<typeof syncPickupToVelocity>>
@@ -1939,7 +1914,6 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     | Awaited<ReturnType<typeof syncPickupToLorrigo>>
     | { synced: false; error: string }
     | undefined;
-  let ekartSync: Awaited<ReturnType<typeof linkPickupToEkart>> | undefined;
 
   if (syncVelocity) {
     velocitySync = await syncPickupToVelocity(existing._id).catch((e) => ({
@@ -1958,18 +1932,12 @@ export const updatePickupAddress = asyncHandler(async (req: AuthRequest, res: Re
     }));
   }
 
-  if (syncEkart) {
-    const code = ekartCodeFromSync || trimStr(b.ekartLocationCode) || trimStr(existing.ekartLocationCode);
-    ekartSync = await linkPickupToEkart(String(existing._id), code, { force: true });
-  }
-
   const fresh = await Pickup.findById(existing._id).lean();
   res.json({
     success: true,
     data: mapPickupDoc(fresh ?? existing.toObject()),
     ...(velocitySync ? { velocitySync } : {}),
     ...(lorrigoSync ? { lorrigoSync } : {}),
-    ...(ekartSync ? { ekartSync } : {}),
   });
 });
 

@@ -23,6 +23,12 @@ describe("buildEkartClientReferenceId", () => {
     expect(buildEkartClientReferenceId("ORD123456789012")).toBe("ORD123456789012");
   });
 
+  it("suffixes client_reference_id on reship attempt", () => {
+    expect(buildEkartClientReferenceId("10374")).toBe("10374");
+    expect(buildEkartClientReferenceId("10374", 2)).toBe("10374v2");
+    expect(buildEkartClientReferenceId("10374", 2).length).toBeLessThanOrEqual(15);
+  });
+
   it("uses unique trailing digits for long Shopify-style ids", () => {
     const a = buildEkartClientReferenceId(
       "shopify-k7qqag-ph-myshopify-com-7193615565079"

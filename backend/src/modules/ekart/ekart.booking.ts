@@ -56,10 +56,6 @@ export async function createEkartShipment(
     state: String(input.providerPayload?.pickupState ?? ""),
     pincode: String(input.providerPayload?.pickupPincode ?? ""),
     country: String(input.providerPayload?.pickupCountry ?? "India"),
-    ekartLocationCode:
-      typeof input.providerPayload?.ekartLocationCode === "string"
-        ? input.providerPayload.ekartLocationCode
-        : undefined,
   };
 
   const serviceCodeOverride =
@@ -68,6 +64,16 @@ export async function createEkartShipment(
       : typeof input.providerPayload?.ekartServiceCode === "string"
         ? input.providerPayload.ekartServiceCode
         : undefined;
+
+  const bookingAttempt = Math.max(
+    1,
+    Math.floor(Number(input.providerPayload?.bookingAttempt) || 1)
+  );
+
+  const reuseTrackingId =
+    typeof input.providerPayload?.trackingId === "string"
+      ? input.providerPayload.trackingId.trim()
+      : "";
 
   const built = buildEkartCreateShipmentPayload({
     orderId: input.orderId,
@@ -83,6 +89,8 @@ export async function createEkartShipment(
     items: input.items,
     courierId: input.courierId,
     serviceCode: serviceCodeOverride,
+    bookingAttempt,
+    trackingId: reuseTrackingId || undefined,
     serviceLeg:
       input.providerPayload?.shipmentType === "return" ||
       String(input.providerPayload?.serviceLeg ?? "").toUpperCase() === "REVERSE"
@@ -109,18 +117,12 @@ export async function createEkartShipment(
     recordEkartBookingFailure(Date.now() - started);
     if (err instanceof AppError) {
       const m = err.message || "";
-      if (/invalid\s+location\s+code/i.test(m)) {
-        throw new AppError(
-          422,
-          "Invalid Durin location_code on this pickup. ShipAmaze clears bad codes and retries with the full address automatically — click Unlink on Pickup Addresses if this persists."
-        );
-      }
       if (isEkartDuplicateCreateMessage(m)) {
         const recovered = await recoverEkartDuplicateShipment(built, input, started);
         if (recovered) return recovered;
         throw new AppError(
           409,
-          "Shipment already exists at Ekart for this order but could not be recovered. Use Cancel → Reship to void the ghost AWB, then process again."
+          "Shipment already exists at Ekart for this order. Cancel that AWB in Elite first, then process again — do not retry or you will create a second shipment."
         );
       }
     }
@@ -141,6 +143,9 @@ export async function createEkartShipment(
     );
   }
 
+  // Durin 200 REQUEST_RECEIVED is the booking. Immediate track is often empty
+  // for Economy — failing here dumped the order to Failed; retry minted a
+  // second AWB and Elite showed the order twice.
   recordEkartBookingSuccess(Date.now() - started);
 
   const parkedNote =

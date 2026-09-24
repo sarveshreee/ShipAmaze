@@ -55,7 +55,7 @@ export const PROVIDER_CAPABILITIES: Record<CourierProviderId, CourierProviderCap
     cancel: false,
     ndr: false,
     returns: true,
-    pickupSync: true,
+    pickupSync: false,
     labels: false,
     webhooks: true,
   },

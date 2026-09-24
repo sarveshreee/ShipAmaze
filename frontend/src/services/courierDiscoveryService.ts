@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from "@/lib/apiClient";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 
 export type CourierProviderLabel = "velocity" | "lorrigo" | "ekart";
 
@@ -43,6 +44,11 @@ export interface DiscoveryParams {
   mode?: "velocity" | "lorrigo" | "ekart" | "both";
 }
 
+function hideDisconnectedVelocity<T extends { provider?: string }>(rows: T[]): T[] {
+  if (VELOCITY_UI_ENABLED) return rows;
+  return rows.filter((c) => c.provider !== "velocity");
+}
+
 function toUiCourier(c: DiscoveredCourier): DiscoveredCourier {
   return {
     ...c,
@@ -63,7 +69,7 @@ export async function discoverServiceability(params: DiscoveryParams) {
   }>("/courier/serviceability", params);
   return {
     ...res,
-    data: (res.data ?? []).map(toUiCourier),
+    data: hideDisconnectedVelocity((res.data ?? []).map(toUiCourier)),
   };
 }
 
@@ -76,7 +82,7 @@ export async function discoverRates(params: DiscoveryParams) {
   }>("/courier/rates", params);
   return {
     ...res,
-    data: (res.data ?? []).map(toUiCourier),
+    data: hideDisconnectedVelocity((res.data ?? []).map(toUiCourier)),
   };
 }
 

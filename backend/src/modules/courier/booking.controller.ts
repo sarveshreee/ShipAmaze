@@ -193,7 +193,7 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
 
   const { cancelProviderShipmentForOrder } = await import("./cancelProviderShipment.js");
   const cancelResult = await cancelProviderShipmentForOrder(order, {
-    reason: String(body.reason ?? "customer_request"),
+    reason: String(body.reason ?? "Cancel the shipment"),
   });
 
   if (!cancelResult.attempted) {
@@ -205,6 +205,8 @@ export const cancelShipment = asyncHandler(async (req: AuthRequest, res: Respons
   }
 
   // After successful provider cancel, move local order to Reship (rebookable).
+  order.bookingVersion = Math.max(1, Number(order.bookingVersion ?? 1)) + 1;
+  order.bookingIdempotencyKey = undefined;
   order.shipmentCreated = false;
   order.awb = "";
   order.trackingId = undefined;

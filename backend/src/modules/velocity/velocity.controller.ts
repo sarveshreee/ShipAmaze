@@ -29,6 +29,7 @@ import {
 import { getCourierProvider } from "../courier/index.js";
 import { syncVelocityFailureRemarkByAwb } from "./velocityRemarkSync.js";
 import { devLog } from "../../utils/devLog.js";
+import { isVelocityEnabledFlag } from "../../config/env.js";
 import type {
   VelocityCustomer,
   VelocityCreateShipmentResponse,
@@ -1302,19 +1303,30 @@ export const syncShipmentStatuses = asyncHandler(async (req: AuthRequest, res: R
     errorDetails: r.errorDetails ?? [],
   });
 
+  const velocitySkipped = {
+    provider: "velocity",
+    processed: 0,
+    updated: 0,
+    errors: 0,
+    skipped: 0,
+    statusChanges: 0,
+    errorDetails: [] as string[],
+  };
   const [velocity, ekart, lorrigo] = await Promise.all([
-    getCourierProvider("velocity")
-      .syncStatus({ batchSize: perProvider })
-      .then((r) => mergeSync("velocity", r))
-      .catch((e) => ({
-        provider: "velocity",
-        processed: 0,
-        updated: 0,
-        errors: 1,
-        skipped: 0,
-        statusChanges: 0,
-        errorDetails: [e instanceof Error ? e.message : String(e)],
-      })),
+    !isVelocityEnabledFlag()
+      ? Promise.resolve(velocitySkipped)
+      : getCourierProvider("velocity")
+          .syncStatus({ batchSize: perProvider })
+          .then((r) => mergeSync("velocity", r))
+          .catch((e) => ({
+            provider: "velocity",
+            processed: 0,
+            updated: 0,
+            errors: 1,
+            skipped: 0,
+            statusChanges: 0,
+            errorDetails: [e instanceof Error ? e.message : String(e)],
+          })),
     getCourierProvider("ekart")
       .syncStatus({ batchSize: perProvider })
       .then((r) => mergeSync("ekart", r))
@@ -2163,6 +2175,9 @@ export async function syncLocalOrderEditsToVelocity(
   order: IOrder,
   opts?: { pickupChanged?: boolean }
 ): Promise<VelocityOrderEditSyncResult> {
+  if (!isVelocityEnabledFlag()) {
+    return { synced: false, reason: "velocity_disconnected" };
+  }
   if (!velocityConfig.username || !velocityConfig.password) {
     return { synced: false, reason: "velocity_not_configured" };
   }

@@ -35,9 +35,9 @@ function intEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 30_000 ? n : fallback;
 }
 
-/** Env-configurable poll interval (default 5 minutes). */
+/** Env-configurable poll interval (default 90 seconds so Elite cancel lands faster). */
 export function getEkartStatusSyncIntervalMs(): number {
-  return intEnv("EKART_STATUS_SYNC_INTERVAL_MS", 5 * 60 * 1000);
+  return intEnv("EKART_STATUS_SYNC_INTERVAL_MS", 90 * 1000);
 }
 
 function appendStatusHistory(order: IOrder, status: string, note: string) {
@@ -58,6 +58,8 @@ function moveEkartCancelledToReship(
 ): void {
   const current = normalizeOrderStatus(order.status);
   const alreadyReship = String(order.status ?? "").toLowerCase().replace(/-/g, "_") === "reship";
+  order.bookingVersion = Math.max(1, Number(order.bookingVersion ?? 1)) + 1;
+  order.bookingIdempotencyKey = undefined;
   order.shipmentCreated = false;
   order.awb = "";
   order.trackingId = undefined;
@@ -107,6 +109,10 @@ function isExplicitEkartCreateStage(raw: unknown): boolean {
     k === "details_received" ||
     k === "created" ||
     k === "scheduled" ||
+    k === "pickup_scheduled" ||
+    k === "out_for_pickup" ||
+    k === "pickup_out_for_pickup" ||
+    k === "pickup_reattempt" ||
     k === "accepted" ||
     k === "updated" ||
     k === "lpd_generated"
@@ -119,6 +125,9 @@ function activitiesShowPastPickup(
   if (!Array.isArray(activities) || activities.length === 0) return false;
   for (const a of activities) {
     const text = String(a.activity ?? "");
+    const k = ekartRawKey(text);
+    if (k.includes("expected") && k.includes("null")) continue;
+    if (k.includes("dispach")) continue;
     const canonical = mapEkartStatusToProviderCanonical(text);
     if (
       canonical === "PICKED_UP" ||
@@ -218,7 +227,7 @@ export async function syncEkartActiveShipmentStatuses(
     ],
   })
     .select(
-      "_id orderId awb status shipmentStatus trackingActivities statusHistory providerEvents correlationId bookingVersion ekartTrackingId ekartClientReferenceId lastProviderStatusSyncedAt pickupDate"
+      "_id orderId awb status shipmentStatus trackingActivities statusHistory providerEvents correlationId bookingVersion bookingIdempotencyKey ekartTrackingId ekartClientReferenceId lastProviderStatusSyncedAt pickupDate"
     )
     .sort({ lastProviderStatusSyncedAt: 1, updatedAt: 1 })
     .limit(batchSize)
@@ -266,16 +275,10 @@ export async function syncEkartActiveShipmentStatuses(
 
       const rawStatus = tracked.status;
       if (!rawStatus || !String(rawStatus).trim()) {
-        result.errors += 1;
+        // Empty track right after create is normal (especially Economy). Do not
+        // move to Reship — that made merchants retry and book a second AWB.
+        result.skipped += 1;
         order.lastProviderStatusSyncedAt = new Date();
-        appendProviderEvent(order, {
-          provider: "ekart",
-          type: "TRACKING_FAILED",
-          status: "FAILED",
-          durationMs: providerLatency,
-          correlationId,
-          message: "Empty status from Ekart",
-        });
         await order.save();
         continue;
       }
@@ -315,6 +318,7 @@ export async function syncEkartActiveShipmentStatuses(
       const pastPickupInActivities = activitiesShowPastPickup(order.trackingActivities);
 
       // Courier confirmed pickup (date or activity) but status still booking-like — advance tab.
+      // Never invent In Transit from a CREATED scan (Durin "Expected at null" used to do that).
       if (
         (tracked.pickupDate || pastPickupInActivities) &&
         (nextStatus === "pickup_scheduled" ||
@@ -322,17 +326,19 @@ export async function syncEkartActiveShipmentStatuses(
           nextStatus === "draft" ||
           providerCanonical === "CREATED")
       ) {
-        if (
-          current === "pickup_scheduled" ||
-          current === "ready_to_ship" ||
-          current === "draft"
+        if (providerCanonical === "CREATED" && !pastPickupInActivities && !tracked.pickupDate) {
+          nextStatus = "pickup_scheduled";
+        } else if (
+          pastPickupInActivities &&
+          (current === "pickup_scheduled" ||
+            current === "ready_to_ship" ||
+            current === "draft" ||
+            current === "in_transit")
         ) {
           const inferred = inferOrderStatusFromActivities(order.trackingActivities);
-          nextStatus = (inferred || "in_transit") as typeof nextStatus;
-        } else if (providerCanonical === "CREATED") {
-          // Already past pickup — keep current lifecycle (avoid picked_up ↔ in_transit churn
-          // and do not heal back to pending_pickup when activities prove collection).
-          nextStatus = current;
+          if (inferred && inferred !== "pickup_scheduled") {
+            nextStatus = inferred as typeof nextStatus;
+          }
         }
       }
 
@@ -351,7 +357,6 @@ export async function syncEkartActiveShipmentStatuses(
       // Empty/partial Durin payloads previously reset real pickups back to Pending Pickup.
       const healFalseInTransit =
         providerCanonical === "CREATED" &&
-        isExplicitEkartCreateStage(rawStatus) &&
         !tracked.pickupDate &&
         !pastPickupInActivities &&
         (current === "in_transit" || current === "picked_up");

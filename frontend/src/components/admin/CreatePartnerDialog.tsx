@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/lib/apiClient";
 import * as partnerService from "@/services/partnerService";
 import type { PartnerProvider } from "@/services/partnerService";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import * as userService from "@/services/userService";
 import type { AdminUserRow } from "@/services/userService";
 
@@ -22,7 +23,11 @@ const PROVIDERS: { id: PartnerProvider; label: string }[] = [
   { id: "velocity", label: "Velocity" },
   { id: "lorrigo", label: "Lorrigo" },
   { id: "ekart", label: "Ekart" },
-];
+].filter((p) => VELOCITY_UI_ENABLED || p.id !== "velocity");
+
+const DEFAULT_PROVIDERS: PartnerProvider[] = VELOCITY_UI_ENABLED
+  ? ["velocity", "lorrigo", "ekart"]
+  : ["lorrigo", "ekart"];
 
 interface CreatePartnerDialogProps {
   open: boolean;
@@ -40,11 +45,7 @@ export function CreatePartnerDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [linkedUserId, setLinkedUserId] = useState("");
-  const [allowedProviders, setAllowedProviders] = useState<PartnerProvider[]>([
-    "velocity",
-    "lorrigo",
-    "ekart",
-  ]);
+  const [allowedProviders, setAllowedProviders] = useState<PartnerProvider[]>(DEFAULT_PROVIDERS);
   const [userSearch, setUserSearch] = useState("");
   const [userSearchDebounced, setUserSearchDebounced] = useState("");
   const [userOptions, setUserOptions] = useState<AdminUserRow[]>([]);
@@ -92,7 +93,7 @@ export function CreatePartnerDialog({
     setName("");
     setDescription("");
     setLinkedUserId("");
-    setAllowedProviders(["velocity", "lorrigo", "ekart"]);
+    setAllowedProviders(DEFAULT_PROVIDERS);
     setUserSearch("");
   };
 

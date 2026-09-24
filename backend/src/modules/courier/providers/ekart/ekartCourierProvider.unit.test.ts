@@ -79,14 +79,14 @@ describe("Ekart provider foundation", () => {
   it("declares Phase 3 capabilities without faking PDF labels", () => {
     expect(EKART_CAPABILITIES.booking).toBe(true);
     expect(EKART_CAPABILITIES.tracking).toBe(true);
-    expect(EKART_CAPABILITIES.pickupSync).toBe(true);
+    expect(EKART_CAPABILITIES.pickupSync).toBe(false);
     expect(EKART_CAPABILITIES.rates).toBe(false);
     expect(EKART_CAPABILITIES.cancel).toBe(false);
     expect(EKART_CAPABILITIES.returns).toBe(true);
     expect(EKART_CAPABILITIES.labels).toBe(false);
     expect(EKART_CAPABILITIES.webhooks).toBe(true);
     expect(providerSupports(EKART_CAPABILITIES, "booking")).toBe(true);
-    expect(providerSupports(EKART_CAPABILITIES, "pickupSync")).toBe(true);
+    expect(providerSupports(EKART_CAPABILITIES, "pickupSync")).toBe(false);
   });
 
   it("createPickup is not supported", async () => {
@@ -112,6 +112,30 @@ describe("Ekart provider foundation", () => {
       orderId: "ORD-1001",
     });
     expect(id).toMatch(/^TEC[CPR]\d{10}$/);
+  });
+
+  it("keeps attempt-1 tracking id stable and changes it on reship", () => {
+    const first = buildEkartTrackingId({
+      merchantCode: "TEC",
+      paymentMode: "prepaid",
+      orderId: "10374",
+    });
+    const again = buildEkartTrackingId({
+      merchantCode: "TEC",
+      paymentMode: "prepaid",
+      orderId: "10374",
+      attempt: 1,
+    });
+    const reship = buildEkartTrackingId({
+      merchantCode: "TEC",
+      paymentMode: "prepaid",
+      orderId: "10374",
+      attempt: 2,
+    });
+    expect(first).toBe(again);
+    expect(first).toBe("TECP1903862007");
+    expect(reship).toMatch(/^TECP\d{10}$/);
+    expect(reship).not.toBe(first);
   });
 
   it("maps Pickup fields into source and return_location", () => {
@@ -145,6 +169,9 @@ describe("Ekart provider foundation", () => {
     });
 
     const detail = (built.body.services as any)[0].service_details[0];
+    expect(detail.tier).toBe("REGULAR");
+    expect(detail.service_data.source.location_type).toBe("SELLER_PICKUP_POINT");
+    expect(detail.service_data.source.location_code).toBeUndefined();
     expect(detail.service_data.source.address.first_name).toBe("Alice");
     expect(detail.service_data.source.address.pincode).toBe("560001");
     expect(detail.service_data.return_location.address.pincode).toBe("560001");
@@ -157,7 +184,7 @@ describe("Ekart provider foundation", () => {
     expect(built.clientReferenceId).not.toBe(built.trackingIdSent);
   });
 
-  it("uses location_code when ekartLocationCode is set", () => {
+  it("never sends location_code — pickup address only", () => {
     const built = buildEkartCreateShipmentPayload({
       orderId: "ORD124",
       paymentMode: "cod",
@@ -168,8 +195,7 @@ describe("Ekart provider foundation", () => {
       widthCm: 10,
       heightCm: 10,
       pickup: {
-        ekartLocationCode: "TEC_BLR_01",
-        addressLine1: "ignored when code set",
+        addressLine1: "12 MG Road",
         city: "Bengaluru",
         state: "KA",
         pincode: "560001",
@@ -187,7 +213,9 @@ describe("Ekart provider foundation", () => {
       trackingId: "TECC0000000002",
     });
     const detail = (built.body.services as any)[0].service_details[0];
-    expect(detail.service_data.source).toEqual({ location_code: "TEC_BLR_01" });
+    expect(detail.service_data.source.location_code).toBeUndefined();
+    expect(detail.service_data.source.location_type).toBe("SELLER_PICKUP_POINT");
+    expect(detail.service_data.source.address.pincode).toBe("560001");
     expect(detail.service_data.dispatch_date).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   });
 
@@ -226,6 +254,7 @@ describe("Ekart provider foundation", () => {
       courierId: "ekart:ECONOMY",
     });
     expect((built.body.services as any)[0].service_code).toBe("ECONOMY");
+    expect((built.body.services as any)[0].service_details[0].tier).toBe("ECONOMY");
     expect(built.serviceCode).toBe("ECONOMY");
   });
 

@@ -151,6 +151,8 @@ export async function applyEkartCriticalUpdate(
   // Elite cancel / Durin cancel event → Reship (clear AWB for rebook).
   if (providerCanonical === "CANCELLED") {
     const alreadyReship = String(order.status ?? "").toLowerCase().replace(/-/g, "_") === "reship";
+    order.bookingVersion = Math.max(1, Number(order.bookingVersion ?? 1)) + 1;
+    order.bookingIdempotencyKey = undefined;
     order.shipmentCreated = false;
     order.awb = "";
     order.trackingId = undefined;

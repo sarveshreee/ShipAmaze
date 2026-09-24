@@ -21,6 +21,14 @@ const router = Router();
 // ── Public tracking (no auth required; allowed for existing AWBs even if disabled) ──
 router.get("/track/public/:awb", publicTrackingLimiter, vc.trackShipmentPublic);
 
+// Status refresh also updates Ekart and Lorrigo. Keep it available while Velocity is disconnected.
+router.post(
+  "/sync-statuses",
+  authMiddleware,
+  requireRoles("admin"),
+  vc.syncShipmentStatuses
+);
+
 // ── Feature flag kill switch for all authenticated Velocity APIs ──
 router.use(requireVelocityEnabled);
 
@@ -76,8 +84,6 @@ router.post("/shipments", requireRoles("admin"), vc.listVelocityShipments);
 router.post("/returns", requireRoles("admin"), vc.listVelocityReturns);
 router.post("/reports", requireRoles("admin"), vc.getVelocityReports);
 
-// Admin-only: bulk status refresh from Velocity
-router.post("/sync-statuses", requireRoles("admin"), vc.syncShipmentStatuses);
 
 // NDR sync from Velocity — admin and dropshipper/vendor (their NDR list is scoped by AWB visibility)
 router.post("/sync-ndr", requireRoles("admin", "vendor", "dropshipper"), vc.syncNdrOrders);

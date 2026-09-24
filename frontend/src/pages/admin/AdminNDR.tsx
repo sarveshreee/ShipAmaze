@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { useNdrOrders } from "@/hooks/useApiData";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import type { NdrRow } from "@/hooks/useApiData";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -233,14 +234,16 @@ function ActionModal({
                   </span>
                   <p className="mt-1 text-xs text-text-muted">
                     {ndr.carrier || ""}{" "}
-                    <span
-                      className={cn(
-                        "rounded px-1 py-0.5 text-[10px] capitalize",
-                        providerBadge(ndr.courierProvider)
-                      )}
-                    >
-                      {ndr.courierProvider ?? "velocity"}
-                    </span>
+                    {VELOCITY_UI_ENABLED || ndr.courierProvider !== "velocity" ? (
+                      <span
+                        className={cn(
+                          "rounded px-1 py-0.5 text-[10px] capitalize",
+                          providerBadge(ndr.courierProvider)
+                        )}
+                      >
+                        {ndr.courierProvider || "—"}
+                      </span>
+                    ) : null}
                   </p>
                 </div>
               </div>
@@ -588,7 +591,7 @@ export default function AdminNDR() {
         {/* Provider filter */}
         <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1">
           <Filter className="h-3.5 w-3.5 text-text-muted" />
-          {ALL_PROVIDERS.map((p) => (
+          {ALL_PROVIDERS.filter((p) => VELOCITY_UI_ENABLED || p !== "velocity").map((p) => (
             <button
               key={p}
               onClick={() => setProviderFilter(p)}
@@ -723,14 +726,16 @@ export default function AdminNDR() {
                   {/* Courier */}
                   <td className="p-3">
                     <p className="text-text-secondary">{n.carrier || "—"}</p>
-                    <span
-                      className={cn(
-                        "mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] capitalize font-medium",
-                        providerBadge(n.courierProvider)
-                      )}
-                    >
-                      {n.courierProvider ?? "velocity"}
-                    </span>
+                    {VELOCITY_UI_ENABLED || n.courierProvider !== "velocity" ? (
+                      <span
+                        className={cn(
+                          "mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] capitalize font-medium",
+                          providerBadge(n.courierProvider)
+                        )}
+                      >
+                        {n.courierProvider || "—"}
+                      </span>
+                    ) : null}
                     {n.actionStatus === "provider_synced" ? (
                       <p className="mt-0.5 text-[11px] text-success flex items-center gap-1">
                         <CheckCircle2 className="h-2.5 w-2.5" />

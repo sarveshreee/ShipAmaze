@@ -18,6 +18,7 @@ import {
   AlertDialogHeader,
 } from "@/components/ui/alert-dialog";
 import type { Order, OrderStatus } from "@/types/logistics";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import {
   User, MapPin, Package, Truck, Printer, XCircle, AlertTriangle,
   Hash, Weight, IndianRupee, Calendar, Box, Copy, RefreshCw, Loader2,
@@ -579,7 +580,7 @@ export function OrderDetailDrawer({
                       Pickup details are no longer available (address may have been removed). Order snapshot may still be on file.
                     </p>
                   )}
-                  {!order.velocityWarehouseId?.trim() && po?.velocityWarehouseId?.trim() ? (
+                  {VELOCITY_UI_ENABLED && !order.velocityWarehouseId?.trim() && po?.velocityWarehouseId?.trim() ? (
                     <p className="text-[11px] font-mono text-text-muted pt-1">
                       Velocity warehouse: {po.velocityWarehouseId}
                     </p>
@@ -710,7 +711,7 @@ export function OrderDetailDrawer({
               <PaymentBadge type={order.payment} />
             </div>
 
-            {hasOrderWarehouse && (
+            {VELOCITY_UI_ENABLED && hasOrderWarehouse && (
               <p className="text-[11px] text-text-muted mt-2 font-mono">
                 Velocity warehouse: {order.velocityWarehouseId}
               </p>
@@ -942,7 +943,7 @@ export function OrderDetailDrawer({
 
           <Separator />
 
-          {!order.awb && cannotShipWithoutExtra && (
+          {VELOCITY_UI_ENABLED && !order.awb && cannotShipWithoutExtra && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Velocity warehouse required</AlertTitle>
@@ -950,7 +951,7 @@ export function OrderDetailDrawer({
             </Alert>
           )}
 
-          {showWarehousePicker && (
+          {VELOCITY_UI_ENABLED && showWarehousePicker && (
             <div className="space-y-2">
               <Label className="text-xs text-text-muted">Pickup warehouse (Velocity linked)</Label>
               <Select
@@ -974,7 +975,7 @@ export function OrderDetailDrawer({
             </div>
           )}
 
-          {showDevOverrideToggle && (
+          {VELOCITY_UI_ENABLED && showDevOverrideToggle && (
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
               <Checkbox
                 id="dev-velocity-wh"
@@ -993,7 +994,7 @@ export function OrderDetailDrawer({
               Quick Actions
             </h4>
             <div className="grid grid-cols-2 gap-2 pb-4">
-              {!order.awb && (
+              {VELOCITY_UI_ENABLED && !order.awb && (
                 <Button
                   className="gap-2 h-10 bg-primary text-primary-foreground hover:bg-primary/90 col-span-2"
                   onClick={generateAwb}
@@ -1064,7 +1065,7 @@ export function OrderDetailDrawer({
                 <AlertTriangle className="h-4 w-4" /> Raise NDR
               </Button>
 
-              {(statusKey === "delivered" || statusKey === "ndr") && (
+              {VELOCITY_UI_ENABLED && (statusKey === "delivered" || statusKey === "ndr") && (
                 <Button
                   variant="outline"
                   className="gap-2 h-10 text-text-secondary hover:text-primary hover:border-primary/30 col-span-2"

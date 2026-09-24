@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Filter, Plus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Warehouse as WarehouseIcon } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useVendorWarehouses, type Warehouse } from "@/hooks/useVendorWarehouses";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import { VelocityWarehouseLinkCard } from "@/components/VelocityWarehouseLinkCard";
 import WarehouseFormModal from "@/components/vendor/WarehouseFormModal";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -146,16 +147,16 @@ export default function VendorWarehouse() {
                 <TableHead>Email</TableHead>
                 <TableHead>Address</TableHead>
                 <TableHead>Warehouse Type</TableHead>
-                <TableHead className="min-w-[220px]">Shipping link</TableHead>
+                {VELOCITY_UI_ENABLED ? <TableHead className="min-w-[220px]">Shipping link</TableHead> : null}
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={VELOCITY_UI_ENABLED ? 8 : 7} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : pageRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-16">
+                  <TableCell colSpan={VELOCITY_UI_ENABLED ? 8 : 7} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center">
                         <WarehouseIcon className="h-7 w-7 text-muted-foreground" />
@@ -175,13 +176,15 @@ export default function VendorWarehouse() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span>{w.warehouseName}</span>
                         {w.isDefault && <Badge variant="secondary" className="text-xs">Default</Badge>}
-                        {w.velocityWarehouseId?.trim() ? (
-                          <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
-                            Shipping linked
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="text-[10px]">Shipping not linked</Badge>
-                        )}
+                        {VELOCITY_UI_ENABLED ? (
+                          w.velocityWarehouseId?.trim() ? (
+                            <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
+                              Shipping linked
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="text-[10px]">Shipping not linked</Badge>
+                          )
+                        ) : null}
                       </div>
                     </TableCell>
                     <TableCell>{w.contactPerson}</TableCell>
@@ -192,16 +195,18 @@ export default function VendorWarehouse() {
                         .filter(Boolean).join("\n")}
                     </TableCell>
                     <TableCell>{w.warehouseType}</TableCell>
-                    <TableCell>
-                      <VelocityWarehouseLinkCard
-                        mongoId={w.id}
-                        velocityWarehouseId={w.velocityWarehouseId}
-                        onUpdated={() => void refetchWarehouses()}
-                        kind="warehouse"
-                        forbiddenHint="warehouse"
-                        showProviderBrand={false}
-                      />
-                    </TableCell>
+                    {VELOCITY_UI_ENABLED ? (
+                      <TableCell>
+                        <VelocityWarehouseLinkCard
+                          mongoId={w.id}
+                          velocityWarehouseId={w.velocityWarehouseId}
+                          onUpdated={() => void refetchWarehouses()}
+                          kind="warehouse"
+                          forbiddenHint="warehouse"
+                          showProviderBrand={false}
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell className="text-right">
                       <Button size="sm" onClick={() => openEdit(w)}>Edit</Button>
                     </TableCell>

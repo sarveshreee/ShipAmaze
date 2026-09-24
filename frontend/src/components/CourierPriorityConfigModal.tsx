@@ -13,6 +13,8 @@ import {
   groupCouriersByProvider,
 } from "@/services/courierDiscoveryService";
 
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
+
 import { toast } from "sonner";
 
 import { ChevronDown, ChevronUp, GripVertical, Loader2, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
@@ -200,21 +202,26 @@ export function CourierPriorityConfigModal({
 
 
 
-      const savedList = saved.priorities ?? [];
+      const savedList = (saved.priorities ?? []).filter(
+        (p) => VELOCITY_UI_ENABLED || p.provider === "lorrigo" || p.provider === "ekart"
+      );
+      const laneCouriers = velocityItems.filter(
+        (c) => VELOCITY_UI_ENABLED || c.provider === "lorrigo" || c.provider === "ekart"
+      );
 
-      setAvailable(velocityItems);
+      setAvailable(laneCouriers);
 
 
 
-      if (shouldReplaceSavedPrioritiesWithVelocity(savedList, velocityItems)) {
+      if (shouldReplaceSavedPrioritiesWithVelocity(savedList, laneCouriers)) {
 
-        setPriorities(toPriorityEntries(velocityItems));
+        setPriorities(toPriorityEntries(laneCouriers));
 
-      } else if (velocityItems.length > 0) {
+      } else if (laneCouriers.length > 0) {
 
         const enriched = savedList.map((p) => {
 
-          const match = velocityItems.find(
+          const match = laneCouriers.find(
 
             (c) =>
 
@@ -237,7 +244,7 @@ export function CourierPriorityConfigModal({
             };
           }
 
-          const byName = velocityItems.find(
+          const byName = laneCouriers.find(
             (c) =>
               c.carrier_name.toLowerCase() === p.courierName.toLowerCase() ||
               courierNameMatches(p.courierName, c.carrier_name)
@@ -395,7 +402,7 @@ export function CourierPriorityConfigModal({
     setPriorities(toPriorityEntries(available));
 
     toast.success(
-      `Loaded ${available.length} courier${available.length === 1 ? "" : "s"} from discovery (Velocity / Lorrigo / Ekart when each returns serviceable)`
+      `Loaded ${available.length} courier${available.length === 1 ? "" : "s"} from discovery (${VELOCITY_UI_ENABLED ? "Velocity / Lorrigo / Ekart" : "Lorrigo / Ekart"} when each returns serviceable)`
     );
 
   };

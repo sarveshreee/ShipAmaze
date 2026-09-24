@@ -14,11 +14,11 @@ import { Calculator, MapPin, Truck, CheckCircle2, XCircle, Search, Loader2 } fro
 
 import { toast } from "sonner";
 
-import * as velocityService from "@/services/velocityService";
+import { discoverServiceability } from "@/services/courierDiscoveryService";
 
 import * as approvalService from "@/services/approvalService";
 
-import type { VelocityCarrier } from "@/services/velocityService";
+type PinCarrier = { carrier_id: string; carrier_name: string; tat?: string };
 
 import { usePincodes } from "@/hooks/useApiData";
 
@@ -158,7 +158,7 @@ export default function DropshipperRates() {
 
   const [pinLoading, setPinLoading] = useState(false);
 
-  const [pinCarriers, setPinCarriers] = useState<VelocityCarrier[] | null>(null);
+  const [pinCarriers, setPinCarriers] = useState<PinCarrier[] | null>(null);
 
   const [pinNotServiceable, setPinNotServiceable] = useState(false);
 
@@ -198,7 +198,7 @@ export default function DropshipperRates() {
 
     try {
 
-      const resp = await velocityService.checkServiceability({
+      const resp = await discoverServiceability({
 
         from: origin,
 
@@ -210,11 +210,20 @@ export default function DropshipperRates() {
 
       });
 
-      const ok = resp.serviceable !== false && (resp.data?.length ?? 0) > 0;
+      const rows = (resp.data ?? [])
+        .filter((c) => c.serviceable !== false)
+        .map((c) => ({
+          carrier_id: String(c.courierId || c.carrier_id || ""),
+          carrier_name: String(c.courierName || c.carrier_name || c.courierId || "Courier"),
+          tat: c.tat,
+        }))
+        .filter((c) => c.carrier_id);
+
+      const ok = rows.length > 0;
 
       if (ok) {
 
-        setPinCarriers(resp.data ?? []);
+        setPinCarriers(rows);
 
       } else {
 

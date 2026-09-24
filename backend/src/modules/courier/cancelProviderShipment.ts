@@ -90,7 +90,7 @@ export async function cancelProviderShipmentForOrder(
   }
 
   const correlationId = ensureCorrelationId(order);
-  const reason = String(opts?.reason ?? "customer_request").trim() || "customer_request";
+  const reason = String(opts?.reason ?? "Cancel the shipment").trim() || "Cancel the shipment";
   const ekartMerchantRef = resolveEkartMerchantReferenceForOrder(order);
 
   appendProviderEvent(order, {

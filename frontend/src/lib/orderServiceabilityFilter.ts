@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Order } from "@/types/logistics";
-import { checkServiceability, type VelocityCarrier } from "@/services/velocityService";
+import { discoverServiceability } from "@/services/courierDiscoveryService";
+import type { VelocityCarrier } from "@/services/velocityService";
 
 export function normalizePincode(raw: unknown): string {
   return String(raw ?? "").replace(/\D/g, "").slice(0, 6);
@@ -92,13 +93,20 @@ export function useServiceableOrdersFilter(orders: Order[], filter: Serviceabili
     void Promise.all(
       lanes.map(async (lane) => {
         try {
-          const res = await checkServiceability({
+          const res = await discoverServiceability({
             from: lane.fromPin,
             to: lane.toPin,
             payment_mode: lane.payment,
             shipment_type: "forward",
           });
-          return [lane.key, res.data ?? []] as readonly [string, VelocityCarrier[]];
+          const carriers: VelocityCarrier[] = (res.data ?? [])
+            .filter((c) => c.serviceable !== false)
+            .map((c) => ({
+              carrier_id: c.carrier_id ?? c.courierId,
+              carrier_name: String(c.carrier_name ?? c.courierName ?? ""),
+              tat: c.tat,
+            }));
+          return [lane.key, carriers] as readonly [string, VelocityCarrier[]];
         } catch {
           return [lane.key, [] as VelocityCarrier[]] as readonly [string, VelocityCarrier[]];
         }

@@ -11,6 +11,7 @@ import type { Types } from "mongoose";
 import { Pickup } from "../../models/Pickup.js";
 import { Warehouse } from "../../models/Warehouse.js";
 import { User } from "../../models/User.js";
+import { isVelocityEnabledFlag } from "../../config/env.js";
 import { velocityConfig } from "./velocity.config.js";
 import { createWarehouseInVelocity, updateWarehouseInVelocity } from "./velocity.service.js";
 import {
@@ -122,6 +123,9 @@ export async function syncPickupToVelocity(
   pickupId: Types.ObjectId | string,
   opts?: { forceRecreate?: boolean }
 ): Promise<VelocityWarehouseSyncResult> {
+  if (!isVelocityEnabledFlag()) {
+    return { linked: false, skipped: true, reason: "Velocity is disconnected" };
+  }
   if (!isVelocityConfigured()) {
     return { linked: false, skipped: true, reason: "Velocity credentials not configured" };
   }
@@ -211,6 +215,9 @@ export async function syncVendorWarehouseToVelocity(
   ownerUserId?: Types.ObjectId | string,
   opts?: { forceRecreate?: boolean }
 ): Promise<VelocityWarehouseSyncResult> {
+  if (!isVelocityEnabledFlag()) {
+    return { linked: false, skipped: true, reason: "Velocity is disconnected" };
+  }
   if (!isVelocityConfigured()) {
     return { linked: false, skipped: true, reason: "Velocity credentials not configured" };
   }

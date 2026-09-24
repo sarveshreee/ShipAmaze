@@ -1,15 +1,12 @@
 /**
- * Ekart pickup "sync" = link Elite-registered location_code to ShipAmaze Pickup.
- *
- * Durin has no public create-warehouse API. Locations must be added in Elite
- * (Settings → Pickup locations) and approved by Ekart, then linked here.
- * Booking then sends source.location_code so shipments appear in Elite.
+ * Leftover helpers for clearing old location_code fields.
+ * Booking is address-only — ShipAmaze does not link or send location_code.
  */
 
 import mongoose from "mongoose";
 import { Pickup } from "../../models/Pickup.js";
 import { AppError } from "../../middleware/errorMiddleware.js";
-import { isEkartConfigured, isEkartEnabledFlag, ekartConfig } from "./ekart.config.js";
+import { ekartConfig } from "./ekart.config.js";
 
 export type EkartPickupSyncResult =
   | { synced: true; locationCode: string; alreadySynced?: boolean }
@@ -68,55 +65,13 @@ export function resolveEkartPickupLocationCode(pickup: {
   return isUsableEkartLocationCode(fallback) ? normalizeEkartLocationCode(fallback) : "";
 }
 
-/**
- * Link an Elite location_code onto a ShipAmaze pickup.
- * Does not call Durin create-location (API does not exist).
- */
+/** Location codes are not used — Durin create is address-only. */
 export async function linkPickupToEkart(
-  pickupId: string,
-  locationCodeRaw: string,
-  opts?: { force?: boolean }
+  _pickupId: string,
+  _locationCodeRaw: string,
+  _opts?: { force?: boolean }
 ): Promise<EkartPickupSyncResult> {
-  if (!isEkartEnabledFlag()) {
-    return { synced: false, skipped: true, reason: "Ekart is disabled (EKART_ENABLED is not true)" };
-  }
-  if (!isEkartConfigured()) {
-    return {
-      synced: false,
-      skipped: true,
-      reason: "Ekart credentials missing (EKART_AUTHORIZATION / EKART_MERCHANT_CODE)",
-    };
-  }
-
-  const err = validateEkartLocationCode(locationCodeRaw);
-  if (err) return { synced: false, error: err };
-
-  const code = normalizeEkartLocationCode(locationCodeRaw);
-  if (!mongoose.isValidObjectId(pickupId)) {
-    return { synced: false, error: "Invalid pickup id" };
-  }
-
-  const pickup = await Pickup.findById(pickupId);
-  if (!pickup || pickup.deletedAt) {
-    return { synced: false, error: "Pickup address not found" };
-  }
-
-  const existing = normalizeEkartLocationCode(pickup.ekartLocationCode);
-  if (existing && existing === code && !opts?.force) {
-    pickup.ekartSyncStatus = "SUCCESS";
-    pickup.ekartLastSyncAt = new Date();
-    pickup.ekartSyncError = undefined;
-    await pickup.save();
-    return { synced: true, locationCode: code, alreadySynced: true };
-  }
-
-  pickup.ekartLocationCode = code;
-  pickup.ekartSyncStatus = "SUCCESS";
-  pickup.ekartLastSyncAt = new Date();
-  pickup.ekartSyncError = undefined;
-  await pickup.save();
-
-  return { synced: true, locationCode: code };
+  return { synced: false, skipped: true, reason: "Ekart location codes are not used" };
 }
 
 export async function unlinkPickupFromEkart(pickupId: string): Promise<EkartPickupSyncResult> {

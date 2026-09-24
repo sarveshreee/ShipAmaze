@@ -26,6 +26,7 @@ import { TimelineTracker } from "@/components/TimelineTracker";
 import { cn } from "@/lib/utils";
 import * as orderService from "@/services/orderService";
 import * as velocityService from "@/services/velocityService";
+import { VELOCITY_UI_ENABLED } from "@/lib/velocityFeature";
 import { getStoredToken } from "@/lib/apiClient";
 import type { Order } from "@/types/logistics";
 import {
@@ -386,7 +387,7 @@ export default function PublicOrderDetail() {
         } catch {
           /* keep current */
         }
-        if (!opts?.silent) toast.success("Tracking refreshed from Velocity");
+        if (!opts?.silent) toast.success("Tracking refreshed");
       } else {
         const resp = await velocityService.trackShipmentPublic(awb);
         const activities = resp.data?.activities ?? [];
@@ -402,8 +403,9 @@ export default function PublicOrderDetail() {
     }
   };
 
-  // Auto-pull live Velocity tracking + EDD once order with AWB is loaded
+  // Auto-pull live tracking once an order with an AWB is loaded. Skipped while Velocity is disconnected.
   useEffect(() => {
+    if (!VELOCITY_UI_ENABLED) return;
     if (!order?.id) return;
     const awb = String(order.awb || "").trim();
     if (!awb || awb === "—" || awb === "N/A") return;
@@ -737,7 +739,7 @@ export default function PublicOrderDetail() {
                     EDD: {eddLabel}
                   </span>
                 ) : null}
-                {String(order.awb || "").trim() && order.awb !== "—" ? (
+                {VELOCITY_UI_ENABLED && String(order.awb || "").trim() && order.awb !== "—" ? (
                   <Button
                     type="button"
                     variant="ghost"
@@ -755,10 +757,10 @@ export default function PublicOrderDetail() {
 
             {eddLabel ? (
               <p className="text-sm text-text-secondary">
-                Expected delivery (Velocity): <span className="font-semibold text-text-primary">{eddLabel}</span>
+                Expected delivery: <span className="font-semibold text-text-primary">{eddLabel}</span>
               </p>
             ) : (
-              <p className="text-xs text-text-muted">Expected delivery date not available from Velocity yet.</p>
+              <p className="text-xs text-text-muted">Expected delivery date is not available yet.</p>
             )}
 
             {activities && activities.length > 0 ? (
