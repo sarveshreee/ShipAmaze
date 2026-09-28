@@ -264,6 +264,8 @@ export interface ProviderNdrActionInput {
   remarks?: string;
   phone?: string;
   nextAttemptDate?: string;
+  /** Ekart: Durin merchant_reference_id / client_reference_id when distinct from AWB. */
+  merchantReferenceId?: string;
   /** Escape hatch for provider-specific fields. */
   metadata?: Record<string, unknown>;
 }

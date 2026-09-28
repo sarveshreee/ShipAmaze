@@ -1287,14 +1287,16 @@ export const submitNdrAction = asyncHandler(async (req: AuthRequest, res: Respon
   );
 
   const provider = await courier.performNDRAction({
-    awb,
+    awb: String(order?.awb || order?.ekartTrackingId || awb).trim() || awb,
     action,
     phone: ndr.phone || order?.phone,
     remarks,
     nextAttemptDate: String((req.body as Record<string, unknown>).nextAttemptDate ?? "").trim() || undefined,
+    merchantReferenceId: String(order?.ekartClientReferenceId ?? "").trim() || undefined,
     metadata: {
       lorrigoOrderId: ndr.lorrigoOrderId || undefined,
       customerName: ndr.customer || undefined,
+      merchantReferenceId: String(order?.ekartClientReferenceId ?? "").trim() || undefined,
     },
   });
 

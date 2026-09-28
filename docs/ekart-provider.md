@@ -132,7 +132,7 @@ Background poller (same scheduler pattern as Lorrigo/Velocity):
 | rates | false |
 | pickupSync | false |
 | createPickup | false (501) |
-| ndr | **true** — Durin has no NDR list API. ShipAmaze upserts undelivered track into the NDR panel. Re-attempt = `PUT /v2/shipments/update_shipment` `RESCHEDULE_DELIVERY_DATE`. Return = RTO create. |
+| ndr | **true** — Durin has no NDR list API. ShipAmaze upserts undelivered track into the NDR panel. Re-attempt = `PUT /v2/shipments/update_shipment` with root `tracking_id` (or `merchant_reference_id`) + `RESCHEDULE_DELIVERY_DATE`. Return = RTO create. |
 | labels | **false** — Durin `get_label_information` returns COC/route/2d_barcode metadata only; no PDF URL (never faked) |
 | webhooks | true (Critical Updates receiver; runtime `EKART_WEBHOOKS_ENABLED`) |
 

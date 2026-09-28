@@ -51,6 +51,10 @@ export function normalizeEkartNdrRescheduleDate(raw?: string): string {
   const s = String(raw ?? "").trim();
   const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
   if (iso) return iso[1]!;
+  const dmy = s.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/);
+  if (dmy) {
+    return `${dmy[3]}-${dmy[2]!.padStart(2, "0")}-${dmy[1]!.padStart(2, "0")}`;
+  }
   const parsed = Date.parse(s);
   if (Number.isFinite(parsed)) {
     return new Intl.DateTimeFormat("en-CA", {
@@ -63,18 +67,46 @@ export function normalizeEkartNdrRescheduleDate(raw?: string): string {
   return ekartIstYmdPlusDays(1);
 }
 
+function merchantRefFromInput(input: ProviderNdrActionInput): string {
+  const direct = String(input.merchantReferenceId ?? "").trim();
+  if (direct) return direct;
+  const meta = input.metadata?.merchantReferenceId;
+  return typeof meta === "string" ? meta.trim() : "";
+}
+
+/** Durin UpdateShipmentRequest: tracking_id / merchant_reference_id are root fields. */
+export function buildEkartNdrRescheduleBody(
+  input: { awb?: string; merchantReferenceId?: string; updatedDeliveryDate: string }
+): Record<string, unknown> {
+  const awb = String(input.awb ?? "").trim();
+  const merchantRef = String(input.merchantReferenceId ?? "").trim();
+  const body: Record<string, unknown> = {
+    update_request_type: "RESCHEDULE_DELIVERY_DATE",
+    update_request_details: {
+      updated_delivery_date: input.updatedDeliveryDate,
+    },
+  };
+  if (awb) body.tracking_id = awb;
+  if (merchantRef) body.merchant_reference_id = merchantRef;
+  return body;
+}
+
 export async function performEkartNdrAction(
   input: ProviderNdrActionInput
 ): Promise<ProviderNdrActionResult> {
   const awb = String(input.awb ?? "").trim();
-  if (!awb) throw new AppError(400, "AWB is required for Ekart NDR action");
+  const merchantRef = merchantRefFromInput(input);
+  if (!awb && !merchantRef) {
+    throw new AppError(400, "AWB or merchant reference is required for Ekart NDR action");
+  }
   if (input.action === "fake-attempt") {
     throw new AppError(400, "Ekart does not support fake-attempt NDR actions");
   }
 
   if (input.action === "return") {
     const result = await cancelEkartShipment({
-      awbs: [awb],
+      awbs: awb ? [awb] : [],
+      merchantReferenceId: merchantRef || undefined,
       reason: String(input.remarks ?? "").trim() || "NDR return to origin",
       serviceLeg: "FORWARD",
     });
@@ -87,13 +119,11 @@ export async function performEkartNdrAction(
   }
 
   const updatedDeliveryDate = normalizeEkartNdrRescheduleDate(input.nextAttemptDate);
-  const body = {
-    update_request_type: "RESCHEDULE_DELIVERY_DATE",
-    update_request_details: {
-      updated_delivery_date: updatedDeliveryDate,
-      tracking_id: awb,
-    },
-  };
+  const body = buildEkartNdrRescheduleBody({
+    awb,
+    merchantReferenceId: merchantRef,
+    updatedDeliveryDate,
+  });
 
   const raw = await ekartPut<unknown>(ekartConfig.updateShipmentEndpoint, body, {
     retryable: false,

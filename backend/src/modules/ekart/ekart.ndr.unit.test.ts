@@ -18,6 +18,7 @@ vi.mock("./ekart.config.js", () => ({
 }));
 
 import {
+  buildEkartNdrRescheduleBody,
   ekartIstYmdPlusDays,
   normalizeEkartNdrRescheduleDate,
   performEkartNdrAction,
@@ -31,8 +32,26 @@ describe("Ekart NDR actions", () => {
 
   it("normalizes next attempt to YYYY-MM-DD", () => {
     expect(normalizeEkartNdrRescheduleDate("2026-10-01T10:00:00Z")).toBe("2026-10-01");
+    expect(normalizeEkartNdrRescheduleDate("29/09/2026")).toBe("2026-09-29");
     expect(normalizeEkartNdrRescheduleDate("")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(ekartIstYmdPlusDays(0)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("puts tracking_id on the Durin request root, not inside details", () => {
+    expect(
+      buildEkartNdrRescheduleBody({
+        awb: "TECC2951467665",
+        merchantReferenceId: "TEC123",
+        updatedDeliveryDate: "2026-09-30",
+      })
+    ).toEqual({
+      tracking_id: "TECC2951467665",
+      merchant_reference_id: "TEC123",
+      update_request_type: "RESCHEDULE_DELIVERY_DATE",
+      update_request_details: {
+        updated_delivery_date: "2026-09-30",
+      },
+    });
   });
 
   it("reschedules via Durin update_shipment", async () => {
@@ -43,15 +62,17 @@ describe("Ekart NDR actions", () => {
       awb: "TECC2951467665",
       action: "reattempt",
       nextAttemptDate: "2026-09-29",
+      merchantReferenceId: "TEC123",
     });
     expect(r.success).toBe(true);
     expect(putMock).toHaveBeenCalledWith(
       "/v2/shipments/update_shipment",
       {
+        tracking_id: "TECC2951467665",
+        merchant_reference_id: "TEC123",
         update_request_type: "RESCHEDULE_DELIVERY_DATE",
         update_request_details: {
           updated_delivery_date: "2026-09-29",
-          tracking_id: "TECC2951467665",
         },
       },
       { retryable: false }
@@ -68,6 +89,7 @@ describe("Ekart NDR actions", () => {
     expect(r.success).toBe(true);
     expect(cancelMock).toHaveBeenCalledWith({
       awbs: ["TECC2951467665"],
+      merchantReferenceId: undefined,
       reason: "customer refused",
       serviceLeg: "FORWARD",
     });
