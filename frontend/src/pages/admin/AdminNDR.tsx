@@ -61,6 +61,8 @@ function reasonBadgeClass(reason: string) {
 function providerBadge(provider?: string) {
   if (provider === "lorrigo")
     return "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300";
+  if (provider === "ekart")
+    return "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300";
   return "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300";
 }
 

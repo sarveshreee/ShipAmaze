@@ -19,6 +19,7 @@ vi.mock("../../../ekart/ekart.config.js", () => ({
     serviceabilityEndpoint: "/v1/offerings",
     rtoCreateEndpoint: "/v3/shipments/rto/create",
     cancelRvpEndpoint: "/v3/shipments/cancel_rvp",
+    updateShipmentEndpoint: "/v2/shipments/update_shipment",
     reverseServiceCode: "RETURNS_SMART_CHECK",
     webhooksEnabled: false,
     webhookSecret: "",

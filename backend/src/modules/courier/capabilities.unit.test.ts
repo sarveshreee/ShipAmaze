@@ -29,7 +29,7 @@ describe("provider capabilities registry", () => {
     expect(EKART_CAPABILITIES.pickupSync).toBe(false);
     expect(EKART_CAPABILITIES.rates).toBe(false);
     expect(EKART_CAPABILITIES.labels).toBe(false);
-    expect(EKART_CAPABILITIES.ndr).toBe(false);
+    expect(EKART_CAPABILITIES.ndr).toBe(true);
   });
 
   it("exposes cancel only when EKART_CANCEL_ENABLED is true", () => {

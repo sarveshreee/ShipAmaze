@@ -34,6 +34,8 @@ import {
 } from "../../../ekart/ekart.booking.js";
 import { fetchEkartServiceableCouriers } from "../../../ekart/ekart.serviceability.js";
 import { syncEkartActiveShipmentStatuses } from "../../../ekart/ekart.statusSync.js";
+import { performEkartNdrAction } from "../../../ekart/ekart.ndr.js";
+import { syncNdrFromEkart } from "../../../ekart/ekart.ndrSync.js";
 
 export const ekartCourierProvider: CourierProvider = {
   id: "ekart",
@@ -99,19 +101,28 @@ export const ekartCourierProvider: CourierProvider = {
   },
 
   supportsNDR(): boolean {
-    return false;
+    return this.capabilities.ndr === true;
   },
 
   async fetchNDR(_input?: ProviderFetchNdrInput): Promise<ProviderNdrRecord[]> {
     return [];
   },
 
-  async performNDRAction(_input: ProviderNdrActionInput): Promise<ProviderNdrActionResult> {
-    throw new AppError(501, "Ekart NDR actions are not supported yet.");
+  async performNDRAction(input: ProviderNdrActionInput): Promise<ProviderNdrActionResult> {
+    return performEkartNdrAction(input);
   },
 
-  async syncNDR(_opts?: { daysBack?: number }): Promise<ProviderSyncResult> {
-    return { fetched: 0, upserted: 0, errors: 0, message: "ekart ndr not supported" };
+  async syncNDR(opts?: { daysBack?: number }): Promise<ProviderSyncResult> {
+    const r = await syncNdrFromEkart({ daysBack: opts?.daysBack });
+    return {
+      fetched: r.fetched,
+      upserted: r.upserted,
+      closed: r.closed,
+      errors: r.errors,
+      duplicatesSuppressed: r.duplicatesSuppressed,
+      errorDetails: r.errorDetails,
+      message: "ekart ndr sync",
+    };
   },
 };
 

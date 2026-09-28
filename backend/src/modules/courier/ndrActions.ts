@@ -47,8 +47,24 @@ export function normalizeProviderNdrAction(
   return action;
 }
 
+/** Durin / Flipkart AWB: 3-letter merchant + P/C/R + 10 digits (e.g. TECC2951467665). */
+export function looksLikeEkartAwb(awb: unknown): boolean {
+  return /^[A-Za-z]{3}[PCRocr]\d{10}$/.test(String(awb ?? "").trim());
+}
+
 export function resolveNdrProviderId(
-  courierProvider: unknown
+  courierProvider: unknown,
+  hints?: { awb?: string; carrier?: string; courierName?: string }
 ): CourierProviderId {
-  return courierProvider === "lorrigo" ? "lorrigo" : "velocity";
+  const raw = String(courierProvider ?? "")
+    .trim()
+    .toLowerCase();
+  if (raw === "lorrigo") return "lorrigo";
+  if (raw === "ekart") return "ekart";
+
+  const carrier = `${hints?.carrier ?? ""} ${hints?.courierName ?? ""}`.toLowerCase();
+  if (carrier.includes("ekart") || looksLikeEkartAwb(hints?.awb)) return "ekart";
+  if (carrier.includes("lorrigo")) return "lorrigo";
+  if (raw === "velocity") return "velocity";
+  return "velocity";
 }

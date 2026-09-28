@@ -132,7 +132,7 @@ Background poller (same scheduler pattern as Lorrigo/Velocity):
 | rates | false |
 | pickupSync | false |
 | createPickup | false (501) |
-| ndr | false |
+| ndr | **true** — Durin has no NDR list API. ShipAmaze upserts undelivered track into the NDR panel. Re-attempt = `PUT /v2/shipments/update_shipment` `RESCHEDULE_DELIVERY_DATE`. Return = RTO create. |
 | labels | **false** — Durin `get_label_information` returns COC/route/2d_barcode metadata only; no PDF URL (never faked) |
 | webhooks | true (Critical Updates receiver; runtime `EKART_WEBHOOKS_ENABLED`) |
 
@@ -190,7 +190,8 @@ Also: auth latency, booking/tracking metrics, status sync health, webhook flag.
 - Large shipment path unused in booking.
 - No PDF label API.
 - No freight rate API.
-- NDR actions not implemented.
+- Durin has no NDR *list* API; ShipAmaze NDR uses undelivered track + `update_shipment` / RTO.
+- Elite seller dashboard can lag `pickup_cancelled` after Durin RTO is already accepted (`rto: true`).
 - RTO/Cancel RVP may require Ekart merchant enablement.
 
 ## Rollback
@@ -200,5 +201,4 @@ Set `EKART_ENABLED=false` and restart. Existing Velocity/Lorrigo unchanged.
 ## Later
 
 - Large shipment path
-- NDR actions (if Durin documents a merchant NDR API)
 - Label PDF only if Ekart publishes a real label URL/download API

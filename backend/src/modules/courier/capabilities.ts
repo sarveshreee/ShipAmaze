@@ -51,8 +51,8 @@ export const LORRIGO_CAPABILITIES: CourierProviderCapabilities = {
 /**
  * Ekart Phase 3 — Durin Non-Large.
  * Cancel/RTO is runtime-gated by EKART_CANCEL_ENABLED (default false) via getEkartCapabilities().
- * Returns = REVERSE create. Labels stay false. Webhooks = Critical Updates receiver
- * (runtime-gated by EKART_WEBHOOKS_ENABLED; polling remains source of truth).
+ * Returns = REVERSE create. Labels stay false. NDR uses track undelivered + update_shipment / RTO.
+ * Webhooks = Critical Updates receiver (runtime-gated by EKART_WEBHOOKS_ENABLED; polling remains source of truth).
  */
 export const EKART_CAPABILITIES: CourierProviderCapabilities = {
   authentication: true,
@@ -62,7 +62,7 @@ export const EKART_CAPABILITIES: CourierProviderCapabilities = {
   tracking: true,
   /** Default off — use getEkartCapabilities() for live cancel flag. */
   cancel: false,
-  ndr: false,
+  ndr: true,
   returns: true,
   pickupSync: false,
   labels: false,

@@ -11,6 +11,14 @@ describe("ndrActions helpers", () => {
   it("resolves provider id with velocity default", () => {
     expect(resolveNdrProviderId(undefined)).toBe("velocity");
     expect(resolveNdrProviderId("lorrigo")).toBe("lorrigo");
+    expect(resolveNdrProviderId("ekart")).toBe("ekart");
+  });
+
+  it("never routes Flipkart / Ekart AWBs to Velocity", () => {
+    expect(resolveNdrProviderId(undefined, { awb: "TECC2951467665" })).toBe("ekart");
+    expect(resolveNdrProviderId("velocity", { awb: "TECP1951365866" })).toBe("ekart");
+    expect(resolveNdrProviderId(undefined, { carrier: "Ekart ECONOMY" })).toBe("ekart");
+    expect(resolveNdrProviderId("ekart", { awb: "TECC2951467665" })).toBe("ekart");
   });
 
   it("lists supported actions per provider", () => {

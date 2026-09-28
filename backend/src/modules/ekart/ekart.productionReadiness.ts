@@ -33,7 +33,7 @@ export const EKART_PRODUCTION_READINESS = {
     statusSync: "CODE_VERIFIED — background poll when enabled",
     webhooks: "CODE_VERIFIED — off until EKART_WEBHOOKS_ENABLED",
     cancel: "CODE_VERIFIED — gated by EKART_CANCEL_ENABLED",
-    ndr: "NOT_SUPPORTED",
+    ndr: "CODE_VERIFIED — Durin has no NDR list API; ShipAmaze syncs undelivered track into NDR and uses update_shipment / RTO",
     rates: "NOT_SUPPORTED",
   } as const,
   preEnableChecklist: [
@@ -52,6 +52,6 @@ export function ekartReadinessSummary(): string {
   return [
     `Ekart status: ${EKART_PRODUCTION_READINESS.status}`,
     `Enable only after checklist (${EKART_PRODUCTION_READINESS.preEnableChecklist.length} items).`,
-    `Labels/NDR/rates: not supported in current adapter.`,
+    `Labels/rates: not supported in current adapter.`,
   ].join(" ");
 }

@@ -92,6 +92,35 @@ describe("Ekart track mapping", () => {
     expect(parsed.status).toBe("pickup_scheduled");
   });
 
+  it("maps API RTO-accepted cancel even when Elite history is still pickup_scheduled", () => {
+    const parsed = parseEkartTrackResponse(
+      {
+        TECP1951365866: {
+          shipment_id: "10530",
+          order_id: "10530",
+          external_tracking_id: "TECP1951365866",
+          delivered: false,
+          rto: true,
+          rto_detail: {
+            reason: "Cancel the shipment",
+            status: "in_transit",
+            upstream_triggered: true,
+          },
+          history: [
+            {
+              status: "pickup_scheduled",
+              event_date_iso8601: "2026-09-28T15:44:42+05:30",
+              public_description: "Expected at null",
+            },
+          ],
+        },
+      },
+      "TECP1951365866"
+    );
+    expect(parsed.status).toBe("seller_cancelled");
+    expect(mapEkartStatusToProviderCanonical(parsed.status)).toBe("CANCELLED");
+  });
+
   it("maps Elite seller cancel via rto flag even when history is still out_for_pickup", () => {
     const parsed = parseEkartTrackResponse(
       {

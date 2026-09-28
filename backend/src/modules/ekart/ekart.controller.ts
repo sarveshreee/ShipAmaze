@@ -117,7 +117,7 @@ export const getEkartHealth = asyncHandler(async (req: AuthRequest, res: Respons
         cancel: ekartConfig.cancelEnabled,
         returns: true,
         rates: false,
-        ndr: false,
+        ndr: true,
         labels: false,
         serviceability: true,
         webhooks: ekartConfig.webhooksEnabled,

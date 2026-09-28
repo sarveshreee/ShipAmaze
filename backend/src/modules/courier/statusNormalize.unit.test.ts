@@ -50,6 +50,9 @@ describe("statusNormalize", () => {
   it("does not map undelivered / attempt statuses to DELIVERED", () => {
     expect(mapEkartStatusToProviderCanonical("undelivered_attempted")).toBe("FAILED");
     expect(mapEkartStatusToProviderCanonical("undelivered_unattempted")).toBe("FAILED");
+    expect(mapEkartStatusToProviderCanonical("undelivered_due_to_request_for_reschedule")).toBe(
+      "FAILED"
+    );
     expect(mapEkartStatusToProviderCanonical("Undelivered - Customer not available")).toBe(
       "FAILED"
     );

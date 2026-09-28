@@ -28,6 +28,29 @@ vi.mock("../../models/Order.js", () => {
   };
 });
 
+vi.mock("../../models/NDR.js", () => ({
+  NDR: {
+    findOne: vi.fn(async () => null),
+    findOneAndUpdate: vi.fn(async () => ({})),
+    find: vi.fn(() => ({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => []),
+      })),
+    })),
+    updateMany: vi.fn(async () => ({ modifiedCount: 0 })),
+  },
+}));
+
+vi.mock("../../models/Vendor.js", () => ({
+  Vendor: {
+    findById: vi.fn(() => ({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => null),
+      })),
+    })),
+  },
+}));
+
 function makeOrder(overrides: Record<string, unknown> = {}) {
   return {
     _id: "507f1f77bcf86cd799439011",

@@ -23,6 +23,7 @@ import { registerCourierProviders, getCourierProvider } from "./modules/courier/
 import { getLorrigoStatusSyncIntervalMs } from "./modules/lorrigo/lorrigo.statusSync.js";
 import { getLorrigoNdrSyncIntervalMs } from "./modules/lorrigo/lorrigo.ndrSync.js";
 import { getEkartStatusSyncIntervalMs } from "./modules/ekart/ekart.statusSync.js";
+import { getEkartNdrSyncIntervalMs } from "./modules/ekart/ekart.ndrSync.js";
 import { isSyncMutexSkipResult } from "./modules/courier/syncMutex.js";
 import { withSyncLock } from "./modules/courier/distributedLock.js";
 import { reconcilePendingWalletDebits } from "./services/walletDebitReconciliation.js";
@@ -161,6 +162,24 @@ function startBackgroundJobs() {
     }
   }, ekartSyncIntervalMs);
   ekartBgSync.unref();
+
+  const ekartNdrIntervalMs = getEkartNdrSyncIntervalMs();
+  const ekartNdrSync = setInterval(async () => {
+    try {
+      if (!isEkartEnabledFlag() || !isEkartConfigured()) return;
+      const ekart = getCourierProvider("ekart");
+      if (!ekart.isConfigured() || !ekart.supportsNDR()) return;
+      const ndr = await withSyncLock("ekart:ndr", () => ekart.syncNDR({ daysBack: 30 }));
+      if (isSyncMutexSkipResult(ndr)) return;
+      console.info(
+        `[ekart:ndr-bg-sync] fetched=${ndr.fetched ?? 0} upserted=${ndr.upserted ?? 0} ` +
+          `dupes=${ndr.duplicatesSuppressed ?? 0} errors=${ndr.errors ?? 0}`
+      );
+    } catch (e: unknown) {
+      console.error("[ekart:ndr-bg-sync] error", e instanceof Error ? e.message : e);
+    }
+  }, ekartNdrIntervalMs);
+  ekartNdrSync.unref();
 
   const walletDebitBgReconcile = setInterval(async () => {
     try {

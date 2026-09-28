@@ -75,6 +75,10 @@ export const ekartConfig = {
   trackLargeEndpoint:
     (process.env.EKART_TRACK_LARGE_ENDPOINT || "/shipments/large/track").trim() ||
     "/shipments/large/track",
+  /** Durin PUT /v2/shipments/update_shipment — NDR reschedule / contact / address. */
+  updateShipmentEndpoint:
+    (process.env.EKART_UPDATE_SHIPMENT_ENDPOINT || "/v2/shipments/update_shipment").trim() ||
+    "/v2/shipments/update_shipment",
   /** Durin PUT /v3/shipments/rto/create — forward cancel via RTO. */
   rtoCreateEndpoint:
     (process.env.EKART_RTO_CREATE_ENDPOINT || "/v3/shipments/rto/create").trim() ||

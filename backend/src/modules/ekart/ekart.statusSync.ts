@@ -20,6 +20,7 @@ import {
 import { isEkartConfigured, isEkartEnabledFlag } from "./ekart.config.js";
 import { recordEkartStatusSyncPoll } from "./ekart.statusSyncMetrics.js";
 import { markWalletDebitPendingIfBookedWithoutDebit } from "../../services/walletDebitReconciliation.js";
+import { upsertEkartNdrFromOrder } from "./ekart.ndrSync.js";
 
 export type EkartStatusSyncResult = {
   processed: number;
@@ -425,6 +426,20 @@ export async function syncEkartActiveShipmentStatuses(
         });
       }
       // Same status repeatedly: do not duplicate timeline entries — only bump lastSyncedAt.
+
+      if (nextStatus === "ndr" || providerCanonical === "FAILED") {
+        try {
+          const activityReason = Array.isArray(order.trackingActivities)
+            ? String(order.trackingActivities[0]?.activity ?? "")
+            : "";
+          await upsertEkartNdrFromOrder(order, {
+            reason: activityReason || rawShipmentStatus,
+            providerStatus: rawShipmentStatus,
+          });
+        } catch {
+          /* NDR panel upsert is non-fatal to status sync */
+        }
+      }
 
       order.lastProviderStatusSyncedAt = new Date();
       await order.save();

@@ -62,6 +62,7 @@ import {
 import { syncPickupToLorrigo } from "../modules/lorrigo/lorrigo.pickupSync.js";
 import { getCourierProvider } from "../modules/courier/providerRegistry.js";
 import {
+  looksLikeEkartAwb,
   normalizeProviderNdrAction,
   resolveNdrProviderId,
   supportedNdrActions,
@@ -1081,9 +1082,9 @@ export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
   let q: Record<string, unknown> = {};
   if (req.user.role !== "admin") {
     const visibility = await buildOrderVisibilityQuery(req.user);
-    const visibleOrders = await Order.find(visibility).select("awb trackingId").lean();
+    const visibleOrders = await Order.find(visibility).select("awb trackingId ekartTrackingId").lean();
     const awbs = visibleOrders
-      .flatMap((o) => [o.awb, o.trackingId])
+      .flatMap((o) => [o.awb, o.trackingId, o.ekartTrackingId])
       .map((v) => String(v ?? "").trim())
       .filter(Boolean);
     q = { awb: { $in: awbs } };
@@ -1100,11 +1101,12 @@ export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
           $or: [
             { awb: { $in: awbs } },
             { trackingId: { $in: awbs } },
+            { ekartTrackingId: { $in: awbs } },
             ...(orderIds.length ? [{ orderId: { $in: orderIds } }] : []),
           ],
         })
           .select(
-            "orderId awb trackingId customer phone customerPhone address city state pincode shippingAddress1 shippingCity shippingState shippingPincode payment amount courier courierName channel shopifyStoreName vendorId pickupAddress"
+            "orderId awb trackingId ekartTrackingId courierProvider customer phone customerPhone address city state pincode shippingAddress1 shippingCity shippingState shippingPincode payment amount courier courierName channel shopifyStoreName vendorId pickupAddress"
           )
           .lean();
 
@@ -1113,6 +1115,7 @@ export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
   for (const o of linkedOrders) {
     if (o.awb) orderByAwb.set(String(o.awb).trim(), o);
     if (o.trackingId) orderByAwb.set(String(o.trackingId).trim(), o);
+    if (o.ekartTrackingId) orderByAwb.set(String(o.ekartTrackingId).trim(), o);
     if (o.orderId) orderByOrderId.set(String(o.orderId).trim(), o);
   }
 
@@ -1139,10 +1142,14 @@ export const listNdr = asyncHandler(async (req: AuthRequest, res: Response) => {
 
   res.json(
     rows.map((n) => {
-      const courierProvider = resolveNdrProviderId(n.courierProvider);
       const order =
         orderByAwb.get(String(n.awb ?? "").trim()) ??
         (n.orderId ? orderByOrderId.get(String(n.orderId).trim()) : undefined);
+      const courierProvider = resolveNdrProviderId(n.courierProvider ?? order?.courierProvider, {
+        awb: String(n.awb ?? "").trim(),
+        carrier: n.carrier,
+        courierName: order?.courierName,
+      });
 
       const pickupLabel =
         order?.pickupAddress && typeof order.pickupAddress === "object"
@@ -1232,7 +1239,7 @@ function formatNdrActionDate(value = new Date()): string {
 }
 
 async function findOrderForNdrAction(req: AuthRequest, awb: string) {
-  const baseLookup = { $or: [{ awb }, { trackingId: awb }] };
+  const baseLookup = { $or: [{ awb }, { trackingId: awb }, { ekartTrackingId: awb }] };
   if (req.user?.role === "admin") {
     return Order.findOne(baseLookup);
   }
@@ -1254,8 +1261,22 @@ export const submitNdrAction = asyncHandler(async (req: AuthRequest, res: Respon
   const order = await findOrderForNdrAction(req, awb);
   if (req.user.role !== "admin" && !order) throw new AppError(403, "Forbidden");
 
-  const providerId = resolveNdrProviderId(order?.courierProvider ?? ndr.courierProvider);
-  const courier = getCourierProvider(providerId);
+  let providerId = resolveNdrProviderId(order?.courierProvider ?? ndr.courierProvider, {
+    awb,
+    carrier: ndr.carrier,
+    courierName: order?.courierName,
+  });
+  let courier;
+  try {
+    courier = getCourierProvider(providerId);
+  } catch (err) {
+    if (providerId !== "ekart" && looksLikeEkartAwb(awb)) {
+      providerId = "ekart";
+      courier = getCourierProvider("ekart");
+    } else {
+      throw err;
+    }
+  }
   if (!courier.supportsNDR()) {
     throw new AppError(501, `${courier.displayName} does not support NDR actions`);
   }
@@ -1276,6 +1297,10 @@ export const submitNdrAction = asyncHandler(async (req: AuthRequest, res: Respon
       customerName: ndr.customer || undefined,
     },
   });
+
+  if (!provider.success) {
+    throw new AppError(502, provider.message || `${courier.displayName} NDR action was rejected`);
+  }
 
   const now = new Date();
   const providerMessage =
