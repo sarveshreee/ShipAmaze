@@ -66,7 +66,7 @@ type EkartNdrOrderLike = {
   shippingPincode?: string;
   pincode?: string;
   vendorId?: unknown;
-  pickupAddress?: { label?: string };
+  pickupAddress?: IOrder["pickupAddress"];
   channel?: string;
   shopifyStoreName?: string;
   shipmentStatus?: string;
